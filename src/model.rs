@@ -153,7 +153,7 @@ Avoid destructive commands.
         stream: false,
     };
 
-    let resp = client
+    let raw = client
         .post(&config.endpoint)
         .json(&req)
         .send()
@@ -161,20 +161,62 @@ Avoid destructive commands.
         .text()
         .await?;
 
-    // Try parsing pure JSON array
-    if let Ok(v) = serde_json::from_str::<Vec<String>>(&resp) {
-        return Ok(v);
+    // Handle streaming response (NDJSON)
+    let lines: Vec<&str> = raw.lines().collect();
+    for line in lines.into_iter().rev() {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let Ok(v) = serde_json::from_str::<ChatResponse>(line) {
+            if v.message.role == "assistant" {
+                let content = clean_command_output(&v.message.content);
+                // Try parsing the content as JSON array
+                if let Ok(commands) = serde_json::from_str::<Vec<String>>(&content) {
+                    return Ok(commands);
+                }
+                // Try extracting JSON from markdown
+                if let Some(json) = extract_last_json(&content) {
+                    if let Ok(commands) = serde_json::from_str::<Vec<String>>(json) {
+                        return Ok(commands);
+                    }
+                }
+            }
+        }
     }
 
-    // Try extract JSON array from noisy output
-    if let Some(json) = extract_last_json(&resp) {
-        if let Ok(v) = serde_json::from_str::<Vec<String>>(json) {
-            return Ok(v);
+    // JSON parse first (non-streaming)
+    if let Ok(v) = serde_json::from_str::<ChatResponse>(&raw) {
+        let content = clean_command_output(&v.message.content);
+        if let Ok(commands) = serde_json::from_str::<Vec<String>>(&content) {
+            return Ok(commands);
+        }
+        // Try extracting JSON from markdown
+        if let Some(json) = extract_last_json(&content) {
+            if let Ok(commands) = serde_json::from_str::<Vec<String>>(json) {
+                return Ok(commands);
+            }
+        }
+    }
+
+    // Try to extract JSON inside noisy output
+    if let Some(json) = extract_last_json(&raw) {
+        if let Ok(v) = serde_json::from_str::<ChatResponse>(json) {
+            let content = clean_command_output(&v.message.content);
+            if let Ok(commands) = serde_json::from_str::<Vec<String>>(&content) {
+                return Ok(commands);
+            }
+            // Try extracting JSON from markdown in content
+            if let Some(inner_json) = extract_last_json(&content) {
+                if let Ok(commands) = serde_json::from_str::<Vec<String>>(inner_json) {
+                    return Ok(commands);
+                }
+            }
         }
     }
 
     // Fallback — split lines
-    Ok(resp
+    Ok(raw
         .lines()
         .filter(|l| !l.trim().is_empty())
         .map(|l| l.trim().to_string())
