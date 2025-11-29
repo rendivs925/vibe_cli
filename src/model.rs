@@ -57,6 +57,61 @@ fn clean_command_output(raw: &str) -> String {
     trimmed.to_string()
 }
 
+/// Clean JSON content by removing comments and invalid parts
+fn clean_json_content(content: &str) -> String {
+    let mut result = String::new();
+    let mut in_string = false;
+    let mut escape_next = false;
+    let mut comment_start = false;
+
+    for (i, ch) in content.chars().enumerate() {
+        if escape_next {
+            result.push(ch);
+            escape_next = false;
+            continue;
+        }
+
+        match ch {
+            '"' => {
+                if !comment_start {
+                    in_string = !in_string;
+                    result.push(ch);
+                }
+            }
+            '\\' => {
+                if in_string {
+                    escape_next = true;
+                }
+                result.push(ch);
+            }
+            '/' => {
+                if !in_string && i + 1 < content.len() && content.chars().nth(i + 1) == Some('/') {
+                    // Start of comment
+                    comment_start = true;
+                    // Skip until end of line
+                    continue;
+                } else if !comment_start {
+                    result.push(ch);
+                }
+            }
+            '\n' | '\r' => {
+                if comment_start {
+                    comment_start = false;
+                } else {
+                    result.push(ch);
+                }
+            }
+            _ => {
+                if !comment_start {
+                    result.push(ch);
+                }
+            }
+        }
+    }
+
+    result.trim().to_string()
+}
+
 /// Request a SINGLE command from Ollama
 pub async fn request_command(config: &Config, messages: &[Message]) -> Result<String> {
     let client = reqwest::Client::new();
@@ -188,9 +243,18 @@ Avoid destructive commands.
     // JSON parse first (non-streaming)
     if let Ok(v) = serde_json::from_str::<ChatResponse>(&raw) {
         let content = clean_command_output(&v.message.content);
+
+        // Try parsing the content as JSON array
         if let Ok(commands) = serde_json::from_str::<Vec<String>>(&content) {
             return Ok(commands);
+        } else {
+            // Try to clean the JSON by removing comments and invalid parts
+            let cleaned_json = clean_json_content(&content);
+            if let Ok(commands) = serde_json::from_str::<Vec<String>>(&cleaned_json) {
+                return Ok(commands);
+            }
         }
+
         // Try extracting JSON from markdown
         if let Some(json) = extract_last_json(&content) {
             if let Ok(commands) = serde_json::from_str::<Vec<String>>(json) {
