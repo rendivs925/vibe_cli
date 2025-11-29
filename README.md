@@ -11,8 +11,26 @@ Features:
 - Optional agent mode: multi-step plans (each step previewed and confirmed).
 - Optional script mode: generate a Bash script file from a description.
 - Optional clipboard copy of the suggested command.
-- Simple JSON cache for repeated prompts.
+- Intelligent caching with automatic invalidation and semantic matching.
 - Designed for use with zsh / bash and local Ollama.
+
+## Caching
+
+The assistant uses intelligent caching to improve performance and reduce API calls:
+
+- **Automatic Invalidation**: Cache entries expire after 7 days
+- **Semantic Matching**: Understands similar requests even with different wording (e.g., "show disk space" matches "check free space")
+- **Manual Clearing**: Use `--retrain` to clear cache and start fresh
+- **Cache Location**: Stored at `~/.config/qwen_cli_assistant/cache.json`
+
+Cache commands:
+```bash
+# Clear cache and retrain
+qwen-cli --retrain
+
+# View cached commands
+cat ~/.config/qwen_cli_assistant/cache.json
+```
 
 ## Requirements
 
@@ -69,6 +87,13 @@ Script generation:
 
 ```bash
 qwen-cli --script -o clean_project.sh "remove target folders and temporary files safely"
+```
+
+Cache management:
+
+```bash
+# Clear cache and start fresh
+qwen-cli --retrain "find large files in current directory"
 ```
 
 Safe vs unsafe:
