@@ -13,11 +13,40 @@ pub struct ChatSession {
 
 impl ChatSession {
     pub fn new(safe_mode: bool) -> Self {
-        let system_prompt = if safe_mode {
-            "You are an ultra-safe CLI assistant.              Convert natural language requests into POSIX shell commands.              Avoid destructive operations, never format disks, and avoid sudo.              When in doubt, prefer read-only commands and conservative actions."
+        let cwd = std::env::current_dir()
+            .map(|p| p.display().to_string())
+            .unwrap_or_else(|_| "/home/user".to_string());
+        let platform = if cfg!(target_os = "linux") {
+            "linux"
+        } else if cfg!(target_os = "macos") {
+            "macos"
+        } else if cfg!(target_os = "windows") {
+            "windows"
         } else {
-            "You are a CLI assistant that converts natural language requests into POSIX shell commands.              The user will review all commands before running."
+            "unknown"
         };
+
+        let env_context = format!(
+            "Environment: Current working directory is '{}', running on {} platform.",
+            cwd, platform
+        );
+
+        let base_instructions = "Convert natural language requests into POSIX shell commands. \
+                               Use actual paths, not placeholders like '/path/to/'. \
+                               Commands should work in the current environment. \
+                               Prefer robust commands that handle errors gracefully.";
+
+        let safety_note = if safe_mode {
+            "Avoid destructive operations, never format disks, and avoid sudo. \
+             When in doubt, prefer read-only commands and conservative actions."
+        } else {
+            "The user will review all commands before running."
+        };
+
+        let system_prompt = format!(
+            "You are a CLI assistant. {}\n\n{}\n\n{}",
+            env_context, base_instructions, safety_note
+        );
 
         let messages = vec![Message {
             role: "system".to_string(),

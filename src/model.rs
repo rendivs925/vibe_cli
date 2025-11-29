@@ -46,12 +46,21 @@ fn extract_last_json(raw: &str) -> Option<&str> {
 pub async fn request_command(config: &Config, messages: &[Message]) -> Result<String> {
     let client = reqwest::Client::new();
 
+    let cwd = std::env::current_dir()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| "/home/user".to_string());
+
     let mut adjusted = messages.to_vec();
     adjusted.push(Message {
         role: "user".into(),
-        content: "Convert the user's last request into ONE POSIX shell command. \
-                  Output ONLY the command, no markdown, no explanation."
-            .into(),
+        content: format!(
+            "Convert the user's last request into ONE POSIX shell command. \
+             Current working directory: {}. \
+             Use actual paths and commands that will work in this environment. \
+             Avoid placeholders like '/path/to/' - use real paths or relative paths. \
+             Output ONLY the command, no markdown, no explanation.",
+            cwd
+        ),
     });
 
     let req = ChatRequest {
