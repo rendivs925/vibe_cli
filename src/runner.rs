@@ -8,7 +8,7 @@ use std::process::Command;
 
 pub fn offer_cached(cached: &str) -> Result<bool> {
     println!(
-        "\n{} {}",
+        "{} {}",
         "Cached command found for this prompt:".green().bold(),
         cached.yellow()
     );
@@ -20,7 +20,7 @@ pub fn offer_cached(cached: &str) -> Result<bool> {
 }
 
 pub fn confirm_and_run(cmd: &str, config: &Config) -> Result<()> {
-    println!("\n{} {}", "Suggested command:".green().bold(), cmd.yellow());
+    println!("{} {}", "Suggested command:".green().bold(), cmd.yellow());
 
     if config.copy_to_clipboard {
         if let Err(err) = clipboard::copy_to_clipboard(cmd) {
