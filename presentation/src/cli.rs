@@ -226,8 +226,7 @@ fn parse_agent_plan(raw: &str) -> Vec<String> {
                     line = line[pos + 1..].trim();
                 }
             }
-            let mut cleaned = line.trim_matches(',').trim().trim_matches('"').to_string();
-            cleaned
+            line.trim_matches(',').trim().trim_matches('"').to_string()
         })
         .filter(|l| !l.is_empty())
         .collect()
@@ -291,7 +290,6 @@ pub struct Cli {
 pub struct CliApp {
     rag_service: Option<RagService>,
     cache_path: PathBuf,
-    system_info_path: PathBuf,
     system_info: String,
 }
 
@@ -303,7 +301,6 @@ impl CliApp {
         Self {
             rag_service: None,
             cache_path,
-            system_info_path,
             system_info,
         }
     }
@@ -680,7 +677,12 @@ User request: {}",
         if self.rag_service.is_none() {
             let client = OllamaClient::new()?;
             self.rag_service = Some(RagService::new(".", "embeddings.db", client)?);
-            self.rag_service.as_ref().unwrap().build_index().await?;
+            let keywords = Self::keywords_from_text(question);
+            self.rag_service
+                .as_ref()
+                .unwrap()
+                .build_index_for_keywords(&keywords)
+                .await?;
         }
         let response = self.rag_service.as_ref().unwrap().query(question).await?;
         println!("{}", response);
@@ -761,5 +763,13 @@ User request: {}",
             println!("{}", "Command execution cancelled.".yellow());
         }
         Ok(())
+    }
+
+    fn keywords_from_text(text: &str) -> Vec<String> {
+        text.split_whitespace()
+            .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()))
+            .filter(|w| w.len() > 2)
+            .map(|w| w.to_lowercase())
+            .collect()
     }
 }

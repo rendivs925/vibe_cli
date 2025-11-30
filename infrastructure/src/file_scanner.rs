@@ -35,9 +35,13 @@ impl FileScanner {
 
     pub fn scan_files(&self) -> Result<Vec<FileChunk>> {
         let files = self.collect_files()?;
-        let chunks: Vec<Result<Vec<FileChunk>>> = files
-            .into_par_iter()
-            .map(|path| self.load_and_chunk_file(&path))
+        self.scan_paths(&files)
+    }
+
+    pub fn scan_paths(&self, paths: &[PathBuf]) -> Result<Vec<FileChunk>> {
+        let chunks: Vec<Result<Vec<FileChunk>>> = paths
+            .par_iter()
+            .map(|path| self.load_and_chunk_file(path))
             .collect();
         let mut all_chunks = Vec::new();
         for chunk_result in chunks {
@@ -46,7 +50,7 @@ impl FileScanner {
         Ok(all_chunks)
     }
 
-    fn collect_files(&self) -> Result<Vec<PathBuf>> {
+    pub fn collect_files(&self) -> Result<Vec<PathBuf>> {
         let mut files = Vec::new();
         self.collect_files_recursive(&self.root_path, &mut files)?;
         Ok(files)

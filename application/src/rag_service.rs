@@ -3,6 +3,7 @@ use infrastructure::{
     ollama_client::OllamaClient, search::SearchEngine,
 };
 use shared::types::Result;
+use std::path::PathBuf;
 
 pub struct RagService {
     scanner: FileScanner,
@@ -23,6 +24,36 @@ impl RagService {
 
     pub async fn build_index(&self) -> Result<()> {
         let chunks = self.scanner.scan_files()?;
+        let texts: Vec<&str> = chunks.iter().map(|c| c.text.as_str()).collect();
+        let embeddings = self.embedder.generate_embeddings(&texts).await?;
+        self.storage.insert_embeddings(&embeddings)?;
+        Ok(())
+    }
+
+    pub async fn build_index_for_keywords(&self, keywords: &[String]) -> Result<()> {
+        // Filter files by keyword in path; fallback to full list if nothing matches.
+        let mut files = self.scanner.collect_files()?;
+        let keyword_lower: Vec<String> = keywords.iter().map(|k| k.to_lowercase()).collect();
+        if !keyword_lower.is_empty() {
+            let filtered: Vec<PathBuf> = files
+                .iter()
+                .filter(|p| {
+                    let path_str = p.to_string_lossy().to_lowercase();
+                    keyword_lower.iter().any(|k| path_str.contains(k))
+                })
+                .cloned()
+                .collect();
+            if !filtered.is_empty() {
+                files = filtered;
+            }
+        }
+        // Limit scanned files to reduce latency.
+        const MAX_FILES: usize = 200;
+        if files.len() > MAX_FILES {
+            files.truncate(MAX_FILES);
+        }
+
+        let chunks = self.scanner.scan_paths(&files)?;
         let texts: Vec<&str> = chunks.iter().map(|c| c.text.as_str()).collect();
         let embeddings = self.embedder.generate_embeddings(&texts).await?;
         self.storage.insert_embeddings(&embeddings)?;
