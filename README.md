@@ -80,13 +80,25 @@ sudo mv target/release/qwen_cli_assistant /usr/local/bin/qwen-cli
 
 The CLI accepts natural language queries directly. Use flags for special modes.
 
+### Intelligent Caching
+
+The CLI features intelligent caching with:
+- **TTL Expiration**: Cache entries expire after 7 days
+- **Semantic Similarity**: Matches similar queries using text similarity
+- **Persistent Storage**: Cache stored in `~/.config/qwen_cli_assistant/cli_cache.json`
+- **Automatic Cleanup**: Expired entries are removed on load
+
+Cached commands are offered first with confirmation to reuse.
+
 ### Basic Commands
 
-One-shot command suggestion:
+One-shot command suggestion with intelligent caching:
 ```bash
 qwen-cli find all .rs files larger than 1MB
 qwen-cli check ssh status
 ```
+
+The CLI will check for cached commands first, offering to reuse them, then generate new commands with AI if needed, and cache successful executions.
 
 Interactive chat:
 ```bash
