@@ -236,11 +236,20 @@ pub async fn request_command(config: &Config, messages: &[Message]) -> Result<St
 pub async fn request_agent_plan(config: &Config, user_prompt: &str) -> Result<Vec<String>> {
     let client = reqwest::Client::new();
 
-    let system = r#"Return a JSON array of POSIX shell commands only.
-No text outside JSON.
-No markdown.
-Avoid destructive commands.
- "#;
+    let system = r#"You are an AI assistant that generates plans as JSON arrays of POSIX shell commands.
+
+IMPORTANT: Your response must be ONLY a valid JSON array of strings. Each string is one POSIX shell command.
+Do not include any text before or after the JSON array.
+Do not include markdown code blocks.
+Do not include explanations or comments.
+Do not generate code in other languages.
+Avoid destructive commands that modify the system.
+
+Example response format:
+["df -h", "free -h", "top -b -n1 | head -20"]
+
+Generate the plan based on the user's request.
+  "#;
 
     let msgs = vec![
         Message {
