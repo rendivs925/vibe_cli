@@ -2,6 +2,7 @@ use clap::{Parser, Subcommand};
 use application::rag_service::RagService;
 use infrastructure::ollama_client::OllamaClient;
 use shared::types::Result;
+use docx_rs::*;
 
 #[derive(Parser)]
 #[command(name = "qwen-cli")]
@@ -80,9 +81,42 @@ impl CliApp {
                     }
                 }
                 "docx" => {
-                    println!("DOCX support not yet implemented. Please convert to PDF or text format.");
-                    return Ok(());
+                    match std::fs::read(file) {
+                        Ok(bytes) => {
+                            match read_docx(&bytes) {
+                                Ok(docx) => {
+                                    let mut text = String::new();
+                                    for child in &docx.document.children {
+                                        match child {
+                                            DocumentChild::Paragraph(p) => {
+                                                text.push_str(&p.raw_text());
+                                                text.push('\n');
+                                            }
+                                            DocumentChild::Table(_t) => {
+                                                // For tables, we could extract text from cells
+                                                // For now, just add a placeholder
+                                                text.push_str("[Table content not extracted]\n");
+                                            }
+                                            _ => {
+                                                // Skip other elements for now
+                                            }
+                                        }
+                                    }
+                                    text
+                                }
+                                Err(e) => {
+                                    println!("Error parsing DOCX '{}': {}", file, e);
+                                    return Ok(());
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            println!("Error reading DOCX file '{}': {}", file, e);
+                            return Ok(());
+                        }
+                    }
                 }
+
                 _ => {
                     match std::fs::read_to_string(file) {
                         Ok(text) => text,
