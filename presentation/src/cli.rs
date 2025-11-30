@@ -1,4 +1,5 @@
 use clap::Parser;
+use std::collections::HashMap;
 use application::rag_service::RagService;
 use infrastructure::ollama_client::OllamaClient;
 use shared::types::Result;
@@ -39,13 +40,48 @@ pub struct Cli {
 
 
 
+fn extract_command_from_response(response: &str) -> String {
+    let response = response.trim();
+    if response.starts_with("```bash") && response.ends_with("```") {
+        let start = response.find('\n').unwrap_or(0) + 1;
+        let end = response.len() - 3;
+        response[start..end].trim().to_string()
+    } else if response.starts_with("```") && response.ends_with("```") {
+        let start = response.find('\n').unwrap_or(0) + 1;
+        let end = response.len() - 3;
+        response[start..end].trim().to_string()
+    } else {
+        response.to_string()
+    }
+}
+
 pub struct CliApp {
     rag_service: Option<RagService>,
+    cache: HashMap<String, String>,
+    cache_file: String,
 }
 
 impl CliApp {
     pub fn new() -> Self {
-        Self { rag_service: None }
+        let cache_file = "cli_cache.txt".to_string();
+        let cache = Self::load_cache(&cache_file);
+        Self { rag_service: None, cache, cache_file }
+    }
+
+    fn load_cache(cache_file: &str) -> HashMap<String, String> {
+        if let Ok(content) = std::fs::read_to_string(cache_file) {
+            content.lines().filter_map(|line| {
+                let mut parts = line.split('\t');
+                Some((parts.next()?.to_string(), parts.next()?.to_string()))
+            }).collect()
+        } else {
+            HashMap::new()
+        }
+    }
+
+    fn save_cache(&self) {
+        let content = self.cache.iter().map(|(k, v)| format!("{}\t{}", k, v)).collect::<Vec<_>>().join("\n");
+        let _ = std::fs::write(&self.cache_file, content);
     }
 
     pub async fn run(&mut self, cli: Cli) -> Result<()> {
@@ -203,20 +239,50 @@ impl CliApp {
         self.handle_context(".").await
     }
 
-    async fn handle_query(&self, query: &str) -> Result<()> {
+    async fn handle_query(&mut self, query: &str) -> Result<()> {
+        if let Some(cached_command) = self.cache.get(query) {
+            println!("Cached command: {}", cached_command);
+            if dialoguer::Confirm::new()
+                .with_prompt("Use cached command?")
+                .default(true)
+                .interact()?
+            {
+                let output = std::process::Command::new("bash")
+                    .arg("-c")
+                    .arg(cached_command)
+                    .output()?;
+                if output.status.success() {
+                    println!("{}", String::from_utf8_lossy(&output.stdout));
+                } else {
+                    println!("Command failed: {}", String::from_utf8_lossy(&output.stderr));
+                }
+                return Ok(());
+            }
+        }
+
         let client = infrastructure::ollama_client::OllamaClient::new()?;
         let prompt = format!("Generate a bash command to: {}. Respond with only the command, no explanation.", query);
-        let command = client.generate_response(&prompt).await?;
-        let command = command.trim();
-        println!("Running: {}", command);
-        let output = std::process::Command::new("bash")
-            .arg("-c")
-            .arg(command)
-            .output()?;
-        if output.status.success() {
-            println!("{}", String::from_utf8_lossy(&output.stdout));
+        let response = client.generate_response(&prompt).await?;
+        let command = extract_command_from_response(&response);
+        println!("Suggested command: {}", command);
+        if dialoguer::Confirm::new()
+            .with_prompt("Execute this command?")
+            .default(false)
+            .interact()?
+        {
+            let output = std::process::Command::new("bash")
+                .arg("-c")
+                .arg(&command)
+                .output()?;
+            if output.status.success() {
+                println!("{}", String::from_utf8_lossy(&output.stdout));
+                self.cache.insert(query.to_string(), command.clone());
+                self.save_cache();
+            } else {
+                println!("Command failed: {}", String::from_utf8_lossy(&output.stderr));
+            }
         } else {
-            println!("Command failed: {}", String::from_utf8_lossy(&output.stderr));
+            println!("Command execution cancelled.");
         }
         Ok(())
     }
