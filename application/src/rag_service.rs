@@ -30,8 +30,8 @@ impl RagService {
     pub async fn build_index_for_keywords(&self, keywords: &[String]) -> Result<()> {
         // Filter files by keyword in path; fallback to full list if nothing matches.
         let mut files = self.scanner.collect_files()?;
-        let keyword_lower: Vec<String> = keywords.iter().map(|k| k.to_lowercase()).collect();
-        if !keyword_lower.is_empty() {
+        if !keywords.is_empty() {
+            let keyword_lower: Vec<String> = keywords.iter().map(|k| k.to_lowercase()).collect();
             let filtered: Vec<PathBuf> = files
                 .iter()
                 .filter(|p| {

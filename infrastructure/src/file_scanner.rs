@@ -2,12 +2,13 @@ use memmap2::Mmap;
 use rayon::prelude::*;
 use shared::types::Result;
 use shared::utils::is_supported_file;
+use std::collections::HashSet;
 use std::fs::File;
 use std::path::{Path, PathBuf};
 
 pub struct FileScanner {
     root_path: PathBuf,
-    ignored_dirs: Vec<String>,
+    ignored_dirs: HashSet<String>,
     max_file_bytes: u64,
 }
 
@@ -15,19 +16,22 @@ impl FileScanner {
     pub fn new(root_path: impl Into<PathBuf>) -> Self {
         Self {
             root_path: root_path.into(),
-            ignored_dirs: vec![
-                ".git".into(),
-                "target".into(),
-                "node_modules".into(),
-                ".next".into(),
-                "dist".into(),
-                "build".into(),
-                ".idea".into(),
-                ".vscode".into(),
-                ".cache".into(),
-                "venv".into(),
-                "__pycache__".into(),
-            ],
+            ignored_dirs: [
+                ".git",
+                "target",
+                "node_modules",
+                ".next",
+                "dist",
+                "build",
+                ".idea",
+                ".vscode",
+                ".cache",
+                "venv",
+                "__pycache__",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
             // Cap per-file scanning to keep indexing responsive; adjust if needed.
             max_file_bytes: 2 * 1024 * 1024,
         }
@@ -39,11 +43,11 @@ impl FileScanner {
     }
 
     pub fn scan_paths(&self, paths: &[PathBuf]) -> Result<Vec<FileChunk>> {
+        let mut all_chunks = Vec::with_capacity(paths.len().saturating_mul(2));
         let chunks: Vec<Result<Vec<FileChunk>>> = paths
             .par_iter()
             .map(|path| self.load_and_chunk_file(path))
             .collect();
-        let mut all_chunks = Vec::new();
         for chunk_result in chunks {
             all_chunks.extend(chunk_result?);
         }
@@ -106,7 +110,7 @@ impl FileScanner {
             let path = entry.path();
             if path.is_dir() {
                 if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    if self.ignored_dirs.iter().any(|i| i == name) {
+                    if self.ignored_dirs.contains(name) {
                         continue;
                     }
                 }
@@ -124,7 +128,7 @@ impl FileScanner {
             let path = entry.path();
             if path.is_dir() {
                 if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                    if self.ignored_dirs.iter().any(|i| i == name) {
+                    if self.ignored_dirs.contains(name) {
                         continue;
                     }
                 }
@@ -156,6 +160,8 @@ impl FileScanner {
         let mut chunks = Vec::new();
         let mut start = 0;
         let path_str = path.to_string_lossy().to_string();
+        let estimated = (text.len() / (CHUNK_SIZE.saturating_sub(OVERLAP)).max(1)) + 2;
+        chunks.reserve(estimated);
 
         while start < text.len() {
             let mut end = (start + CHUNK_SIZE).min(text.len());
