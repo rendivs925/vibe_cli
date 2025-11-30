@@ -12,3 +12,5 @@ colored.workspace = true
 dialoguer.workspace = true
 arboard.workspace = true
 anyhow.workspace = true
+pdf-extract = "0.7"
+docx-rs = "0.4"
