@@ -28,7 +28,7 @@ struct CacheEntry {
 
 fn extract_command_from_response(response: &str) -> String {
     let response = response.trim();
-    if response.starts_with("```bash") && response.ends_with("```") {
+    let cleaned = if response.starts_with("```bash") && response.ends_with("```") {
         let start = response.find('\n').unwrap_or(0) + 1;
         let end = response.len() - 3;
         response[start..end].trim().to_string()
@@ -38,7 +38,9 @@ fn extract_command_from_response(response: &str) -> String {
         response[start..end].trim().to_string()
     } else {
         response.to_string()
-    }
+    };
+    // Remove surrounding backticks, quotes, and extra whitespace
+    cleaned.trim_matches('`').trim_matches('"').trim_matches('\'').trim().to_string()
 }
 
 #[derive(Parser)]
@@ -395,7 +397,7 @@ impl CliApp {
         }
 
         let client = infrastructure::ollama_client::OllamaClient::new()?;
-        let prompt = format!("Generate a bash command to: {}. Respond with only the command, no explanation.", query);
+        let prompt = format!("Generate a bash command to: {}. Respond with only the exact command to run, without any formatting, backticks, quotes, or explanation.", query);
         let response = client.generate_response(&prompt).await?;
         let command = extract_command_from_response(&response);
         println!("{}", format!("Command: {}", command).green());
