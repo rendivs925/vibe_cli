@@ -1,4 +1,4 @@
-# qwen_cli_assistant
+# vibe_cli
 
 Ultra-safe CLI assistant powered by a local Ollama model with Retrieval-Augmented Generation (RAG) capabilities. Built with Domain-Driven Design (DDD) for scalability and performance.
 
@@ -60,20 +60,20 @@ export OLLAMA_MODEL=qwen2.5:7b
 ## Build
 
 ```bash
-cd qwen_cli_assistant
+cd vibe_cli
 cargo build --release
 ```
 
 The binary will be at:
 
 ```bash
-target/release/qwen_cli_assistant
+target/release/vibe_cli
 ```
 
 You can then move or symlink it into your PATH, e.g.:
 
 ```bash
-sudo mv target/release/qwen_cli_assistant /usr/local/bin/qwen-cli
+sudo mv target/release/vibe_cli /usr/local/bin/vibe-cli
 ```
 
 ## Usage
@@ -85,7 +85,7 @@ The CLI accepts natural language queries directly. Use flags for special modes.
 The CLI features intelligent caching with:
 - **TTL Expiration**: Cache entries expire after 7 days
 - **Semantic Similarity**: Matches similar queries using text similarity
-- **Persistent Storage**: Cache stored in `~/.config/qwen_cli_assistant/cli_cache.json`
+- **Persistent Storage**: Cache stored in `~/.config/vibe_cli/cli_cache.json`
 - **Automatic Cleanup**: Expired entries are removed on load
 
 Cached commands are offered first with confirmation to reuse.
@@ -94,29 +94,29 @@ Cached commands are offered first with confirmation to reuse.
 
 One-shot command suggestion with intelligent caching:
 ```bash
-qwen-cli find all .rs files larger than 1MB
-qwen-cli check ssh status
+vibe-cli find all .rs files larger than 1MB
+vibe-cli check ssh status
 ```
 
 The CLI will check for cached commands first, offering to reuse them, then generate new commands with AI if needed, and cache successful executions.
 
 Interactive command execution:
 ```bash
-qwen-cli --chat
+vibe-cli --chat
 ```
 
 ### Agent and Explanation
 
 Multi-step agent:
 ```bash
-qwen-cli --agent "collect system health info: disk usage, top cpu processes, memory hogs"
+vibe-cli --agent "collect system health info: disk usage, top cpu processes, memory hogs"
 ```
 
 Explain a file:
 ```bash
-qwen-cli --explain src/main.rs
-qwen-cli --explain document.pdf  # Supports PDF text extraction
-qwen-cli --explain file.docx     # Supports DOCX text extraction
+vibe-cli --explain src/main.rs
+vibe-cli --explain document.pdf  # Supports PDF text extraction
+vibe-cli --explain file.docx     # Supports DOCX text extraction
 ```
 
 Supported file types: Rust (.rs), Markdown (.md), text files, PDFs, DOCX. Binary files are detected and rejected with a helpful message.
@@ -125,17 +125,17 @@ Supported file types: Rust (.rs), Markdown (.md), text files, PDFs, DOCX. Binary
 
 Query with codebase context:
 ```bash
-qwen-cli --rag "how does the session management work?"
+vibe-cli --rag "how does the session management work?"
 ```
 
 Load specific context:
 ```bash
-qwen-cli --context ./docs/
+vibe-cli --context ./docs/
 ```
 
 Leptos documentation mode:
 ```bash
-qwen-cli --leptos-mode
+vibe-cli --leptos-mode
 ```
 
 
@@ -183,12 +183,12 @@ cargo clippy -- -D unwrap_used -D panic -W expect_used
 
 Add to `.zshrc`:
 ```zsh
-qwen_cli_widget() {
-  BUFFER="qwen-cli --chat"
+vibe_cli_widget() {
+  BUFFER="vibe-cli --chat"
   zle accept-line
 }
-zle -N qwen_cli_widget
-bindkey '^G' qwen_cli_widget
+zle -N vibe_cli_widget
+bindkey '^G' vibe_cli_widget
 ```
 
 Press `Ctrl-G` to start interactive session.
