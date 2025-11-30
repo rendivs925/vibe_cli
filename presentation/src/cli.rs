@@ -387,9 +387,8 @@ impl CliApp {
                     .arg("-c")
                     .arg(&cached_command)
                     .output()?;
-                if output.status.success() {
-                    println!("{}", String::from_utf8_lossy(&output.stdout));
-                } else {
+                println!("{}", String::from_utf8_lossy(&output.stdout));
+                if !output.status.success() {
                     println!("{}", format!("Command failed: {}", String::from_utf8_lossy(&output.stderr)).red());
                 }
                 return Ok(());
@@ -411,11 +410,11 @@ impl CliApp {
                 .arg("-c")
                 .arg(&command)
                 .output()?;
-            if output.status.success() {
-                println!("{}", String::from_utf8_lossy(&output.stdout));
-                let _ = self.save_cached(query, &command);
-            } else {
+            println!("{}", String::from_utf8_lossy(&output.stdout));
+            if !output.status.success() {
                 println!("{}", format!("Command failed: {}", String::from_utf8_lossy(&output.stderr)).red());
+            } else {
+                let _ = self.save_cached(query, &command);
             }
         } else {
             println!("{}", "Command execution cancelled.".yellow());
