@@ -8,6 +8,48 @@ use infrastructure::ollama_client::OllamaClient;
 use docx_rs::*;
 use colored::Colorize;
 
+fn detect_system_info() -> String {
+    let mut info = Vec::new();
+
+    // Detect OS
+    if let Ok(os) = std::fs::read_to_string("/etc/os-release") {
+        for line in os.lines() {
+            if line.starts_with("ID=") {
+                info.push(format!("Distro: {}", line.trim_start_matches("ID=").trim_matches('"')));
+            } else if line.starts_with("VERSION_ID=") {
+                info.push(format!("Version: {}", line.trim_start_matches("VERSION_ID=").trim_matches('"')));
+            }
+        }
+    } else if let Ok(os) = std::process::Command::new("uname").arg("-s").output() {
+        info.push(format!("OS: {}", String::from_utf8_lossy(&os.stdout).trim()));
+    }
+
+    // Detect init system
+    if std::path::Path::new("/run/systemd/system").exists() {
+        info.push("Init system: systemd".to_string());
+    } else if std::path::Path::new("/etc/init.d").exists() {
+        info.push("Init system: init.d".to_string());
+    }
+
+    // Detect package manager
+    if std::process::Command::new("which").arg("apt").output().is_ok() {
+        info.push("Package manager: apt".to_string());
+    } else if std::process::Command::new("which").arg("yum").output().is_ok() {
+        info.push("Package manager: yum".to_string());
+    } else if std::process::Command::new("which").arg("dnf").output().is_ok() {
+        info.push("Package manager: dnf".to_string());
+    } else if std::process::Command::new("which").arg("pacman").output().is_ok() {
+        info.push("Package manager: pacman".to_string());
+    }
+
+    // Kernel version
+    if let Ok(kernel) = std::process::Command::new("uname").arg("-r").output() {
+        info.push(format!("Kernel: {}", String::from_utf8_lossy(&kernel.stdout).trim()));
+    }
+
+    info.join(", ")
+}
+
 // Cache entries expire after 7 days (604800 seconds)
 const CACHE_TTL_SECONDS: u64 = 604800;
 
@@ -396,7 +438,8 @@ impl CliApp {
         }
 
         let client = infrastructure::ollama_client::OllamaClient::new()?;
-        let prompt = format!("Generate a bash command to: {}. Respond with only the exact command to run, without any formatting, backticks, quotes, or explanation.", query);
+        let system_info = detect_system_info();
+        let prompt = format!("You are on a system with: {}. Generate a bash command to: {}. Respond with only the exact command to run, without any formatting, backticks, quotes, or explanation.", system_info, query);
         let response = client.generate_response(&prompt).await?;
         let command = extract_command_from_response(&response);
         println!("{}", format!("Command: {}", command).green());
