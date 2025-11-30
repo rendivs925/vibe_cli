@@ -1,6 +1,6 @@
 use crate::config::Config;
 use crate::model::request_agent_plan;
-use crate::runner::confirm_and_run;
+use crate::runner::confirm_and_run_multi_step;
 use anyhow::Result;
 use colored::*;
 
@@ -33,7 +33,7 @@ pub async fn run_agent_mode(config: &Config, prompt_text: &str) -> Result<()> {
             "Step".green().bold(),
             format!("{}:", i + 1).green().bold()
         );
-        confirm_and_run(cmd, config)?;
+        confirm_and_run_multi_step(cmd, config)?;
     }
 
     Ok(())

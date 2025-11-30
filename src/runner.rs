@@ -214,3 +214,83 @@ pub fn confirm_and_run(cmd: &str, config: &Config) -> Result<()> {
 
     Ok(())
 }
+
+pub fn confirm_and_run_multi_step(cmd: &str, config: &Config) -> Result<()> {
+    println!("{} {}", "Suggested command:".green().bold(), cmd.yellow());
+
+    let accept = Confirm::new()
+        .with_prompt("Accept this command?")
+        .default(true)
+        .interact()?;
+
+    if !accept {
+        println!("{}", "Command rejected. Skipping this step.".yellow());
+        return Ok(());
+    }
+
+    // Validate command syntax before proceeding
+    if let Err(validation_error) = validate_command_syntax(cmd) {
+        println!(
+            "{} {}",
+            "Command validation failed:".red().bold(),
+            validation_error.to_string().red()
+        );
+        println!("{}", "This command appears to have syntax errors and will not be executed.".red());
+        return Ok(());
+    }
+
+    if config.copy_to_clipboard {
+        if let Err(err) = clipboard::copy_to_clipboard(cmd) {
+            eprintln!("{} {}", "Clipboard copy failed:".red(), err);
+        } else {
+            println!("{}", "Copied to clipboard.".green());
+        }
+    }
+
+    let assessment = assess_command(cmd, config.safe_mode);
+
+    if assessment.blocked {
+        print_assessment(&assessment);
+        println!(
+            "\n{}",
+            "Command has been blocked in ultra-safe mode. It will not be executed.".red()
+        );
+        return Ok(());
+    }
+
+    print_assessment(&assessment);
+
+    // If there are warnings, require an extra typed confirmation.
+    if !assessment.warnings.is_empty() {
+        let proceed = require_additional_confirmation(&assessment)?;
+        if !proceed {
+            return Ok(());
+        }
+    }
+
+    let proceed = Confirm::new()
+        .with_prompt("Run this command?")
+        .default(false)
+        .interact()?;
+
+    if !proceed {
+        println!("{}", "Cancelled by user.".red());
+        return Ok(());
+    }
+
+    println!("{}", "Running command...\n".cyan());
+
+    let status = Command::new("sh").arg("-c").arg(cmd).status()?;
+
+    if status.success() {
+        println!("{}", "Command completed successfully.".green());
+    } else {
+        println!(
+            "{} (exit status: {:?})",
+            "Command failed.".red(),
+            status.code()
+        );
+    }
+
+    Ok(())
+}
