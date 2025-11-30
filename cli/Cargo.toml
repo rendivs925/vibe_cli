@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [[bin]]
-name = "qwen_cli_assistant"
+name = "vibe_cli"
 path = "src/main.rs"
 
 [dependencies]

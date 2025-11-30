@@ -119,8 +119,8 @@ fn extract_command_from_response(response: &str) -> String {
 }
 
 #[derive(Parser)]
-#[command(name = "qwen-cli")]
-#[command(about = "Qwen CLI assistant with RAG capabilities")]
+#[command(name = "vibe-cli")]
+#[command(about = "Vibe CLI assistant with RAG capabilities")]
 pub struct Cli {
     /// Enter interactive chat mode
     #[arg(long)]
@@ -169,7 +169,7 @@ impl CliApp {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
         let mut path = PathBuf::from(home);
         path.push(".config");
-        path.push("qwen_cli_assistant");
+        path.push("vibe_cli");
         path.push("cli_cache.json");
         path
     }
