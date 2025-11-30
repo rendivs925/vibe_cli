@@ -291,7 +291,7 @@ impl CliApp {
         println!("Command execution mode. Type 'exit' to quit.");
         loop {
             let input: String = Input::with_theme(&ColorfulTheme::default())
-                .with_prompt("Query")
+                .with_prompt("Query:")
                 .interact_text()?;
             if input.to_lowercase() == "exit" {
                 break;
