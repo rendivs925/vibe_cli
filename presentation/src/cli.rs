@@ -1,6 +1,7 @@
 use application::rag_service::RagService;
 use clap::Parser;
 use colored::Colorize;
+use dialoguer::Confirm;
 use docx_rs::*;
 use infrastructure::ollama_client::OllamaClient;
 use serde::{Deserialize, Serialize};
@@ -94,6 +95,139 @@ struct CacheEntry {
     prompt: String,
     command: String,
     timestamp: u64,
+}
+
+/// Remove markdown code fences/backticks and surrounding quotes
+fn clean_command_output(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.starts_with("```") && trimmed.ends_with("```") {
+        let lines: Vec<&str> = trimmed.lines().collect();
+        if lines.len() >= 3 && lines.last().unwrap().trim() == "```" {
+            return lines[1..lines.len() - 1].join("\n").trim().to_string();
+        }
+    }
+    trimmed
+        .trim_matches('`')
+        .trim_matches('"')
+        .trim_matches('\'')
+        .trim()
+        .to_string()
+}
+
+/// Extract last JSON object/array from text
+fn extract_last_json(raw: &str) -> Option<&str> {
+    let trimmed = raw.trim();
+    if trimmed.starts_with('{') && trimmed.ends_with('}')
+        || trimmed.starts_with('[') && trimmed.ends_with(']')
+    {
+        return Some(trimmed);
+    }
+    let bytes = trimmed.as_bytes();
+    let mut depth = 0;
+    let mut start = None;
+    for (i, &b) in bytes.iter().enumerate() {
+        if b == b'{' || b == b'[' {
+            if depth == 0 {
+                start = Some(i);
+            }
+            depth += 1;
+        } else if b == b'}' || b == b']' {
+            depth -= 1;
+            if depth == 0 {
+                if let Some(s) = start {
+                    return Some(&trimmed[s..=i]);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Extract JSON array from possibly noisy text
+fn extract_json_array(text: &str) -> Option<&str> {
+    let bytes = text.as_bytes();
+    let mut depth = 0;
+    let mut start = None;
+    let mut in_string = false;
+    let mut escape_next = false;
+
+    for (i, &b) in bytes.iter().enumerate() {
+        if escape_next {
+            escape_next = false;
+            continue;
+        }
+
+        match b {
+            b'"' => in_string = !in_string,
+            b'\\' => {
+                if in_string {
+                    escape_next = true;
+                }
+            }
+            b'[' => {
+                if !in_string && depth == 0 {
+                    start = Some(i);
+                }
+                if !in_string {
+                    depth += 1;
+                }
+            }
+            b']' => {
+                if !in_string {
+                    depth -= 1;
+                    if depth == 0 {
+                        if let Some(s) = start {
+                            return Some(&text[s..=i]);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+/// Parse agent response into a list of commands
+fn parse_agent_plan(raw: &str) -> Vec<String> {
+    // Try plain parse
+    if let Ok(cmds) = serde_json::from_str::<Vec<String>>(raw) {
+        return cmds;
+    }
+    // Clean and try again
+    let cleaned = clean_command_output(raw);
+    if let Ok(cmds) = serde_json::from_str::<Vec<String>>(&cleaned) {
+        return cmds;
+    }
+    // Try to pull array from noisy text
+    if let Some(arr) = extract_json_array(raw) {
+        if let Ok(cmds) = serde_json::from_str::<Vec<String>>(arr) {
+            return cmds;
+        }
+    }
+    if let Some(json) = extract_last_json(raw) {
+        if let Ok(cmds) = serde_json::from_str::<Vec<String>>(json) {
+            return cmds;
+        }
+    }
+    // Fallback: split non-empty lines, stripping common list markers (e.g., "1) cmd", "- cmd")
+    raw.lines()
+        .map(|l| l.trim())
+        .filter(|l| !l.is_empty())
+        .map(|l| {
+            let mut line = l
+                .trim_start_matches(|c| c == '-' || c == '*' || c == '•')
+                .trim();
+            if let Some(pos) = line.find(|c: char| c == ')' || c == '.' || c == ':') {
+                // Only strip early numbering markers
+                if pos < 4 {
+                    line = line[pos + 1..].trim();
+                }
+            }
+            line.to_string()
+        })
+        .filter(|l| !l.is_empty())
+        .collect()
 }
 
 fn extract_command_from_response(response: &str) -> String {
@@ -335,9 +469,9 @@ impl CliApp {
                 break;
             }
             // Use the same logic as handle_query
-        let client = infrastructure::ollama_client::OllamaClient::new()?;
-        let system_info = detect_system_info();
-        let prompt = format!("You are on a system with: {}. Generate a bash command to: {}. Respond with only the exact command to run, without any formatting, backticks, quotes, or explanation. Ensure the command is complete, syntactically correct, and uses standard Unix tools. For size comparisons, use appropriate units like -BG for gigabytes in df.", system_info, input);
+            let client = infrastructure::ollama_client::OllamaClient::new()?;
+            let system_info = detect_system_info();
+            let prompt = format!("You are on a system with: {}. Generate a bash command to: {}. Respond with only the exact command to run, without any formatting, backticks, quotes, or explanation. Ensure the command is complete, syntactically correct, and uses standard Unix tools. For size comparisons, use appropriate units like -BG for gigabytes in df.", system_info, input);
             let response = client.generate_response(&prompt).await?;
             let command = extract_command_from_response(&response);
             println!("{}", format!("Command: {}", command).green());
@@ -370,9 +504,64 @@ impl CliApp {
 
     async fn handle_agent(&self, task: &str) -> Result<()> {
         let client = infrastructure::ollama_client::OllamaClient::new()?;
-        let prompt = format!("Plan and execute this multi-step task: {}", task);
+        let system_info = detect_system_info();
+        let prompt = format!(
+            "You are an assistant that turns a user's goal into a sequence of POSIX shell commands that can be run one-by-one with confirmation in between.\n\
+Environment: {}.\n\
+Constraints:\n\
+- Respond ONLY with a JSON array of strings. Each element must be a complete shell command ready to run.\n\
+- No prose, no markdown, no comments. If you cannot produce a valid JSON array, respond with [].\n\
+- Prefer Debian/Ubuntu defaults (apt/apt-get, systemctl) unless otherwise implied.\n\
+- Use real paths; avoid placeholders like /path/to.\n\
+- Keep commands minimal and idempotent (check state before changing it).\n\n\
+User request: {}",
+            system_info, task
+        );
         let response = client.generate_response(&prompt).await?;
-        println!("{}", response);
+        let commands = parse_agent_plan(&response);
+
+        if commands.is_empty() {
+            println!(
+                "{}",
+                "Model did not return a runnable command list (expected JSON array).".red()
+            );
+            return Ok(());
+        }
+
+        println!("\n{}", "Proposed plan:".green());
+        for (i, cmd) in commands.iter().enumerate() {
+            println!("  {} {}", format!("[{}]", i + 1).blue(), cmd);
+        }
+
+        for (i, cmd) in commands.iter().enumerate() {
+            println!(
+                "\n{} {}",
+                "Step".green().bold(),
+                format!("{}:", i + 1).green().bold()
+            );
+            println!("{} {}", "Suggested command:".green(), cmd.yellow());
+            let accept = Confirm::new()
+                .with_prompt("Run this command?")
+                .default(false)
+                .interact()?;
+            if !accept {
+                println!("{}", "Skipping this step.".yellow());
+                continue;
+            }
+            let status = std::process::Command::new("bash")
+                .arg("-c")
+                .arg(cmd)
+                .status()?;
+            if status.success() {
+                println!("{}", "Command completed successfully.".green());
+            } else {
+                println!(
+                    "{} (exit status: {:?})",
+                    "Command failed.".red(),
+                    status.code()
+                );
+            }
+        }
         Ok(())
     }
 
@@ -541,4 +730,3 @@ impl CliApp {
         Ok(())
     }
 }
-

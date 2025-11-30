@@ -1,7 +1,7 @@
-use rusqlite::{Connection, params, Result as SqlResult};
-use std::path::Path;
 use domain::models::Embedding;
+use rusqlite::{params, Connection, Result as SqlResult};
 use shared::types::Result;
+use std::path::Path;
 
 pub struct EmbeddingStorage {
     conn: Connection,
@@ -15,7 +15,8 @@ impl EmbeddingStorage {
     }
 
     fn setup_db(conn: &Connection) -> SqlResult<()> {
-        conn.execute_batch("
+        conn.execute_batch(
+            "
             PRAGMA journal_mode=WAL;
             PRAGMA synchronous=NORMAL;
             PRAGMA cache_size=-64000;
@@ -26,14 +27,16 @@ impl EmbeddingStorage {
                 text TEXT NOT NULL
             );
             CREATE INDEX IF NOT EXISTS idx_embeddings_vector ON embeddings(vector);
-        ")?;
+        ",
+        )?;
         Ok(())
     }
 
     pub fn insert_embeddings(&self, embeddings: &[Embedding]) -> Result<()> {
         let tx = self.conn.unchecked_transaction()?;
         {
-            let mut stmt = tx.prepare("INSERT OR REPLACE INTO embeddings (id, vector, text) VALUES (?, ?, ?)")?;
+            let mut stmt = tx
+                .prepare("INSERT OR REPLACE INTO embeddings (id, vector, text) VALUES (?, ?, ?)")?;
             for embedding in embeddings {
                 let vector_bytes = serde_json::to_vec(&embedding.vector)?;
                 stmt.execute(params![embedding.id, vector_bytes, embedding.text])?;
@@ -44,7 +47,9 @@ impl EmbeddingStorage {
     }
 
     pub fn get_all_embeddings(&self) -> Result<Vec<Embedding>> {
-        let mut stmt = self.conn.prepare("SELECT id, vector, text FROM embeddings")?;
+        let mut stmt = self
+            .conn
+            .prepare("SELECT id, vector, text FROM embeddings")?;
         let mut rows = stmt.query([])?;
         let mut embeddings = Vec::new();
         while let Some(row) = rows.next()? {

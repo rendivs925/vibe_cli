@@ -236,17 +236,36 @@ pub async fn request_command(config: &Config, messages: &[Message]) -> Result<St
 pub async fn request_agent_plan(config: &Config, user_prompt: &str) -> Result<Vec<String>> {
     let client = reqwest::Client::new();
 
-    let system = r#"You are an AI assistant that generates plans as JSON arrays of POSIX shell commands.
+    let cwd = std::env::current_dir()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| "/home/user".to_string());
+    let platform = if cfg!(target_os = "linux") {
+        "linux"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(target_os = "windows") {
+        "windows"
+    } else {
+        "unknown"
+    };
+    let env_context = format!(
+        "Environment context: cwd='{}', platform='{}'. Use paths that work here and avoid placeholders.",
+        cwd, platform
+    );
 
-IMPORTANT: Your response must be ONLY a valid JSON array of strings. Each string is one POSIX shell command.
-Do not include any text before or after the JSON array.
-Do not include markdown code blocks.
-Do not include explanations or comments.
-Do not generate code in other languages.
-Avoid destructive commands that modify the system.
+    let system = r#"You turn a user's goal into an ordered list of POSIX shell commands that can be executed one-by-one with confirmation between each step.
+
+Constraints:
+- Respond with ONLY a JSON array of strings. Each array element is a single shell command ready to run. If you cannot produce a valid JSON array, respond with [].
+- Do not include markdown, prose, or any text outside the JSON array. No comments.
+- Avoid placeholders like /path/to; use real or relative paths based on the current working directory when implied.
+- Prefer non-destructive, idempotent steps that check state before changing it (e.g., `which sshd || sudo apt-get install -y openssh-server`).
+- Target Debian/Ubuntu defaults unless the user specifies otherwise; use apt/apt-get and systemctl where relevant.
+- When the request is high-level, still emit concrete commands (e.g., to view sshd status use `systemctl status ssh`).
+- Keep each command minimal so it can be confirmed interactively.
 
 Example response format:
-["df -h", "free -h", "top -b -n1 | head -20"]
+["sudo apt-get update", "sudo apt-get install -y openssh-server", "sudo systemctl enable --now ssh"]
 
 Generate the plan based on the user's request.
   "#;
@@ -255,6 +274,10 @@ Generate the plan based on the user's request.
         Message {
             role: "system".into(),
             content: system.into(),
+        },
+        Message {
+            role: "user".into(),
+            content: env_context,
         },
         Message {
             role: "user".into(),
@@ -364,12 +387,8 @@ Generate the plan based on the user's request.
         }
     }
 
-    // Fallback — split lines
-    Ok(raw
-        .lines()
-        .filter(|l| !l.trim().is_empty())
-        .map(|l| l.trim().to_string())
-        .collect())
+    // If we couldn't parse a JSON array, return empty so caller can report failure instead of spitting prose.
+    Ok(Vec::new())
 }
 
 /// Request a bash script (one string output)

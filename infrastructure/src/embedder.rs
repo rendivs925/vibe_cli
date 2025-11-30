@@ -1,7 +1,7 @@
-use futures::stream::{self, StreamExt};
-use domain::models::Embedding;
-use shared::types::Result;
 use super::ollama_client::OllamaClient;
+use domain::models::Embedding;
+use futures::stream::{self, StreamExt};
+use shared::types::Result;
 
 pub struct Embedder {
     client: OllamaClient,
@@ -24,17 +24,20 @@ impl Embedder {
     }
 
     async fn generate_batch_embeddings(&self, texts: &[&str]) -> Result<Vec<Embedding>> {
-        let futures: Vec<_> = texts.iter().map(|text| {
-            let client = &self.client;
-            async move {
-                let vector = client.generate_embedding(text).await?;
-                Ok(Embedding {
-                    id: format!("{:x}", md5::compute(text)),
-                    vector,
-                    text: text.to_string(),
-                }) as Result<Embedding>
-            }
-        }).collect();
+        let futures: Vec<_> = texts
+            .iter()
+            .map(|text| {
+                let client = &self.client;
+                async move {
+                    let vector = client.generate_embedding(text).await?;
+                    Ok(Embedding {
+                        id: format!("{:x}", md5::compute(text)),
+                        vector,
+                        text: text.to_string(),
+                    }) as Result<Embedding>
+                }
+            })
+            .collect();
 
         let results = stream::iter(futures)
             .buffer_unordered(5)
