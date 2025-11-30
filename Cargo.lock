@@ -1564,6 +1564,8 @@ dependencies = [
  "infrastructure",
  "pdf-extract",
  "reqwest",
+ "serde",
+ "serde_json",
  "shared",
 ]
 

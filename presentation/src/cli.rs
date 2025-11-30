@@ -335,9 +335,9 @@ impl CliApp {
                 break;
             }
             // Use the same logic as handle_query
-            let client = infrastructure::ollama_client::OllamaClient::new()?;
-            let system_info = detect_system_info();
-            let prompt = format!("You are on a system with: {}. Generate a bash command to: {}. Respond with only the exact command to run, without any formatting, backticks, quotes, or explanation.", system_info, input);
+        let client = infrastructure::ollama_client::OllamaClient::new()?;
+        let system_info = detect_system_info();
+        let prompt = format!("You are on a system with: {}. Generate a bash command to: {}. Respond with only the exact command to run, without any formatting, backticks, quotes, or explanation. Ensure the command is complete, syntactically correct, and uses standard Unix tools. For size comparisons, use appropriate units like -BG for gigabytes in df.", system_info, input);
             let response = client.generate_response(&prompt).await?;
             let command = extract_command_from_response(&response);
             println!("{}", format!("Command: {}", command).green());
@@ -509,7 +509,7 @@ impl CliApp {
 
         let client = infrastructure::ollama_client::OllamaClient::new()?;
         let system_info = detect_system_info();
-        let prompt = format!("You are on a system with: {}. Generate a bash command to: {}. Respond with only the exact command to run, without any formatting, backticks, quotes, or explanation.", system_info, query);
+        let prompt = format!("You are on a system with: {}. Generate a bash command to: {}. Respond with only the exact command to run, without any formatting, backticks, quotes, or explanation. Ensure the command is complete, syntactically correct, and uses standard Unix tools. For size comparisons, use appropriate units like -BG for gigabytes in df.", system_info, query);
         let response = client.generate_response(&prompt).await?;
         let command = extract_command_from_response(&response);
         println!("{}", format!("Command: {}", command).green());
