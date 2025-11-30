@@ -67,9 +67,15 @@ impl CliApp {
     }
 
     async fn handle_explain(&self, file: &str) -> Result<()> {
-        let content = std::fs::read_to_string(file)?;
+        let content = match std::fs::read_to_string(file) {
+            Ok(text) => text,
+            Err(_) => {
+                println!("Error: Cannot read file '{}' - it may be a binary file. Only text files (Rust, Markdown, etc.) are supported.", file);
+                return Ok(());
+            }
+        };
         let client = infrastructure::ollama_client::OllamaClient::new()?;
-        let prompt = format!("Explain this code in detail:\n\n{}", content);
+        let prompt = format!("Explain this content in detail:\n\n{}", content);
         let response = client.generate_response(&prompt).await?;
         println!("{}", response);
         Ok(())
