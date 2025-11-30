@@ -1,9 +1,44 @@
 use clap::Parser;
-use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
+use std::path::PathBuf;
+use std::collections::HashSet;
+use shared::types::Result;
 use application::rag_service::RagService;
 use infrastructure::ollama_client::OllamaClient;
-use shared::types::Result;
 use docx_rs::*;
+
+// Cache entries expire after 7 days (604800 seconds)
+const CACHE_TTL_SECONDS: u64 = 604800;
+
+// Semantic similarity threshold (0.0 to 1.0)
+const SEMANTIC_SIMILARITY_THRESHOLD: f64 = 0.7;
+
+#[derive(Serialize, Deserialize, Default)]
+struct CacheFile {
+    entries: Vec<CacheEntry>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct CacheEntry {
+    prompt: String,
+    command: String,
+    timestamp: u64,
+}
+
+fn extract_command_from_response(response: &str) -> String {
+    let response = response.trim();
+    if response.starts_with("```bash") && response.ends_with("```") {
+        let start = response.find('\n').unwrap_or(0) + 1;
+        let end = response.len() - 3;
+        response[start..end].trim().to_string()
+    } else if response.starts_with("```") && response.ends_with("```") {
+        let start = response.find('\n').unwrap_or(0) + 1;
+        let end = response.len() - 3;
+        response[start..end].trim().to_string()
+    } else {
+        response.to_string()
+    }
+}
 
 #[derive(Parser)]
 #[command(name = "qwen-cli")]
@@ -38,50 +73,147 @@ pub struct Cli {
     pub args: Vec<String>,
 }
 
-
-
-fn extract_command_from_response(response: &str) -> String {
-    let response = response.trim();
-    if response.starts_with("```bash") && response.ends_with("```") {
-        let start = response.find('\n').unwrap_or(0) + 1;
-        let end = response.len() - 3;
-        response[start..end].trim().to_string()
-    } else if response.starts_with("```") && response.ends_with("```") {
-        let start = response.find('\n').unwrap_or(0) + 1;
-        let end = response.len() - 3;
-        response[start..end].trim().to_string()
-    } else {
-        response.to_string()
-    }
-}
-
 pub struct CliApp {
     rag_service: Option<RagService>,
-    cache: HashMap<String, String>,
-    cache_file: String,
+    cache_path: PathBuf,
 }
 
 impl CliApp {
     pub fn new() -> Self {
-        let cache_file = "cli_cache.txt".to_string();
-        let cache = Self::load_cache(&cache_file);
-        Self { rag_service: None, cache, cache_file }
+        let cache_path = Self::default_cache_path();
+        Self { rag_service: None, cache_path }
     }
 
-    fn load_cache(cache_file: &str) -> HashMap<String, String> {
-        if let Ok(content) = std::fs::read_to_string(cache_file) {
-            content.lines().filter_map(|line| {
-                let mut parts = line.split('\t');
-                Some((parts.next()?.to_string(), parts.next()?.to_string()))
-            }).collect()
+    fn default_cache_path() -> PathBuf {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let mut path = PathBuf::from(home);
+        path.push(".config");
+        path.push("qwen_cli_assistant");
+        path.push("cli_cache.json");
+        path
+    }
+
+    /// Normalize text for semantic comparison
+    fn normalize_text(text: &str) -> String {
+        text.to_lowercase()
+            .chars()
+            .filter(|c| c.is_alphanumeric() || c.is_whitespace())
+            .collect::<String>()
+            .split_whitespace()
+            .collect::<Vec<&str>>()
+            .join(" ")
+    }
+
+    /// Calculate semantic similarity between two prompts
+    fn semantic_similarity(prompt1: &str, prompt2: &str) -> f64 {
+        let norm1 = Self::normalize_text(prompt1);
+        let norm2 = Self::normalize_text(prompt2);
+
+        if norm1 == norm2 {
+            return 1.0;
+        }
+
+        let words1: HashSet<&str> = norm1.split_whitespace().collect();
+        let words2: HashSet<&str> = norm2.split_whitespace().collect();
+
+        let intersection: HashSet<&str> = words1.intersection(&words2).cloned().collect();
+        let union: HashSet<&str> = words1.union(&words2).cloned().collect();
+
+        if union.is_empty() {
+            return 0.0;
+        }
+
+        intersection.len() as f64 / union.len() as f64
+    }
+
+    /// Clean command output by removing markdown code blocks
+    fn clean_command_output(raw: &str) -> String {
+        let trimmed = raw.trim();
+        if trimmed.starts_with("```") && trimmed.ends_with("```") {
+            // Remove the first and last lines if they are ``` or ```sh
+            let lines: Vec<&str> = trimmed.lines().collect();
+            if lines.len() >= 3 {
+                if lines[0].trim().starts_with("```") && lines.last().unwrap().trim() == "```" {
+                    return lines[1..lines.len()-1].join("\n").trim().to_string();
+                }
+            }
+        }
+        trimmed.to_string()
+    }
+
+    fn load_cached(&self, prompt: &str) -> Result<Option<String>> {
+        if !self.cache_path.exists() {
+            return Ok(None);
+        }
+
+        let data = std::fs::read_to_string(&self.cache_path)?;
+        let mut cache: CacheFile = serde_json::from_str(&data).unwrap_or_default();
+
+        // Remove expired entries
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        cache.entries.retain(|entry| now - entry.timestamp < CACHE_TTL_SECONDS);
+
+        // Save cleaned cache back to disk
+        if let Some(parent) = self.cache_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let serialized = serde_json::to_string_pretty(&cache)?;
+        std::fs::write(&self.cache_path, serialized)?;
+
+        // First try exact match
+        for entry in &cache.entries {
+            if entry.prompt == prompt {
+                return Ok(Some(Self::clean_command_output(&entry.command)));
+            }
+        }
+
+        // Then try semantic similarity
+        let mut best_match: Option<&CacheEntry> = None;
+        let mut best_similarity = 0.0;
+
+        for entry in &cache.entries {
+            let similarity = Self::semantic_similarity(prompt, &entry.prompt);
+            if similarity > best_similarity && similarity >= SEMANTIC_SIMILARITY_THRESHOLD {
+                best_similarity = similarity;
+                best_match = Some(entry);
+            }
+        }
+
+        if let Some(entry) = best_match {
+            Ok(Some(Self::clean_command_output(&entry.command)))
         } else {
-            HashMap::new()
+            Ok(None)
         }
     }
 
-    fn save_cache(&self) {
-        let content = self.cache.iter().map(|(k, v)| format!("{}\t{}", k, v)).collect::<Vec<_>>().join("\n");
-        let _ = std::fs::write(&self.cache_file, content);
+    fn save_cached(&self, prompt: &str, command: &str) -> Result<()> {
+        let mut cache = if self.cache_path.exists() {
+            let data = std::fs::read_to_string(&self.cache_path).unwrap_or_default();
+            serde_json::from_str::<CacheFile>(&data).unwrap_or_default()
+        } else {
+            CacheFile::default()
+        };
+
+        cache.entries.push(CacheEntry {
+            prompt: prompt.to_string(),
+            command: Self::clean_command_output(command),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        });
+
+        if let Some(parent) = self.cache_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let serialized = serde_json::to_string_pretty(&cache)?;
+        std::fs::write(&self.cache_path, serialized)?;
+
+        Ok(())
     }
 
     pub async fn run(&mut self, cli: Cli) -> Result<()> {
@@ -240,7 +372,7 @@ impl CliApp {
     }
 
     async fn handle_query(&mut self, query: &str) -> Result<()> {
-        if let Some(cached_command) = self.cache.get(query) {
+        if let Ok(Some(cached_command)) = self.load_cached(query) {
             println!("Cached command: {}", cached_command);
             if dialoguer::Confirm::new()
                 .with_prompt("Use cached command?")
@@ -249,7 +381,7 @@ impl CliApp {
             {
                 let output = std::process::Command::new("bash")
                     .arg("-c")
-                    .arg(cached_command)
+                    .arg(&cached_command)
                     .output()?;
                 if output.status.success() {
                     println!("{}", String::from_utf8_lossy(&output.stdout));
@@ -276,8 +408,7 @@ impl CliApp {
                 .output()?;
             if output.status.success() {
                 println!("{}", String::from_utf8_lossy(&output.stdout));
-                self.cache.insert(query.to_string(), command.clone());
-                self.save_cache();
+                let _ = self.save_cached(query, &command);
             } else {
                 println!("Command failed: {}", String::from_utf8_lossy(&output.stderr));
             }

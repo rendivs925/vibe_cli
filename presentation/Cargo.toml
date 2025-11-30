@@ -12,6 +12,8 @@ colored.workspace = true
 dialoguer.workspace = true
 arboard.workspace = true
 anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 pdf-extract = "0.7"
 docx-rs = "0.4"
 reqwest = { version = "0.12", features = ["blocking"] }
