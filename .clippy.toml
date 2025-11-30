@@ -1,0 +1,3 @@
+msrv = "1.70"
+deny = ["unwrap_used", "panic"]
+warn = ["expect_used"]
