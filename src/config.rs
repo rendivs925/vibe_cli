@@ -79,7 +79,7 @@ impl Config {
         trimmed.to_string()
     }
     pub fn new(safe_mode: bool, cache_enabled: bool, copy_to_clipboard: bool) -> Self {
-        let model = std::env::var("QWEN_MODEL").unwrap_or_else(|_| "qwen2.5-coder:3b".to_string());
+        let model = std::env::var("QWEN_MODEL").unwrap_or_else(|_| "deepseek-coder:1.3b".to_string());
         let endpoint =
             std::env::var("OLLAMA_ENDPOINT").unwrap_or_else(|_| "http://localhost:11434/api/chat".to_string());
 
