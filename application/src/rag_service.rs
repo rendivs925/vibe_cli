@@ -23,11 +23,8 @@ impl RagService {
     }
 
     pub async fn build_index(&self) -> Result<()> {
-        let chunks = self.scanner.scan_files()?;
-        let texts: Vec<&str> = chunks.iter().map(|c| c.text.as_str()).collect();
-        let embeddings = self.embedder.generate_embeddings(&texts).await?;
-        self.storage.insert_embeddings(&embeddings)?;
-        Ok(())
+        self.build_index_with_files(&self.scanner.collect_files()?)
+            .await
     }
 
     pub async fn build_index_for_keywords(&self, keywords: &[String]) -> Result<()> {
@@ -53,11 +50,7 @@ impl RagService {
             files.truncate(MAX_FILES);
         }
 
-        let chunks = self.scanner.scan_paths(&files)?;
-        let texts: Vec<&str> = chunks.iter().map(|c| c.text.as_str()).collect();
-        let embeddings = self.embedder.generate_embeddings(&texts).await?;
-        self.storage.insert_embeddings(&embeddings)?;
-        Ok(())
+        self.build_index_with_files(&files).await
     }
 
     pub async fn query(&self, question: &str) -> Result<String> {
@@ -65,8 +58,30 @@ impl RagService {
         let all_embeddings = self.storage.get_all_embeddings()?;
         let relevant_chunks =
             SearchEngine::find_relevant_chunks(&query_embedding, &all_embeddings, 5);
-        let context = relevant_chunks.join("\n");
+        let context = relevant_chunks.join("\n\n");
         let prompt = format!("Context:\n{}\n\nQuestion: {}\nAnswer:", context, question);
         self.client.generate_response(&prompt).await
+    }
+
+    async fn build_index_with_files(&self, files: &[PathBuf]) -> Result<()> {
+        // Add a small directory overview chunk to help the model understand layout.
+        let mut texts = Vec::new();
+        let dir_overview = self.scanner.directory_overview(4, 400);
+        if !dir_overview.is_empty() {
+            texts.push(format!("DIRECTORY TREE:\n{}", dir_overview));
+        }
+
+        let chunks = self.scanner.scan_paths(files)?;
+        for chunk in chunks {
+            texts.push(format!(
+                "FILE: {}\nOFFSET: {}\n{}",
+                chunk.path, chunk.start_offset, chunk.text
+            ));
+        }
+
+        let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
+        let embeddings = self.embedder.generate_embeddings(&text_refs).await?;
+        self.storage.insert_embeddings(&embeddings)?;
+        Ok(())
     }
 }
