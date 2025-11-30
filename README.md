@@ -100,7 +100,11 @@ qwen-cli agent "collect system health info: disk usage, top cpu processes, memor
 Explain a file:
 ```bash
 qwen-cli explain src/main.rs
+qwen-cli explain document.pdf  # Supports PDF text extraction
+qwen-cli explain file.docx     # DOCX support coming soon
 ```
+
+Supported file types: Rust (.rs), Markdown (.md), text files, PDFs. Binary files are detected and rejected with a helpful message.
 
 ### RAG Commands
 
