@@ -6,6 +6,7 @@ use shared::types::Result;
 use application::rag_service::RagService;
 use infrastructure::ollama_client::OllamaClient;
 use docx_rs::*;
+use colored::Colorize;
 
 // Cache entries expire after 7 days (604800 seconds)
 const CACHE_TTL_SECONDS: u64 = 604800;
@@ -373,12 +374,13 @@ impl CliApp {
 
     async fn handle_query(&mut self, query: &str) -> Result<()> {
         if let Ok(Some(cached_command)) = self.load_cached(query) {
-            println!("Cached command: {}", cached_command);
+            println!("{}", format!("Found cached command: {}", cached_command).green());
             if dialoguer::Confirm::new()
                 .with_prompt("Use cached command?")
                 .default(true)
                 .interact()?
             {
+                println!("{}", format!("Running command: {}", cached_command).green());
                 let output = std::process::Command::new("bash")
                     .arg("-c")
                     .arg(&cached_command)
@@ -386,7 +388,7 @@ impl CliApp {
                 if output.status.success() {
                     println!("{}", String::from_utf8_lossy(&output.stdout));
                 } else {
-                    println!("Command failed: {}", String::from_utf8_lossy(&output.stderr));
+                    println!("{}", format!("Command failed: {}", String::from_utf8_lossy(&output.stderr)).red());
                 }
                 return Ok(());
             }
@@ -396,12 +398,13 @@ impl CliApp {
         let prompt = format!("Generate a bash command to: {}. Respond with only the command, no explanation.", query);
         let response = client.generate_response(&prompt).await?;
         let command = extract_command_from_response(&response);
-        println!("Suggested command: {}", command);
+        println!("{}", format!("Command: {}", command).green());
         if dialoguer::Confirm::new()
-            .with_prompt("Execute this command?")
+            .with_prompt("Run this command?")
             .default(false)
             .interact()?
         {
+            println!("{}", format!("Running command: {}", command).green());
             let output = std::process::Command::new("bash")
                 .arg("-c")
                 .arg(&command)
@@ -410,10 +413,10 @@ impl CliApp {
                 println!("{}", String::from_utf8_lossy(&output.stdout));
                 let _ = self.save_cached(query, &command);
             } else {
-                println!("Command failed: {}", String::from_utf8_lossy(&output.stderr));
+                println!("{}", format!("Command failed: {}", String::from_utf8_lossy(&output.stderr)).red());
             }
         } else {
-            println!("Command execution cancelled.");
+            println!("{}", "Command execution cancelled.".yellow());
         }
         Ok(())
     }
