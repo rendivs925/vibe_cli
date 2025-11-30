@@ -288,17 +288,38 @@ impl CliApp {
 
     async fn handle_chat(&self) -> Result<()> {
         use dialoguer::{theme::ColorfulTheme, Input};
-        let client = infrastructure::ollama_client::OllamaClient::new()?;
-        println!("Chat mode. Type 'exit' to quit.");
+        println!("Command execution mode. Type 'exit' to quit.");
         loop {
             let input: String = Input::with_theme(&ColorfulTheme::default())
-                .with_prompt("You")
+                .with_prompt("Query")
                 .interact_text()?;
             if input.to_lowercase() == "exit" {
                 break;
             }
-            let response = client.generate_response(&input).await?;
-            println!("AI: {}", response);
+            // Use the same logic as handle_query
+            let client = infrastructure::ollama_client::OllamaClient::new()?;
+            let system_info = detect_system_info();
+            let prompt = format!("You are on a system with: {}. Generate a bash command to: {}. Respond with only the exact command to run, without any formatting, backticks, quotes, or explanation.", system_info, input);
+            let response = client.generate_response(&prompt).await?;
+            let command = extract_command_from_response(&response);
+            println!("{}", format!("Command: {}", command).green());
+            if dialoguer::Confirm::new()
+                .with_prompt("Run this command?")
+                .default(false)
+                .interact()?
+            {
+                println!("{}", format!("Running command: {}", command).green());
+                let output = std::process::Command::new("bash")
+                    .arg("-c")
+                    .arg(&command)
+                    .output()?;
+                println!("{}", String::from_utf8_lossy(&output.stdout));
+                if !output.status.success() {
+                    println!("{}", format!("Command failed: {}", String::from_utf8_lossy(&output.stderr)).red());
+                }
+            } else {
+                println!("{}", "Command execution cancelled.".yellow());
+            }
         }
         Ok(())
     }

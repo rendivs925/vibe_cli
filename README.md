@@ -100,7 +100,7 @@ qwen-cli check ssh status
 
 The CLI will check for cached commands first, offering to reuse them, then generate new commands with AI if needed, and cache successful executions.
 
-Interactive chat:
+Interactive command execution:
 ```bash
 qwen-cli --chat
 ```
