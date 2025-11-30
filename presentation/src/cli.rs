@@ -210,10 +210,12 @@ fn parse_agent_plan(raw: &str) -> Vec<String> {
             return cmds;
         }
     }
-    // Fallback: split non-empty lines, stripping common list markers (e.g., "1) cmd", "- cmd")
+    // Fallback: split non-empty lines, stripping common list markers and code fences
     raw.lines()
         .map(|l| l.trim())
-        .filter(|l| !l.is_empty())
+        .filter(|l| {
+            !l.is_empty() && !l.starts_with("```") && !l.ends_with("```") && *l != "[" && *l != "]"
+        })
         .map(|l| {
             let mut line = l
                 .trim_start_matches(|c| c == '-' || c == '*' || c == '•')
@@ -224,7 +226,8 @@ fn parse_agent_plan(raw: &str) -> Vec<String> {
                     line = line[pos + 1..].trim();
                 }
             }
-            line.to_string()
+            let mut cleaned = line.trim_matches(',').trim().trim_matches('"').to_string();
+            cleaned
         })
         .filter(|l| !l.is_empty())
         .collect()
