@@ -67,13 +67,47 @@ impl CliApp {
     }
 
     async fn handle_explain(&self, file: &str) -> Result<()> {
-        let content = match std::fs::read_to_string(file) {
-            Ok(text) => text,
-            Err(_) => {
-                println!("Error: Cannot read file '{}' - it may be a binary file. Only text files (Rust, Markdown, etc.) are supported.", file);
-                return Ok(());
+        let path = std::path::Path::new(file);
+        let content = if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+            match ext.to_lowercase().as_str() {
+                "pdf" => {
+                    match pdf_extract::extract_text(file) {
+                        Ok(text) => text,
+                        Err(e) => {
+                            println!("Error extracting text from PDF '{}': {}", file, e);
+                            return Ok(());
+                        }
+                    }
+                }
+                "docx" => {
+                    println!("DOCX support not yet implemented. Please convert to PDF or text format.");
+                    return Ok(());
+                }
+                _ => {
+                    match std::fs::read_to_string(file) {
+                        Ok(text) => text,
+                        Err(_) => {
+                            println!("Error: Cannot read file '{}' as text. Supported formats: text files, PDF, DOCX.", file);
+                            return Ok(());
+                        }
+                    }
+                }
+            }
+        } else {
+            match std::fs::read_to_string(file) {
+                Ok(text) => text,
+                Err(_) => {
+                    println!("Error: Cannot read file '{}' as text. Supported formats: text files, PDF, DOCX.", file);
+                    return Ok(());
+                }
             }
         };
+
+        if content.trim().is_empty() {
+            println!("Error: No text content found in file '{}'.", file);
+            return Ok(());
+        }
+
         let client = infrastructure::ollama_client::OllamaClient::new()?;
         let prompt = format!("Explain this content in detail:\n\n{}", content);
         let response = client.generate_response(&prompt).await?;
