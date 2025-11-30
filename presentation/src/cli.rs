@@ -288,14 +288,20 @@ pub struct Cli {
 pub struct CliApp {
     rag_service: Option<RagService>,
     cache_path: PathBuf,
+    system_info_path: PathBuf,
+    system_info: String,
 }
 
 impl CliApp {
     pub fn new() -> Self {
         let cache_path = Self::default_cache_path();
+        let system_info_path = Self::default_system_info_path();
+        let system_info = Self::load_or_collect_system_info(&system_info_path);
         Self {
             rag_service: None,
             cache_path,
+            system_info_path,
+            system_info,
         }
     }
 
@@ -306,6 +312,32 @@ impl CliApp {
         path.push("vibe_cli");
         path.push("cli_cache.json");
         path
+    }
+
+    fn default_system_info_path() -> PathBuf {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let mut path = PathBuf::from(home);
+        path.push(".config");
+        path.push("vibe_cli");
+        path.push("system_info.txt");
+        path
+    }
+
+    fn load_or_collect_system_info(path: &PathBuf) -> String {
+        if let Ok(existing) = std::fs::read_to_string(path) {
+            if !existing.trim().is_empty() {
+                return existing.trim().to_string();
+            }
+        }
+
+        let detected = detect_system_info();
+
+        if let Some(parent) = path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+        let _ = std::fs::write(path, &detected);
+
+        detected
     }
 
     /// Normalize text for semantic comparison
@@ -470,8 +502,7 @@ impl CliApp {
             }
             // Use the same logic as handle_query
             let client = infrastructure::ollama_client::OllamaClient::new()?;
-            let system_info = detect_system_info();
-            let prompt = format!("You are on a system with: {}. Generate a bash command to: {}. Respond with only the exact command to run, without any formatting, backticks, quotes, or explanation. Ensure the command is complete, syntactically correct, and uses standard Unix tools. For size comparisons, use appropriate units like -BG for gigabytes in df.", system_info, input);
+            let prompt = format!("You are on a system with: {}. Generate a bash command to: {}. Respond with only the exact command to run, without any formatting, backticks, quotes, or explanation. Ensure the command is complete, syntactically correct, and uses standard Unix tools. For size comparisons, use appropriate units like -BG for gigabytes in df.", self.system_info, input);
             let response = client.generate_response(&prompt).await?;
             let command = extract_command_from_response(&response);
             println!("{}", format!("Command: {}", command).green());
@@ -504,7 +535,6 @@ impl CliApp {
 
     async fn handle_agent(&self, task: &str) -> Result<()> {
         let client = infrastructure::ollama_client::OllamaClient::new()?;
-        let system_info = detect_system_info();
         let prompt = format!(
             "You are an assistant that turns a user's goal into a sequence of POSIX shell commands that can be run one-by-one with confirmation in between.\n\
 Environment: {}.\n\
@@ -515,7 +545,7 @@ Constraints:\n\
 - Use real paths; avoid placeholders like /path/to.\n\
 - Keep commands minimal and idempotent (check state before changing it).\n\n\
 User request: {}",
-            system_info, task
+            self.system_info, task
         );
         let response = client.generate_response(&prompt).await?;
         let commands = parse_agent_plan(&response);
