@@ -7,12 +7,29 @@ use std::path::{Path, PathBuf};
 
 pub struct FileScanner {
     root_path: PathBuf,
+    ignored_dirs: Vec<String>,
+    max_file_bytes: u64,
 }
 
 impl FileScanner {
     pub fn new(root_path: impl Into<PathBuf>) -> Self {
         Self {
             root_path: root_path.into(),
+            ignored_dirs: vec![
+                ".git".into(),
+                "target".into(),
+                "node_modules".into(),
+                ".next".into(),
+                "dist".into(),
+                "build".into(),
+                ".idea".into(),
+                ".vscode".into(),
+                ".cache".into(),
+                "venv".into(),
+                "__pycache__".into(),
+            ],
+            // Cap per-file scanning to keep indexing responsive; adjust if needed.
+            max_file_bytes: 2 * 1024 * 1024,
         }
     }
 
@@ -40,6 +57,11 @@ impl FileScanner {
             let entry = entry?;
             let path = entry.path();
             if path.is_dir() {
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    if self.ignored_dirs.iter().any(|i| i == name) {
+                        continue;
+                    }
+                }
                 self.collect_files_recursive(&path, files)?;
             } else if is_supported_file(&path) {
                 files.push(path);
@@ -49,6 +71,11 @@ impl FileScanner {
     }
 
     fn load_and_chunk_file(&self, path: &Path) -> Result<Vec<FileChunk>> {
+        if let Ok(meta) = path.metadata() {
+            if meta.len() > self.max_file_bytes {
+                return Ok(Vec::new());
+            }
+        }
         let file = File::open(path)?;
         let mmap = unsafe { Mmap::map(&file)? };
         // Lossy conversion ensures non-UTF8 bytes don't crash scanning.
