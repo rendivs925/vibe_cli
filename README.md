@@ -78,30 +78,33 @@ sudo mv target/release/qwen_cli_assistant /usr/local/bin/qwen-cli
 
 ## Usage
 
+The CLI accepts natural language queries directly. Use flags for special modes.
+
 ### Basic Commands
 
 One-shot command suggestion:
 ```bash
-qwen-cli "find all .rs files larger than 1MB"
+qwen-cli find all .rs files larger than 1MB
+qwen-cli check ssh status
 ```
 
 Interactive chat:
 ```bash
-qwen-cli chat
+qwen-cli --chat
 ```
 
 ### Agent and Explanation
 
 Multi-step agent:
 ```bash
-qwen-cli agent "collect system health info: disk usage, top cpu processes, memory hogs"
+qwen-cli --agent "collect system health info: disk usage, top cpu processes, memory hogs"
 ```
 
 Explain a file:
 ```bash
-qwen-cli explain src/main.rs
-qwen-cli explain document.pdf  # Supports PDF text extraction
-qwen-cli explain file.docx     # Supports DOCX text extraction
+qwen-cli --explain src/main.rs
+qwen-cli --explain document.pdf  # Supports PDF text extraction
+qwen-cli --explain file.docx     # Supports DOCX text extraction
 ```
 
 Supported file types: Rust (.rs), Markdown (.md), text files, PDFs, DOCX. Binary files are detected and rejected with a helpful message.
@@ -110,17 +113,17 @@ Supported file types: Rust (.rs), Markdown (.md), text files, PDFs, DOCX. Binary
 
 Query with codebase context:
 ```bash
-qwen-cli rag "how does the session management work?"
+qwen-cli --rag "how does the session management work?"
 ```
 
 Load specific context:
 ```bash
-qwen-cli context ./docs/ chat
+qwen-cli --context ./docs/
 ```
 
 Leptos documentation mode:
 ```bash
-qwen-cli leptos-mode
+qwen-cli --leptos-mode
 ```
 
 

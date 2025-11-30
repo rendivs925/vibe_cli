@@ -1,4 +1,4 @@
-use clap::{Parser, Subcommand};
+use clap::Parser;
 use application::rag_service::RagService;
 use infrastructure::ollama_client::OllamaClient;
 use shared::types::Result;
@@ -8,19 +8,36 @@ use docx_rs::*;
 #[command(name = "qwen-cli")]
 #[command(about = "Qwen CLI assistant with RAG capabilities")]
 pub struct Cli {
-    #[command(subcommand)]
-    pub command: Commands,
+    /// Enter interactive chat mode
+    #[arg(long)]
+    pub chat: bool,
+
+    /// Use multi-step agent mode
+    #[arg(long)]
+    pub agent: bool,
+
+    /// Explain a file
+    #[arg(long)]
+    pub explain: bool,
+
+    /// Query with RAG context
+    #[arg(long)]
+    pub rag: bool,
+
+    /// Load context from path
+    #[arg(long)]
+    pub context: bool,
+
+    /// Enter Leptos documentation mode
+    #[arg(long)]
+    pub leptos_mode: bool,
+
+    /// The query or file path to process
+    #[arg(trailing_var_arg = true)]
+    pub args: Vec<String>,
 }
 
-#[derive(Subcommand)]
-pub enum Commands {
-    Chat,
-    Agent { task: String },
-    Explain { file: String },
-    Rag { question: String },
-    Context { path: String },
-    LeptosMode,
-}
+
 
 pub struct CliApp {
     rag_service: Option<RagService>,
@@ -32,13 +49,27 @@ impl CliApp {
     }
 
     pub async fn run(&mut self, cli: Cli) -> Result<()> {
-        match cli.command {
-            Commands::Chat => self.handle_chat().await,
-            Commands::Agent { task } => self.handle_agent(&task).await,
-            Commands::Explain { file } => self.handle_explain(&file).await,
-            Commands::Rag { question } => self.handle_rag(&question).await,
-            Commands::Context { path } => self.handle_context(&path).await,
-            Commands::LeptosMode => self.handle_leptos_mode().await,
+        let args_str = cli.args.join(" ");
+        if cli.chat {
+            if args_str.trim().is_empty() {
+                self.handle_chat().await
+            } else {
+                // Perhaps chat with initial message, but for now, just enter chat
+                self.handle_chat().await
+            }
+        } else if cli.agent {
+            self.handle_agent(&args_str).await
+        } else if cli.explain {
+            self.handle_explain(&args_str).await
+        } else if cli.rag {
+            self.handle_rag(&args_str).await
+        } else if cli.context {
+            self.handle_context(&args_str).await
+        } else if cli.leptos_mode {
+            self.handle_leptos_mode().await
+        } else {
+            // Default: general query
+            self.handle_query(&args_str).await
         }
     }
 
@@ -170,5 +201,23 @@ impl CliApp {
 
     async fn handle_leptos_mode(&mut self) -> Result<()> {
         self.handle_context(".").await
+    }
+
+    async fn handle_query(&self, query: &str) -> Result<()> {
+        let client = infrastructure::ollama_client::OllamaClient::new()?;
+        let prompt = format!("Generate a bash command to: {}. Respond with only the command, no explanation.", query);
+        let command = client.generate_response(&prompt).await?;
+        let command = command.trim();
+        println!("Running: {}", command);
+        let output = std::process::Command::new("bash")
+            .arg("-c")
+            .arg(command)
+            .output()?;
+        if output.status.success() {
+            println!("{}", String::from_utf8_lossy(&output.stdout));
+        } else {
+            println!("Command failed: {}", String::from_utf8_lossy(&output.stderr));
+        }
+        Ok(())
     }
 }
