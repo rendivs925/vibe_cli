@@ -308,7 +308,6 @@ impl CliApp {
                 .default(false)
                 .interact()?
             {
-                println!("{}", format!("Running command: {}", command).green());
                 let output = std::process::Command::new("bash")
                     .arg("-c")
                     .arg(&command)
@@ -445,7 +444,6 @@ impl CliApp {
                 .default(true)
                 .interact()?
             {
-                println!("{}", format!("Running command: {}", cached_command).green());
                 let output = std::process::Command::new("bash")
                     .arg("-c")
                     .arg(&cached_command)
@@ -464,16 +462,15 @@ impl CliApp {
         let response = client.generate_response(&prompt).await?;
         let command = extract_command_from_response(&response);
         println!("{}", format!("Command: {}", command).green());
-        if dialoguer::Confirm::new()
-            .with_prompt("Run this command?")
-            .default(false)
-            .interact()?
-        {
-            println!("{}", format!("Running command: {}", command).green());
-            let output = std::process::Command::new("bash")
-                .arg("-c")
-                .arg(&command)
-                .output()?;
+            if dialoguer::Confirm::new()
+                .with_prompt("Run this command?")
+                .default(false)
+                .interact()?
+            {
+                let output = std::process::Command::new("bash")
+                    .arg("-c")
+                    .arg(&command)
+                    .output()?;
             println!("{}", String::from_utf8_lossy(&output.stdout));
             if !output.status.success() {
                 println!("{}", format!("Command failed: {}", String::from_utf8_lossy(&output.stderr)).red());
