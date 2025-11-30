@@ -56,6 +56,68 @@ impl FileScanner {
         Ok(files)
     }
 
+    /// Return a compact directory overview for context (limited depth/entries).
+    pub fn directory_overview(&self, max_depth: usize, max_entries: usize) -> String {
+        let mut lines = Vec::new();
+        self.walk_directory(
+            &self.root_path,
+            &mut lines,
+            0,
+            max_depth,
+            max_entries,
+            &mut 0,
+        );
+        lines.join("\n")
+    }
+
+    fn walk_directory(
+        &self,
+        dir: &Path,
+        lines: &mut Vec<String>,
+        depth: usize,
+        max_depth: usize,
+        max_entries: usize,
+        seen: &mut usize,
+    ) {
+        if depth > max_depth || *seen >= max_entries {
+            return;
+        }
+
+        let rel = dir
+            .strip_prefix(&self.root_path)
+            .unwrap_or(dir)
+            .to_string_lossy()
+            .to_string();
+        let indent = "  ".repeat(depth);
+        lines.push(format!(
+            "{}{}",
+            indent,
+            if rel.is_empty() { "." } else { &rel }
+        ));
+        *seen += 1;
+        if *seen >= max_entries {
+            return;
+        }
+
+        let Ok(read_dir) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in read_dir.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    if self.ignored_dirs.iter().any(|i| i == name) {
+                        continue;
+                    }
+                }
+                self.walk_directory(&path, lines, depth + 1, max_depth, max_entries, seen);
+                if *seen >= max_entries {
+                    return;
+                }
+            }
+        }
+    }
+
     fn collect_files_recursive(&self, dir: &Path, files: &mut Vec<PathBuf>) -> Result<()> {
         for entry in std::fs::read_dir(dir)? {
             let entry = entry?;
