@@ -101,10 +101,10 @@ Explain a file:
 ```bash
 qwen-cli explain src/main.rs
 qwen-cli explain document.pdf  # Supports PDF text extraction
-qwen-cli explain file.docx     # DOCX support coming soon
+qwen-cli explain file.docx     # Supports DOCX text extraction
 ```
 
-Supported file types: Rust (.rs), Markdown (.md), text files, PDFs. Binary files are detected and rejected with a helpful message.
+Supported file types: Rust (.rs), Markdown (.md), text files, PDFs, DOCX. Binary files are detected and rejected with a helpful message.
 
 ### RAG Commands
 
@@ -123,39 +123,7 @@ Leptos documentation mode:
 qwen-cli leptos-mode
 ```
 
-Interactive chat:
-```bash
-qwen-cli --chat
-```
 
-### RAG Commands
-
-Query with codebase context:
-```bash
-qwen-cli --rag "how does the session management work?"
-```
-
-Load specific context:
-```bash
-qwen-cli --context ./docs/ --chat
-```
-
-Leptos documentation mode:
-```bash
-qwen-cli --leptos-mode
-```
-
-### Agent and Explanation
-
-Multi-step agent:
-```bash
-qwen-cli --agent "collect system health info: disk usage, top cpu processes, memory hogs"
-```
-
-Explain a file:
-```bash
-qwen-cli --explain src/main.rs
-```
 
 ## Configuration
 
