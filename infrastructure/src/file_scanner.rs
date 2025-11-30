@@ -51,11 +51,12 @@ impl FileScanner {
     fn load_and_chunk_file(&self, path: &Path) -> Result<Vec<FileChunk>> {
         let file = File::open(path)?;
         let mmap = unsafe { Mmap::map(&file)? };
-        let content = std::str::from_utf8(&mmap)?.to_string();
-        Ok(self.chunk_text(content, path))
+        // Lossy conversion ensures non-UTF8 bytes don't crash scanning.
+        let content = String::from_utf8_lossy(&mmap).into_owned();
+        Ok(self.chunk_text(&content, path))
     }
 
-    fn chunk_text(&self, text: String, path: &Path) -> Vec<FileChunk> {
+    fn chunk_text(&self, text: &str, path: &Path) -> Vec<FileChunk> {
         const CHUNK_SIZE: usize = 1000;
         const OVERLAP: usize = 200;
 
@@ -64,7 +65,11 @@ impl FileScanner {
         let path_str = path.to_string_lossy().to_string();
 
         while start < text.len() {
-            let end = (start + CHUNK_SIZE).min(text.len());
+            let mut end = (start + CHUNK_SIZE).min(text.len());
+            // Ensure we cut on UTF-8 boundaries
+            while end < text.len() && !text.is_char_boundary(end) {
+                end += 1;
+            }
             let chunk_text = text[start..end].to_string();
             chunks.push(FileChunk {
                 path: path_str.clone(),
@@ -75,7 +80,11 @@ impl FileScanner {
             if end == text.len() {
                 break;
             }
-            start = end.saturating_sub(OVERLAP);
+            let mut next_start = end.saturating_sub(OVERLAP);
+            while next_start > 0 && !text.is_char_boundary(next_start) {
+                next_start -= 1;
+            }
+            start = next_start;
         }
         chunks
     }
