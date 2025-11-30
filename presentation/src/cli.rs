@@ -1,12 +1,12 @@
-use clap::Parser;
-use serde::{Deserialize, Serialize};
-use std::path::PathBuf;
-use std::collections::HashSet;
-use shared::types::Result;
 use application::rag_service::RagService;
-use infrastructure::ollama_client::OllamaClient;
-use docx_rs::*;
+use clap::Parser;
 use colored::Colorize;
+use docx_rs::*;
+use infrastructure::ollama_client::OllamaClient;
+use serde::{Deserialize, Serialize};
+use shared::types::Result;
+use std::collections::HashSet;
+use std::path::PathBuf;
 
 fn detect_system_info() -> String {
     let mut info = Vec::new();
@@ -15,13 +15,22 @@ fn detect_system_info() -> String {
     if let Ok(os) = std::fs::read_to_string("/etc/os-release") {
         for line in os.lines() {
             if line.starts_with("ID=") {
-                info.push(format!("Distro: {}", line.trim_start_matches("ID=").trim_matches('"')));
+                info.push(format!(
+                    "Distro: {}",
+                    line.trim_start_matches("ID=").trim_matches('"')
+                ));
             } else if line.starts_with("VERSION_ID=") {
-                info.push(format!("Version: {}", line.trim_start_matches("VERSION_ID=").trim_matches('"')));
+                info.push(format!(
+                    "Version: {}",
+                    line.trim_start_matches("VERSION_ID=").trim_matches('"')
+                ));
             }
         }
     } else if let Ok(os) = std::process::Command::new("uname").arg("-s").output() {
-        info.push(format!("OS: {}", String::from_utf8_lossy(&os.stdout).trim()));
+        info.push(format!(
+            "OS: {}",
+            String::from_utf8_lossy(&os.stdout).trim()
+        ));
     }
 
     // Detect init system
@@ -32,19 +41,38 @@ fn detect_system_info() -> String {
     }
 
     // Detect package manager
-    if std::process::Command::new("which").arg("apt").output().is_ok() {
+    if std::process::Command::new("which")
+        .arg("apt")
+        .output()
+        .is_ok()
+    {
         info.push("Package manager: apt".to_string());
-    } else if std::process::Command::new("which").arg("yum").output().is_ok() {
+    } else if std::process::Command::new("which")
+        .arg("yum")
+        .output()
+        .is_ok()
+    {
         info.push("Package manager: yum".to_string());
-    } else if std::process::Command::new("which").arg("dnf").output().is_ok() {
+    } else if std::process::Command::new("which")
+        .arg("dnf")
+        .output()
+        .is_ok()
+    {
         info.push("Package manager: dnf".to_string());
-    } else if std::process::Command::new("which").arg("pacman").output().is_ok() {
+    } else if std::process::Command::new("which")
+        .arg("pacman")
+        .output()
+        .is_ok()
+    {
         info.push("Package manager: pacman".to_string());
     }
 
     // Kernel version
     if let Ok(kernel) = std::process::Command::new("uname").arg("-r").output() {
-        info.push(format!("Kernel: {}", String::from_utf8_lossy(&kernel.stdout).trim()));
+        info.push(format!(
+            "Kernel: {}",
+            String::from_utf8_lossy(&kernel.stdout).trim()
+        ));
     }
 
     info.join(", ")
@@ -82,7 +110,12 @@ fn extract_command_from_response(response: &str) -> String {
         response.to_string()
     };
     // Remove surrounding backticks, quotes, and extra whitespace
-    cleaned.trim_matches('`').trim_matches('"').trim_matches('\'').trim().to_string()
+    cleaned
+        .trim_matches('`')
+        .trim_matches('"')
+        .trim_matches('\'')
+        .trim()
+        .to_string()
 }
 
 #[derive(Parser)]
@@ -126,7 +159,10 @@ pub struct CliApp {
 impl CliApp {
     pub fn new() -> Self {
         let cache_path = Self::default_cache_path();
-        Self { rag_service: None, cache_path }
+        Self {
+            rag_service: None,
+            cache_path,
+        }
     }
 
     fn default_cache_path() -> PathBuf {
@@ -179,7 +215,7 @@ impl CliApp {
             let lines: Vec<&str> = trimmed.lines().collect();
             if lines.len() >= 3 {
                 if lines[0].trim().starts_with("```") && lines.last().unwrap().trim() == "```" {
-                    return lines[1..lines.len()-1].join("\n").trim().to_string();
+                    return lines[1..lines.len() - 1].join("\n").trim().to_string();
                 }
             }
         }
@@ -199,7 +235,9 @@ impl CliApp {
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap()
             .as_secs();
-        cache.entries.retain(|entry| now - entry.timestamp < CACHE_TTL_SECONDS);
+        cache
+            .entries
+            .retain(|entry| now - entry.timestamp < CACHE_TTL_SECONDS);
 
         // Save cleaned cache back to disk
         if let Some(parent) = self.cache_path.parent() {
@@ -291,7 +329,7 @@ impl CliApp {
         println!("Command execution mode. Type 'exit' to quit.");
         loop {
             let input: String = Input::with_theme(&ColorfulTheme::default())
-                .with_prompt("Query:")
+                .with_prompt("Query")
                 .interact_text()?;
             if input.to_lowercase() == "exit" {
                 break;
@@ -314,7 +352,14 @@ impl CliApp {
                     .output()?;
                 println!("{}", String::from_utf8_lossy(&output.stdout));
                 if !output.status.success() {
-                    println!("{}", format!("Command failed: {}", String::from_utf8_lossy(&output.stderr)).red());
+                    println!(
+                        "{}",
+                        format!(
+                            "Command failed: {}",
+                            String::from_utf8_lossy(&output.stderr)
+                        )
+                        .red()
+                    );
                 }
             } else {
                 println!("{}", "Command execution cancelled.".yellow());
@@ -335,15 +380,13 @@ impl CliApp {
         let path = std::path::Path::new(file);
         let content = if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
             match ext.to_lowercase().as_str() {
-                "pdf" => {
-                    match pdf_extract::extract_text(file) {
-                        Ok(text) => text,
-                        Err(e) => {
-                            println!("Error extracting text from PDF '{}': {}", file, e);
-                            return Ok(());
-                        }
+                "pdf" => match pdf_extract::extract_text(file) {
+                    Ok(text) => text,
+                    Err(e) => {
+                        println!("Error extracting text from PDF '{}': {}", file, e);
+                        return Ok(());
                     }
-                }
+                },
                 "docx" => {
                     match std::fs::read(file) {
                         Ok(bytes) => {
@@ -381,15 +424,13 @@ impl CliApp {
                     }
                 }
 
-                _ => {
-                    match std::fs::read_to_string(file) {
-                        Ok(text) => text,
-                        Err(_) => {
-                            println!("Error: Cannot read file '{}' as text. Supported formats: text files, PDF, DOCX.", file);
-                            return Ok(());
-                        }
+                _ => match std::fs::read_to_string(file) {
+                    Ok(text) => text,
+                    Err(_) => {
+                        println!("Error: Cannot read file '{}' as text. Supported formats: text files, PDF, DOCX.", file);
+                        return Ok(());
                     }
-                }
+                },
             }
         } else {
             match std::fs::read_to_string(file) {
@@ -438,7 +479,10 @@ impl CliApp {
 
     async fn handle_query(&mut self, query: &str) -> Result<()> {
         if let Ok(Some(cached_command)) = self.load_cached(query) {
-            println!("{}", format!("Found cached command: {}", cached_command).green());
+            println!(
+                "{}",
+                format!("Found cached command: {}", cached_command).green()
+            );
             if dialoguer::Confirm::new()
                 .with_prompt("Use cached command?")
                 .default(true)
@@ -450,7 +494,14 @@ impl CliApp {
                     .output()?;
                 println!("{}", String::from_utf8_lossy(&output.stdout));
                 if !output.status.success() {
-                    println!("{}", format!("Command failed: {}", String::from_utf8_lossy(&output.stderr)).red());
+                    println!(
+                        "{}",
+                        format!(
+                            "Command failed: {}",
+                            String::from_utf8_lossy(&output.stderr)
+                        )
+                        .red()
+                    );
                 }
                 return Ok(());
             }
@@ -462,18 +513,25 @@ impl CliApp {
         let response = client.generate_response(&prompt).await?;
         let command = extract_command_from_response(&response);
         println!("{}", format!("Command: {}", command).green());
-            if dialoguer::Confirm::new()
-                .with_prompt("Run this command?")
-                .default(false)
-                .interact()?
-            {
-                let output = std::process::Command::new("bash")
-                    .arg("-c")
-                    .arg(&command)
-                    .output()?;
+        if dialoguer::Confirm::new()
+            .with_prompt("Run this command?")
+            .default(false)
+            .interact()?
+        {
+            let output = std::process::Command::new("bash")
+                .arg("-c")
+                .arg(&command)
+                .output()?;
             println!("{}", String::from_utf8_lossy(&output.stdout));
             if !output.status.success() {
-                println!("{}", format!("Command failed: {}", String::from_utf8_lossy(&output.stderr)).red());
+                println!(
+                    "{}",
+                    format!(
+                        "Command failed: {}",
+                        String::from_utf8_lossy(&output.stderr)
+                    )
+                    .red()
+                );
             } else {
                 let _ = self.save_cached(query, &command);
             }
@@ -483,3 +541,4 @@ impl CliApp {
         Ok(())
     }
 }
+
