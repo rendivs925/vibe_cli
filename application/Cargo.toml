@@ -1,0 +1,11 @@
+[package]
+name = "application"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+domain = { path = "../domain" }
+shared = { path = "../shared" }
+infrastructure = { path = "../infrastructure" }
+anyhow.workspace = true
+tokio.workspace = true

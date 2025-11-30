@@ -1,0 +1,14 @@
+[package]
+name = "presentation"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+application = { path = "../application" }
+infrastructure = { path = "../infrastructure" }
+shared = { path = "../shared" }
+clap.workspace = true
+colored.workspace = true
+dialoguer.workspace = true
+arboard.workspace = true
+anyhow.workspace = true
