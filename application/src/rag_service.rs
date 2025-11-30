@@ -1,5 +1,7 @@
-
-use infrastructure::{file_scanner::FileScanner, embedding_storage::EmbeddingStorage, embedder::Embedder, search::SearchEngine, ollama_client::OllamaClient};
+use infrastructure::{
+    embedder::Embedder, embedding_storage::EmbeddingStorage, file_scanner::FileScanner,
+    ollama_client::OllamaClient, search::SearchEngine,
+};
 use shared::types::Result;
 
 pub struct RagService {
@@ -30,7 +32,8 @@ impl RagService {
     pub async fn query(&self, question: &str) -> Result<String> {
         let query_embedding = self.client.generate_embedding(question).await?;
         let all_embeddings = self.storage.get_all_embeddings()?;
-        let relevant_chunks = SearchEngine::find_relevant_chunks(&query_embedding, &all_embeddings, 5);
+        let relevant_chunks =
+            SearchEngine::find_relevant_chunks(&query_embedding, &all_embeddings, 5);
         let context = relevant_chunks.join("\n");
         let prompt = format!("Context:\n{}\n\nQuestion: {}\nAnswer:", context, question);
         self.client.generate_response(&prompt).await

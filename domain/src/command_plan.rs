@@ -16,5 +16,8 @@ pub struct SafetyCheck {
 }
 
 pub trait CommandPlanner {
-    fn plan_command(&self, input: &str) -> impl std::future::Future<Output = Result<CommandPlan>> + Send;
+    fn plan_command(
+        &self,
+        input: &str,
+    ) -> impl std::future::Future<Output = Result<CommandPlan>> + Send;
 }

@@ -1,2 +1,2 @@
-pub mod cli;
 pub mod adapters;
+pub mod cli;

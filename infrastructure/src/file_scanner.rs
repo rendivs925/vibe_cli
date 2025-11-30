@@ -1,9 +1,9 @@
-use std::fs::File;
-use std::path::{Path, PathBuf};
 use memmap2::Mmap;
 use rayon::prelude::*;
-use shared::utils::is_supported_file;
 use shared::types::Result;
+use shared::utils::is_supported_file;
+use std::fs::File;
+use std::path::{Path, PathBuf};
 
 pub struct FileScanner {
     root_path: PathBuf,
@@ -18,7 +18,8 @@ impl FileScanner {
 
     pub fn scan_files(&self) -> Result<Vec<FileChunk>> {
         let files = self.collect_files()?;
-        let chunks: Vec<Result<Vec<FileChunk>>> = files.into_par_iter()
+        let chunks: Vec<Result<Vec<FileChunk>>> = files
+            .into_par_iter()
             .map(|path| self.load_and_chunk_file(&path))
             .collect();
         let mut all_chunks = Vec::new();

@@ -10,13 +10,26 @@ impl SearchEngine {
         dot_product / (norm_a * norm_b)
     }
 
-    pub fn find_relevant_chunks(query_embedding: &[f32], embeddings: &[Embedding], top_k: usize) -> Vec<String> {
+    pub fn find_relevant_chunks(
+        query_embedding: &[f32],
+        embeddings: &[Embedding],
+        top_k: usize,
+    ) -> Vec<String> {
         let mut similarities: Vec<(f32, &str)> = embeddings
             .iter()
-            .map(|emb| (Self::cosine_similarity(query_embedding, &emb.vector), &emb.text[..]))
+            .map(|emb| {
+                (
+                    Self::cosine_similarity(query_embedding, &emb.vector),
+                    &emb.text[..],
+                )
+            })
             .collect();
 
         similarities.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap());
-        similarities.into_iter().take(top_k).map(|(_, text)| text.to_string()).collect()
+        similarities
+            .into_iter()
+            .take(top_k)
+            .map(|(_, text)| text.to_string())
+            .collect()
     }
 }
