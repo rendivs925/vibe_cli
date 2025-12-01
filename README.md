@@ -2,7 +2,7 @@
 
 Ultra-safe CLI assistant powered by a local Ollama model with Retrieval-Augmented Generation (RAG) capabilities. Built with Domain-Driven Design (DDD) for scalability and performance.
 
-Latest improvements include a full RAG pipeline for codebase-aware responses, parallel file processing, and enterprise-grade architecture.
+Latest improvements include intelligent caching, real-time progress indicators, bincode-optimized storage, semantic chunking, and comprehensive codebase indexing with smart file filtering.
 
 ## Features
 
@@ -10,10 +10,13 @@ Latest improvements include a full RAG pipeline for codebase-aware responses, pa
 - **Ultra-Safe Mode (Default)**: Blocks dangerous commands (`rm -rf /`, `mkfs`, `dd` on disks, etc.)
 - **Retrieval-Augmented Generation (RAG)**: Context-aware responses using codebase embeddings
 - **Multi-Step Agent Mode**: Complex task planning with safety validation
-- **File Explanation**: AI-powered code explanation for Rust files
+- **File Explanation**: AI-powered code explanation with intelligent caching
 - **Context Loading**: Load external docs (Leptos, GraphQL schemas, etc.)
 - **Leptos Mode**: Automatic loading of Leptos documentation and examples
-- **Performance Optimized**: Memory-mapped file I/O, parallel processing, SQLite WAL storage
+- **Intelligent Caching**: Multi-level caching with semantic similarity and bincode optimization
+- **Real-time Progress**: Live status indicators for all operations
+- **Smart File Processing**: Semantic chunking, deduplication, and comprehensive ignore lists
+- **Performance Optimized**: Async operations, memory-mapped I/O, parallel processing, SQLite WAL storage
 - **Enterprise Ready**: DDD architecture, async runtime, rootless container support
 
 ## Architecture
@@ -32,14 +35,14 @@ The project follows Domain-Driven Design with clean architecture:
 
 The RAG system provides context-aware responses:
 
-- **File Scanning**: Memory-mapped I/O with parallel Rayon processing
-- **Chunking**: Zero-copy text splitting with configurable overlap
-- **Embeddings**: Async batched generation via Ollama API
-- **Storage**: SQLite with WAL mode and optimized PRAGMA settings
-- **Retrieval**: Cosine similarity search for relevant context
-- **Injection**: Dynamic context injection into LLM prompts
+- **Smart File Scanning**: Memory-mapped I/O with parallel Rayon processing and comprehensive ignore lists
+- **Semantic Chunking**: Intelligent text splitting on paragraph boundaries with deduplication
+- **Embeddings**: Async batched generation via Ollama API with incremental updates
+- **Optimized Storage**: SQLite with WAL mode, bincode serialization, and async operations
+- **Fast Retrieval**: Cosine similarity search with progress indicators
+- **Context Injection**: Dynamic context injection into LLM prompts
 
-Supported file types: Rust (.rs), Markdown (.md), TOML (.toml), JSON (.json), GraphQL (.graphql)
+Supported file types: Rust (.rs), Markdown (.md), TOML (.toml), JSON (.json), GraphQL (.graphql), PDFs, DOCX
 
 ## Requirements
 
@@ -56,6 +59,8 @@ Or configure via environment:
 export OLLAMA_BASE_URL=http://localhost:11434
 export OLLAMA_MODEL=qwen2.5-coder:3b
 ```
+
+**Note**: Default model changed to `qwen2.5-coder:3b` for better performance.
 
 ## Build
 
@@ -82,13 +87,15 @@ The CLI accepts natural language queries directly. Use flags for special modes.
 
 ### Intelligent Caching
 
-The CLI features intelligent caching with:
-- **TTL Expiration**: Cache entries expire after 7 days
-- **Semantic Similarity**: Matches similar queries using text similarity
-- **Persistent Storage**: Cache stored in `~/.local/share/vibe_cli/cli_cache.json`
-- **Automatic Cleanup**: Expired entries are removed on load
+The CLI features multi-level intelligent caching with:
+- **Command Caching**: Semantic similarity matching for shell commands (TTL: 7 days)
+- **Explain Caching**: Exact-match caching for file explanations (TTL: 7 days)
+- **RAG Caching**: Exact-match caching for RAG queries (TTL: 7 days)
+- **Bincode Optimization**: 2-5x faster serialization than JSON
+- **Persistent Storage**: Caches stored in `~/.local/share/vibe_cli/` with `.bin` extensions
+- **Automatic Cleanup**: Expired entries removed on access
 
-Cached commands are offered first with confirmation to reuse.
+Cached responses are returned instantly for repeated queries.
 
 ### Basic Commands
 
@@ -112,18 +119,18 @@ Multi-step agent:
 vibe-cli --agent "collect system health info: disk usage, top cpu processes, memory hogs"
 ```
 
-Explain a file:
+Explain a file (with intelligent caching):
 ```bash
 vibe-cli --explain src/main.rs
 vibe-cli --explain document.pdf  # Supports PDF text extraction
 vibe-cli --explain file.docx     # Supports DOCX text extraction
 ```
 
-Supported file types: Rust (.rs), Markdown (.md), text files, PDFs, DOCX. Binary files are detected and rejected with a helpful message.
+Supported file types: Rust (.rs), Markdown (.md), TOML (.toml), JSON (.json), text files, PDFs, DOCX. Binary files are detected and rejected. Explanations are cached for instant retrieval on repeat.
 
 ### RAG Commands
 
-Query with codebase context:
+Query with codebase context (with intelligent caching):
 ```bash
 vibe-cli --rag "how does the session management work?"
 ```
@@ -138,6 +145,8 @@ Leptos documentation mode:
 vibe-cli --leptos-mode
 ```
 
+RAG queries scan and index your codebase using semantic chunking, parallel processing, and smart file filtering. Responses include relevant code snippets for accurate, context-aware answers.
+
 
 
 ## Configuration
@@ -150,7 +159,7 @@ OLLAMA_MODEL=qwen2.5-coder:3b
 DB_PATH=~/.local/share/vibe_cli/embeddings.db
 ```
 
-Data files (embeddings database, cache) are stored in `~/.local/share/vibe_cli/` to avoid cluttering the project directory.
+**Data Storage**: All data files (embeddings database, caches) are stored in `~/.local/share/vibe_cli/` to avoid cluttering the project directory. Caches use bincode for optimal performance.
 
 ## Performance
 
@@ -159,7 +168,10 @@ Data files (embeddings database, cache) are stored in `~/.local/share/vibe_cli/`
 - **Memory Management**: SmallVec, ArrayVec, Arc<str> for efficient allocations
 - **File I/O**: Memory-mapped reading with memmap2
 - **Parallel Processing**: Rayon for concurrent scanning and chunking
-- **Database**: SQLite WAL mode with optimized settings
+- **Database**: SQLite WAL mode with bincode serialization and async operations
+- **Caching**: Multi-level bincode-optimized caches with semantic similarity
+- **Chunking**: Semantic paragraph-based splitting with deduplication
+- **Progress Indicators**: Real-time status updates for better UX
 
 ## Deployment
 
