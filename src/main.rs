@@ -16,6 +16,7 @@ use infrastructure::ollama_client::OllamaClient;
 use infrastructure::config::Config as RagConfig;
 use dialoguer::Input;
 use anyhow::Result;
+use shared::confirmation::ask_confirmation;
 
 /// Qwen-powered ultra-safe CLI assistant using a local Ollama server.
 #[derive(Parser, Debug)]
@@ -164,11 +165,7 @@ async fn run_rag_mode(config: &LocalConfig, prompt_text: &str) -> Result<()> {
 
     // Check for cached response
     if let Some(cached) = config.load_cached_rag(&question)? {
-        eprintln!("Cached answer found. Use it? (y/n) [y]: ");
-        let mut input = String::new();
-        std::io::stdin().read_line(&mut input)?;
-        let use_cached = input.trim().is_empty() || input.trim().to_lowercase().starts_with('y');
-        if use_cached {
+        if ask_confirmation("Cached answer found. Use it?", true)? {
             println!("{}", cached);
             return Ok(());
         }
@@ -188,12 +185,7 @@ async fn run_rag_mode(config: &LocalConfig, prompt_text: &str) -> Result<()> {
 
         println!("{}", answer);
 
-        eprintln!("Satisfied with this response? (y/n) [y]: ");
-        let mut input = String::new();
-        std::io::stdin().read_line(&mut input)?;
-        let satisfied = input.trim().is_empty() || input.trim().to_lowercase().starts_with('y');
-
-        if satisfied {
+        if ask_confirmation("Satisfied with this response?", true)? {
             config.save_cached_rag(&question, &answer)?;
             break;
         } else {
