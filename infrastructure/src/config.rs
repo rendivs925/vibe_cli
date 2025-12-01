@@ -47,10 +47,13 @@ fn project_cache_suffix() -> String {
     }
 }
 
+#[derive(Clone)]
 pub struct Config {
     pub ollama_base_url: String,
     pub ollama_model: String,
     pub db_path: String,
+    pub rag_include_patterns: Vec<String>,
+    pub rag_exclude_patterns: Vec<String>,
 }
 
 impl Config {
@@ -66,12 +69,29 @@ impl Config {
             path.push(format!("{}_embeddings.db", suffix));
             path.to_string_lossy().to_string()
         });
+
+        // Default include patterns for common code files
+        let rag_include_patterns = env::var("RAG_INCLUDE_PATTERNS")
+            .unwrap_or_else(|_| "*.rs,*.js,*.ts,*.py,*.java,*.go,*.md,*.toml,*.json".to_string())
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .collect();
+
+        // Default exclude patterns for build artifacts and common irrelevant files
+        let rag_exclude_patterns = env::var("RAG_EXCLUDE_PATTERNS")
+            .unwrap_or_else(|_| "target/**,node_modules/**,*.lock,Cargo.lock,.git/**,__pycache__/**,*.pyc,dist/**,build/**,.next/**,.cache/**".to_string())
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .collect();
+
         Self {
             ollama_base_url: env::var("OLLAMA_BASE_URL")
                 .unwrap_or_else(|_| "http://localhost:11434".to_string()),
             ollama_model: env::var("BASE_MODEL")
                 .unwrap_or_else(|_| "qwen2.5:1.5b-instruct".to_string()),
             db_path,
+            rag_include_patterns,
+            rag_exclude_patterns,
         }
     }
 }

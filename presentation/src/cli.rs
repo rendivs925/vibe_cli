@@ -768,7 +768,7 @@ User request: {}",
         if self.rag_service.is_none() {
             eprintln!("Analyzing query and scanning codebase...");
             let client = OllamaClient::new()?;
-            self.rag_service = Some(RagService::new(".", &self.config.db_path, client).await?);
+            self.rag_service = Some(RagService::new(".", &self.config.db_path, client, self.config.clone()).await?);
             let keywords = Self::keywords_from_text(question);
             self.rag_service
                 .as_ref()
@@ -789,7 +789,7 @@ User request: {}",
     async fn handle_context(&mut self, path: &str) -> Result<()> {
         eprintln!("Loading context from {}...", path);
         let client = OllamaClient::new()?;
-        self.rag_service = Some(RagService::new(path, &self.config.db_path, client).await?);
+        self.rag_service = Some(RagService::new(path, &self.config.db_path, client, self.config.clone()).await?);
         self.rag_service.as_ref().unwrap().build_index().await?;
         eprintln!("Context loaded from {}", path);
         self.handle_chat().await
