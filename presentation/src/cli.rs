@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use shared::types::Result;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
+use std::io::{self, Write};
 use std::path::PathBuf;
 
 fn find_project_root() -> Option<String> {
@@ -759,10 +760,16 @@ User request: {}",
     }
 
     async fn handle_rag(&mut self, question: &str) -> Result<()> {
-        // Check cache first
         if let Some(cached_response) = self.load_cached_rag(question)? {
-            println!("{}", cached_response);
-            return Ok(());
+            eprint!("Cached answer found. Use it? (y/n) [y]: ");
+            io::stdout().flush()?;
+            let mut input = String::new();
+            io::stdin().read_line(&mut input)?;
+            let use_cached = input.trim().is_empty() || input.trim().to_lowercase().starts_with('y');
+            if use_cached {
+                println!("{}", cached_response);
+                return Ok(());
+            }
         }
 
         if self.rag_service.is_none() {
@@ -776,13 +783,38 @@ User request: {}",
                 .build_index_for_keywords(&keywords)
                 .await?;
         }
-        eprintln!("Thinking...");
-        let response = self.rag_service.as_ref().unwrap().query(question).await?;
 
-        // Cache the response
-        self.save_cached_rag(question, &response)?;
+        let mut feedback = String::new();
+        loop {
+            eprintln!("Thinking...");
+            let response = self
+                .rag_service
+                .as_ref()
+                .unwrap()
+                .query_with_feedback(question, &feedback)
+                .await?;
 
-        println!("{}", response);
+            println!("{}", response);
+
+            eprint!("Satisfied with this response? (y/n) [y]: ");
+            io::stdout().flush()?;
+            let mut input = String::new();
+            io::stdin().read_line(&mut input)?;
+            let satisfied = input.trim().is_empty() || input.trim().to_lowercase().starts_with('y');
+
+            if satisfied {
+                self.save_cached_rag(question, &response)?;
+                break;
+            } else {
+                feedback.clear();
+                eprint!("Provide feedback for improvement: ");
+                io::stdout().flush()?;
+                io::stdin().read_line(&mut feedback)?;
+                feedback = feedback.trim().to_string();
+                eprintln!("Regenerating with feedback...");
+            }
+        }
+
         Ok(())
     }
 

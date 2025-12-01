@@ -235,4 +235,81 @@ impl Config {
         }
         Ok(())
     }
+
+    pub fn load_cached_rag(&self, prompt: &str) -> Result<Option<String>> {
+        if !self.cache_path.exists() {
+            return Ok(None);
+        }
+
+        let data = fs::read(&self.cache_path)
+            .with_context(|| format!("Failed to read cache file at {:?}", self.cache_path))?;
+
+        let mut cache: CacheFile = bincode::deserialize(&data).unwrap_or_default();
+
+        // Remove expired entries
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        cache.entries.retain(|entry| now - entry.timestamp < CACHE_TTL_SECONDS);
+
+        // Save cleaned cache back to disk
+        if let Some(parent) = self.cache_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let serialized = bincode::serialize(&cache)?;
+        fs::write(&self.cache_path, serialized)?;
+
+        // First try exact match
+        for entry in &cache.entries {
+            if entry.prompt == prompt {
+                return Ok(Some(Self::clean_command_output(&entry.command)));
+            }
+        }
+
+        // Then try semantic similarity
+        let mut best_match: Option<&CacheEntry> = None;
+        let mut best_similarity = 0.0;
+
+        for entry in &cache.entries {
+            let similarity = Self::semantic_similarity(prompt, &entry.prompt);
+            if similarity > best_similarity && similarity >= SEMANTIC_SIMILARITY_THRESHOLD {
+                best_similarity = similarity;
+                best_match = Some(entry);
+            }
+        }
+
+        if let Some(entry) = best_match {
+            return Ok(Some(Self::clean_command_output(&entry.command)));
+        }
+
+        Ok(None)
+    }
+
+    pub fn save_cached_rag(&self, prompt: &str, response: &str) -> Result<()> {
+        let mut cache = if self.cache_path.exists() {
+            let data = fs::read(&self.cache_path).unwrap_or_default();
+            bincode::deserialize::<CacheFile>(&data).unwrap_or_default()
+        } else {
+            CacheFile::default()
+        };
+
+        cache.entries.push(CacheEntry {
+            prompt: prompt.to_string(),
+            command: Self::clean_command_output(response),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        });
+
+        if let Some(parent) = self.cache_path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+
+        let serialized = bincode::serialize(&cache)?;
+        fs::write(&self.cache_path, serialized)?;
+
+        Ok(())
+    }
 }

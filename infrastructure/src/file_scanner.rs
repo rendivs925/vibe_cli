@@ -114,7 +114,12 @@ impl FileScanner {
         let Ok(read_dir) = std::fs::read_dir(dir) else {
             return;
         };
-        for entry in read_dir.flatten() {
+
+        // Sort entries for deterministic tree output.
+        let mut entries: Vec<_> = read_dir.flatten().collect();
+        entries.sort_by_key(|e| e.path());
+
+        for entry in entries {
             let path = entry.path();
             if path.is_dir() {
                 if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
@@ -123,9 +128,22 @@ impl FileScanner {
                     }
                 }
                 self.walk_directory(&path, lines, depth + 1, max_depth, max_entries, seen);
-                if *seen >= max_entries {
-                    return;
+            } else {
+                let file_indent = "  ".repeat(depth + 1);
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    if self.ignored_dirs.contains(name) {
+                        continue;
+                    }
+                    lines.push(format!("{}{}", file_indent, name));
+                    *seen += 1;
+                    if *seen >= max_entries {
+                        return;
+                    }
                 }
+            }
+
+            if *seen >= max_entries {
+                return;
             }
         }
     }
