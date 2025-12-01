@@ -7,7 +7,31 @@ use infrastructure::{config::Config, ollama_client::OllamaClient};
 use serde::{Deserialize, Serialize};
 use shared::types::Result;
 use std::collections::HashSet;
+use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
+
+fn find_project_root() -> Option<String> {
+    let mut current = std::env::current_dir().ok()?;
+    loop {
+        if current.join("Cargo.toml").exists() {
+            return Some(current.display().to_string());
+        }
+        if !current.pop() {
+            break;
+        }
+    }
+    None
+}
+
+fn project_cache_suffix() -> String {
+    if let Some(root) = find_project_root() {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        root.hash(&mut hasher);
+        format!("{:x}", hasher.finish())
+    } else {
+        "global".to_string()
+    }
+}
 
 fn detect_system_info() -> String {
     let mut info = Vec::new();
@@ -338,7 +362,8 @@ impl CliApp {
         path.push(".local");
         path.push("share");
         path.push("vibe_cli");
-        path.push("cli_cache.json");
+        let suffix = project_cache_suffix();
+        path.push(format!("{}_cli_cache.json", suffix));
         path
     }
 
@@ -832,7 +857,8 @@ User request: {}",
         path.push(".local");
         path.push("share");
         path.push("vibe_cli");
-        path.push("explain_cache.bin");
+        let suffix = project_cache_suffix();
+        path.push(format!("{}_explain_cache.bin", suffix));
         path
     }
 
@@ -902,7 +928,8 @@ User request: {}",
         path.push(".local");
         path.push("share");
         path.push("vibe_cli");
-        path.push("rag_cache.bin");
+        let suffix = project_cache_suffix();
+        path.push(format!("{}_rag_cache.bin", suffix));
         path
     }
 
