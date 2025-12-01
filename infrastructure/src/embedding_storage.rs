@@ -28,7 +28,6 @@ impl EmbeddingStorage {
                 path TEXT NOT NULL DEFAULT ''
             );
             CREATE INDEX IF NOT EXISTS idx_embeddings_vector ON embeddings(vector);
-            CREATE INDEX IF NOT EXISTS idx_embeddings_path ON embeddings(path);
             CREATE TABLE IF NOT EXISTS file_meta (
                 path TEXT PRIMARY KEY,
                 hash TEXT NOT NULL
@@ -51,11 +50,12 @@ impl EmbeddingStorage {
                 "ALTER TABLE embeddings ADD COLUMN path TEXT NOT NULL DEFAULT ''",
                 [],
             )?;
-            conn.execute(
-                "CREATE INDEX IF NOT EXISTS idx_embeddings_path ON embeddings(path)",
-                [],
-            )?;
         }
+        // Ensure the path index exists once the column is known to be present.
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_embeddings_path ON embeddings(path)",
+            [],
+        )?;
         Ok(())
     }
 
