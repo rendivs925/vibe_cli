@@ -29,6 +29,12 @@ impl FileScanner {
                 ".cache",
                 "venv",
                 "__pycache__",
+                "debug",
+                ".DS_Store",
+                ".pytest_cache",
+                ".mypy_cache",
+                ".ruff_cache",
+                "Cargo.lock",
             ]
             .into_iter()
             .map(String::from)
