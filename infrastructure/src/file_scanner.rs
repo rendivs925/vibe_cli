@@ -169,6 +169,7 @@ impl FileScanner {
         const MIN_CHUNK_SIZE: usize = 500;
 
         let mut chunks = Vec::new();
+        let mut seen_hashes = HashSet::new();
         let path_str = path.to_string_lossy().to_string();
 
         // Split text into paragraphs (double newlines)
@@ -178,12 +179,15 @@ impl FileScanner {
 
         for paragraph in paragraphs {
             if current_chunk.len() + paragraph.len() > MAX_CHUNK_SIZE && !current_chunk.is_empty() {
-                // Save current chunk
-                chunks.push(FileChunk {
-                    path: path_str.clone(),
-                    text: current_chunk.clone(),
-                    start_offset,
-                });
+                // Check deduplication
+                let hash = format!("{:x}", md5::compute(current_chunk.as_bytes()));
+                if seen_hashes.insert(hash) {
+                    chunks.push(FileChunk {
+                        path: path_str.clone(),
+                        text: current_chunk.clone(),
+                        start_offset,
+                    });
+                }
                 current_chunk.clear();
                 start_offset += paragraph.as_ptr() as usize - text.as_ptr() as usize;
             }
@@ -194,11 +198,14 @@ impl FileScanner {
             current_chunk.push_str(paragraph);
 
             if current_chunk.len() >= MIN_CHUNK_SIZE {
-                chunks.push(FileChunk {
-                    path: path_str.clone(),
-                    text: current_chunk.clone(),
-                    start_offset,
-                });
+                let hash = format!("{:x}", md5::compute(current_chunk.as_bytes()));
+                if seen_hashes.insert(hash) {
+                    chunks.push(FileChunk {
+                        path: path_str.clone(),
+                        text: current_chunk.clone(),
+                        start_offset,
+                    });
+                }
                 current_chunk.clear();
                 start_offset += paragraph.as_ptr() as usize - text.as_ptr() as usize + paragraph.len();
             }
@@ -206,26 +213,30 @@ impl FileScanner {
 
         // Add remaining chunk
         if !current_chunk.is_empty() {
-            chunks.push(FileChunk {
-                path: path_str.clone(),
-                text: current_chunk,
-                start_offset,
-            });
+            let hash = format!("{:x}", md5::compute(current_chunk.as_bytes()));
+            if seen_hashes.insert(hash) {
+                chunks.push(FileChunk {
+                    path: path_str.clone(),
+                    text: current_chunk,
+                    start_offset,
+                });
+            }
         }
 
         // If no chunks, fallback to fixed size
         if chunks.is_empty() {
-            self.chunk_fixed_size(text, path)
+            self.chunk_fixed_size_dedup(text, path)
         } else {
             chunks
         }
     }
 
-    fn chunk_fixed_size(&self, text: &str, path: &Path) -> Vec<FileChunk> {
+    fn chunk_fixed_size_dedup(&self, text: &str, path: &Path) -> Vec<FileChunk> {
         const CHUNK_SIZE: usize = 1000;
         const OVERLAP: usize = 200;
 
         let mut chunks = Vec::new();
+        let mut seen_hashes = HashSet::new();
         let mut start = 0;
         let path_str = path.to_string_lossy().to_string();
         let estimated = (text.len() / (CHUNK_SIZE.saturating_sub(OVERLAP)).max(1)) + 2;
@@ -238,11 +249,14 @@ impl FileScanner {
                 end += 1;
             }
             let chunk_text = text[start..end].to_string();
-            chunks.push(FileChunk {
-                path: path_str.clone(),
-                text: chunk_text,
-                start_offset: start,
-            });
+            let hash = format!("{:x}", md5::compute(chunk_text.as_bytes()));
+            if seen_hashes.insert(hash) {
+                chunks.push(FileChunk {
+                    path: path_str.clone(),
+                    text: chunk_text,
+                    start_offset: start,
+                });
+            }
 
             if end == text.len() {
                 break;
