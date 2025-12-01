@@ -1,10 +1,10 @@
 use application::rag_service::RagService;
 use clap::Parser;
 use colored::Colorize;
-use dialoguer::Confirm;
 use docx_rs::*;
 use infrastructure::{config::Config, ollama_client::OllamaClient};
 use serde::{Deserialize, Serialize};
+use shared::confirmation::ask_confirmation;
 use shared::types::Result;
 use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
@@ -580,11 +580,7 @@ impl CliApp {
             let response = client.generate_response(&prompt).await?;
             let command = extract_command_from_response(&response);
             println!("{}", format!("Command: {}", command).green());
-            if dialoguer::Confirm::new()
-                .with_prompt("Run this command?")
-                .default(false)
-                .interact()?
-            {
+            if ask_confirmation("Run this command?", false)? {
                 let output = std::process::Command::new("bash")
                     .arg("-c")
                     .arg(&command)
@@ -644,10 +640,7 @@ User request: {}",
                 format!("{}:", i + 1).green().bold()
             );
             println!("{} {}", "Suggested command:".green(), cmd.yellow());
-            let accept = Confirm::new()
-                .with_prompt("Run this command?")
-                .default(false)
-                .interact()?;
+            let accept = ask_confirmation("Run this command?", false)?;
             if !accept {
                 println!("{}", "Skipping this step.".yellow());
                 continue;
@@ -837,11 +830,7 @@ User request: {}",
                 "{}",
                 format!("Found cached command: {}", cached_command).green()
             );
-            if dialoguer::Confirm::new()
-                .with_prompt("Use cached command?")
-                .default(true)
-                .interact()?
-            {
+            if ask_confirmation("Use cached command?", true)? {
                 let output = std::process::Command::new("bash")
                     .arg("-c")
                     .arg(&cached_command)
@@ -867,11 +856,7 @@ User request: {}",
         let response = client.generate_response(&prompt).await?;
         let command = extract_command_from_response(&response);
         println!("{}", format!("Command: {}", command).green());
-        if dialoguer::Confirm::new()
-            .with_prompt("Run this command?")
-            .default(false)
-            .interact()?
-        {
+        if ask_confirmation("Run this command?", false)? {
             let output = std::process::Command::new("bash")
                 .arg("-c")
                 .arg(&command)
