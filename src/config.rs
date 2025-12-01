@@ -1,6 +1,8 @@
 use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
+use std::collections::hash_map::DefaultHasher;
 use std::fs;
+use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
 
 // Cache entries expire after 7 days (604800 seconds)
@@ -8,6 +10,29 @@ const CACHE_TTL_SECONDS: u64 = 604800;
 
 // Semantic similarity threshold (0.0 to 1.0)
 const SEMANTIC_SIMILARITY_THRESHOLD: f64 = 0.7;
+
+fn find_project_root() -> Option<String> {
+    let mut current = std::env::current_dir().ok()?;
+    loop {
+        if current.join("Cargo.toml").exists() {
+            return Some(current.display().to_string());
+        }
+        if !current.pop() {
+            break;
+        }
+    }
+    None
+}
+
+fn project_cache_suffix() -> String {
+    if let Some(root) = find_project_root() {
+        let mut hasher = DefaultHasher::new();
+        root.hash(&mut hasher);
+        format!("{:x}", hasher.finish())
+    } else {
+        "global".to_string()
+    }
+}
 
 #[derive(Clone)]
 pub struct Config {
@@ -102,7 +127,8 @@ impl Config {
         path.push(".local");
         path.push("share");
         path.push("vibe_cli");
-        path.push("cache.bin");
+        let suffix = project_cache_suffix();
+        path.push(format!("{}_cache.bin", suffix));
         path
     }
 

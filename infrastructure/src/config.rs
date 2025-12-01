@@ -1,6 +1,31 @@
 use dotenvy::dotenv;
+use std::collections::hash_map::DefaultHasher;
 use std::env;
+use std::hash::{Hash, Hasher};
 use std::path::PathBuf;
+
+fn find_project_root() -> Option<String> {
+    let mut current = std::env::current_dir().ok()?;
+    loop {
+        if current.join("Cargo.toml").exists() {
+            return Some(current.display().to_string());
+        }
+        if !current.pop() {
+            break;
+        }
+    }
+    None
+}
+
+fn project_cache_suffix() -> String {
+    if let Some(root) = find_project_root() {
+        let mut hasher = DefaultHasher::new();
+        root.hash(&mut hasher);
+        format!("{:x}", hasher.finish())
+    } else {
+        "global".to_string()
+    }
+}
 
 pub struct Config {
     pub ollama_base_url: String,
@@ -17,7 +42,8 @@ impl Config {
             path.push(".local");
             path.push("share");
             path.push("vibe_cli");
-            path.push("embeddings.db");
+            let suffix = project_cache_suffix();
+            path.push(format!("{}_embeddings.db", suffix));
             path.to_string_lossy().to_string()
         });
         Self {
