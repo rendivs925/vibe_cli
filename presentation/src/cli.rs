@@ -109,6 +109,18 @@ struct ExplainCacheEntry {
     timestamp: u64,
 }
 
+#[derive(Serialize, Deserialize, Default)]
+struct RagCacheFile {
+    entries: Vec<RagCacheEntry>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct RagCacheEntry {
+    question: String,
+    response: String,
+    timestamp: u64,
+}
+
 /// Remove markdown code fences/backticks and surrounding quotes
 fn clean_command_output(raw: &str) -> String {
     let trimmed = raw.trim();
@@ -702,6 +714,12 @@ User request: {}",
     }
 
     async fn handle_rag(&mut self, question: &str) -> Result<()> {
+        // Check cache first
+        if let Some(cached_response) = self.load_cached_rag(question)? {
+            println!("{}", cached_response);
+            return Ok(());
+        }
+
         if self.rag_service.is_none() {
             eprintln!("Analyzing query and scanning codebase...");
             let client = OllamaClient::new()?;
@@ -715,6 +733,10 @@ User request: {}",
         }
         eprintln!("Thinking...");
         let response = self.rag_service.as_ref().unwrap().query(question).await?;
+
+        // Cache the response
+        self.save_cached_rag(question, &response)?;
+
         println!("{}", response);
         Ok(())
     }
@@ -857,6 +879,76 @@ User request: {}",
 
         cache.entries.push(ExplainCacheEntry {
             prompt: prompt.to_string(),
+            response: response.to_string(),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        });
+
+        if let Some(parent) = cache_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let serialized = serde_json::to_string_pretty(&cache)?;
+        std::fs::write(&cache_path, serialized)?;
+
+        Ok(())
+    }
+
+    fn rag_cache_path() -> PathBuf {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let mut path = PathBuf::from(home);
+        path.push(".local");
+        path.push("share");
+        path.push("vibe_cli");
+        path.push("rag_cache.json");
+        path
+    }
+
+    fn load_cached_rag(&self, question: &str) -> Result<Option<String>> {
+        let cache_path = Self::rag_cache_path();
+        if !cache_path.exists() {
+            return Ok(None);
+        }
+
+        let data = std::fs::read_to_string(&cache_path)?;
+        let mut cache: RagCacheFile = serde_json::from_str(&data).unwrap_or_default();
+
+        // Remove expired entries (7 days)
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        cache.entries.retain(|entry| now - entry.timestamp < 604800);
+
+        // Save cleaned cache
+        if let Some(parent) = cache_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let serialized = serde_json::to_string_pretty(&cache)?;
+        std::fs::write(&cache_path, serialized)?;
+
+        // Find exact match
+        for entry in &cache.entries {
+            if entry.question == question {
+                return Ok(Some(entry.response.clone()));
+            }
+        }
+        Ok(None)
+    }
+
+    fn save_cached_rag(&self, question: &str, response: &str) -> Result<()> {
+        let cache_path = Self::rag_cache_path();
+        let mut cache = if cache_path.exists() {
+            let data = std::fs::read_to_string(&cache_path).unwrap_or_default();
+            serde_json::from_str::<RagCacheFile>(&data).unwrap_or_default()
+        } else {
+            RagCacheFile::default()
+        };
+
+        cache.entries.push(RagCacheEntry {
+            question: question.to_string(),
             response: response.to_string(),
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
