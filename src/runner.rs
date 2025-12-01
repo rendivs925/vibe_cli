@@ -188,10 +188,7 @@ pub fn confirm_and_run(cmd: &str, config: &Config) -> Result<()> {
         }
     }
 
-    let proceed = Confirm::new()
-        .with_prompt("Run this command?")
-        .default(false)
-        .interact()?;
+    let proceed = ask_confirmation("Run this command?", false)?;
 
     if !proceed {
         println!("{}", "Command execution cancelled.".yellow());
@@ -218,10 +215,7 @@ pub fn confirm_and_run(cmd: &str, config: &Config) -> Result<()> {
 pub fn confirm_and_run_multi_step(cmd: &str, config: &Config) -> Result<()> {
     println!("{} {}", "Suggested command:".green().bold(), cmd.yellow());
 
-    let accept = Confirm::new()
-        .with_prompt("Accept this command?")
-        .default(true)
-        .interact()?;
+    let accept = ask_confirmation("Accept this command?", true)?;
 
     if !accept {
         println!("{}", "Command rejected. Skipping this step.".yellow());
@@ -268,13 +262,10 @@ pub fn confirm_and_run_multi_step(cmd: &str, config: &Config) -> Result<()> {
         }
     }
 
-    let proceed = Confirm::new()
-        .with_prompt("Run this command?")
-        .default(false)
-        .interact()?;
+    let proceed = ask_confirmation("Run this command?", false)?;
 
     if !proceed {
-        println!("{}", "Cancelled by user.".red());
+        println!("{}", "Command execution cancelled.".yellow());
         return Ok(());
     }
 
@@ -293,4 +284,12 @@ pub fn confirm_and_run_multi_step(cmd: &str, config: &Config) -> Result<()> {
     }
 
     Ok(())
+}
+
+fn ask_confirmation(prompt: &str, default_yes: bool) -> Result<bool> {
+    let choice = Confirm::new()
+        .with_prompt(prompt)
+        .default(default_yes)
+        .interact()?;
+    Ok(choice)
 }
