@@ -1,7 +1,11 @@
 use infrastructure::{
-    embedder::Embedder, embedding_storage::EmbeddingStorage, file_scanner::FileScanner,
-    ollama_client::OllamaClient, search::SearchEngine,
+    embedder::{Embedder, EmbeddingInput},
+    embedding_storage::EmbeddingStorage,
+    file_scanner::FileScanner,
+    ollama_client::OllamaClient,
+    search::SearchEngine,
 };
+use md5;
 use shared::types::Result;
 use std::path::PathBuf;
 
@@ -64,24 +68,60 @@ impl RagService {
     }
 
     async fn build_index_with_files(&self, files: &[PathBuf]) -> Result<()> {
+        let mut inputs: Vec<EmbeddingInput> = Vec::new();
+
         // Add a small directory overview chunk to help the model understand layout.
-        let mut texts = Vec::new();
         let dir_overview = self.scanner.directory_overview(4, 400);
         if !dir_overview.is_empty() {
-            texts.push(format!("DIRECTORY TREE:\n{}", dir_overview));
+            let dir_hash = format!("{:x}", md5::compute(dir_overview.as_bytes()));
+            let meta = self.storage.get_file_hash("__dir_overview__")?;
+            if meta.as_deref() != Some(dir_hash.as_str()) {
+                self.storage
+                    .delete_embeddings_for_path("__dir_overview__")?;
+                inputs.push(EmbeddingInput {
+                    id: format!("__dir_overview__:{dir_hash}"),
+                    path: "__dir_overview__".to_string(),
+                    text: format!("DIRECTORY TREE:\n{}", dir_overview),
+                });
+                self.storage
+                    .upsert_file_hash("__dir_overview__", &dir_hash)?;
+            }
         }
 
-        let chunks = self.scanner.scan_paths(files)?;
-        for chunk in chunks {
-            texts.push(format!(
-                "FILE: {}\nOFFSET: {}\n{}",
-                chunk.path, chunk.start_offset, chunk.text
-            ));
+        let scans = self.scanner.scan_paths(files)?;
+        for scan in scans {
+            if scan.hash.is_empty() || scan.chunks.is_empty() {
+                continue;
+            }
+
+            let previous_hash = self.storage.get_file_hash(&scan.path)?;
+            if previous_hash.as_deref() == Some(scan.hash.as_str()) {
+                continue;
+            }
+
+            // File changed; drop old embeddings for this path.
+            self.storage.delete_embeddings_for_path(&scan.path)?;
+
+            for chunk in scan.chunks {
+                let id = format!("{}:{}", chunk.path, chunk.start_offset);
+                let text = format!(
+                    "FILE: {}\nOFFSET: {}\n{}",
+                    chunk.path, chunk.start_offset, chunk.text
+                );
+                inputs.push(EmbeddingInput {
+                    id,
+                    path: chunk.path,
+                    text,
+                });
+            }
+
+            self.storage.upsert_file_hash(&scan.path, &scan.hash)?;
         }
 
-        let text_refs: Vec<&str> = texts.iter().map(|s| s.as_str()).collect();
-        let embeddings = self.embedder.generate_embeddings(&text_refs).await?;
-        self.storage.insert_embeddings(&embeddings)?;
+        if !inputs.is_empty() {
+            let embeddings = self.embedder.generate_embeddings(&inputs).await?;
+            self.storage.insert_embeddings(&embeddings)?;
+        }
         Ok(())
     }
 }

@@ -1,3 +1,4 @@
+use md5;
 use memmap2::Mmap;
 use rayon::prelude::*;
 use shared::types::Result;
@@ -37,21 +38,21 @@ impl FileScanner {
         }
     }
 
-    pub fn scan_files(&self) -> Result<Vec<FileChunk>> {
+    pub fn scan_files(&self) -> Result<Vec<FileScanResult>> {
         let files = self.collect_files()?;
         self.scan_paths(&files)
     }
 
-    pub fn scan_paths(&self, paths: &[PathBuf]) -> Result<Vec<FileChunk>> {
-        let mut all_chunks = Vec::with_capacity(paths.len().saturating_mul(2));
-        let chunks: Vec<Result<Vec<FileChunk>>> = paths
+    pub fn scan_paths(&self, paths: &[PathBuf]) -> Result<Vec<FileScanResult>> {
+        let mut all_results = Vec::with_capacity(paths.len());
+        let results: Vec<Result<FileScanResult>> = paths
             .par_iter()
             .map(|path| self.load_and_chunk_file(path))
             .collect();
-        for chunk_result in chunks {
-            all_chunks.extend(chunk_result?);
+        for res in results {
+            all_results.push(res?);
         }
-        Ok(all_chunks)
+        Ok(all_results)
     }
 
     pub fn collect_files(&self) -> Result<Vec<PathBuf>> {
@@ -140,17 +141,27 @@ impl FileScanner {
         Ok(())
     }
 
-    fn load_and_chunk_file(&self, path: &Path) -> Result<Vec<FileChunk>> {
+    fn load_and_chunk_file(&self, path: &Path) -> Result<FileScanResult> {
         if let Ok(meta) = path.metadata() {
             if meta.len() > self.max_file_bytes {
-                return Ok(Vec::new());
+                return Ok(FileScanResult {
+                    path: path.to_string_lossy().to_string(),
+                    hash: String::new(),
+                    chunks: Vec::new(),
+                });
             }
         }
         let file = File::open(path)?;
         let mmap = unsafe { Mmap::map(&file)? };
         // Lossy conversion ensures non-UTF8 bytes don't crash scanning.
         let content = String::from_utf8_lossy(&mmap).into_owned();
-        Ok(self.chunk_text(&content, path))
+        let hash = format!("{:x}", md5::compute(content.as_bytes()));
+        let chunks = self.chunk_text(&content, path);
+        Ok(FileScanResult {
+            path: path.to_string_lossy().to_string(),
+            hash,
+            chunks,
+        })
     }
 
     fn chunk_text(&self, text: &str, path: &Path) -> Vec<FileChunk> {
@@ -194,4 +205,11 @@ pub struct FileChunk {
     pub path: String,
     pub text: String,
     pub start_offset: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct FileScanResult {
+    pub path: String,
+    pub hash: String,
+    pub chunks: Vec<FileChunk>,
 }

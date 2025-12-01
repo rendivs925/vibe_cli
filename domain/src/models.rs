@@ -11,4 +11,5 @@ pub struct Embedding {
     pub id: String,
     pub vector: Vec<f32>,
     pub text: String,
+    pub path: String,
 }

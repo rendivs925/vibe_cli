@@ -7,40 +7,48 @@ pub struct Embedder {
     client: OllamaClient,
 }
 
+#[derive(Clone)]
+pub struct EmbeddingInput {
+    pub id: String,
+    pub path: String,
+    pub text: String,
+}
+
 impl Embedder {
     pub fn new(client: OllamaClient) -> Self {
         Self { client }
     }
 
-    pub async fn generate_embeddings(&self, texts: &[&str]) -> Result<Vec<Embedding>> {
-        const BATCH_SIZE: usize = 10;
-        let mut embeddings = Vec::new();
+    pub async fn generate_embeddings(&self, inputs: &[EmbeddingInput]) -> Result<Vec<Embedding>> {
+        const BATCH_SIZE: usize = 32;
+        let mut embeddings = Vec::with_capacity(inputs.len());
 
-        for chunk in texts.chunks(BATCH_SIZE) {
+        for chunk in inputs.chunks(BATCH_SIZE) {
             let batch_embeddings = self.generate_batch_embeddings(chunk).await?;
             embeddings.extend(batch_embeddings);
         }
         Ok(embeddings)
     }
 
-    async fn generate_batch_embeddings(&self, texts: &[&str]) -> Result<Vec<Embedding>> {
-        let futures: Vec<_> = texts
+    async fn generate_batch_embeddings(&self, inputs: &[EmbeddingInput]) -> Result<Vec<Embedding>> {
+        let futures: Vec<_> = inputs
             .iter()
-            .map(|text| {
+            .map(|input| {
                 let client = &self.client;
                 async move {
-                    let vector = client.generate_embedding(text).await?;
+                    let vector = client.generate_embedding(&input.text).await?;
                     Ok(Embedding {
-                        id: format!("{:x}", md5::compute(text)),
+                        id: input.id.clone(),
                         vector,
-                        text: text.to_string(),
+                        text: input.text.clone(),
+                        path: input.path.clone(),
                     }) as Result<Embedding>
                 }
             })
             .collect();
 
         let results = stream::iter(futures)
-            .buffer_unordered(5)
+            .buffer_unordered(8)
             .collect::<Vec<_>>()
             .await;
 

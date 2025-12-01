@@ -92,6 +92,7 @@ dependencies = [
  "anyhow",
  "domain",
  "infrastructure",
+ "md5",
  "shared",
  "tokio",
 ]

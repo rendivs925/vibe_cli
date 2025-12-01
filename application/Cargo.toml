@@ -9,3 +9,4 @@ shared = { path = "../shared" }
 infrastructure = { path = "../infrastructure" }
 anyhow.workspace = true
 tokio.workspace = true
+md5 = "0.7"
