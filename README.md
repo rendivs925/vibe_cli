@@ -78,7 +78,7 @@ target/release/vibe_cli
 You can then move or symlink it into your PATH, e.g.:
 
 ```bash
-sudo mv target/release/vibe_cli /usr/local/bin/vibe-cli
+sudo mv target/release/vibe_cli /usr/local/bin/vibe_cli
 ```
 
 ## Usage
@@ -101,29 +101,29 @@ Cached responses are returned instantly for repeated queries.
 
 One-shot command suggestion with intelligent caching:
 ```bash
-vibe-cli find all .rs files larger than 1MB
-vibe-cli check ssh status
+vibe_cli find all .rs files larger than 1MB
+vibe_cli check ssh status
 ```
 
 The CLI will check for cached commands first, offering to reuse them, then generate new commands with AI if needed, and cache successful executions.
 
 Interactive command execution:
 ```bash
-vibe-cli --chat
+vibe_cli --chat
 ```
 
 ### Agent and Explanation
 
 Multi-step agent:
 ```bash
-vibe-cli --agent "collect system health info: disk usage, top cpu processes, memory hogs"
+vibe_cli --agent "collect system health info: disk usage, top cpu processes, memory hogs"
 ```
 
 Explain a file (with intelligent caching):
 ```bash
-vibe-cli --explain src/main.rs
-vibe-cli --explain document.pdf  # Supports PDF text extraction
-vibe-cli --explain file.docx     # Supports DOCX text extraction
+vibe_cli --explain src/main.rs
+vibe_cli --explain document.pdf  # Supports PDF text extraction
+vibe_cli --explain file.docx     # Supports DOCX text extraction
 ```
 
 Supported file types: Rust (.rs), Markdown (.md), TOML (.toml), JSON (.json), text files, PDFs, DOCX. Binary files are detected and rejected. Explanations are cached for instant retrieval on repeat.
@@ -132,17 +132,17 @@ Supported file types: Rust (.rs), Markdown (.md), TOML (.toml), JSON (.json), te
 
 Query with codebase context (with intelligent caching):
 ```bash
-vibe-cli --rag "how does the session management work?"
+vibe_cli --rag "how does the session management work?"
 ```
 
 Load specific context:
 ```bash
-vibe-cli --context ./docs/
+vibe_cli --context ./docs/
 ```
 
 Leptos documentation mode:
 ```bash
-vibe-cli --leptos-mode
+vibe_cli --leptos-mode
 ```
 
 RAG queries scan and index your codebase using semantic chunking, parallel processing, and smart file filtering. Responses include relevant code snippets for accurate, context-aware answers.
@@ -198,7 +198,7 @@ cargo clippy -- -D unwrap_used -D panic -W expect_used
 Add to `.zshrc`:
 ```zsh
 vibe_cli_widget() {
-  BUFFER="vibe-cli --chat"
+  BUFFER="vibe_cli --chat"
   zle accept-line
 }
 zle -N vibe_cli_widget

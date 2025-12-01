@@ -279,7 +279,7 @@ fn extract_command_from_response(response: &str) -> String {
 }
 
 #[derive(Parser)]
-#[command(name = "vibe-cli")]
+#[command(name = "vibe_cli")]
 #[command(about = "Vibe CLI assistant with RAG capabilities")]
 pub struct Cli {
     /// Enter interactive chat mode
