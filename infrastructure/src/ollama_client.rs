@@ -45,7 +45,7 @@ impl OllamaClient {
     pub fn new() -> Result<Self> {
         let base_url =
             env::var("OLLAMA_BASE_URL").unwrap_or_else(|_| "http://localhost:11434".to_string());
-        let model = env::var("BASE_MODEL").unwrap_or_else(|_| "deepseek-coder:6.7b".to_string());
+        let model = env::var("BASE_MODEL").unwrap_or_else(|_| "qwen2.5-coder:3b".to_string());
         Ok(Self {
             client: Arc::new(Client::new()),
             base_url,
