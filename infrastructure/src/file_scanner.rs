@@ -44,6 +44,7 @@ impl FileScanner {
     }
 
     pub fn scan_paths(&self, paths: &[PathBuf]) -> Result<Vec<FileScanResult>> {
+        eprintln!("Scanning files with parallel processing...");
         let mut all_results = Vec::with_capacity(paths.len());
         let results: Vec<Result<FileScanResult>> = paths
             .par_iter()

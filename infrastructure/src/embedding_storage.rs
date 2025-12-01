@@ -72,7 +72,7 @@ impl EmbeddingStorage {
 
     pub async fn insert_embeddings(&self, embeddings: Vec<Embedding>) -> Result<()> {
         let conn = Arc::clone(&self.conn);
-        task::spawn_blocking(move || {
+        task::spawn_blocking(move || -> Result<()> {
             let conn = conn.blocking_lock();
             let tx = conn.unchecked_transaction()?;
             {
@@ -91,7 +91,9 @@ impl EmbeddingStorage {
             }
             tx.commit()?;
             Ok(())
-        }).await?
+        }).await?;
+        eprintln!("Embeddings stored successfully");
+        Ok(())
     }
 
     pub async fn get_all_embeddings(&self) -> Result<Vec<Embedding>> {

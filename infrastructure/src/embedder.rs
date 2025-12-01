@@ -24,6 +24,7 @@ impl Embedder {
         let mut embeddings = Vec::with_capacity(inputs.len());
 
         for chunk in inputs.chunks(BATCH_SIZE) {
+            eprintln!("Generating embeddings for {} chunks...", chunk.len());
             let batch_embeddings = self.generate_batch_embeddings(chunk).await?;
             embeddings.extend(batch_embeddings);
         }
