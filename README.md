@@ -48,13 +48,13 @@ Supported file types: Rust (.rs), Markdown (.md), TOML (.toml), JSON (.json), Gr
 
 ```bash
 ollama serve
-ollama pull qwen2.5:7b
+ollama pull qwen2.5-coder:3b
 ```
 
 Or configure via environment:
 ```bash
 export OLLAMA_BASE_URL=http://localhost:11434
-export OLLAMA_MODEL=qwen2.5:7b
+export OLLAMA_MODEL=qwen2.5-coder:3b
 ```
 
 ## Build
@@ -85,7 +85,7 @@ The CLI accepts natural language queries directly. Use flags for special modes.
 The CLI features intelligent caching with:
 - **TTL Expiration**: Cache entries expire after 7 days
 - **Semantic Similarity**: Matches similar queries using text similarity
-- **Persistent Storage**: Cache stored in `~/.config/vibe_cli/cli_cache.json`
+- **Persistent Storage**: Cache stored in `~/.local/share/vibe_cli/cli_cache.json`
 - **Automatic Cleanup**: Expired entries are removed on load
 
 Cached commands are offered first with confirmation to reuse.
@@ -146,9 +146,11 @@ Create a `.env` file in the project root:
 
 ```env
 OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=qwen2.5:7b
-DB_PATH=embeddings.db
+OLLAMA_MODEL=qwen2.5-coder:3b
+DB_PATH=~/.local/share/vibe_cli/embeddings.db
 ```
+
+Data files (embeddings database, cache) are stored in `~/.local/share/vibe_cli/` to avoid cluttering the project directory.
 
 ## Performance
 
