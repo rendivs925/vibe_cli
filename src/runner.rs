@@ -194,7 +194,7 @@ pub fn confirm_and_run(cmd: &str, config: &Config) -> Result<()> {
         .interact()?;
 
     if !proceed {
-        println!("{}", "Cancelled by user.".red());
+        println!("{}", "Command execution cancelled.".yellow());
         return Ok(());
     }
 
