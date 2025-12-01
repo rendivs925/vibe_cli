@@ -679,6 +679,7 @@ User request: {}",
 
     async fn handle_rag(&mut self, question: &str) -> Result<()> {
         if self.rag_service.is_none() {
+            eprintln!("Analyzing query and scanning codebase...");
             let client = OllamaClient::new()?;
             self.rag_service = Some(RagService::new(".", &self.config.db_path, client).await?);
             let keywords = Self::keywords_from_text(question);
@@ -688,16 +689,18 @@ User request: {}",
                 .build_index_for_keywords(&keywords)
                 .await?;
         }
+        eprintln!("Thinking...");
         let response = self.rag_service.as_ref().unwrap().query(question).await?;
         println!("{}", response);
         Ok(())
     }
 
     async fn handle_context(&mut self, path: &str) -> Result<()> {
+        eprintln!("Loading context from {}...", path);
         let client = OllamaClient::new()?;
         self.rag_service = Some(RagService::new(path, &self.config.db_path, client).await?);
         self.rag_service.as_ref().unwrap().build_index().await?;
-        println!("Context loaded from {}", path);
+        eprintln!("Context loaded from {}", path);
         self.handle_chat().await
     }
 

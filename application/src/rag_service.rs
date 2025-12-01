@@ -68,6 +68,7 @@ impl RagService {
     }
 
     async fn build_index_with_files(&self, files: &[PathBuf]) -> Result<()> {
+        eprintln!("Scanning {} files...", files.len());
         let mut inputs: Vec<EmbeddingInput> = Vec::new();
 
         // Add a small directory overview chunk to help the model understand layout.
@@ -94,6 +95,7 @@ impl RagService {
                 continue;
             }
 
+            eprintln!("Processing {}...", scan.path);
             let previous_hash = self.storage.get_file_hash(scan.path.clone()).await?;
             if previous_hash.as_deref() == Some(scan.hash.as_str()) {
                 continue;
@@ -119,8 +121,11 @@ impl RagService {
         }
 
         if !inputs.is_empty() {
+            eprintln!("Generating embeddings for {} chunks...", inputs.len());
             let embeddings = self.embedder.generate_embeddings(&inputs).await?;
+            eprintln!("Storing embeddings...");
             self.storage.insert_embeddings(embeddings).await?;
+            eprintln!("Indexing complete - {} chunks processed", inputs.len());
         }
         Ok(())
     }

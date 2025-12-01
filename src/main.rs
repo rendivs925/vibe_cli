@@ -115,6 +115,7 @@ async fn run_chat_mode(config: &Config) -> Result<()> {
 
         session.push_user(user_input.clone());
 
+        eprintln!("Thinking...");
         let cmd = model::request_command(config, &session.messages).await?;
         session.push_assistant(cmd.clone());
 
@@ -128,16 +129,7 @@ async fn run_one_shot(config: &Config, prompt_text: &str) -> Result<()> {
     let mut session = ChatSession::new(config.safe_mode);
     session.push_user(prompt_text.to_string());
 
-    // Check cache
-    if config.cache_enabled {
-        if let Some(cached) = config.load_cached(prompt_text)? {
-            if runner::offer_cached(&cached)? {
-                runner::confirm_and_run(&cached, config)?;
-                return Ok(());
-            }
-        }
-    }
-
+    eprintln!("Thinking...");
     let cmd = model::request_command(config, &session.messages).await?;
     session.push_assistant(cmd.clone());
 
