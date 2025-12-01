@@ -1,6 +1,7 @@
 use domain::models::Embedding;
 use rusqlite::{params, Connection, Result as SqlResult};
 use shared::types::Result;
+use std::fs;
 use std::path::Path;
 
 pub struct EmbeddingStorage {
@@ -9,6 +10,9 @@ pub struct EmbeddingStorage {
 
 impl EmbeddingStorage {
     pub fn new(db_path: impl AsRef<Path>) -> Result<Self> {
+        if let Some(parent) = db_path.as_ref().parent() {
+            std::fs::create_dir_all(parent)?;
+        }
         let conn = Connection::open(db_path)?;
         Self::setup_db(&conn)?;
         Ok(Self { conn })
