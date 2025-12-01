@@ -102,7 +102,7 @@ impl Config {
         path.push(".local");
         path.push("share");
         path.push("vibe_cli");
-        path.push("cache.json");
+        path.push("cache.bin");
         path
     }
 
@@ -111,10 +111,10 @@ impl Config {
             return Ok(None);
         }
 
-        let data = fs::read_to_string(&self.cache_path)
+        let data = fs::read(&self.cache_path)
             .with_context(|| format!("Failed to read cache file at {:?}", self.cache_path))?;
 
-        let mut cache: CacheFile = serde_json::from_str(&data).unwrap_or_default();
+        let mut cache: CacheFile = bincode::deserialize(&data).unwrap_or_default();
 
         // Remove expired entries
         let now = std::time::SystemTime::now()
@@ -127,7 +127,7 @@ impl Config {
         if let Some(parent) = self.cache_path.parent() {
             fs::create_dir_all(parent)?;
         }
-        let serialized = serde_json::to_string_pretty(&cache)?;
+        let serialized = bincode::serialize(&cache)?;
         fs::write(&self.cache_path, serialized)?;
 
         // First try exact match
@@ -158,8 +158,8 @@ impl Config {
 
     pub fn save_cached(&self, prompt: &str, command: &str) -> Result<()> {
         let mut cache = if self.cache_path.exists() {
-            let data = fs::read_to_string(&self.cache_path).unwrap_or_default();
-            serde_json::from_str::<CacheFile>(&data).unwrap_or_default()
+            let data = fs::read(&self.cache_path).unwrap_or_default();
+            bincode::deserialize::<CacheFile>(&data).unwrap_or_default()
         } else {
             CacheFile::default()
         };
@@ -177,7 +177,7 @@ impl Config {
             fs::create_dir_all(parent)?;
         }
 
-        let serialized = serde_json::to_string_pretty(&cache)?;
+        let serialized = bincode::serialize(&cache)?;
         fs::write(&self.cache_path, serialized)?;
 
         Ok(())

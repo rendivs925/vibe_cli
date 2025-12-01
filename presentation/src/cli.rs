@@ -832,7 +832,7 @@ User request: {}",
         path.push(".local");
         path.push("share");
         path.push("vibe_cli");
-        path.push("explain_cache.json");
+        path.push("explain_cache.bin");
         path
     }
 
@@ -842,8 +842,8 @@ User request: {}",
             return Ok(None);
         }
 
-        let data = std::fs::read_to_string(&cache_path)?;
-        let mut cache: ExplainCacheFile = serde_json::from_str(&data).unwrap_or_default();
+        let data = std::fs::read(&cache_path)?;
+        let mut cache: ExplainCacheFile = bincode::deserialize(&data).unwrap_or_default();
 
         // Remove expired entries (7 days)
         let now = std::time::SystemTime::now()
@@ -856,7 +856,7 @@ User request: {}",
         if let Some(parent) = cache_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let serialized = serde_json::to_string_pretty(&cache)?;
+        let serialized = bincode::serialize(&cache)?;
         std::fs::write(&cache_path, serialized)?;
 
         // Find exact match
@@ -871,8 +871,8 @@ User request: {}",
     fn save_cached_explain(&self, prompt: &str, response: &str) -> Result<()> {
         let cache_path = Self::explain_cache_path();
         let mut cache = if cache_path.exists() {
-            let data = std::fs::read_to_string(&cache_path).unwrap_or_default();
-            serde_json::from_str::<ExplainCacheFile>(&data).unwrap_or_default()
+            let data = std::fs::read(&cache_path).unwrap_or_default();
+            bincode::deserialize::<ExplainCacheFile>(&data).unwrap_or_default()
         } else {
             ExplainCacheFile::default()
         };
@@ -902,7 +902,7 @@ User request: {}",
         path.push(".local");
         path.push("share");
         path.push("vibe_cli");
-        path.push("rag_cache.json");
+        path.push("rag_cache.bin");
         path
     }
 
@@ -912,8 +912,8 @@ User request: {}",
             return Ok(None);
         }
 
-        let data = std::fs::read_to_string(&cache_path)?;
-        let mut cache: RagCacheFile = serde_json::from_str(&data).unwrap_or_default();
+        let data = std::fs::read(&cache_path)?;
+        let mut cache: RagCacheFile = bincode::deserialize(&data).unwrap_or_default();
 
         // Remove expired entries (7 days)
         let now = std::time::SystemTime::now()
@@ -926,9 +926,9 @@ User request: {}",
         if let Some(parent) = cache_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let serialized = serde_json::to_string_pretty(&cache)?;
-        std::fs::write(&cache_path, serialized)?;
 
+        let serialized = bincode::serialize(&cache)?;
+        std::fs::write(&cache_path, serialized)?;
         // Find exact match
         for entry in &cache.entries {
             if entry.question == question {
@@ -941,8 +941,8 @@ User request: {}",
     fn save_cached_rag(&self, question: &str, response: &str) -> Result<()> {
         let cache_path = Self::rag_cache_path();
         let mut cache = if cache_path.exists() {
-            let data = std::fs::read_to_string(&cache_path).unwrap_or_default();
-            serde_json::from_str::<RagCacheFile>(&data).unwrap_or_default()
+            let data = std::fs::read(&cache_path).unwrap_or_default();
+            bincode::deserialize::<RagCacheFile>(&data).unwrap_or_default()
         } else {
             RagCacheFile::default()
         };
@@ -960,7 +960,7 @@ User request: {}",
             std::fs::create_dir_all(parent)?;
         }
 
-        let serialized = serde_json::to_string_pretty(&cache)?;
+        let serialized = bincode::serialize(&cache)?;
         std::fs::write(&cache_path, serialized)?;
 
         Ok(())
