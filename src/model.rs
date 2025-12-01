@@ -198,7 +198,7 @@ pub async fn request_command(config: &Config, messages: &[Message]) -> Result<St
              For project-wide operations, use the project root as the base. \
              Common patterns: 'disk space/free space' → df -h, 'folder sizes/largest folders' → du -sh */ | sort -hr. \
              Distinguish between filesystem space (df) and folder sizes (du). \
-             Cache management: 'clear cache' uses --retrain flag, 'show cache' → cat ~/.config/qwen_cli_assistant/cache.json. \
+             Cache management: 'clear cache' uses --retrain flag, 'show cache' → cat ~/.config/vibe_cli/cache.json. \
              Output ONLY the command, no markdown, no explanation.",
             cwd, project_root
         ),

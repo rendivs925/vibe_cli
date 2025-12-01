@@ -15,7 +15,7 @@ use anyhow::Result;
 
 /// Qwen-powered ultra-safe CLI assistant using a local Ollama server.
 #[derive(Parser, Debug)]
-#[command(name = "qwen_cli_assistant")]
+#[command(name = "vibe_cli")]
 #[command(about = "Ultra-safe CLI assistant powered by Qwen via Ollama", long_about = None)]
 struct Cli {
     /// Use interactive chat mode

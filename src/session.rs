@@ -41,7 +41,7 @@ impl ChatSession {
                                 - 'largest folders' → du -sh */ | sort -hr\n\
                                 - 'file sizes' → ls -lh | sort -k5 -hr\n\
                                 - 'clear cache' or 'reset cache' → handled by application flags (--retrain)\n\
-                                - 'show cache' or 'list cached commands' → cat ~/.config/qwen_cli_assistant/cache.json\n\
+                                - 'show cache' or 'list cached commands' → cat ~/.config/vibe_cli/cache.json\n\
                                 Distinguish between filesystem space (df) and folder/directory sizes (du). \
                                 When users mention 'folders' or 'directories', they usually want du commands, not df. \
                                 For cache management, use the application's built-in commands rather than direct file manipulation.";
