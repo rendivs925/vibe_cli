@@ -754,12 +754,7 @@ User request: {}",
 
     async fn handle_rag(&mut self, question: &str) -> Result<()> {
         if let Some(cached_response) = self.load_cached_rag(question)? {
-            eprint!("Cached answer found. Use it? (y/n) [y]: ");
-            io::stdout().flush()?;
-            let mut input = String::new();
-            io::stdin().read_line(&mut input)?;
-            let use_cached = input.trim().is_empty() || input.trim().to_lowercase().starts_with('y');
-            if use_cached {
+            if ask_confirmation("Cached answer found. Use it?", true)? {
                 println!("{}", cached_response);
                 return Ok(());
             }
@@ -789,13 +784,7 @@ User request: {}",
 
             println!("{}", response);
 
-            eprint!("Satisfied with this response? (y/n) [y]: ");
-            io::stdout().flush()?;
-            let mut input = String::new();
-            io::stdin().read_line(&mut input)?;
-            let satisfied = input.trim().is_empty() || input.trim().to_lowercase().starts_with('y');
-
-            if satisfied {
+            if ask_confirmation("Satisfied with this response?", true)? {
                 self.save_cached_rag(question, &response)?;
                 break;
             } else {
