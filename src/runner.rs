@@ -3,8 +3,8 @@ use crate::config::Config;
 use crate::safety::{assess_command, print_assessment, require_additional_confirmation};
 use anyhow::{anyhow, Result};
 use colored::*;
-use dialoguer::Confirm;
 use std::process::Command;
+use shared::confirmation::ask_confirmation;
 
 /// Validate basic shell command syntax
 fn validate_command_syntax(cmd: &str) -> Result<()> {
@@ -284,12 +284,4 @@ pub fn confirm_and_run_multi_step(cmd: &str, config: &Config) -> Result<()> {
     }
 
     Ok(())
-}
-
-fn ask_confirmation(prompt: &str, default_yes: bool) -> Result<bool> {
-    let choice = Confirm::new()
-        .with_prompt(prompt)
-        .default(default_yes)
-        .interact()?;
-    Ok(choice)
 }
