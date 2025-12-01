@@ -99,8 +99,9 @@ impl Config {
     fn default_cache_path() -> PathBuf {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
         let mut path = PathBuf::from(home);
-        path.push(".config");
-        path.push("qwen_cli_assistant");
+        path.push(".local");
+        path.push("share");
+        path.push("vibe_cli");
         path.push("cache.json");
         path
     }
