@@ -97,6 +97,18 @@ struct CacheEntry {
     timestamp: u64,
 }
 
+#[derive(Serialize, Deserialize, Default)]
+struct ExplainCacheFile {
+    entries: Vec<ExplainCacheEntry>,
+}
+
+#[derive(Serialize, Deserialize)]
+struct ExplainCacheEntry {
+    prompt: String,
+    response: String,
+    timestamp: u64,
+}
+
 /// Remove markdown code fences/backticks and surrounding quotes
 fn clean_command_output(raw: &str) -> String {
     let trimmed = raw.trim();
@@ -670,9 +682,21 @@ User request: {}",
             return Ok(());
         }
 
-        let client = infrastructure::ollama_client::OllamaClient::new()?;
         let prompt = format!("Explain this content in detail:\n\n{}", content);
+
+        // Check cache first
+        if let Some(cached_response) = self.load_cached_explain(&prompt)? {
+            println!("{}", cached_response);
+            return Ok(());
+        }
+
+        eprintln!("Analyzing file content...");
+        let client = infrastructure::ollama_client::OllamaClient::new()?;
         let response = client.generate_response(&prompt).await?;
+
+        // Cache the response
+        self.save_cached_explain(&prompt, &response)?;
+
         println!("{}", response);
         Ok(())
     }
@@ -778,5 +802,75 @@ User request: {}",
             .filter(|w| w.len() > 2)
             .map(|w| w.to_lowercase())
             .collect()
+    }
+
+    fn explain_cache_path() -> PathBuf {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let mut path = PathBuf::from(home);
+        path.push(".local");
+        path.push("share");
+        path.push("vibe_cli");
+        path.push("explain_cache.json");
+        path
+    }
+
+    fn load_cached_explain(&self, prompt: &str) -> Result<Option<String>> {
+        let cache_path = Self::explain_cache_path();
+        if !cache_path.exists() {
+            return Ok(None);
+        }
+
+        let data = std::fs::read_to_string(&cache_path)?;
+        let mut cache: ExplainCacheFile = serde_json::from_str(&data).unwrap_or_default();
+
+        // Remove expired entries (7 days)
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        cache.entries.retain(|entry| now - entry.timestamp < 604800);
+
+        // Save cleaned cache
+        if let Some(parent) = cache_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        let serialized = serde_json::to_string_pretty(&cache)?;
+        std::fs::write(&cache_path, serialized)?;
+
+        // Find exact match
+        for entry in &cache.entries {
+            if entry.prompt == prompt {
+                return Ok(Some(entry.response.clone()));
+            }
+        }
+        Ok(None)
+    }
+
+    fn save_cached_explain(&self, prompt: &str, response: &str) -> Result<()> {
+        let cache_path = Self::explain_cache_path();
+        let mut cache = if cache_path.exists() {
+            let data = std::fs::read_to_string(&cache_path).unwrap_or_default();
+            serde_json::from_str::<ExplainCacheFile>(&data).unwrap_or_default()
+        } else {
+            ExplainCacheFile::default()
+        };
+
+        cache.entries.push(ExplainCacheEntry {
+            prompt: prompt.to_string(),
+            response: response.to_string(),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        });
+
+        if let Some(parent) = cache_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let serialized = serde_json::to_string_pretty(&cache)?;
+        std::fs::write(&cache_path, serialized)?;
+
+        Ok(())
     }
 }
