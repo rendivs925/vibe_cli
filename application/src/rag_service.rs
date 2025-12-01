@@ -1,4 +1,5 @@
 use infrastructure::{
+    config::Config,
     embedder::{Embedder, EmbeddingInput},
     embedding_storage::EmbeddingStorage,
     file_scanner::FileScanner,
@@ -14,15 +15,17 @@ pub struct RagService {
     storage: EmbeddingStorage,
     embedder: Embedder,
     client: OllamaClient,
+    config: Config,
 }
 
 impl RagService {
-    pub async fn new(root_path: &str, db_path: &str, client: OllamaClient) -> Result<Self> {
+    pub async fn new(root_path: &str, db_path: &str, client: OllamaClient, config: Config) -> Result<Self> {
         Ok(Self {
             scanner: FileScanner::new(root_path),
             storage: EmbeddingStorage::new(db_path).await?,
             embedder: Embedder::new(client.clone()),
             client: client,
+            config,
         })
     }
 
@@ -32,26 +35,51 @@ impl RagService {
     }
 
     pub async fn build_index_for_keywords(&self, keywords: &[String]) -> Result<()> {
-        // Filter files by keyword in path; fallback to full list if nothing matches.
         let mut files = self.scanner.collect_files()?;
+
+        // Apply include/exclude patterns first
+        files = self.filter_files_by_patterns(&files);
+
+        // Filter by keywords if provided
         if !keywords.is_empty() {
-            let keyword_lower: Vec<String> = keywords.iter().map(|k| k.to_lowercase()).collect();
-            let filtered: Vec<PathBuf> = files
-                .iter()
-                .filter(|p| {
-                    let path_str = p.to_string_lossy().to_lowercase();
-                    keyword_lower.iter().any(|k| path_str.contains(k))
-                })
-                .cloned()
-                .collect();
-            if !filtered.is_empty() {
-                files = filtered;
+            let filtered_keywords = self.filter_relevant_keywords(keywords);
+            if !filtered_keywords.is_empty() {
+                let keyword_lower: Vec<String> = filtered_keywords.iter().map(|k| k.to_lowercase()).collect();
+                let filtered: Vec<PathBuf> = files
+                    .iter()
+                    .filter(|p| {
+                        let path_str = p.to_string_lossy().to_lowercase();
+                        keyword_lower.iter().any(|k| path_str.contains(k))
+                    })
+                    .cloned()
+                    .collect();
+                if !filtered.is_empty() {
+                    files = filtered;
+                }
             }
         }
-        // Limit scanned files to reduce latency.
+
+        // Limit scanned files to reduce latency
         const MAX_FILES: usize = 200;
         if files.len() > MAX_FILES {
-            files.truncate(MAX_FILES);
+            // Sort by relevance (prioritize files with more keyword matches)
+            let mut files_with_scores: Vec<(PathBuf, usize)> = files
+                .into_iter()
+                .map(|p| {
+                    let score = if keywords.is_empty() {
+                        1
+                    } else {
+                        let path_str = p.to_string_lossy().to_lowercase();
+                        keywords.iter()
+                            .filter(|k| path_str.contains(&k.to_lowercase()))
+                            .count()
+                    };
+                    (p, score)
+                })
+                .collect();
+
+            files_with_scores.sort_by(|a, b| b.1.cmp(&a.1));
+            files = files_with_scores.into_iter().take(MAX_FILES).map(|(p, _)| p).collect();
         }
 
         self.build_index_with_files(&files).await
@@ -65,6 +93,77 @@ impl RagService {
         let context = relevant_chunks.join("\n\n");
         let prompt = format!("Context:\n{}\n\nQuestion: {}\nAnswer:", context, question);
         self.client.generate_response(&prompt).await
+    }
+
+    fn filter_files_by_patterns(&self, files: &[PathBuf]) -> Vec<PathBuf> {
+        files.iter()
+            .filter(|path| {
+                let path_str = path.to_string_lossy();
+
+                // Check exclude patterns first
+                for pattern in &self.config.rag_exclude_patterns {
+                    if self.matches_pattern(&path_str, pattern) {
+                        return false;
+                    }
+                }
+
+                // Check include patterns
+                if self.config.rag_include_patterns.is_empty() {
+                    return true; // If no include patterns, include all (except excluded)
+                }
+
+                for pattern in &self.config.rag_include_patterns {
+                    if self.matches_pattern(&path_str, pattern) {
+                        return true;
+                    }
+                }
+
+                false
+            })
+            .cloned()
+            .collect()
+    }
+
+    fn matches_pattern(&self, path: &str, pattern: &str) -> bool {
+        // Simple glob-like matching
+        if pattern.contains("**") {
+            // Handle directory patterns like "target/**"
+            let prefix = pattern.trim_end_matches("/**").trim_end_matches("**");
+            if prefix.is_empty() {
+                return true; // ** matches everything
+            }
+            path.contains(&format!("/{}", prefix)) || path.starts_with(prefix)
+        } else if pattern.starts_with("*.") {
+            // File extension pattern like "*.rs"
+            let ext = &pattern[2..];
+            path.ends_with(&format!(".{}", ext))
+        } else {
+            // Exact match or contains
+            path.contains(pattern)
+        }
+    }
+
+    fn filter_relevant_keywords(&self, keywords: &[String]) -> Vec<String> {
+        // Filter out common stop words and very short words
+        let stop_words = [
+            "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by",
+            "is", "are", "was", "were", "be", "been", "being", "have", "has", "had", "do", "does",
+            "did", "will", "would", "could", "should", "may", "might", "must", "can", "shall",
+            "this", "that", "these", "those", "i", "you", "he", "she", "it", "we", "they", "me",
+            "him", "her", "us", "them", "my", "your", "his", "its", "our", "their", "what", "which",
+            "who", "when", "where", "why", "how", "all", "any", "both", "each", "few", "more",
+            "most", "other", "some", "such", "no", "nor", "not", "only", "own", "same", "so",
+            "than", "too", "very", "just", "now", "here", "there", "then", "once", "also",
+            "explain", "available", "list", "show", "get", "find", "search", "query", "select"
+        ];
+
+        keywords.iter()
+            .filter(|k| {
+                let k_lower = k.to_lowercase();
+                k.len() >= 3 && !stop_words.contains(&k_lower.as_str())
+            })
+            .cloned()
+            .collect()
     }
 
     async fn build_index_with_files(&self, files: &[PathBuf]) -> Result<()> {
