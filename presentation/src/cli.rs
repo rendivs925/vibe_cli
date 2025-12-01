@@ -3,7 +3,7 @@ use clap::Parser;
 use colored::Colorize;
 use dialoguer::Confirm;
 use docx_rs::*;
-use infrastructure::ollama_client::OllamaClient;
+use infrastructure::{config::Config, ollama_client::OllamaClient};
 use serde::{Deserialize, Serialize};
 use shared::types::Result;
 use std::collections::HashSet;
@@ -291,6 +291,7 @@ pub struct CliApp {
     rag_service: Option<RagService>,
     cache_path: PathBuf,
     system_info: String,
+    config: Config,
 }
 
 impl CliApp {
@@ -298,17 +299,20 @@ impl CliApp {
         let cache_path = Self::default_cache_path();
         let system_info_path = Self::default_system_info_path();
         let system_info = Self::load_or_collect_system_info(&system_info_path);
+        let config = Config::load();
         Self {
             rag_service: None,
             cache_path,
             system_info,
+            config,
         }
     }
 
     fn default_cache_path() -> PathBuf {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
         let mut path = PathBuf::from(home);
-        path.push(".config");
+        path.push(".local");
+        path.push("share");
         path.push("vibe_cli");
         path.push("cli_cache.json");
         path
@@ -676,7 +680,7 @@ User request: {}",
     async fn handle_rag(&mut self, question: &str) -> Result<()> {
         if self.rag_service.is_none() {
             let client = OllamaClient::new()?;
-            self.rag_service = Some(RagService::new(".", "embeddings.db", client)?);
+            self.rag_service = Some(RagService::new(".", &self.config.db_path, client)?);
             let keywords = Self::keywords_from_text(question);
             self.rag_service
                 .as_ref()
@@ -691,7 +695,7 @@ User request: {}",
 
     async fn handle_context(&mut self, path: &str) -> Result<()> {
         let client = OllamaClient::new()?;
-        self.rag_service = Some(RagService::new(path, "embeddings.db", client)?);
+        self.rag_service = Some(RagService::new(path, &self.config.db_path, client)?);
         self.rag_service.as_ref().unwrap().build_index().await?;
         println!("Context loaded from {}", path);
         self.handle_chat().await
