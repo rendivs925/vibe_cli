@@ -13,9 +13,29 @@ use std::path::PathBuf;
 fn find_project_root() -> Option<String> {
     let mut current = std::env::current_dir().ok()?;
     loop {
-        if current.join("Cargo.toml").exists() {
-            return Some(current.display().to_string());
+        // Check for various project indicators
+        let project_files = [
+            "Cargo.toml",      // Rust
+            "package.json",    // Node.js
+            "requirements.txt", // Python
+            "Pipfile",         // Python
+            "pyproject.toml",  // Python
+            "setup.py",        // Python
+            "Makefile",        // C/C++
+            "CMakeLists.txt",  // C/C++
+            "configure.ac",    // C/C++
+            "go.mod",          // Go
+            "Gemfile",         // Ruby
+            "composer.json",   // PHP
+            ".git",            // Git repo as fallback
+        ];
+
+        for file in &project_files {
+            if current.join(file).exists() {
+                return Some(current.display().to_string());
+            }
         }
+
         if !current.pop() {
             break;
         }

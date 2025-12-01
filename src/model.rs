@@ -166,9 +166,29 @@ fn clean_json_content(content: &str) -> String {
 fn find_project_root() -> Option<String> {
     let mut current = std::env::current_dir().ok()?;
     loop {
-        if current.join("Cargo.toml").exists() {
-            return Some(current.display().to_string());
+        // Check for various project indicators
+        let project_files = [
+            "Cargo.toml",      // Rust
+            "package.json",    // Node.js
+            "requirements.txt", // Python
+            "Pipfile",         // Python
+            "pyproject.toml",  // Python
+            "setup.py",        // Python
+            "Makefile",        // C/C++
+            "CMakeLists.txt",  // C/C++
+            "configure.ac",    // C/C++
+            "go.mod",          // Go
+            "Gemfile",         // Ruby
+            "composer.json",   // PHP
+            ".git",            // Git repo as fallback
+        ];
+
+        for file in &project_files {
+            if current.join(file).exists() {
+                return Some(current.display().to_string());
+            }
         }
+
         if !current.pop() {
             break;
         }
@@ -191,11 +211,11 @@ pub async fn request_command(config: &Config, messages: &[Message]) -> Result<St
         role: "user".into(),
         content: format!(
             "Convert the user's last request into ONE POSIX shell command. \
-             Current working directory: {}. \
-             Project root (for Rust projects): {}. \
-             Use actual paths and commands that will work in this environment. \
-             Avoid placeholders like '/path/to/' - use real paths or relative paths from the project root. \
-             For project-wide operations, use the project root as the base. \
+              Current working directory: {}. \
+              Project root: {}. \
+              Use actual paths and commands that will work in this environment. \
+              Avoid placeholders like '/path/to/' - use real paths or relative paths from the project root. \
+              For project-wide operations, use the project root as the base. \
              Common patterns: 'disk space/free space' → df -h, 'folder sizes/largest folders' → du -sh */ | sort -hr. \
              Distinguish between filesystem space (df) and folder sizes (du). \
              Cache management: 'clear cache' uses --retrain flag, 'show cache' → cat ~/.config/vibe_cli/cache.json. \
