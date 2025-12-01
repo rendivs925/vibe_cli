@@ -24,7 +24,7 @@ impl Config {
             ollama_base_url: env::var("OLLAMA_BASE_URL")
                 .unwrap_or_else(|_| "http://localhost:11434".to_string()),
             ollama_model: env::var("BASE_MODEL")
-                .unwrap_or_else(|_| "deepseek-coder:6.7b".to_string()),
+                .unwrap_or_else(|_| "qwen2.5-coder:3b".to_string()),
             db_path,
         }
     }

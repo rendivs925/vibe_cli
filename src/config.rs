@@ -80,7 +80,7 @@ impl Config {
     }
     pub fn new(safe_mode: bool, cache_enabled: bool, copy_to_clipboard: bool) -> Self {
         let model =
-            std::env::var("BASE_MODEL").unwrap_or_else(|_| "deepseek-coder:6.7b".to_string());
+            std::env::var("BASE_MODEL").unwrap_or_else(|_| "qwen2.5-coder:3b".to_string());
         let endpoint =
             std::env::var("OLLAMA_ENDPOINT").unwrap_or_else(|_| "http://localhost:11434/api/chat".to_string());
 
