@@ -51,16 +51,16 @@ Supported file types: Rust (.rs), Markdown (.md), TOML (.toml), JSON (.json), Gr
 
 ```bash
 ollama serve
-ollama pull qwen2.5-coder:3b
+ollama pull deepseek-coder:6.7b
 ```
 
 Or configure via environment:
 ```bash
 export OLLAMA_BASE_URL=http://localhost:11434
-export OLLAMA_MODEL=qwen2.5-coder:3b
+export BASE_MODEL=deepseek-coder:6.7b
 ```
 
-**Note**: Default model changed to `qwen2.5-coder:3b` for better performance.
+**Note**: Default model changed to `deepseek-coder:6.7b` for better performance.
 
 ## Build
 
@@ -155,7 +155,7 @@ Create a `.env` file in the project root:
 
 ```env
 OLLAMA_BASE_URL=http://localhost:11434
-OLLAMA_MODEL=qwen2.5-coder:3b
+BASE_MODEL=deepseek-coder:6.7b
 DB_PATH=~/.local/share/vibe_cli/embeddings.db
 ```
 
