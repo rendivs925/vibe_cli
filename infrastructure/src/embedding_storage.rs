@@ -3,19 +3,26 @@ use rusqlite::{params, Connection, Result as SqlResult};
 use shared::types::Result;
 use std::fs;
 use std::path::Path;
+use std::sync::Arc;
+use tokio::sync::Mutex;
+use tokio::task;
 
 pub struct EmbeddingStorage {
-    conn: Connection,
+    conn: Arc<Mutex<Connection>>,
 }
 
 impl EmbeddingStorage {
-    pub fn new(db_path: impl AsRef<Path>) -> Result<Self> {
-        if let Some(parent) = db_path.as_ref().parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let conn = Connection::open(db_path)?;
-        Self::setup_db(&conn)?;
-        Ok(Self { conn })
+    pub async fn new(db_path: impl AsRef<Path>) -> Result<Self> {
+        let db_path = db_path.as_ref().to_path_buf();
+        let conn = task::spawn_blocking(move || -> Result<Connection> {
+            if let Some(parent) = db_path.parent() {
+                std::fs::create_dir_all(parent)?;
+            }
+            let conn = Connection::open(&db_path)?;
+            Self::setup_db(&conn)?;
+            Ok(conn)
+        }).await??;
+        Ok(Self { conn: Arc::new(Mutex::new(conn)) })
     }
 
     fn setup_db(conn: &Connection) -> SqlResult<()> {
@@ -63,71 +70,88 @@ impl EmbeddingStorage {
         Ok(())
     }
 
-    pub fn insert_embeddings(&self, embeddings: &[Embedding]) -> Result<()> {
-        let tx = self.conn.unchecked_transaction()?;
-        {
-            let mut stmt = tx.prepare(
-                "INSERT OR REPLACE INTO embeddings (id, vector, text, path) VALUES (?, ?, ?, ?)",
-            )?;
-            for embedding in embeddings {
-                let vector_bytes = serde_json::to_vec(&embedding.vector)?;
-                stmt.execute(params![
-                    embedding.id,
-                    vector_bytes,
-                    embedding.text,
-                    embedding.path
-                ])?;
+    pub async fn insert_embeddings(&self, embeddings: Vec<Embedding>) -> Result<()> {
+        let conn = Arc::clone(&self.conn);
+        task::spawn_blocking(move || {
+            let conn = conn.blocking_lock();
+            let tx = conn.unchecked_transaction()?;
+            {
+                let mut stmt = tx.prepare(
+                    "INSERT OR REPLACE INTO embeddings (id, vector, text, path) VALUES (?, ?, ?, ?)",
+                )?;
+                for embedding in &embeddings {
+                    let vector_bytes = bincode::serialize(&embedding.vector)?;
+                    stmt.execute(params![
+                        &embedding.id,
+                        vector_bytes,
+                        &embedding.text,
+                        &embedding.path
+                    ])?;
+                }
             }
-        }
-        tx.commit()?;
-        Ok(())
+            tx.commit()?;
+            Ok(())
+        }).await?
     }
 
-    pub fn get_all_embeddings(&self) -> Result<Vec<Embedding>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT id, vector, text, path FROM embeddings")?;
-        let mut rows = stmt.query([])?;
-        let mut embeddings = Vec::new();
-        while let Some(row) = rows.next()? {
-            let id: String = row.get(0)?;
-            let vector_bytes: Vec<u8> = row.get(1)?;
-            let text: String = row.get(2)?;
-            let path: String = row.get(3)?;
-            let vector: Vec<f32> = serde_json::from_slice(&vector_bytes)?;
-            embeddings.push(Embedding {
-                id,
-                vector,
-                text,
-                path,
-            });
-        }
-        Ok(embeddings)
+    pub async fn get_all_embeddings(&self) -> Result<Vec<Embedding>> {
+        let conn = Arc::clone(&self.conn);
+        task::spawn_blocking(move || {
+            let conn = conn.blocking_lock();
+            let mut stmt = conn
+                .prepare("SELECT id, vector, text, path FROM embeddings")?;
+            let mut rows = stmt.query([])?;
+            let mut embeddings = Vec::new();
+            while let Some(row) = rows.next()? {
+                let id: String = row.get(0)?;
+                let vector_bytes: Vec<u8> = row.get(1)?;
+                let text: String = row.get(2)?;
+                let path: String = row.get(3)?;
+                let vector: Vec<f32> = bincode::deserialize(&vector_bytes)?;
+                embeddings.push(Embedding {
+                    id,
+                    vector,
+                    text,
+                    path,
+                });
+            }
+            Ok(embeddings)
+        }).await?
     }
 
-    pub fn get_file_hash(&self, path: &str) -> Result<Option<String>> {
-        let mut stmt = self
-            .conn
-            .prepare("SELECT hash FROM file_meta WHERE path = ?1")?;
-        let mut rows = stmt.query([path])?;
-        if let Some(row) = rows.next()? {
-            let hash: String = row.get(0)?;
-            return Ok(Some(hash));
-        }
-        Ok(None)
+    pub async fn get_file_hash(&self, path: String) -> Result<Option<String>> {
+        let conn = Arc::clone(&self.conn);
+        task::spawn_blocking(move || {
+            let conn = conn.blocking_lock();
+            let mut stmt = conn
+                .prepare("SELECT hash FROM file_meta WHERE path = ?1")?;
+            let mut rows = stmt.query([path])?;
+            if let Some(row) = rows.next()? {
+                let hash: String = row.get(0)?;
+                return Ok(Some(hash));
+            }
+            Ok(None)
+        }).await?
     }
 
-    pub fn upsert_file_hash(&self, path: &str, hash: &str) -> Result<()> {
-        self.conn.execute(
-            "INSERT OR REPLACE INTO file_meta (path, hash) VALUES (?1, ?2)",
-            params![path, hash],
-        )?;
-        Ok(())
+    pub async fn upsert_file_hash(&self, path: String, hash: String) -> Result<()> {
+        let conn = Arc::clone(&self.conn);
+        task::spawn_blocking(move || {
+            let conn = conn.blocking_lock();
+            conn.execute(
+                "INSERT OR REPLACE INTO file_meta (path, hash) VALUES (?1, ?2)",
+                params![path, hash],
+            )?;
+            Ok(())
+        }).await?
     }
 
-    pub fn delete_embeddings_for_path(&self, path: &str) -> Result<()> {
-        self.conn
-            .execute("DELETE FROM embeddings WHERE path = ?1", params![path])?;
-        Ok(())
+    pub async fn delete_embeddings_for_path(&self, path: String) -> Result<()> {
+        let conn = Arc::clone(&self.conn);
+        task::spawn_blocking(move || {
+            let conn = conn.blocking_lock();
+            conn.execute("DELETE FROM embeddings WHERE path = ?1", params![path])?;
+            Ok(())
+        }).await?
     }
 }

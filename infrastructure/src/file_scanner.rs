@@ -165,6 +165,63 @@ impl FileScanner {
     }
 
     fn chunk_text(&self, text: &str, path: &Path) -> Vec<FileChunk> {
+        const MAX_CHUNK_SIZE: usize = 2000;
+        const MIN_CHUNK_SIZE: usize = 500;
+
+        let mut chunks = Vec::new();
+        let path_str = path.to_string_lossy().to_string();
+
+        // Split text into paragraphs (double newlines)
+        let paragraphs: Vec<&str> = text.split("\n\n").collect();
+        let mut current_chunk = String::new();
+        let mut start_offset = 0;
+
+        for paragraph in paragraphs {
+            if current_chunk.len() + paragraph.len() > MAX_CHUNK_SIZE && !current_chunk.is_empty() {
+                // Save current chunk
+                chunks.push(FileChunk {
+                    path: path_str.clone(),
+                    text: current_chunk.clone(),
+                    start_offset,
+                });
+                current_chunk.clear();
+                start_offset += paragraph.as_ptr() as usize - text.as_ptr() as usize;
+            }
+
+            if !current_chunk.is_empty() {
+                current_chunk.push_str("\n\n");
+            }
+            current_chunk.push_str(paragraph);
+
+            if current_chunk.len() >= MIN_CHUNK_SIZE {
+                chunks.push(FileChunk {
+                    path: path_str.clone(),
+                    text: current_chunk.clone(),
+                    start_offset,
+                });
+                current_chunk.clear();
+                start_offset += paragraph.as_ptr() as usize - text.as_ptr() as usize + paragraph.len();
+            }
+        }
+
+        // Add remaining chunk
+        if !current_chunk.is_empty() {
+            chunks.push(FileChunk {
+                path: path_str.clone(),
+                text: current_chunk,
+                start_offset,
+            });
+        }
+
+        // If no chunks, fallback to fixed size
+        if chunks.is_empty() {
+            self.chunk_fixed_size(text, path)
+        } else {
+            chunks
+        }
+    }
+
+    fn chunk_fixed_size(&self, text: &str, path: &Path) -> Vec<FileChunk> {
         const CHUNK_SIZE: usize = 1000;
         const OVERLAP: usize = 200;
 

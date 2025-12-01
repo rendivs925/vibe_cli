@@ -17,10 +17,10 @@ pub struct RagService {
 }
 
 impl RagService {
-    pub fn new(root_path: &str, db_path: &str, client: OllamaClient) -> Result<Self> {
+    pub async fn new(root_path: &str, db_path: &str, client: OllamaClient) -> Result<Self> {
         Ok(Self {
             scanner: FileScanner::new(root_path),
-            storage: EmbeddingStorage::new(db_path)?,
+            storage: EmbeddingStorage::new(db_path).await?,
             embedder: Embedder::new(client.clone()),
             client: client,
         })
@@ -59,7 +59,7 @@ impl RagService {
 
     pub async fn query(&self, question: &str) -> Result<String> {
         let query_embedding = self.client.generate_embedding(question).await?;
-        let all_embeddings = self.storage.get_all_embeddings()?;
+        let all_embeddings = self.storage.get_all_embeddings().await?;
         let relevant_chunks =
             SearchEngine::find_relevant_chunks(&query_embedding, &all_embeddings, 5);
         let context = relevant_chunks.join("\n\n");
@@ -74,17 +74,17 @@ impl RagService {
         let dir_overview = self.scanner.directory_overview(4, 400);
         if !dir_overview.is_empty() {
             let dir_hash = format!("{:x}", md5::compute(dir_overview.as_bytes()));
-            let meta = self.storage.get_file_hash("__dir_overview__")?;
+            let meta = self.storage.get_file_hash("__dir_overview__".to_string()).await?;
             if meta.as_deref() != Some(dir_hash.as_str()) {
                 self.storage
-                    .delete_embeddings_for_path("__dir_overview__")?;
+                    .delete_embeddings_for_path("__dir_overview__".to_string()).await?;
                 inputs.push(EmbeddingInput {
                     id: format!("__dir_overview__:{dir_hash}"),
                     path: "__dir_overview__".to_string(),
                     text: format!("DIRECTORY TREE:\n{}", dir_overview),
                 });
                 self.storage
-                    .upsert_file_hash("__dir_overview__", &dir_hash)?;
+                    .upsert_file_hash("__dir_overview__".to_string(), dir_hash).await?;
             }
         }
 
@@ -94,13 +94,13 @@ impl RagService {
                 continue;
             }
 
-            let previous_hash = self.storage.get_file_hash(&scan.path)?;
+            let previous_hash = self.storage.get_file_hash(scan.path.clone()).await?;
             if previous_hash.as_deref() == Some(scan.hash.as_str()) {
                 continue;
             }
 
             // File changed; drop old embeddings for this path.
-            self.storage.delete_embeddings_for_path(&scan.path)?;
+            self.storage.delete_embeddings_for_path(scan.path.clone()).await?;
 
             for chunk in scan.chunks {
                 let id = format!("{}:{}", chunk.path, chunk.start_offset);
@@ -115,12 +115,12 @@ impl RagService {
                 });
             }
 
-            self.storage.upsert_file_hash(&scan.path, &scan.hash)?;
+            self.storage.upsert_file_hash(scan.path, scan.hash).await?;
         }
 
         if !inputs.is_empty() {
             let embeddings = self.embedder.generate_embeddings(&inputs).await?;
-            self.storage.insert_embeddings(&embeddings)?;
+            self.storage.insert_embeddings(embeddings).await?;
         }
         Ok(())
     }
