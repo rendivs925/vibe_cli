@@ -163,6 +163,19 @@ fn clean_json_content(content: &str) -> String {
     result.trim().to_string()
 }
 
+fn find_project_root() -> Option<String> {
+    let mut current = std::env::current_dir().ok()?;
+    loop {
+        if current.join("Cargo.toml").exists() {
+            return Some(current.display().to_string());
+        }
+        if !current.pop() {
+            break;
+        }
+    }
+    None
+}
+
 /// Request a SINGLE command from Ollama
 pub async fn request_command(config: &Config, messages: &[Message]) -> Result<String> {
     let client = reqwest::Client::new();
@@ -171,19 +184,23 @@ pub async fn request_command(config: &Config, messages: &[Message]) -> Result<St
         .map(|p| p.display().to_string())
         .unwrap_or_else(|_| "/home/user".to_string());
 
+    let project_root = find_project_root().unwrap_or_else(|| cwd.clone());
+
     let mut adjusted = messages.to_vec();
     adjusted.push(Message {
         role: "user".into(),
         content: format!(
             "Convert the user's last request into ONE POSIX shell command. \
              Current working directory: {}. \
+             Project root (for Rust projects): {}. \
              Use actual paths and commands that will work in this environment. \
-             Avoid placeholders like '/path/to/' - use real paths or relative paths. \
+             Avoid placeholders like '/path/to/' - use real paths or relative paths from the project root. \
+             For project-wide operations, use the project root as the base. \
              Common patterns: 'disk space/free space' → df -h, 'folder sizes/largest folders' → du -sh */ | sort -hr. \
              Distinguish between filesystem space (df) and folder sizes (du). \
              Cache management: 'clear cache' uses --retrain flag, 'show cache' → cat ~/.config/qwen_cli_assistant/cache.json. \
              Output ONLY the command, no markdown, no explanation.",
-            cwd
+            cwd, project_root
         ),
     });
 
@@ -239,6 +256,7 @@ pub async fn request_agent_plan(config: &Config, user_prompt: &str) -> Result<Ve
     let cwd = std::env::current_dir()
         .map(|p| p.display().to_string())
         .unwrap_or_else(|_| "/home/user".to_string());
+    let project_root = find_project_root().unwrap_or_else(|| cwd.clone());
     let platform = if cfg!(target_os = "linux") {
         "linux"
     } else if cfg!(target_os = "macos") {
@@ -249,8 +267,8 @@ pub async fn request_agent_plan(config: &Config, user_prompt: &str) -> Result<Ve
         "unknown"
     };
     let env_context = format!(
-        "Environment context: cwd='{}', platform='{}'. Use paths that work here and avoid placeholders.",
-        cwd, platform
+        "Environment context: cwd='{}', project_root='{}', platform='{}'. Use paths that work here and avoid placeholders.",
+        cwd, project_root, platform
     );
 
     let system = r#"You turn a user's goal into an ordered list of POSIX shell commands that can be executed one-by-one with confirmation between each step.
