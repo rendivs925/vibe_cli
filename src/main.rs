@@ -9,8 +9,12 @@ mod scriptgen;
 mod clipboard;
 
 use clap::{ArgAction, Parser};
-use config::Config;
+use config::Config as LocalConfig;
 use session::ChatSession;
+use application::rag_service::RagService;
+use infrastructure::ollama_client::OllamaClient;
+use infrastructure::config::Config as RagConfig;
+use dialoguer::Input;
 use anyhow::Result;
 
 /// Qwen-powered ultra-safe CLI assistant using a local Ollama server.
@@ -25,6 +29,10 @@ struct Cli {
     /// Use multi-step agent mode (plan several commands)
     #[arg(long, action = ArgAction::SetTrue)]
     agent: bool,
+
+    /// Use RAG mode to understand and query the codebase
+    #[arg(long, action = ArgAction::SetTrue)]
+    rag: bool,
 
     /// Generate a bash script instead of running commands
     #[arg(long, action = ArgAction::SetTrue)]
@@ -88,6 +96,11 @@ async fn main() -> Result<()> {
         return Ok(());
     }
 
+    if cli.rag {
+        run_rag_mode(&config, &prompt_text).await?;
+        return Ok(());
+    }
+
     if cli.script {
         scriptgen::run_script_mode(&config, &prompt_text, cli.output.as_deref()).await?;
         return Ok(());
@@ -99,7 +112,7 @@ async fn main() -> Result<()> {
     Ok(())
 }
 
-async fn run_chat_mode(config: &Config) -> Result<()> {
+async fn run_chat_mode(config: &LocalConfig) -> Result<()> {
     let mut session = ChatSession::new(config.safe_mode);
 
     loop {
@@ -125,7 +138,7 @@ async fn run_chat_mode(config: &Config) -> Result<()> {
     Ok(())
 }
 
-async fn run_one_shot(config: &Config, prompt_text: &str) -> Result<()> {
+async fn run_one_shot(config: &LocalConfig, prompt_text: &str) -> Result<()> {
     let mut session = ChatSession::new(config.safe_mode);
     session.push_user(prompt_text.to_string());
 
@@ -138,6 +151,59 @@ async fn run_one_shot(config: &Config, prompt_text: &str) -> Result<()> {
     }
 
     runner::confirm_and_run(&cmd, config)?;
+
+    Ok(())
+}
+
+async fn run_rag_mode(config: &LocalConfig, prompt_text: &str) -> Result<()> {
+    let question = if prompt_text.is_empty() {
+        prompt::ask_user_prompt()?
+    } else {
+        prompt_text.to_string()
+    };
+
+    // Check for cached response
+    if let Some(cached) = config.load_cached_rag(&question)? {
+        eprintln!("Cached answer found. Use it? (y/n) [y]: ");
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        let use_cached = input.trim().is_empty() || input.trim().to_lowercase().starts_with('y');
+        if use_cached {
+            println!("{}", cached);
+            return Ok(());
+        }
+    }
+
+    let rag_config = RagConfig::load();
+    let client = OllamaClient::new()?;
+    let rag_service = RagService::new(".", &rag_config.db_path, client, rag_config).await?;
+
+    eprintln!("Building codebase index...");
+    rag_service.build_index().await?;
+
+    let mut feedback = String::new();
+    loop {
+        eprintln!("Querying...");
+        let answer = rag_service.query_with_feedback(&question, &feedback).await?;
+
+        println!("{}", answer);
+
+        eprintln!("Satisfied with this response? (y/n) [y]: ");
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        let satisfied = input.trim().is_empty() || input.trim().to_lowercase().starts_with('y');
+
+        if satisfied {
+            config.save_cached_rag(&question, &answer)?;
+            break;
+        } else {
+            feedback = Input::new()
+                .with_prompt("Provide feedback for improvement")
+                .allow_empty(true)
+                .interact_text()?;
+            eprintln!("Regenerating with feedback...");
+        }
+    }
 
     Ok(())
 }

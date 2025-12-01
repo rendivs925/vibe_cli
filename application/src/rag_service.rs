@@ -86,12 +86,36 @@ impl RagService {
     }
 
     pub async fn query(&self, question: &str) -> Result<String> {
+        self.query_with_feedback(question, "").await
+    }
+
+    pub async fn query_with_feedback(&self, question: &str, feedback: &str) -> Result<String> {
         let query_embedding = self.client.generate_embedding(question).await?;
         let all_embeddings = self.storage.get_all_embeddings().await?;
-        let relevant_chunks =
-            SearchEngine::find_relevant_chunks(&query_embedding, &all_embeddings, 5);
+        let mut relevant_chunks =
+            SearchEngine::find_relevant_chunks(&query_embedding, &all_embeddings, 50);
+
+        // For project-level questions, include README and directory tree if available
+        if question.to_lowercase().contains("project") || question.to_lowercase().contains("what is") {
+            if let Ok(readme_content) = std::fs::read_to_string("README.md") {
+                relevant_chunks.insert(0, format!("FILE: README.md\n{}", readme_content));
+            }
+            let dir_overview = self.scanner.directory_overview(8, 2000);
+            if !dir_overview.is_empty() {
+                relevant_chunks.insert(0, format!("DIRECTORY TREE:\n{}", dir_overview));
+            }
+        }
+
         let context = relevant_chunks.join("\n\n");
-        let prompt = format!("Context:\n{}\n\nQuestion: {}\nAnswer:", context, question);
+        if context.is_empty() {
+            return Ok("No relevant code context found for this query.".to_string());
+        }
+        let feedback_part = if feedback.is_empty() {
+            String::new()
+        } else {
+            format!("\n\nUser feedback for improvement: {}", feedback)
+        };
+        let prompt = format!("You are an expert software engineer. Based on the provided code context and directory structure, {}{} \n\nContext:\n{}\n\nProvide a concise summary that includes:\n- Project purpose\n- Main features\n- Technologies used\n- Architecture\n- Complete directory structure (copy exactly from the DIRECTORY TREE section in the context)\n\nBe accurate and base your answer only on the provided context. Do not invent or modify the directory structure.", question, feedback_part, context);
         self.client.generate_response(&prompt).await
     }
 

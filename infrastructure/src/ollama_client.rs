@@ -65,13 +65,25 @@ impl OllamaClient {
     }
 
     pub async fn generate_response(&self, prompt: &str) -> Result<String> {
+        self.generate_response_with_system(prompt, "").await
+    }
+
+    pub async fn generate_response_with_system(&self, prompt: &str, system: &str) -> Result<String> {
         let url = format!("{}/api/chat", self.base_url);
+        let mut messages = Vec::new();
+        if !system.is_empty() {
+            messages.push(Message {
+                role: "system".to_string(),
+                content: system.to_string(),
+            });
+        }
+        messages.push(Message {
+            role: "user".to_string(),
+            content: prompt.to_string(),
+        });
         let request = ChatRequest {
             model: self.model.clone(),
-            messages: vec![Message {
-                role: "user".to_string(),
-                content: prompt.to_string(),
-            }],
+            messages,
             stream: false,
         };
         let response = self.client.post(&url).json(&request).send().await?;
