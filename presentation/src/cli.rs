@@ -347,10 +347,6 @@ pub struct Cli {
     #[arg(long)]
     pub context: bool,
 
-    /// Enter Leptos documentation mode
-    #[arg(long)]
-    pub leptos_mode: bool,
-
     /// The query or file path to process
     #[arg(trailing_var_arg = true)]
     pub args: Vec<String>,
@@ -556,8 +552,6 @@ impl CliApp {
             self.handle_rag(&args_str).await
         } else if cli.context {
             self.handle_context(&args_str).await
-        } else if cli.leptos_mode {
-            self.handle_leptos_mode().await
         } else {
             // Default: general query
             self.handle_query(&args_str).await
@@ -807,10 +801,6 @@ User request: {}",
         self.rag_service.as_ref().unwrap().build_index().await?;
         eprintln!("Context loaded from {}", path);
         self.handle_chat().await
-    }
-
-    async fn handle_leptos_mode(&mut self) -> Result<()> {
-        self.handle_context(".").await
     }
 
     async fn handle_query(&mut self, query: &str) -> Result<()> {

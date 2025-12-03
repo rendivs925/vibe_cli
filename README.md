@@ -140,11 +140,6 @@ Load specific context:
 vibe_cli --context ./docs/
 ```
 
-Leptos documentation mode:
-```bash
-vibe_cli --leptos-mode
-```
-
 RAG queries scan and index your codebase using semantic chunking, parallel processing, and smart file filtering. Responses include relevant code snippets for accurate, context-aware answers.
 
 
