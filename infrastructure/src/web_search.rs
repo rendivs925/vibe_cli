@@ -147,7 +147,7 @@ impl WebSearch {
     }
 
     /// Enhance query for programming-specific searches
-    fn enhance_programming_query(&self, query: &str) -> String {
+    pub fn enhance_programming_query(&self, query: &str) -> String {
         let query_lower = query.to_lowercase();
 
         // Add programming-specific keywords if not present
@@ -212,7 +212,7 @@ impl WebSearch {
             score += 0.1;
         }
 
-        score.max(0.0_f32).min(1.0_f32)
+        if score > 1.0 { 1.0 } else if score < 0.0 { 0.0 } else { score }
     }
 
     /// Enforce rate limiting

@@ -9,6 +9,7 @@ use tokio::task;
 
 /// Basic storage implementation with Qdrant placeholder
 /// TODO: Implement full Qdrant integration with proper API version
+#[derive(Clone)]
 pub struct QdrantStorage {
     sqlite_fallback: Arc<Mutex<Connection>>,
     collection_name: String,

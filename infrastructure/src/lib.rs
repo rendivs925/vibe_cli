@@ -13,3 +13,4 @@ pub mod safety;
 pub mod qdrant_advanced;
 pub mod input_classifier;
 pub mod shell_monitor;
+pub mod sandbox;

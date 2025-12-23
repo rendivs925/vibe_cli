@@ -1,6 +1,6 @@
 use shared::types::Result;
 use std::collections::HashMap;
-use tree_sitter::{Language, Parser, Query, QueryCursor, Tree};
+use tree_sitter::{Parser, Query, QueryCursor};
 use regex::Regex;
 
 /// AST Parser for semantic code analysis
@@ -158,14 +158,44 @@ impl AstParser {
             "#,
         )?);
 
-        queries.insert("js".to_string(), js_queries.clone());
-        queries.insert("ts".to_string(), js_queries);
+        // Create TypeScript queries separately
+        let mut ts_queries = HashMap::new();
+        ts_queries.insert("functions".to_string(), Query::new(
+            tree_sitter_typescript::language_typescript(),
+            r#"
+            [
+                (function_declaration
+                    name: (identifier) @func_name
+                    parameters: (formal_parameters) @func_params
+                    body: (statement_block) @func_body) @function
+                (arrow_function
+                    parameters: (formal_parameters) @func_params
+                    body: (_) @func_body) @arrow_function
+                (function_expression
+                    name: (identifier)? @func_name
+                    parameters: (formal_parameters) @func_params
+                    body: (statement_block) @func_body) @function_expr
+            ]
+            "#,
+        )?);
+
+        ts_queries.insert("classes".to_string(), Query::new(
+            tree_sitter_typescript::language_typescript(),
+            r#"
+            (class_declaration
+                name: (identifier) @class_name
+                body: (class_body) @class_body) @class
+            "#,
+        )?);
+
+        queries.insert("js".to_string(), js_queries);
+        queries.insert("ts".to_string(), ts_queries);
 
         Ok(())
     }
 
     /// Parse source code and extract semantic information
-    pub fn parse_code(&mut self, code: &str, language: &str) -> Result<AstNode> {
+    pub fn parse_code(&self, code: &str, language: &str) -> Result<AstNode> {
         let parser = self.parsers.get_mut(language)
             .ok_or_else(|| anyhow::anyhow!("Unsupported language: {}", language))?;
 
@@ -179,7 +209,7 @@ impl AstParser {
     }
 
     /// Extract semantic chunks from parsed AST
-    pub fn extract_semantic_chunks(&mut self, code: &str, language: &str) -> Result<Vec<String>> {
+    pub fn extract_semantic_chunks(&self, code: &str, language: &str) -> Result<Vec<String>> {
         let mut chunks = Vec::new();
 
         // Try AST-based extraction first
@@ -326,7 +356,7 @@ impl AstParser {
     }
 
     /// Get language statistics
-    pub fn get_language_stats(&self, code: &str, language: &str) -> Result<HashMap<String, usize>> {
+    pub fn get_language_stats(&mut self, code: &str, language: &str) -> Result<HashMap<String, usize>> {
         let ast = self.parse_code(code, language)?;
         let mut stats = HashMap::new();
 

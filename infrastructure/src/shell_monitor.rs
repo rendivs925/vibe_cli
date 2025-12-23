@@ -36,7 +36,7 @@ pub struct ActivityPattern {
     pub related_experts: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum PatternType {
     GitWorkflow,
     RustDevelopment,
@@ -171,7 +171,7 @@ impl ShellMonitor {
     }
 
     /// Get activity statistics
-    pub async fn get_activity_stats(&self) -> Result<HashMap<String, String>> {
+    pub async fn get_activity_stats(&self) -> HashMap<String, String> {
         let buffer = self.activity_buffer.read().await;
         let mut stats = HashMap::new();
 

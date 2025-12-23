@@ -240,7 +240,10 @@ impl AdvancedQdrantManager {
         let mut stats = Vec::new();
 
         for (language, storage) in collections.iter() {
-            let storage_stats = storage.get_stats().await;
+            let storage_stats = match storage.get_stats().await {
+                Ok(stats) => stats,
+                Err(_) => continue,
+            };
 
             let stat = CollectionStats {
                 name: format!("vibe_{}", language),
@@ -283,7 +286,10 @@ impl AdvancedQdrantManager {
         let mut distribution = HashMap::new();
 
         for (language, storage) in collections.iter() {
-            let stats = storage.get_stats().await;
+            let stats = match storage.get_stats().await {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
             let count = stats.get("sqlite_embeddings")
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(0);
@@ -347,7 +353,10 @@ impl AdvancedQdrantManager {
         let mut health = HashMap::new();
 
         for (language, storage) in collections.iter() {
-            let stats = storage.get_stats().await;
+            let stats = match storage.get_stats().await {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
             let is_healthy = stats.contains_key("sqlite_embeddings");
 
             health.insert(language.clone(), is_healthy);
@@ -413,7 +422,10 @@ impl AdvancedQdrantManager {
         let mut sizes = HashMap::new();
 
         for (language, storage) in collections.iter() {
-            let stats = storage.get_stats().await;
+            let stats = match storage.get_stats().await {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
             let size = stats.get("sqlite_embeddings")
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(0);

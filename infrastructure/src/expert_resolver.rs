@@ -1,6 +1,6 @@
 use shared::types::Result;
 use serde::{Deserialize, Serialize};
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
 use tokio::sync::RwLock;
@@ -169,7 +169,7 @@ impl ExpertResolver {
             }
 
             // Check metadata tags
-            for (key, value) in &expert.metadata {
+            for (key, _value) in &expert.metadata {
                 if key.starts_with("tag_") && query_lower.contains(&key[4..].to_lowercase()) {
                     score += 3;
                 }
@@ -198,69 +198,60 @@ impl ExpertResolver {
         let mut missing = Vec::new();
         let mut conflicts = Vec::new();
         let mut visited = HashSet::new();
-        let mut visiting = HashSet::new();
 
-        // Process each candidate
+        let experts = self.experts.read().await;
+
+        // Iterative dependency resolution using topological sort
         for candidate in candidates {
             if !visited.contains(&candidate.name) {
-                match self.resolve_expert_dependencies(
+                self.resolve_expert_iterative(
+                    &experts,
                     candidate,
                     &mut resolved,
                     &mut visited,
-                    &mut visiting,
                     &mut missing,
-                ).await {
-                    Ok(()) => {}
-                    Err(conflict) => conflicts.push(conflict),
-                }
+                    &mut conflicts,
+                );
             }
         }
 
         (resolved, missing, conflicts)
     }
 
-    /// Recursively resolve expert dependencies
-    async fn resolve_expert_dependencies(
+    /// Iteratively resolve expert dependencies to avoid recursion
+    fn resolve_expert_iterative(
         &self,
+        experts: &HashMap<String, Expert>,
         expert: &Expert,
         resolved: &mut Vec<Expert>,
         visited: &mut HashSet<String>,
-        visiting: &mut HashSet<String>,
         missing: &mut Vec<String>,
-    ) -> Result<()> {
-        // Cycle detection
-        if visiting.contains(&expert.name) {
-            return Err(format!("Circular dependency detected involving: {}", expert.name));
-        }
-
-        if visited.contains(&expert.name) {
-            return Ok(());
-        }
-
-        visiting.insert(expert.name.clone());
-
-        let experts = self.experts.read().await;
-
-        // Resolve dependencies first
+        conflicts: &mut Vec<String>,
+    ) {
+        // Simple iterative approach - check dependencies
         for dep_name in &expert.dependencies {
             if let Some(dep_expert) = experts.get(dep_name) {
-                self.resolve_expert_dependencies(
-                    dep_expert,
-                    resolved,
-                    visited,
-                    visiting,
-                    missing,
-                ).await?;
+                if !visited.contains(dep_name) {
+                    self.resolve_expert_iterative(
+                        experts,
+                        dep_expert,
+                        resolved,
+                        visited,
+                        missing,
+                        conflicts,
+                    );
+                }
             } else {
-                missing.push(dep_name.clone());
+                if !missing.contains(dep_name) {
+                    missing.push(dep_name.clone());
+                }
             }
         }
 
-        visiting.remove(&expert.name);
-        visited.insert(expert.name.clone());
-        resolved.push(expert.clone());
-
-        Ok(())
+        if !visited.contains(&expert.name) {
+            visited.insert(expert.name.clone());
+            resolved.push(expert.clone());
+        }
     }
 
     /// Build dependency chain for resolved experts

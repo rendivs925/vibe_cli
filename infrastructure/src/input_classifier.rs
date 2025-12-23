@@ -1,6 +1,7 @@
 use crate::ollama_client::OllamaClient;
 use shared::types::Result;
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -14,7 +15,7 @@ pub struct InputClassifier {
     heuristic_classifier: HeuristicClassifier,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone)]
 pub struct ClassificationResult {
     pub input_type: InputType,
     pub confidence: f32,
@@ -24,7 +25,7 @@ pub struct ClassificationResult {
     pub timestamp: Instant,
 }
 
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum InputType {
     Command,        // Shell command request
     Question,       // Question about code/project
@@ -102,7 +103,7 @@ Respond with JSON in this format:
             input
         );
 
-        let response = self.ollama_client.generate(&prompt, Some(500)).await?;
+        let response = self.ollama_client.generate_response(&prompt).await?;
 
         // Parse JSON response
         self.parse_llm_response(&response, input)
@@ -276,14 +277,15 @@ Respond with JSON in this format:
         let mut data = Vec::new();
 
         for (input, result) in cache.iter() {
-            let mut record = serde_json::json!({
+            // Create JSON value manually to avoid serde issues with Instant
+            let record = serde_json::json!({
                 "input": input,
-                "input_type": result.input_type,
+                "input_type": format!("{:?}", result.input_type),
                 "confidence": result.confidence,
                 "reasoning": result.reasoning,
                 "suggested_action": result.suggested_action,
                 "classification_method": result.metadata.get("classification_method"),
-                "timestamp": result.timestamp.elapsed().as_secs(),
+                "timestamp_seconds": result.timestamp.elapsed().as_secs(),
             });
 
             data.push(record);
