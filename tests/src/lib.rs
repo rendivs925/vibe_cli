@@ -65,7 +65,7 @@ mod tests {
 
         // Test timeout (this might fail in CI)
         let start = std::time::Instant::now();
-        let result = sandbox.execute_safe("sleep", &["1".to_string()]).await;
+        let result = sandbox.execute_safe("sleep", vec!["1".to_string()]).await;
         let elapsed = start.elapsed();
 
         // Should either timeout or complete quickly
@@ -75,10 +75,6 @@ mod tests {
     #[tokio::test]
     async fn test_path_validation() {
         let sandbox = Sandbox::new();
-
-        // Test allowed paths
-        let result = sandbox.test_command("ls", &["/usr/bin".to_string()]);
-        // This might be allowed depending on configuration
 
         // Test blocked system paths
         let result = sandbox.test_command("ls", &["/etc/shadow".to_string()]);
@@ -199,15 +195,15 @@ mod tests {
         let confirm = ConfirmationManager::new();
 
         // Test that all critical operations are protected
-        let critical_commands = [
-            ("rm", &["-rf".to_string(), "/".to_string()]),
-            ("mkfs", &["ext4".to_string(), "/dev/sda".to_string()]),
-            (">/dev/sda", &[]),
-            ("dd", &["if=/dev/zero".to_string(), "of=/dev/mem".to_string()]),
+        let critical_commands = vec![
+            ("rm", vec!["-rf".to_string(), "/".to_string()]),
+            ("mkfs", vec!["ext4".to_string(), "/dev/sda".to_string()]),
+            (">/dev/sda", vec![]),
+            ("dd", vec!["if=/dev/zero".to_string(), "of=/dev/mem".to_string()]),
         ];
 
         for (cmd, args) in &critical_commands {
-            assert!(sandbox.test_command(cmd, args).is_err(), "Command {} should be blocked", cmd);
+            assert!(sandbox.test_command(cmd, &args).is_err(), "Command {} should be blocked", cmd);
         }
 
         // Test that destructive operations require confirmation
