@@ -110,7 +110,7 @@ Respond with JSON in this format:
     }
 
     /// Parse LLM response into ClassificationResult
-    fn parse_llm_response(&self, response: &str, original_input: &str) -> Result<ClassificationResult> {
+    fn parse_llm_response(&self, response: &str, _original_input: &str) -> Result<ClassificationResult> {
         // Extract JSON from response (LLMs might add extra text)
         let json_start = response.find('{').unwrap_or(0);
         let json_end = response.rfind('}').unwrap_or(response.len());

@@ -95,19 +95,20 @@ impl Sandbox {
     }
 
     /// Execute command safely in sandbox
-    pub async fn execute_safe(&self, command: &str, args: &[String]) -> Result<String> {
+    pub async fn execute_safe(&self, command: &str, args: Vec<String>) -> Result<String> {
         // Pre-execution validation
-        self.validate_command(command, args)?;
+        self.validate_command(command, &args)?;
 
         // Execute with timeout and output limits
-        let output = timeout(self.max_execution_time, async {
-            let mut cmd = Command::new(command);
-            cmd.args(args)
-                .stdout(Stdio::piped())
-                .stderr(Stdio::piped());
-
-            cmd.output().await
-        }).await??;
+        let command = command.to_string();
+        let args = args.to_owned();
+        let output = timeout(self.max_execution_time, tokio::task::spawn_blocking(move || {
+            let mut cmd = Command::new(&command);
+            cmd.args(&args);
+            cmd.stdout(Stdio::piped())
+            .stderr(Stdio::piped());
+            cmd.output()
+        })).await???;
 
         if !output.status.success() {
             return Err(anyhow::anyhow!("Command failed with exit code: {}", output.status));
@@ -176,7 +177,7 @@ impl Sandbox {
 
     /// Check if path is blocked
     fn is_blocked_path(&self, path: &str) -> bool {
-        let path_obj = Path::new(path);
+        let _path_obj = Path::new(path);
 
         // Check exact matches
         if self.blocked_paths.contains(path) {

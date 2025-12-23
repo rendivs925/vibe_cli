@@ -1,4 +1,5 @@
 use shared::types::Result;
+use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
@@ -99,7 +100,7 @@ impl ShellMonitor {
         }
 
         // Periodic cleanup
-        self.periodic_cleanup().await;
+        self.periodic_cleanup().await?;
 
         Ok(())
     }
@@ -215,7 +216,7 @@ impl ShellMonitor {
     }
 
     /// Periodic cleanup of old data
-    async fn periodic_cleanup(&self) {
+    async fn periodic_cleanup(&self) -> Result<()> {
         let now = Instant::now();
         let mut last_cleanup = self.last_cleanup.write().await;
 
@@ -223,11 +224,15 @@ impl ShellMonitor {
             let mut buffer = self.activity_buffer.write().await;
 
             // Remove entries older than 24 hours
-            let cutoff = SystemTime::now() - Duration::from_secs(86400); // 24 hours
+            let cutoff = SystemTime::now()
+                .checked_sub(Duration::from_secs(86400))
+                .ok_or_else(|| anyhow!("Time calculation overflow"))?; // 24 hours
             buffer.retain(|activity| activity.timestamp > cutoff);
 
             *last_cleanup = now;
         }
+
+        Ok(())
     }
 
     /// Export activity data for analysis
@@ -268,7 +273,7 @@ impl ShellMonitor {
         }
 
         // Add workflow efficiency metrics
-        let stats = self.get_activity_stats().await?;
+        let stats = self.get_activity_stats().await;
         insights.extend(stats);
 
         Ok(insights)
