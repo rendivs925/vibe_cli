@@ -1,6 +1,6 @@
 use shared::types::Result;
 use std::collections::HashMap;
-use tree_sitter::{Parser, Query, QueryCursor};
+use tree_sitter::{Parser, Query, QueryCursor, StreamingIterator, Language};
 use regex::Regex;
 
 /// AST Parser for semantic code analysis
@@ -34,22 +34,22 @@ impl AstParser {
 
         // Initialize Rust parser
         let mut rust_parser = Parser::new();
-        rust_parser.set_language(&(tree_sitter_rust::LANGUAGE)())?;
+        rust_parser.set_language(&tree_sitter_rust::LANGUAGE.into())?;
         parsers.insert("rs".to_string(), rust_parser);
 
         // Initialize Python parser
         let mut python_parser = Parser::new();
-        python_parser.set_language(&tree_sitter_python::LANGUAGE)?;
+        python_parser.set_language(&tree_sitter_python::LANGUAGE.into())?;
         parsers.insert("py".to_string(), python_parser);
 
         // Initialize JavaScript parser
         let mut js_parser = Parser::new();
-        js_parser.set_language(&tree_sitter_javascript::LANGUAGE)?;
+        js_parser.set_language(&tree_sitter_javascript::LANGUAGE.into())?;
         parsers.insert("js".to_string(), js_parser);
 
         // Initialize TypeScript parser
         let mut ts_parser = Parser::new();
-        ts_parser.set_language(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT)?;
+        ts_parser.set_language(&tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into())?;
         parsers.insert("ts".to_string(), ts_parser);
 
         // Initialize language-specific queries
@@ -68,7 +68,7 @@ impl AstParser {
 
         // Function definitions
         rust_queries.insert("functions".to_string(), Query::new(
-            tree_sitter_rust::LANGUAGE.into(),
+            &tree_sitter_rust::LANGUAGE.into(),
             r#"
             (function_item
                 name: (identifier) @func_name
@@ -79,7 +79,7 @@ impl AstParser {
 
         // Struct definitions
         rust_queries.insert("structs".to_string(), Query::new(
-            tree_sitter_rust::LANGUAGE.into(),
+            &tree_sitter_rust::LANGUAGE.into(),
             r#"
             (struct_item
                 name: (type_identifier) @struct_name
@@ -89,7 +89,7 @@ impl AstParser {
 
         // Trait definitions
         rust_queries.insert("traits".to_string(), Query::new(
-            tree_sitter_rust::LANGUAGE.into(),
+            &tree_sitter_rust::LANGUAGE.into(),
             r#"
             (trait_item
                 name: (type_identifier) @trait_name
@@ -104,7 +104,7 @@ impl AstParser {
 
         // Function definitions
         python_queries.insert("functions".to_string(), Query::new(
-            &tree_sitter_python::LANGUAGE,
+            &tree_sitter_python::LANGUAGE.into(),
             r#"
             (function_definition
                 name: (identifier) @func_name
@@ -115,7 +115,7 @@ impl AstParser {
 
         // Class definitions
         python_queries.insert("classes".to_string(), Query::new(
-            &tree_sitter_python::LANGUAGE,
+            &tree_sitter_python::LANGUAGE.into(),
             r#"
             (class_definition
                 name: (identifier) @class_name
@@ -130,7 +130,7 @@ impl AstParser {
 
         // Function declarations
         js_queries.insert("functions".to_string(), Query::new(
-            &tree_sitter_javascript::LANGUAGE,
+            &tree_sitter_javascript::LANGUAGE.into(),
             r#"
             [
                 (function_declaration
@@ -150,7 +150,7 @@ impl AstParser {
 
         // Class declarations
         js_queries.insert("classes".to_string(), Query::new(
-            &tree_sitter_javascript::LANGUAGE,
+            &tree_sitter_javascript::LANGUAGE.into(),
             r#"
             (class_declaration
                 name: (identifier) @class_name
@@ -161,7 +161,7 @@ impl AstParser {
         // Create TypeScript queries separately
         let mut ts_queries = HashMap::new();
         ts_queries.insert("functions".to_string(), Query::new(
-            &tree_sitter_typescript::LANGUAGE_TYPESCRIPT,
+            &tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
             r#"
             [
                 (function_declaration
@@ -180,7 +180,7 @@ impl AstParser {
         )?);
 
         ts_queries.insert("classes".to_string(), Query::new(
-            &tree_sitter_typescript::LANGUAGE_TYPESCRIPT,
+            &tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
             r#"
             (class_declaration
                 name: (identifier) @class_name
@@ -388,20 +388,20 @@ impl AstParser {
             _ => return Ok(vec![]),
         };
 
-        let language_fn = match language {
-            "rs" => tree_sitter_rust::LANGUAGE.into(),
-            "py" => &tree_sitter_python::LANGUAGE,
-            "js" => &tree_sitter_javascript::LANGUAGE,
-            "ts" => &tree_sitter_typescript::LANGUAGE_TYPESCRIPT,
+        let language_ref: &Language = match language {
+            "rs" => &tree_sitter_rust::LANGUAGE.into(),
+            "py" => &tree_sitter_python::LANGUAGE.into(),
+            "js" => &tree_sitter_javascript::LANGUAGE.into(),
+            "ts" => &tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
             _ => return Ok(vec![]),
         };
 
-        let query = Query::new(language_fn, query_str)?;
+        let query = Query::new(language_ref, query_str)?;
         let mut cursor = QueryCursor::new();
-        let matches = cursor.matches(&query, tree.root_node(), code.as_bytes()).collect::<Vec<_>>();
-
+        let mut matches_iter = cursor.matches(&query, tree.root_node(), code.as_bytes());
+        
         let mut docs = Vec::new();
-        for m in matches {
+        while let Some(m) = matches_iter.next() {
             for capture in m.captures {
                 let node = capture.node;
                 if let Ok(text) = node.utf8_text(code.as_bytes()) {
