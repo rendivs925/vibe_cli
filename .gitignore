@@ -1,3 +1,119 @@
-target/
-debug/
+# Rust build artifacts
+/target/
+/debug/
+**/*.rs.bk
+Cargo.lock
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# System and temporary files
+*.tmp
+*.temp
+*.log
+*.pid
+*.seed
+*.pid.lock
+
+# Database files
+*.db
+*.sqlite
+*.sqlite3
+embeddings.db
+
+# Configuration and secrets
+.env
+.env.local
+.env.development.local
+.env.test.local
+.env.production.local
+config.toml
+config.json
+secrets/
+
+# Large files and binaries
+*.exe
+*.dmg
+*.pkg
+*.deb
+*.rpm
+*.zip
+*.tar.gz
+*.tar.bz2
+*.7z
+
+# Test and coverage reports
+/coverage/
+*.profraw
+*.profdata
+tarpaulin-report.html
+lcov.info
+
+# Documentation build
+/docs/build/
+/book/
+
+# Backup files
+*.bak
+*.backup
+*~
+
+# Session and state files
+session_control.json
+*.session
+
+# AI/ML model files
+*.bin
+*.onnx
+*.tflite
+*.pb
+
+# Cache directories
+.cache/
+.cache-*/
+.rustup/
+
+# Local development
+local/
+tmp/
+temp/
+logs/
+
+# Qdrant data (if locally stored)
+qdrant_storage/
+qdrant_data/
+
+# Vector embeddings and indices
+embeddings/
+indices/
+vectors/
+
+# Jupyter notebooks (often contain outputs)
+*.ipynb
+
+# Python virtual environments (if any Python tools used)
+venv/
+env/
+.venv/
+.env/
+
+# Node modules (if any JS tools)
+node_modules/
+
+# Build scripts output
+build/
+out/
+dist/
+
+# Performance profiling
+perf.data*
+flamegraph.svg
+
+# Local documentation
 docs/vibe_cli_local_agent_roadmap.md
