@@ -2,19 +2,37 @@ use domain::models::{
     AgentRequest, AgentResponse, AgentContext, ToolCall, ToolResult, 
     ConversationMessage, ToolDefinition, ToolParameters, ParameterProperty
 };
-use infrastructure::ollama_client::OllamaClient;
+use infrastructure::{ollama_client::OllamaClient, config::Config};
 use shared::types::Result;
 use serde_json::{json, Value};
 use std::collections::HashMap;
+use std::sync::Arc;
 use uuid::Uuid;
+
+// Forward declare for now - actual implementation when both services are integrated
+pub type RagService = crate::rag_service::RagService;
 
 pub struct AgentService {
     client: OllamaClient,
+    rag_service: Option<Arc<RagService>>,
+    config: Config,
 }
 
 impl AgentService {
     pub fn new(client: OllamaClient) -> Self {
-        Self { client }
+        Self { 
+            client, 
+            rag_service: None,
+            config: Config::load(),
+        }
+    }
+
+    pub fn with_rag_service(client: OllamaClient, rag_service: Arc<RagService>) -> Self {
+        Self { 
+            client, 
+            rag_service: Some(rag_service),
+            config: Config::load(),
+        }
     }
 
     pub async fn process_request(&self, request: &AgentRequest) -> Result<AgentResponse> {
@@ -105,7 +123,11 @@ impl AgentService {
             .lines()
             .filter(|line| line.trim().starts_with('-') || line.trim().starts_with('*') || 
                              line.trim().starts_with("1.") || line.trim().starts_with("2."))
-            .map(|line| line.trim().trim_start_matches(|c: char| c == '-' || c == '*' || c.is_numeric() || c == '.').trim().to_string())
+            .map(|line| {
+                let trimmed = line.trim();
+                let step = trimmed.trim_start_matches(['-', '*', '1', '2', '.', ' ']);
+                step.trim().to_string()
+            })
             .filter(|step| !step.is_empty())
             .collect();
 
@@ -198,19 +220,36 @@ impl AgentService {
     }
 
     async fn execute_rag_query(&self, tool_call: &ToolCall, _context: &AgentContext) -> Result<ToolResult> {
-        // This would integrate with RAG service
         let question = tool_call.parameters
             .get("question")
             .and_then(|v| v.as_str())
             .unwrap_or("No question provided");
             
-        // Placeholder implementation
-        Ok(ToolResult {
-            tool_call_id: tool_call.id.clone(),
-            success: true,
-            result: json!({"answer": format!("RAG query for: {}", question)}),
-            error: None,
-        })
+        // Use real RAG service if available, otherwise fallback
+        if let Some(rag_service) = &self.rag_service {
+            match rag_service.query(question).await {
+                Ok(answer) => Ok(ToolResult {
+                    tool_call_id: tool_call.id.clone(),
+                    success: true,
+                    result: json!({"answer": answer, "source": "rag_service"}),
+                    error: None,
+                }),
+                Err(e) => Ok(ToolResult {
+                    tool_call_id: tool_call.id.clone(),
+                    success: false,
+                    result: json!(null),
+                    error: Some(format!("RAG query failed: {}", e)),
+                })
+            }
+        } else {
+            // Fallback placeholder
+            Ok(ToolResult {
+                tool_call_id: tool_call.id.clone(),
+                success: true,
+                result: json!({"answer": format!("RAG service not available for question: {}", question), "source": "fallback"}),
+                error: None,
+            })
+        }
     }
 
     async fn execute_file_read(&self, tool_call: &ToolCall, _context: &AgentContext) -> Result<ToolResult> {
@@ -219,13 +258,32 @@ impl AgentService {
             .and_then(|v| v.as_str())
             .unwrap_or("");
             
-        // Placeholder implementation
-        Ok(ToolResult {
-            tool_call_id: tool_call.id.clone(),
-            success: true,
-            result: json!({"content": format!("File content from: {}", file_path)}),
-            error: None,
-        })
+        // Real file reading implementation
+        match std::fs::read_to_string(file_path) {
+            Ok(content) => {
+                let content_size = content.len();
+                // Limit content size to avoid token limit issues
+                let limited_content = if content_size > 5000 {
+                    format!("{}...\n\n[Content truncated due to size. File is {} bytes total]", 
+                            &content[..5000], content_size)
+                } else {
+                    content.clone()
+                };
+                
+                Ok(ToolResult {
+                    tool_call_id: tool_call.id.clone(),
+                    success: true,
+                    result: json!({"content": limited_content, "size": content_size}),
+                    error: None,
+                })
+            },
+            Err(e) => Ok(ToolResult {
+                tool_call_id: tool_call.id.clone(),
+                success: false,
+                result: json!(null),
+                error: Some(format!("Failed to read file '{}': {}", file_path, e)),
+            })
+        }
     }
 
     async fn execute_code_analysis(&self, tool_call: &ToolCall, _context: &AgentContext) -> Result<ToolResult> {
