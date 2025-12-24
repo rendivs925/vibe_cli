@@ -340,6 +340,10 @@ pub struct Cli {
     #[arg(long)]
     pub ai_agent: bool,
 
+    /// Create execution plan without running commands
+    #[arg(long)]
+    pub plan: bool,
+
     /// Explain a file
     #[arg(long)]
     pub explain: bool,
@@ -584,6 +588,58 @@ impl CliApp {
         Ok(())
     }
 
+    async fn handle_plan_mode(&self, goal: &str) -> Result<()> {
+        if goal.trim().is_empty() {
+            println!(
+                "{}",
+                "Plan mode requires a goal (e.g. vibe_cli --plan \"Deploy this application\")"
+                    .red()
+            );
+            return Ok(());
+        }
+
+        println!("{}", "Planning mode: Create execution plan without running commands".bright_cyan());
+        println!("{}", format!("Goal: {}", goal).bright_blue());
+        
+        // Initialize enhanced agent for planning
+        let client = OllamaClient::new()?;
+        let agent_service = AgentService::new(client);
+        
+        // Create agent request for planning
+        let request = domain::models::AgentRequest {
+            goal: format!("Create a detailed step-by-step execution plan for: {}", goal),
+            context: Some(format!("System: {} | Mode: Plan Only", self.system_info)),
+            conversation_id: None,
+        };
+        
+        // Generate plan using enhanced agent
+        match agent_service.process_request(&request).await {
+            Ok(response) => {
+                println!("\n{}", "AI Planning Analysis:".bright_magenta());
+                for (i, step) in response.reasoning.iter().enumerate() {
+                    println!("  {}. {}", format!("Step {}", i + 1).bright_yellow(), step);
+                }
+                
+                if !response.tool_calls.is_empty() {
+                    println!("\n{}", "Planned Tools:".bright_yellow());
+                    for tool_call in &response.tool_calls {
+                        println!("  • {} - {}", tool_call.name.bright_green(), tool_call.reasoning);
+                    }
+                }
+                
+                println!("\n{}", "Execution Plan:".bright_green());
+                println!("{}", response.final_response);
+                
+                println!("\n{}", "Planning complete. Use --agent or --chat to execute the plan.".bright_green());
+            }
+            Err(e) => {
+                eprintln!("{} {}", "Planning error:".red(), e);
+            }
+        }
+        
+        Ok(())
+    }
+
     pub async fn run(&mut self, cli: Cli) -> Result<()> {
         let args_str = cli.args.join(" ");
         if cli.chat {
@@ -595,6 +651,10 @@ impl CliApp {
             }
         } else if cli.agent {
             self.handle_agent(&args_str).await
+        } else if cli.ai_agent {
+            self.handle_ai_agent(&args_str).await
+        } else if cli.plan {
+            self.handle_plan_mode(&args_str).await
         } else if cli.explain {
             self.handle_explain(&args_str).await
         } else if cli.rag {
