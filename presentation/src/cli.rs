@@ -874,20 +874,32 @@ User request: {}",
                 format!("Found cached command: {}", cached_command).green()
             );
             if ask_confirmation("Use cached command?", true)? {
-                let output = std::process::Command::new("bash")
-                    .arg("-c")
-                    .arg(&cached_command)
-                    .output()?;
-                println!("{}", String::from_utf8_lossy(&output.stdout));
-                if !output.status.success() {
-                    println!(
-                        "{}",
-                        format!(
-                            "Command failed: {}",
-                            String::from_utf8_lossy(&output.stderr)
-                        )
-                        .red()
-                    );
+                let sandbox = Sandbox::new();
+                match sandbox.execute_safe("bash", vec!["-c".to_string(), cached_command.clone()]).await {
+                    Ok(output) => println!("{}", output),
+                    Err(e) => {
+                        eprintln!("{}", format!("Sandbox execution failed: {}", e).red());
+                        if ask_confirmation("Try running without sandboxing?", false)? {
+                            match std::process::Command::new("bash").arg("-c").arg(&cached_command).output() {
+                                Ok(output) => {
+                                    println!("{}", String::from_utf8_lossy(&output.stdout));
+                                    if !output.status.success() {
+                                        println!(
+                                            "{}",
+                                            format!(
+                                                "Command failed: {}",
+                                                String::from_utf8_lossy(&output.stderr)
+                                            )
+                                            .red()
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("{}", format!("Direct execution failed: {}", e).red());
+                                }
+                            }
+                        }
+                    }
                 }
                 return Ok(());
             }
@@ -900,22 +912,37 @@ User request: {}",
         let command = extract_command_from_response(&response);
         println!("{}", format!("Command: {}", command).green());
         if ask_confirmation("Run this command?", false)? {
-            let output = std::process::Command::new("bash")
-                .arg("-c")
-                .arg(&command)
-                .output()?;
-            println!("{}", String::from_utf8_lossy(&output.stdout));
-            if !output.status.success() {
-                println!(
-                    "{}",
-                    format!(
-                        "Command failed: {}",
-                        String::from_utf8_lossy(&output.stderr)
-                    )
-                    .red()
-                );
-            } else {
-                let _ = self.save_cached(query, &command);
+            let sandbox = Sandbox::new();
+            match sandbox.execute_safe("bash", vec!["-c".to_string(), command.clone()]).await {
+                Ok(output) => {
+                    println!("{}", output);
+                    let _ = self.save_cached(query, &command);
+                }
+                Err(e) => {
+                    eprintln!("{}", format!("Sandbox execution failed: {}", e).red());
+                    if ask_confirmation("Try running without sandboxing?", false)? {
+                        match std::process::Command::new("bash").arg("-c").arg(&command).output() {
+                            Ok(output) => {
+                                println!("{}", String::from_utf8_lossy(&output.stdout));
+                                if !output.status.success() {
+                                    println!(
+                                        "{}",
+                                        format!(
+                                            "Command failed: {}",
+                                            String::from_utf8_lossy(&output.stderr)
+                                        )
+                                        .red()
+                                    );
+                                } else {
+                                    let _ = self.save_cached(query, &command);
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("{}", format!("Direct execution failed: {}", e).red());
+                            }
+                        }
+                    }
+                }
             }
         } else {
             println!("{}", "Command execution cancelled.".yellow());
