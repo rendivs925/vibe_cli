@@ -126,19 +126,19 @@ impl ContentSanitizer {
             return Err(SanitizationError::InputTooLong(input.len()));
         }
 
+        // Check for prompt injection in original input BEFORE sanitization
+        for pattern in &self.prompt_injection_patterns {
+            if pattern.is_match(input) {
+                return Err(SanitizationError::PromptInjectionAttempt);
+            }
+        }
+
         let mut sanitized = input.to_string();
 
         // Remove or escape potentially dangerous characters
         sanitized = sanitized.chars()
             .filter(|c| c.is_alphanumeric() || " .,!?-_\n\t".contains(*c))
             .collect();
-
-        // Check for prompt injection in user input
-        for pattern in &self.prompt_injection_patterns {
-            if pattern.is_match(&sanitized) {
-                return Err(SanitizationError::PromptInjectionAttempt);
-            }
-        }
 
         Ok(sanitized.trim().to_string())
     }
