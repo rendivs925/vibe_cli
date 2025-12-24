@@ -402,6 +402,20 @@ impl CliApp {
         path
     }
 
+    fn context_specific_db_path(context_path: &str) -> String {
+        let mut hasher = std::collections::hash_map::DefaultHasher::new();
+        context_path.hash(&mut hasher);
+        let suffix = format!("{:x}", hasher.finish());
+
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let mut path = PathBuf::from(home);
+        path.push(".local");
+        path.push("share");
+        path.push("vibe_cli");
+        path.push(format!("{}_embeddings.db", suffix));
+        path.to_string_lossy().to_string()
+    }
+
     fn load_or_collect_system_info(path: &PathBuf) -> String {
         if let Ok(existing) = std::fs::read_to_string(path) {
             if !existing.trim().is_empty() {
@@ -904,7 +918,8 @@ User request: {}",
         if self.rag_service.is_none() {
             eprintln!("Analyzing query and scanning codebase...");
             let client = OllamaClient::new()?;
-            self.rag_service = Some(RagService::new(".", &self.config.db_path, client, self.config.clone()).await?);
+            let project_root = find_project_root().unwrap_or_else(|| ".".to_string());
+            self.rag_service = Some(RagService::new(&project_root, &self.config.db_path, client, self.config.clone()).await?);
             let keywords = Self::keywords_from_text(question);
             self.rag_service
                 .as_ref()
@@ -961,7 +976,13 @@ User request: {}",
     async fn handle_context(&mut self, path: &str) -> Result<()> {
         eprintln!("Loading context from {}...", path);
         let client = OllamaClient::new()?;
-        self.rag_service = Some(RagService::new(path, &self.config.db_path, client, self.config.clone()).await?);
+
+        // Create context-specific config with database path based on the context path
+        let mut context_config = self.config.clone();
+        let context_db_path = Self::context_specific_db_path(path);
+        context_config.db_path = context_db_path;
+
+        self.rag_service = Some(RagService::new(path, &context_config.db_path.clone(), client, context_config).await?);
         self.rag_service.as_ref().unwrap().build_index().await?;
         eprintln!("Context loaded from {}", path);
         self.handle_chat().await
