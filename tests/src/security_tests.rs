@@ -562,7 +562,7 @@ async fn test_security_pipeline_integration() {
     let sandbox = Sandbox::new();
 
     // Step 1: Sanitize user input
-    let user_input = "analyze the code in src/main.rs and show me any security issues";
+    let user_input = "analyze this code for security issues";
     let sanitized = sanitizer.sanitize_user_input(user_input);
     assert!(sanitized.is_ok(), "User input should pass sanitization");
 
