@@ -35,3 +35,4 @@ arrayvec = "0.7"
 dotenvy = "0.15"
 docx-rs = "0.4"
 crossterm = "0.27"
+uuid = { version = "1.8", features = ["v4"] }
