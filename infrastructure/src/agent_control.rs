@@ -2,6 +2,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tokio::time::timeout;
+#[cfg(target_os = "linux")]
+use std::fs;
 
 /// Bounded agent execution with automated verification
 #[derive(Clone)]
@@ -31,6 +33,52 @@ pub struct AgentExecutionState {
     pub execution_history: Vec<IterationRecord>,
     pub failure_count: u32,
     pub recovery_attempts: u32,
+    // Extended tracking for multi-iteration execution
+    pub memory_usage_bytes: Option<u64>,
+    pub time_bounds_per_iteration: Duration,
+    pub convergence_metrics: HashMap<String, f32>,
+    pub resource_usage_stats: ResourceUsageStats,
+    pub performance_metrics: PerformanceMetrics,
+    pub max_iterations_allowed: u32,
+    pub convergence_threshold: f32,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceUsageStats {
+    pub peak_memory_bytes: u64,
+    pub total_cpu_time_ms: u64,
+    pub io_operations: u32,
+    pub network_requests: u32,
+}
+
+impl Default for ResourceUsageStats {
+    fn default() -> Self {
+        Self {
+            peak_memory_bytes: 0,
+            total_cpu_time_ms: 0,
+            io_operations: 0,
+            network_requests: 0,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PerformanceMetrics {
+    pub average_iteration_time_ms: f64,
+    pub total_execution_time_ms: u64,
+    pub success_rate: f32,
+    pub convergence_rate: f32,
+}
+
+impl Default for PerformanceMetrics {
+    fn default() -> Self {
+        Self {
+            average_iteration_time_ms: 0.0,
+            total_execution_time_ms: 0,
+            success_rate: 0.0,
+            convergence_rate: 0.0,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,6 +89,11 @@ pub struct IterationRecord {
     pub verification_result: Option<VerificationResult>,
     pub execution_time_ms: u64,
     pub success: bool,
+    // Extended tracking for multi-iteration
+    pub memory_peak_bytes: u64,
+    pub confidence_score: f32,
+    pub convergence_indicators: HashMap<String, f32>,
+    pub resource_usage: ResourceUsageStats,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -92,6 +145,59 @@ impl AgentController {
         }
     }
 
+    /// Estimate current memory usage in bytes
+    pub fn estimate_memory_usage(&self) -> Option<u64> {
+        // On Linux, we can read /proc/self/status for memory info
+        #[cfg(target_os = "linux")]
+        {
+            if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
+                for line in status.lines() {
+                    if line.starts_with("VmRSS:") {
+                        // VmRSS (Resident Set Size) is a good approximation of memory usage
+                        if let Some(kb_str) = line.split_whitespace().nth(1) {
+                            if let Ok(kb) = kb_str.parse::<u64>() {
+                                return Some(kb * 1024); // Convert KB to bytes
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // On other platforms or if /proc/self/status is not available,
+        // we can't easily get memory usage, so return None
+        #[cfg(not(target_os = "linux"))]
+        {
+            None
+        }
+
+        #[cfg(target_os = "linux")]
+        {
+            None
+        }
+    }
+
+    /// Check if execution should be terminated due to resource constraints
+    pub fn should_terminate_due_to_resources(&self, state: &AgentExecutionState) -> bool {
+        // Check time bounds
+        let elapsed = state.start_time.elapsed().unwrap_or_default();
+        if elapsed > state.time_bounds_per_iteration.saturating_mul(state.iteration_count as u32) {
+            return true;
+        }
+
+        // Check memory bounds (if tracking is enabled)
+        if let Some(memory_limit) = state.memory_usage_bytes {
+            if let Some(current_memory) = self.estimate_memory_usage() {
+                // Terminate if memory usage exceeds 90% of limit
+                if current_memory > (memory_limit as f64 * 0.9) as u64 {
+                    return true;
+                }
+            }
+        }
+
+        false
+    }
+
     pub fn with_limits(limits: AgentExecutionLimits) -> Self {
         Self {
             max_iterations: limits.max_iterations,
@@ -125,6 +231,13 @@ impl AgentController {
             execution_history: Vec::new(),
             failure_count: 0,
             recovery_attempts: 0,
+            memory_usage_bytes: None,
+            time_bounds_per_iteration: Duration::from_secs(60),
+            convergence_metrics: HashMap::new(),
+            resource_usage_stats: ResourceUsageStats::default(),
+            performance_metrics: PerformanceMetrics::default(),
+            max_iterations_allowed: self.max_iterations,
+            convergence_threshold: 0.8,
         };
 
         let mut current_goal = initial_goal.to_string();
@@ -185,6 +298,10 @@ impl AgentController {
             let tool_calls_clone = iteration_result.tool_calls.clone();
 
             let record = IterationRecord {
+                memory_peak_bytes: 0, // TODO: Implement memory tracking
+                confidence_score: iteration_result.confidence_score,
+                convergence_indicators: HashMap::new(), // TODO: Implement convergence detection
+                resource_usage: ResourceUsageStats::default(), // TODO: Implement resource tracking
                 iteration_number: state.iteration_count,
                 reasoning_steps: reasoning_steps_clone,
                 tool_calls: tool_calls_clone.iter().map(|tc| format!("{:?}", tc)).collect(),
@@ -255,6 +372,13 @@ impl AgentController {
             execution_history: Vec::new(),
             failure_count: 0,
             recovery_attempts: 0,
+            memory_usage_bytes: None,
+            time_bounds_per_iteration: Duration::from_secs(60), // 1 minute per iteration
+            convergence_metrics: HashMap::new(),
+            resource_usage_stats: ResourceUsageStats::default(),
+            performance_metrics: PerformanceMetrics::default(),
+            max_iterations_allowed: self.max_iterations,
+            convergence_threshold: 0.8, // 80% confidence threshold
         };
 
         let mut current_goal = initial_goal.to_string();
@@ -316,6 +440,10 @@ impl AgentController {
             let tool_calls_clone = iteration_result.tool_calls.clone();
 
             let record = IterationRecord {
+                memory_peak_bytes: 0, // TODO: Implement memory tracking
+                confidence_score: iteration_result.confidence_score,
+                convergence_indicators: HashMap::new(), // TODO: Implement convergence detection
+                resource_usage: ResourceUsageStats::default(), // TODO: Implement resource tracking
                 iteration_number: state.iteration_count,
                 reasoning_steps: reasoning_steps_clone,
                 tool_calls: tool_calls_clone.iter().map(|tc| format!("{:?}", tc)).collect(),
