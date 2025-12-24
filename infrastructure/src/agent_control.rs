@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 use tokio::time::timeout;
 
 /// Bounded agent execution with automated verification
+#[derive(Clone)]
 pub struct AgentController {
     max_iterations: u32,
     max_tools_per_iteration: u32,
@@ -99,6 +100,10 @@ impl AgentController {
             verification_enabled: true,
             failure_recovery_enabled: limits.allow_iteration_on_failure,
         }
+    }
+
+    pub fn max_tools_per_iteration(&self) -> u32 {
+        self.max_tools_per_iteration
     }
 
     /// Execute agent with bounded loops and automated verification
@@ -230,6 +235,137 @@ impl AgentController {
 
         // Max iterations reached
         Err(AgentError::MaxIterationsExceeded(self.max_iterations))
+    }
+
+    /// Execute agent with bounded loops and automated verification using owned execution
+    pub async fn execute_bounded_agent_owned<F>(
+        &self,
+        initial_goal: &str,
+        agent_executor: F,
+    ) -> anyhow::Result<AgentResult>
+    where
+        F: Fn(String, AgentExecutionState) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<AgentIterationResult>> + Send>>,
+    {
+        let start_time = Instant::now();
+        let mut state = AgentExecutionState {
+            iteration_count: 0,
+            total_tools_executed: 0,
+            start_time: std::time::SystemTime::now(),
+            last_verification_result: None,
+            execution_history: Vec::new(),
+            failure_count: 0,
+            recovery_attempts: 0,
+        };
+
+        let mut current_goal = initial_goal.to_string();
+        let mut last_result: Option<AgentIterationResult> = None;
+
+        // Main execution loop with bounds
+        while state.iteration_count < self.max_iterations {
+            state.iteration_count += 1;
+
+            // Check total execution time
+            if start_time.elapsed() > self.max_execution_time {
+                return Err(anyhow::anyhow!(
+                    "Agent execution exceeded time limit: {} seconds",
+                    self.max_execution_time.as_secs()
+                ));
+            }
+
+            // Execute one iteration with owned parameters
+            let iteration_start = Instant::now();
+            let iteration_result = match timeout(
+                Duration::from_secs(60), // 1 minute per iteration
+                agent_executor(current_goal.clone(), state.clone())
+            ).await {
+                Ok(result) => result?,
+                Err(_) => {
+                    state.failure_count += 1;
+                    return Err(anyhow::anyhow!("Iteration {} timed out", state.iteration_count));
+                }
+            };
+
+            let execution_time = iteration_start.elapsed();
+
+            // Validate iteration result
+            if iteration_result.tool_calls.len() > self.max_tools_per_iteration as usize {
+                return Err(anyhow::anyhow!(
+                    "Too many tools in iteration: {} > {}",
+                    iteration_result.tool_calls.len(),
+                    self.max_tools_per_iteration
+                ));
+            }
+
+            state.total_tools_executed += iteration_result.tool_calls.len() as u32;
+
+            // Perform automated verification if enabled
+            let verification_result = if self.verification_enabled {
+                match self.verify_iteration_result(&iteration_result, &state).await {
+                    Ok(result) => Some(result),
+                    Err(e) => {
+                        eprintln!("Verification failed: {}", e);
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
+            // Record iteration
+            let reasoning_steps_clone = iteration_result.reasoning_steps.clone();
+            let tool_calls_clone = iteration_result.tool_calls.clone();
+
+            let record = IterationRecord {
+                iteration_number: state.iteration_count,
+                reasoning_steps: reasoning_steps_clone,
+                tool_calls: tool_calls_clone.iter().map(|tc| format!("{:?}", tc)).collect(),
+                verification_result: verification_result.clone(),
+                execution_time_ms: execution_time.as_millis() as u64,
+                success: verification_result.as_ref().map_or(false, |v| matches!(v, VerificationResult::Passed { .. })),
+            };
+
+            state.execution_history.push(record);
+            state.last_verification_result = verification_result;
+
+            // Check if we should continue iterating
+            match self.should_continue_iterating(&iteration_result, &state) {
+                IterationDecision::Continue(new_goal) => {
+                    current_goal = new_goal;
+                    last_result = Some(iteration_result);
+                }
+                IterationDecision::Complete => {
+                    // Generate final result
+                    let final_response = self.generate_final_response(&iteration_result, &state);
+                    let confidence_score = self.calculate_final_confidence(&state);
+
+                    return Ok(AgentResult {
+                        final_response,
+                        confidence_score,
+                        iterations_used: state.iteration_count,
+                        tools_executed: state.total_tools_executed,
+                        verification_history: state.execution_history.iter()
+                            .filter_map(|r| r.verification_result.clone())
+                            .collect(),
+                        execution_time: start_time.elapsed(),
+                    });
+                }
+                IterationDecision::Fail(reason) => {
+                    state.failure_count += 1;
+
+                    if self.failure_recovery_enabled && state.failure_count < 3 {
+                        // Attempt recovery
+                        state.recovery_attempts += 1;
+                        current_goal = format!("{} (Recovery attempt {})", initial_goal, state.recovery_attempts);
+                        continue;
+                    } else {
+                        return Err(anyhow::anyhow!("Agent execution failed: {}", reason));
+                    }
+                }
+            }
+        }
+
+        // Max iterations reached
+        Err(anyhow::anyhow!("Maximum iterations exceeded: {}", self.max_iterations))
     }
 
     /// Verify the results of an agent iteration
