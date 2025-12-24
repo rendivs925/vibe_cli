@@ -12,15 +12,16 @@ impl ContentSanitizer {
     pub fn new() -> Self {
         let prompt_injection_patterns = vec![
             // System prompt manipulation
-            Regex::new(r"(?i)system:\s*ignore\s+(?:previous\s+)?instructions").unwrap(),
+            Regex::new(r"(?i)system:\s*ignore").unwrap(),
             Regex::new(r"(?i)assistant:\s*ignore\s+(?:previous\s+)?instructions").unwrap(),
             Regex::new(r"(?i)you\s+are\s+now\s+.+?\.").unwrap(),
+            Regex::new(r"(?i)from\s+now\s+on\s*,\s*you\s+are").unwrap(),
             Regex::new(r"(?i)forget\s+(?:your\s+)?previous\s+instructions").unwrap(),
             Regex::new(r"(?i)override\s+(?:your\s+)?instructions").unwrap(),
 
             // Command execution attempts
             Regex::new(r"(?i)execute\s+(?:the\s+following\s+)?command").unwrap(),
-            Regex::new(r"(?i)run\s+(?:the\s+following\s+)?command").unwrap(),
+
             Regex::new(r"(?i)shell\s+command").unwrap(),
             Regex::new(r"(?i)bash\s+command").unwrap(),
 
@@ -57,7 +58,8 @@ impl ContentSanitizer {
             Regex::new(r"on\w+\s*=").unwrap(),
 
             // SQL injection patterns
-            Regex::new(r"(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER)\b.*;)").unwrap(),
+            Regex::new(r"(?i)(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|UNION|OR|AND)\b.*)").unwrap(),
+            Regex::new(r"(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|UNION|OR|AND)\b.*;)").unwrap(),
 
             // Command injection via backticks
             Regex::new(r"`[^`]*`").unwrap(),
@@ -130,6 +132,13 @@ impl ContentSanitizer {
         for pattern in &self.prompt_injection_patterns {
             if pattern.is_match(input) {
                 return Err(SanitizationError::PromptInjectionAttempt);
+            }
+        }
+
+        // Check for malicious patterns
+        for pattern in &self.malicious_patterns {
+            if pattern.is_match(input) {
+                return Err(SanitizationError::ContentTooDangerous);
             }
         }
 

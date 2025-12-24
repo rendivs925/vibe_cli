@@ -80,12 +80,17 @@ impl Sandbox {
             r"rm\s+-rf\s+/".to_string(),                    // rm -rf /
             r"rm\s+-rf\s+\*".to_string(),                   // rm -rf *
             r":\(\)\{\s*:\|\:&\s*\};:".to_string(),        // Fork bomb
+            r"os\.fork".to_string(),                             // Python fork calls
             r">/dev/sd[a-z]".to_string(),                   // Disk overwriting
             r"dd\s+if=.*of=/dev/".to_string(),              // Disk operations
             r"mkfs\.".to_string(),                          // Filesystem creation
             r"chmod\s+777\s+/".to_string(),                 // Dangerous permissions
             r"chown\s+root".to_string(),                    // Root ownership
             r"sudo\s+.*rm".to_string(),                     // Sudo remove operations
+            r".*&&.*".to_string(),                          // Command chaining with &&
+            r".*\|\|.*".to_string(),                        // Command chaining with ||
+            r".*\|.*bash".to_string(),                      // Pipe to bash
+            r".*\|.*sh".to_string(),                        // Pipe to shell
             r"curl.*\|.*bash".to_string(),                  // Pipe to bash
             r"wget.*\|.*sh".to_string(),                    // Pipe to shell
             r"eval\s+.*".to_string(),                       // Eval execution

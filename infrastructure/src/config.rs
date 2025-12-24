@@ -188,7 +188,7 @@ impl Default for ContentSanitizationConfig {
 impl Default for AuditTrailConfig {
     fn default() -> Self {
         Self {
-            enabled: true,
+            enabled: false,
             log_level: "INFO".to_string(),
             max_log_files: 10,
             max_log_size_mb: 100,
@@ -371,8 +371,8 @@ impl Config {
             },
             audit_trail: AuditTrailConfig {
                 enabled: env::var("VIBE_AUDIT_TRAIL_ENABLED")
-                    .unwrap_or_else(|_| "true".to_string())
-                    .parse().unwrap_or(true),
+                    .unwrap_or_else(|_| "false".to_string())
+                    .parse().unwrap_or(false),
                 log_level: env::var("VIBE_LOG_LEVEL")
                     .unwrap_or_else(|_| "INFO".to_string()),
                 max_log_files: env::var("VIBE_MAX_LOG_FILES")

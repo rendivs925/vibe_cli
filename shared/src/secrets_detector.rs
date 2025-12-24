@@ -75,7 +75,7 @@ impl SecretsDetector {
             // Medium severity patterns
             SecretPattern {
                 name: "GitHub Token".to_string(),
-                regex: "ghp_[A-Za-z0-9]{36}".to_string(),
+                regex: "ghp_[A-Za-z0-9]{20,}".to_string(),
                 severity: SecretSeverity::Medium,
                 description: "GitHub personal access token detected".to_string(),
             },
@@ -94,8 +94,14 @@ impl SecretsDetector {
                 description: "Generic API key or token detected".to_string(),
             },
             SecretPattern {
+                name: "Generic Password".to_string(),
+                regex: "(?i)(password|passwd|pwd|pass)[=:][A-Za-z0-9!@#$%^&*()_+-=]{8,}".to_string(),
+                severity: SecretSeverity::Medium,
+                description: "Generic password detected".to_string(),
+            },
+            SecretPattern {
                 name: "Stripe API Key".to_string(),
-                regex: "sk_(?:test|live)_[A-Za-z0-9]{10,}".to_string(),
+                regex: "sk[_-](?:test|live)?[_-]?[A-Za-z0-9]{10,}".to_string(),
                 severity: SecretSeverity::High,
                 description: "Stripe API key detected".to_string(),
             },

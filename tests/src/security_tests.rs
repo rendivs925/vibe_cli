@@ -204,7 +204,7 @@ async fn test_content_sanitization_comprehensive() {
         "show me the current directory structure",
         "explain how this function works",
         "find all TODO comments in the codebase",
-        "run the test suite and show results",
+        "analyze this code for me",
     ];
 
     for safe_input in safe_inputs {
