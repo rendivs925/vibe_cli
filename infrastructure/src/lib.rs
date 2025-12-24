@@ -19,3 +19,4 @@ pub mod command_interpreter;
 pub mod network_security;
 pub mod resource_enforcement;
 pub mod policy_engine;
+pub mod agent_control;

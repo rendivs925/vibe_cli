@@ -1,9 +1,8 @@
 use domain::models::{
-    AgentRequest, AgentResponse, AgentContext, ToolCall, ToolResult, 
+    AgentRequest, AgentResponse, AgentContext, ToolCall, ToolResult,
     ConversationMessage, ToolDefinition, ToolParameters, ParameterProperty
 };
-use infrastructure::{ollama_client::OllamaClient, config::Config};
-use infrastructure::sandbox::Sandbox;
+use infrastructure::{ollama_client::OllamaClient, config::Config, agent_control::{AgentController, SafeFailureHandler, AgentIterationResult, AgentExecutionState, AgentError}, sandbox::Sandbox};
 use shared::types::Result;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -17,62 +16,125 @@ pub struct AgentService {
     client: OllamaClient,
     rag_service: Option<Arc<RagService>>,
     config: Config,
+    agent_controller: AgentController,
+    failure_handler: SafeFailureHandler,
 }
 
 impl AgentService {
     pub fn new(client: OllamaClient) -> Self {
-        Self { 
-            client, 
+        Self {
+            client,
             rag_service: None,
             config: Config::load(),
+            agent_controller: AgentController::new(),
+            failure_handler: SafeFailureHandler::new(),
         }
     }
 
     pub fn with_rag_service(client: OllamaClient, rag_service: Arc<RagService>) -> Self {
-        Self { 
-            client, 
+        Self {
+            client,
             rag_service: Some(rag_service),
             config: Config::load(),
+            agent_controller: AgentController::new(),
+            failure_handler: SafeFailureHandler::new(),
         }
     }
 
     pub async fn process_request(&self, request: &AgentRequest) -> Result<AgentResponse> {
-        // Initialize context for this request
+        // Use bounded agent execution with failure handling
+        let result = self.failure_handler.execute_with_failure_handling(|| async {
+            self.agent_controller.execute_bounded_agent(
+                &request.goal,
+                |goal, state| async move {
+                    self.execute_single_iteration(goal, state, request).await
+                        .map_err(|e| infrastructure::agent_control::AgentError::InternalError(e.to_string()))
+                }
+            ).await
+        }).await;
+
+        match result {
+            Ok(agent_result) => {
+                // Convert to legacy AgentResponse format for compatibility
+                Ok(AgentResponse {
+                    reasoning: vec![agent_result.final_response.clone()], // Simplified
+                    tool_calls: vec![], // Would need to track this properly
+                    final_response: agent_result.final_response,
+                    confidence: agent_result.confidence_score,
+                })
+            }
+            Err(agent_error) => {
+                // Generate safe fallback response
+                let fallback_response = self.failure_handler.generate_safe_fallback_response(&agent_error, &request.goal);
+
+                Ok(AgentResponse {
+                    reasoning: vec![format!("Agent execution failed: {}", agent_error)],
+                    tool_calls: vec![],
+                    final_response: fallback_response,
+                    confidence: 0.0,
+                })
+            }
+        }
+    }
+
+    async fn execute_single_iteration(
+        &self,
+        goal: &str,
+        state: &AgentExecutionState,
+        request: &AgentRequest,
+    ) -> Result<AgentIterationResult> {
+        // Initialize context for this iteration
         let mut context = self.initialize_context(request).await?;
-        
-        // Generate initial reasoning plan
-        let reasoning_steps = self.generate_reasoning(&request.goal, &context).await?;
-        
+
+        // Generate reasoning plan (adapt based on iteration state)
+        let reasoning_steps = self.generate_reasoning(goal, &context).await?;
+
         // Determine if tools are needed
-        let tool_calls = if self.needs_tools(&request.goal, &reasoning_steps) {
-            self.plan_tool_calls(&request.goal, &reasoning_steps, &context).await?
+        let tool_calls = if self.needs_tools(goal, &reasoning_steps) {
+            self.plan_tool_calls(goal, &reasoning_steps, &context).await?
         } else {
             Vec::new()
         };
-        
+
+        // Limit tools per iteration
+        if tool_calls.len() > 3 {
+            return Err(anyhow::anyhow!("Too many tools in iteration: {} > 3", tool_calls.len()));
+        }
+
         // Execute tools if any
         let tool_results = if !tool_calls.is_empty() {
             self.execute_tool_calls(&tool_calls, &mut context).await?
         } else {
             Vec::new()
         };
-        
-        // Generate final response incorporating tool results
+
+        // Generate response for this iteration
         let final_response = self.generate_final_response(
-            &request.goal, 
-            &reasoning_steps, 
+            goal,
+            &reasoning_steps,
             &tool_results,
             &context
         ).await?;
-        
+
         // Calculate confidence
-        let confidence = self.calculate_confidence(&reasoning_steps, &tool_results);
-        
-        Ok(AgentResponse {
-            reasoning: reasoning_steps,
-            tool_calls,
+        let confidence_score = self.calculate_confidence(&reasoning_steps, &tool_results);
+
+        // Determine next goal (simplified - could be more sophisticated)
+        let next_goal = if confidence_score < 0.7 && state.iteration_count < 3 {
+            format!("Refine approach for: {}", goal)
+        } else {
+            goal.to_string()
+        };
+
+        // Convert tool calls to string representation for the result
+        let tool_call_strings = tool_calls.iter().map(|tc| format!("{:?}", tc)).collect();
+
+        Ok(AgentIterationResult {
+            reasoning_steps,
+            tool_calls: tool_call_strings,
             final_response,
-            confidence,
+            confidence_score,
+            next_goal,
         })
     }
 
