@@ -42,27 +42,38 @@ impl AgentService {
     }
 
     pub async fn process_request(&self, request: &AgentRequest) -> Result<AgentResponse> {
-        // For now, use a simplified approach to avoid lifetime issues
-        // TODO: Implement proper bounded agent execution once lifetime issues are resolved
+        // For now, implement a basic working version
+        // We'll enhance this incrementally
 
-        // Initialize context and execute single iteration directly
+        // Initialize context
         let mut context = self.initialize_context(request).await?;
         let reasoning_steps = self.generate_reasoning(&request.goal, &context).await?;
 
-        // Create a simple agent result for now
+        // Execute a single iteration manually for now
+        let iteration_result = self.execute_single_iteration(&request.goal, &AgentExecutionState {
+            iteration_count: 0,
+            total_tools_executed: 0,
+            start_time: std::time::SystemTime::now(),
+            last_verification_result: None,
+            execution_history: vec![],
+            failure_count: 0,
+            recovery_attempts: 0,
+        }, request).await?;
+
+        // Convert to agent result format
         let agent_result = AgentResult {
-            final_response: format!("Goal: {}\n\nReasoning: {}\n\nThis is a placeholder response until bounded agent execution is fully implemented.", request.goal, reasoning_steps.join("\n")),
-            confidence_score: 0.8,
+            final_response: iteration_result.final_response,
+            confidence_score: iteration_result.confidence_score,
             execution_time: std::time::Duration::from_secs(1),
             iterations_used: 1,
-            tools_executed: 0,
-            verification_history: vec![], // No verification performed in simplified mode
+            tools_executed: iteration_result.tool_calls.len() as u32,
+            verification_history: vec![], // TODO: Add verification
         };
 
         // Convert to response format
         Ok(AgentResponse {
-            reasoning: reasoning_steps,
-            tool_calls: vec![],
+            reasoning: iteration_result.reasoning_steps,
+            tool_calls: vec![], // Tool calls would need to be converted from strings
             final_response: agent_result.final_response,
             confidence: agent_result.confidence_score,
         })
