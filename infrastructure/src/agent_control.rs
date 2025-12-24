@@ -8,11 +8,7 @@ use std::fs;
 /// Bounded agent execution with automated verification
 #[derive(Clone)]
 pub struct AgentController {
-    max_iterations: u32,
-    max_tools_per_iteration: u32,
-    max_execution_time: Duration,
-    verification_enabled: bool,
-    failure_recovery_enabled: bool,
+    config: crate::config::SecurityConfig,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -137,12 +133,12 @@ impl Default for AgentExecutionLimits {
 impl AgentController {
     pub fn new() -> Self {
         Self {
-            max_iterations: 5,
-            max_tools_per_iteration: 3,
-            max_execution_time: Duration::from_secs(120),
-            verification_enabled: true,
-            failure_recovery_enabled: true,
+            config: crate::config::SecurityConfig::default(),
         }
+    }
+
+    pub fn with_config(config: crate::config::SecurityConfig) -> Self {
+        Self { config }
     }
 
     /// Estimate current memory usage in bytes
@@ -199,17 +195,18 @@ impl AgentController {
     }
 
     pub fn with_limits(limits: AgentExecutionLimits) -> Self {
-        Self {
-            max_iterations: limits.max_iterations,
-            max_tools_per_iteration: limits.max_tools_per_iteration,
-            max_execution_time: Duration::from_secs(limits.max_execution_time_seconds),
-            verification_enabled: true,
-            failure_recovery_enabled: limits.allow_iteration_on_failure,
-        }
+        let mut config = crate::config::SecurityConfig::default();
+        config.agent_execution.max_iterations = limits.max_iterations;
+        config.agent_execution.max_tools_per_iteration = limits.max_tools_per_iteration;
+        config.agent_execution.max_execution_time_seconds = limits.max_execution_time_seconds;
+        config.agent_execution.verification_timeout_seconds = limits.verification_timeout_seconds;
+        config.agent_execution.allow_iteration_on_failure = limits.allow_iteration_on_failure;
+
+        Self { config }
     }
 
     pub fn max_tools_per_iteration(&self) -> u32 {
-        self.max_tools_per_iteration
+        self.config.agent_execution.max_tools_per_iteration
     }
 
     /// Execute agent with bounded loops and automated verification
@@ -236,7 +233,7 @@ impl AgentController {
             convergence_metrics: HashMap::new(),
             resource_usage_stats: ResourceUsageStats::default(),
             performance_metrics: PerformanceMetrics::default(),
-            max_iterations_allowed: self.max_iterations,
+            max_iterations_allowed: self.config.agent_execution.max_iterations,
             convergence_threshold: 0.8,
         };
 
@@ -244,14 +241,14 @@ impl AgentController {
         let mut last_result: Option<AgentIterationResult> = None;
 
         // Main execution loop with bounds
-        while state.iteration_count < self.max_iterations {
+        while state.iteration_count < self.config.agent_execution.max_iterations {
             state.iteration_count += 1;
 
             // Check total execution time
-            if start_time.elapsed() > self.max_execution_time {
+            if start_time.elapsed() > Duration::from_secs(self.config.agent_execution.max_execution_time_seconds) {
                 return Err(AgentError::Timeout(format!(
                     "Agent execution exceeded time limit: {} seconds",
-                    self.max_execution_time.as_secs()
+                    self.config.agent_execution.max_execution_time_seconds
                 )));
             }
 
@@ -271,17 +268,17 @@ impl AgentController {
             let execution_time = iteration_start.elapsed();
 
             // Validate iteration result
-            if iteration_result.tool_calls.len() > self.max_tools_per_iteration as usize {
+            if iteration_result.tool_calls.len() > self.config.agent_execution.max_tools_per_iteration as usize {
                 return Err(AgentError::TooManyTools(
                     iteration_result.tool_calls.len(),
-                    self.max_tools_per_iteration as usize,
+                    self.config.agent_execution.max_tools_per_iteration as usize,
                 ));
             }
 
             state.total_tools_executed += iteration_result.tool_calls.len() as u32;
 
             // Perform automated verification if enabled
-            let verification_result = if self.verification_enabled {
+            let verification_result = if true {
                 match self.verify_iteration_result(&iteration_result, &state).await {
                     Ok(result) => Some(result),
                     Err(e) => {
@@ -338,7 +335,7 @@ impl AgentController {
                 IterationDecision::Fail(reason) => {
                     state.failure_count += 1;
 
-                    if self.failure_recovery_enabled && state.failure_count < 3 {
+                    if self.config.agent_execution.allow_iteration_on_failure && state.failure_count < 3 {
                         // Attempt recovery
                         state.recovery_attempts += 1;
                         current_goal = format!("{} (Recovery attempt {})", initial_goal, state.recovery_attempts);
@@ -351,7 +348,7 @@ impl AgentController {
         }
 
         // Max iterations reached
-        Err(AgentError::MaxIterationsExceeded(self.max_iterations))
+        Err(AgentError::MaxIterationsExceeded(self.config.agent_execution.max_iterations))
     }
 
     /// Execute agent with bounded loops and automated verification using owned execution
@@ -377,7 +374,7 @@ impl AgentController {
             convergence_metrics: HashMap::new(),
             resource_usage_stats: ResourceUsageStats::default(),
             performance_metrics: PerformanceMetrics::default(),
-            max_iterations_allowed: self.max_iterations,
+            max_iterations_allowed: self.config.agent_execution.max_iterations,
             convergence_threshold: 0.8, // 80% confidence threshold
         };
 
@@ -385,14 +382,14 @@ impl AgentController {
         let mut last_result: Option<AgentIterationResult> = None;
 
         // Main execution loop with bounds
-        while state.iteration_count < self.max_iterations {
+        while state.iteration_count < self.config.agent_execution.max_iterations {
             state.iteration_count += 1;
 
             // Check total execution time
-            if start_time.elapsed() > self.max_execution_time {
+            if start_time.elapsed() > Duration::from_secs(self.config.agent_execution.max_execution_time_seconds) {
                 return Err(anyhow::anyhow!(
                     "Agent execution exceeded time limit: {} seconds",
-                    self.max_execution_time.as_secs()
+                    Duration::from_secs(self.config.agent_execution.max_execution_time_seconds).as_secs()
                 ));
             }
 
@@ -412,18 +409,18 @@ impl AgentController {
             let execution_time = iteration_start.elapsed();
 
             // Validate iteration result
-            if iteration_result.tool_calls.len() > self.max_tools_per_iteration as usize {
+            if iteration_result.tool_calls.len() > self.max_tools_per_iteration() as usize {
                 return Err(anyhow::anyhow!(
                     "Too many tools in iteration: {} > {}",
                     iteration_result.tool_calls.len(),
-                    self.max_tools_per_iteration
+                    self.max_tools_per_iteration()
                 ));
             }
 
             state.total_tools_executed += iteration_result.tool_calls.len() as u32;
 
             // Perform automated verification if enabled
-            let verification_result = if self.verification_enabled {
+            let verification_result = if true {
                 match self.verify_iteration_result(&iteration_result, &state).await {
                     Ok(result) => Some(result),
                     Err(e) => {
@@ -480,7 +477,7 @@ impl AgentController {
                 IterationDecision::Fail(reason) => {
                     state.failure_count += 1;
 
-                    if self.failure_recovery_enabled && state.failure_count < 3 {
+                    if self.config.agent_execution.allow_iteration_on_failure && state.failure_count < 3 {
                         // Attempt recovery
                         state.recovery_attempts += 1;
                         current_goal = format!("{} (Recovery attempt {})", initial_goal, state.recovery_attempts);
@@ -493,7 +490,7 @@ impl AgentController {
         }
 
         // Max iterations reached
-        Err(anyhow::anyhow!("Maximum iterations exceeded: {}", self.max_iterations))
+        Err(anyhow::anyhow!("Maximum iterations exceeded: {}", self.config.agent_execution.max_iterations))
     }
 
     /// Verify the results of an agent iteration
@@ -564,7 +561,7 @@ impl AgentController {
     ) -> IterationDecision {
         // Check verification result
         if let Some(VerificationResult::Failed { .. }) = &state.last_verification_result {
-            if !self.failure_recovery_enabled {
+            if !self.config.agent_execution.allow_iteration_on_failure {
                 return IterationDecision::Fail("Verification failed".to_string());
             }
         }
@@ -575,7 +572,7 @@ impl AgentController {
         }
 
         // Check if we've reached iteration limits
-        if state.iteration_count >= self.max_iterations {
+        if state.iteration_count >= self.config.agent_execution.max_iterations {
             return IterationDecision::Complete;
         }
 
@@ -586,7 +583,7 @@ impl AgentController {
             tc.to_lowercase().contains("check")
         );
 
-        if needs_more_info && state.iteration_count < self.max_iterations {
+        if needs_more_info && state.iteration_count < self.config.agent_execution.max_iterations {
             IterationDecision::Continue(format!("Gather more information: {}", result.next_goal))
         } else {
             IterationDecision::Complete
