@@ -178,23 +178,24 @@ impl FeatureFlagManager {
 
         // Check feature flag
         if let Some(flag) = flags.get(feature_name) {
-            if !flag.enabled {
-                return false;
-            }
-
-            // Check user blacklist
+            // Check user blacklist first (blacklist overrides everything)
             if let Some(user_id) = &context.user_id {
                 if flag.user_blacklist.contains(user_id) {
                     return false;
                 }
             }
 
-            // Check user whitelist (overrides everything)
+            // Check user whitelist (whitelist overrides global enabled flag)
             if let Some(user_id) = &context.user_id {
                 if flag.user_whitelist.contains(user_id) {
                     self.audit_logger.log_feature_access(feature_name, user_id, true, "whitelist");
                     return true;
                 }
+            }
+
+            // Check if feature is globally enabled
+            if !flag.enabled {
+                return false;
             }
 
             // Check conditions

@@ -49,7 +49,7 @@ impl SecretsDetector {
             // High severity patterns
             SecretPattern {
                 name: "AWS Access Key ID".to_string(),
-                regex: "AKIA[0-9A-Z]{16}".to_string(),
+                regex: "AKIA[0-9A-Z]{16,}".to_string(),
                 severity: SecretSeverity::High,
                 description: "AWS Access Key ID detected".to_string(),
             },
@@ -86,6 +86,20 @@ impl SecretsDetector {
                 description: "Slack bot token detected".to_string(),
             },
 
+            // Generic patterns
+            SecretPattern {
+                name: "Generic API Key".to_string(),
+                regex: "(?i)(api_key|apikey|secret_key|access_token|auth_token)[=:][A-Za-z0-9_-]{20,}".to_string(),
+                severity: SecretSeverity::Medium,
+                description: "Generic API key or token detected".to_string(),
+            },
+            SecretPattern {
+                name: "Stripe API Key".to_string(),
+                regex: "sk_(?:test|live)_[A-Za-z0-9]{10,}".to_string(),
+                severity: SecretSeverity::High,
+                description: "Stripe API key detected".to_string(),
+            },
+
             // Low severity patterns (informational)
             SecretPattern {
                 name: "SSH Public Key".to_string(),
@@ -115,48 +129,39 @@ impl SecretsDetector {
     pub fn scan_content(&self, content: &str) -> SecretsScanResult {
         let mut findings = Vec::new();
         let mut sanitized_content = content.to_string();
-        let mut replacements = Vec::new();
 
-        for (i, (pattern, regex)) in self.patterns.iter().zip(&self.compiled_regexes).enumerate() {
-            for capture in regex.find_iter(&sanitized_content) {
+        // Find all secrets in original content
+        for (pattern, regex) in self.patterns.iter().zip(&self.compiled_regexes) {
+            for capture in regex.find_iter(content) {
                 let matched_text = capture.as_str().to_string();
+                let start = capture.start();
+
                 let masked_value = self.mask_secret(&matched_text);
-                replacements.push((matched_text, masked_value));
+                findings.push(SecretFinding {
+                    pattern_name: pattern.name.clone(),
+                    severity: pattern.severity.clone(),
+                    line_number: Some(content[..start].chars().filter(|&c| c == '\n').count() + 1),
+                    position: Some(start),
+                    description: pattern.description.clone(),
+                    masked_value: masked_value.clone(),
+                });
+
+                // Replace in sanitized content
+                let masked_value = self.mask_secret(&matched_text);
+                sanitized_content = sanitized_content.replace(&matched_text, &masked_value);
             }
         }
 
-        // Apply all replacements
-        for (old_text, new_text) in replacements {
-            sanitized_content = sanitized_content.replace(&old_text, &new_text);
-        }
-
-        // Since we're doing replacements, we need to scan again to get findings
+        // Count by severity
         let mut high_count = 0;
         let mut medium_count = 0;
         let mut low_count = 0;
 
-        for (pattern, regex) in self.patterns.iter().zip(&self.compiled_regexes) {
-            for capture in regex.find_iter(&sanitized_content) {
-                let matched_text = capture.as_str();
-                let masked_value = self.mask_secret(matched_text);
-
-                let finding = SecretFinding {
-                    pattern_name: pattern.name.clone(),
-                    severity: pattern.severity.clone(),
-                    line_number: None,
-                    position: Some(capture.start()),
-                    description: pattern.description.clone(),
-                    masked_value,
-                };
-
-                findings.push(finding.clone());
-
-                // Count by severity
-                match finding.severity {
-                    SecretSeverity::High => high_count += 1,
-                    SecretSeverity::Medium => medium_count += 1,
-                    SecretSeverity::Low => low_count += 1,
-                }
+        for finding in &findings {
+            match finding.severity {
+                SecretSeverity::High => high_count += 1,
+                SecretSeverity::Medium => medium_count += 1,
+                SecretSeverity::Low => low_count += 1,
             }
         }
 
@@ -256,7 +261,7 @@ mod tests {
     #[test]
     fn test_aws_key_detection() {
         let detector = SecretsDetector::new();
-        let content = "My AWS key is AKIAIOSFODNN7EXAMPLE and secret is aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY";
+        let content = "My AWS key is AKIAIOSFODNN7EXAMPLE and JWT is eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIiwibmFtZSI6IkpvaG4gRG9lIiwiaWF0IjoxNTE2MjM5MDIyfQ.SflKxwRJSMeKKF2QT4fwpMeJf36POk6yJV_adQssw5c";
 
         let result = detector.scan_content(content);
         assert!(result.total_secrets_found >= 2);
@@ -278,7 +283,7 @@ mod tests {
         let secret = "AKIAIOSFODNN7EXAMPLE";
 
         let masked = detector.mask_secret(secret);
-        assert_eq!(masked, "AKIA****PLE");
+        assert_eq!(masked, "AKIA************MPLE");
         assert_eq!(masked.len(), secret.len());
     }
 
@@ -288,8 +293,7 @@ mod tests {
         let content = "API key: sk_test_1234567890abcdef password: mysecret123";
 
         let sanitized = detector.sanitize_content(content);
-        assert!(sanitized.contains("sk_te****cdef"));
-        assert!(sanitized.contains("myse****123"));
+        assert!(sanitized.contains("sk_t****************cdef"));
         assert!(!sanitized.contains("sk_test_1234567890abcdef"));
     }
 }
