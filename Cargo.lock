@@ -1583,11 +1583,13 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arrayvec",
+ "async-trait",
  "bincode",
  "chrono",
  "domain",
  "dotenvy",
  "futures",
+ "lazy_static",
  "md5",
  "memmap2",
  "prost 0.12.6",

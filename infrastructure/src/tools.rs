@@ -4,6 +4,7 @@ use std::time::{Duration, Instant};
 use std::fs;
 use std::path::Path;
 use crate::resource_enforcement::{ResourceEnforcer, ResourceLimits};
+use crate::observability::OBSERVABILITY;
 
 /// Tool execution arguments with validation
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -539,16 +540,39 @@ impl ToolRegistry {
     }
 
     pub async fn execute_tool(&self, tool_name: &str, args: ToolArgs) -> Result<ToolOutput, ToolError> {
-        let tool = self.tools.get(tool_name)
-            .ok_or_else(|| ToolError::ValidationError(format!("Tool '{}' not found", tool_name)))?;
+        let start_time = std::time::Instant::now();
 
-        tool.validate_args(&args)
-            .map_err(|e| ToolError::ValidationError(format!("Argument validation failed: {}", e)))?;
+        // Record tool execution attempt
+        let _trace = OBSERVABILITY.start_request_trace(&format!("tool_{}", tool_name));
 
-        // Policy check before execution
-        self.check_policy(tool_name, &args).await?;
+        let result = async {
+            let tool = self.tools.get(tool_name)
+                .ok_or_else(|| ToolError::ValidationError(format!("Tool '{}' not found", tool_name)))?;
 
-        tool.execute(args).await
+            tool.validate_args(&args)
+                .map_err(|e| ToolError::ValidationError(format!("Argument validation failed: {}", e)))?;
+
+            // Policy check before execution
+            self.check_policy(tool_name, &args).await?;
+
+            tool.execute(args).await
+        }.await;
+
+        let execution_time = start_time.elapsed();
+        let success = result.is_ok();
+
+        // Record metrics
+        OBSERVABILITY.record_request(&format!("tool_{}", tool_name), execution_time, success).await;
+
+        if !success {
+            // Record security event for failed tool execution
+            let mut details = std::collections::HashMap::new();
+            details.insert("tool_name".to_string(), tool_name.to_string());
+            details.insert("error".to_string(), format!("{:?}", result.as_ref().err()));
+            OBSERVABILITY.record_security_event("tool_execution_failed", details).await;
+        }
+
+        result
     }
 
     async fn check_policy(&self, tool_name: &str, args: &ToolArgs) -> Result<(), ToolError> {
