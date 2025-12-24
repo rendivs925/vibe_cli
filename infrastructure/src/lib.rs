@@ -15,6 +15,7 @@ pub mod input_classifier;
 pub mod shell_monitor;
 pub mod sandbox;
 pub mod tools;
-pub mod safe_tools;
 pub mod command_interpreter;
 pub mod network_security;
+pub mod resource_enforcement;
+pub mod policy_engine;

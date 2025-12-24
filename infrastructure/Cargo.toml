@@ -32,3 +32,4 @@ regex = "1.10"
 scraper = "0.18"
 url = "2.5"
 urlencoding = "2.1"
+chrono = { version = "0.4", features = ["serde"] }

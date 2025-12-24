@@ -1,14 +1,10 @@
-use crate::tools::{SafeTool, ToolArgs, ToolOutput, ToolError};
-use crate::safe_tools::create_safe_tools;
-use crate::safe_tools::create_safe_tools;
+use crate::tools::{ToolArgs, ToolOutput, ToolError, ToolRegistry};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::Arc;
-use tokio::sync::Mutex;
 
 /// Command interpreter that translates natural language to safe tool calls
 pub struct SafeCommandInterpreter {
-    available_tools: Vec<SafeTool>,
+    tool_registry: ToolRegistry,
     command_patterns: HashMap<String, CommandPattern>,
 }
 
@@ -38,7 +34,7 @@ pub struct InterpretedCommand {
 
 impl SafeCommandInterpreter {
     pub fn new() -> Self {
-        let available_tools = create_safe_tools();
+        let tool_registry = ToolRegistry::new();
 
         let mut command_patterns = HashMap::new();
         
@@ -87,7 +83,7 @@ impl SafeCommandInterpreter {
         );
 
         Self {
-            available_tools,
+            tool_registry,
             command_patterns,
         }
     }
@@ -240,18 +236,12 @@ impl SafeCommandInterpreter {
 
     /// Execute interpreted command safely
     pub async fn execute_interpreted_command(&self, interpreted: InterpretedCommand) -> Result<ToolOutput, ToolError> {
-        // Find the tool by name
-        for tool in &self.available_tools {
-            if tool.name() == interpreted.tool_name {
-                return tool.execute(interpreted.args).await;
-            }
-        }
-        Err(ToolError::ValidationError(format!("Tool '{}' not found", interpreted.tool_name)))
+        self.tool_registry.execute_tool(&interpreted.tool_name, interpreted.args).await
     }
 
     /// Get available tools
     pub fn list_available_tools(&self) -> Vec<String> {
-        self.available_tools.iter().map(|tool| tool.name().to_string()).collect()
+        self.tool_registry.list_tools()
     }
 }
 

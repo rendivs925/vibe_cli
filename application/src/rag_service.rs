@@ -148,11 +148,11 @@ impl RagService {
         };
 
         // Create secure prompt with sanitized content
-        let context_blocks = vec![&context];
+        let context_refs: Vec<&str> = vec![&context];
         let prompt = self.content_sanitizer.create_secure_prompt(
             "You are an expert software engineer. Based on the provided code context and directory structure, answer the user's question accurately.",
             &sanitized_question,
-            &context_blocks,
+            &context_refs,
         ).unwrap_or_else(|_| format!(
             "SYSTEM: You are an expert software engineer. Answer based only on provided context.\n\nQUESTION: {}\n\nCONTEXT:\n{}\n\nRESPONSE:",
             sanitized_question, context
