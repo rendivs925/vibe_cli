@@ -34,7 +34,7 @@ impl Sandbox {
         }
 
         // System monitoring (read-only)
-        for cmd in &["ps", "top", "htop", "df", "du", "free", "uptime", "whoami", "id", "date"] {
+        for cmd in &["ps", "top", "htop", "df", "du", "free", "uptime", "whoami", "id", "date", "systemctl", "journalctl", "hostname", "uname", "lsblk", "blkid", "fdisk", "parted", "lscpu", "lspci", "lsusb", "dmidecode", "sensors", "iostat", "vmstat", "sar", "sysctl"] {
             allowed_commands.insert(cmd.to_string());
         }
 
