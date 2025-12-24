@@ -1,5 +1,7 @@
 // Integration tests for comprehensive enhancement plan features
 
+pub mod security_tests;
+
 #[cfg(test)]
 mod tests {
     use infrastructure::sandbox::{Sandbox, ConfirmationManager};
