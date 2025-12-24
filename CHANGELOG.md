@@ -1,0 +1,57 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
+The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
+and this project adheres to [Semantic Versioning](https://semver.org/spec/SemVer).
+
+## [Unreleased]
+
+### Added
+
+- **System Command Support**: Expanded sandbox to allow essential system monitoring commands (systemctl, ps, df, free, uptime, etc.) while maintaining security
+- **RAG Safety Override**: Users can now override RAG query blocking when sensitive information is detected, proceeding with sanitized (masked) content
+- **Enhanced Security Patterns**: Improved detection of command injection, SQL injection, and dangerous patterns
+
+### Changed
+
+- **Default Security Behavior**: More permissive for legitimate system administration tasks while maintaining core safety guarantees
+- **RAG Content Filtering**: Non-blocking approach with user choice for handling sensitive content
+
+### Removed
+
+- **Leptos Mode Feature**: Removed automatic Leptos documentation loading feature (commit: 7f1d4c2)
+
+### Fixed
+
+- **Test Compilation**: Resolved all test compilation errors and improved test coverage
+- **Sandbox Command Validation**: Fixed systemctl and other system commands being incorrectly blocked
+- **Content Sanitization**: Enhanced prompt injection and malicious content detection
+
+### Security
+
+- **Enhanced Command Safety**: Pattern-based validation for shell commands and arguments
+- **Content Security**: Multi-layer protection against prompt injection and malicious inputs
+- **Secrets Detection**: Comprehensive detection and masking of sensitive information in responses
+
+## [1.0.0] - 2025-01-01
+
+### Added
+
+- Initial release with core RAG capabilities
+- Domain-Driven Design architecture
+- Ultra-safe command execution with sandboxing
+- Intelligent caching system
+- Multi-step agent mode
+- File explanation with AI assistance
+- Comprehensive security features
+
+### Features
+
+- Natural language to shell command conversion
+- Retrieval-Augmented Generation with codebase context
+- Real-time progress indicators
+- Bincode-optimized storage
+- Semantic chunking and deduplication
+- Enterprise-ready async architecture</content>
+

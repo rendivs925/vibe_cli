@@ -2,17 +2,16 @@
 
 Ultra-safe CLI assistant powered by a local Ollama model with Retrieval-Augmented Generation (RAG) capabilities. Built with Domain-Driven Design (DDD) for scalability and performance.
 
-Latest improvements include intelligent caching, real-time progress indicators, bincode-optimized storage, semantic chunking, and comprehensive codebase indexing with smart file filtering.
+Latest improvements include intelligent caching, real-time progress indicators, bincode-optimized storage, semantic chunking, comprehensive codebase indexing, expanded system command support (including systemctl), and user-controlled override for RAG content safety.
 
 ## Features
 
 - **Natural Language → Shell Command Suggestion**: Convert descriptions to safe shell commands
-- **Ultra-Safe Mode (Default)**: Blocks dangerous commands (`rm -rf /`, `mkfs`, `dd` on disks, etc.)
-- **Retrieval-Augmented Generation (RAG)**: Context-aware responses using codebase embeddings
+- **Ultra-Safe Mode (Default)**: Blocks dangerous commands (`rm -rf /`, `mkfs`, `dd` on disks, etc.) but allows essential system commands (systemctl, ps, df, etc.)
+- **Retrieval-Augmented Generation (RAG)**: Context-aware responses using codebase embeddings with user-controlled safety override
 - **Multi-Step Agent Mode**: Complex task planning with safety validation
 - **File Explanation**: AI-powered code explanation with intelligent caching
-- **Context Loading**: Load external docs (Leptos, GraphQL schemas, etc.)
-- **Leptos Mode**: Automatic loading of Leptos documentation and examples
+- **Context Loading**: Load external docs (GraphQL schemas, documentation, etc.)
 - **Intelligent Caching**: Multi-level caching with semantic similarity and bincode optimization
 - **Real-time Progress**: Live status indicators for all operations
 - **Smart File Processing**: Semantic chunking, deduplication, and comprehensive ignore lists
@@ -103,9 +102,10 @@ One-shot command suggestion with intelligent caching:
 ```bash
 vibe_cli find all .rs files larger than 1MB
 vibe_cli check ssh status
+vibe_cli systemctl status sshd  # Now supported!
 ```
 
-The CLI will check for cached commands first, offering to reuse them, then generate new commands with AI if needed, and cache successful executions.
+The CLI will check for cached commands first, offering to reuse them, then generate new commands with AI if needed, and cache successful executions. System commands like systemctl, ps, df, free, and uptime are now allowed for legitimate system administration tasks.
 
 Interactive command execution:
 ```bash
@@ -141,6 +141,8 @@ vibe_cli --context ./docs/
 ```
 
 RAG queries scan and index your codebase using semantic chunking, parallel processing, and smart file filtering. Responses include relevant code snippets for accurate, context-aware answers.
+
+**Safety Override**: When RAG queries encounter sensitive information in retrieved content, users are prompted to continue with sanitized (masked) versions rather than blocking the query entirely.
 
 
 
