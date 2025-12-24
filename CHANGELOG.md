@@ -11,12 +11,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/SemVer
 
 - **System Command Support**: Expanded sandbox to allow essential system monitoring commands (systemctl, ps, df, free, uptime, etc.) while maintaining security
 - **RAG Safety Override**: Users can now override RAG query blocking when sensitive information is detected, proceeding with sanitized (masked) content
+- **Project Isolation**: Complete separation of caches, embeddings, and context between different projects
 - **Enhanced Security Patterns**: Improved detection of command injection, SQL injection, and dangerous patterns
+- **Professional Documentation**: Complete README rewrite with comprehensive usage guide and troubleshooting
 
 ### Changed
 
 - **Default Security Behavior**: More permissive for legitimate system administration tasks while maintaining core safety guarantees
 - **RAG Content Filtering**: Non-blocking approach with user choice for handling sensitive content
+- **Project Context Management**: Automatic project root detection and context-specific database isolation
 
 ### Removed
 
