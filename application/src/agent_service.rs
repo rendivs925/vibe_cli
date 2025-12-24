@@ -70,10 +70,22 @@ impl AgentService {
             verification_history: vec![], // TODO: Add verification
         };
 
+        // Convert tool calls from strings to proper ToolCall structs
+        let tool_calls = iteration_result.tool_calls.iter().enumerate().map(|(i, tool_str)| {
+            // For now, create basic tool call structures from strings
+            // TODO: Implement proper parsing of tool call strings
+            ToolCall {
+                id: format!("tool_{}", i),
+                name: tool_str.clone(),
+                parameters: HashMap::new(), // Empty parameters for now
+                reasoning: "Generated tool call".to_string(),
+            }
+        }).collect();
+
         // Convert to response format
         Ok(AgentResponse {
             reasoning: iteration_result.reasoning_steps,
-            tool_calls: vec![], // Tool calls would need to be converted from strings
+            tool_calls,
             final_response: agent_result.final_response,
             confidence: agent_result.confidence_score,
         })
