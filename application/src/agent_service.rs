@@ -3,6 +3,7 @@ use domain::models::{
     ConversationMessage, ToolDefinition, ToolParameters, ParameterProperty
 };
 use infrastructure::{ollama_client::OllamaClient, config::Config};
+use infrastructure::sandbox::Sandbox;
 use shared::types::Result;
 use serde_json::{json, Value};
 use std::collections::HashMap;
@@ -258,6 +259,17 @@ impl AgentService {
             .and_then(|v| v.as_str())
             .unwrap_or("");
             
+        // Validate with sandbox first, then execute actual file read
+        let sandbox = Sandbox::new();
+        if let Err(e) = sandbox.test_command("cat", &vec![file_path.to_string()]) {
+            return Ok(ToolResult {
+                tool_call_id: tool_call.id.clone(),
+                success: false,
+                result: json!(null),
+                error: Some(format!("Sandbox blocked file read: {}", e)),
+            });
+        }
+        
         // Real file reading implementation
         match std::fs::read_to_string(file_path) {
             Ok(content) => {
@@ -267,13 +279,13 @@ impl AgentService {
                     format!("{}...\n\n[Content truncated due to size. File is {} bytes total]", 
                             &content[..5000], content_size)
                 } else {
-                    content.clone()
+                    content
                 };
                 
                 Ok(ToolResult {
                     tool_call_id: tool_call.id.clone(),
                     success: true,
-                    result: json!({"content": limited_content, "size": content_size}),
+                    result: json!({"content": limited_content, "size": content_size, "source": "file_read_tool"}),
                     error: None,
                 })
             },
