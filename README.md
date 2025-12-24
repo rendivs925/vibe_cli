@@ -1,205 +1,433 @@
-# vibe_cli
+# Vibe CLI
 
-Ultra-safe CLI assistant powered by a local Ollama model with Retrieval-Augmented Generation (RAG) capabilities. Built with Domain-Driven Design (DDD) for scalability and performance.
+A secure, intelligent CLI assistant powered by local AI models with Retrieval-Augmented Generation (RAG) capabilities. Built with Domain-Driven Design for enterprise-grade reliability and performance.
 
-Latest improvements include intelligent caching, real-time progress indicators, bincode-optimized storage, semantic chunking, comprehensive codebase indexing, expanded system command support (including systemctl), and user-controlled override for RAG content safety.
+## Overview
 
-## Features
+Vibe CLI transforms natural language queries into safe shell commands, provides AI-powered code analysis, and delivers context-aware responses through advanced RAG technology. The system prioritizes security while offering powerful automation features for developers and system administrators.
 
-- **Natural Language → Shell Command Suggestion**: Convert descriptions to safe shell commands
-- **Ultra-Safe Mode (Default)**: Blocks dangerous commands (`rm -rf /`, `mkfs`, `dd` on disks, etc.) but allows essential system commands (systemctl, ps, df, etc.)
-- **Retrieval-Augmented Generation (RAG)**: Context-aware responses using codebase embeddings with user-controlled safety override
-- **Multi-Step Agent Mode**: Complex task planning with safety validation
-- **File Explanation**: AI-powered code explanation with intelligent caching
-- **Context Loading**: Load external docs (GraphQL schemas, documentation, etc.)
-- **Intelligent Caching**: Multi-level caching with semantic similarity and bincode optimization
-- **Real-time Progress**: Live status indicators for all operations
-- **Smart File Processing**: Semantic chunking, deduplication, and comprehensive ignore lists
-- **Performance Optimized**: Async operations, memory-mapped I/O, parallel processing, SQLite WAL storage
-- **Enterprise Ready**: DDD architecture, async runtime, rootless container support
+## Key Features
+
+### 🔒 Security First
+- **Ultra-safe execution**: Blocks dangerous commands while allowing essential system operations
+- **Content sanitization**: Prevents prompt injection and malicious input
+- **Secrets detection**: Automatically masks sensitive information
+- **Sandbox isolation**: Controlled command execution environment
+
+### 🤖 AI-Powered Intelligence
+- **Natural language processing**: Convert descriptions to precise shell commands
+- **Context-aware responses**: RAG system with codebase embeddings
+- **Multi-step reasoning**: Complex task planning and execution
+- **Intelligent caching**: Semantic similarity matching with bincode optimization
+
+### ⚡ High Performance
+- **Async architecture**: Non-blocking operations throughout
+- **Memory-mapped I/O**: Efficient file processing
+- **Parallel processing**: Concurrent scanning and embedding generation
+- **Optimized storage**: SQLite with WAL mode and compressed serialization
 
 ## Architecture
 
-The project follows Domain-Driven Design with clean architecture:
+Built with clean architecture principles and Domain-Driven Design:
 
-- **domain**: Core business logic (CommandPlan, SafetyPolicy, Session, RAG models)
-- **application**: Use cases (AgentService, RagService, ExplainService, SafetyService)
-- **infrastructure**: External concerns (Ollama client, file scanning, embedding storage, search)
-- **presentation**: CLI interface and adapters
-- **shared**: Common utilities, errors, telemetry, types
-- **tests**: Integration and performance testing
+- **domain**: Core business logic and models
+- **application**: Use case orchestration and services
+- **infrastructure**: External integrations and persistence
+- **presentation**: CLI interface and user interaction
+- **shared**: Common utilities and cross-cutting concerns
+- **tests**: Comprehensive testing suite
 - **cli**: Binary entry point
 
-## RAG Pipeline
+## RAG System
 
-The RAG system provides context-aware responses:
+The Retrieval-Augmented Generation system delivers contextually relevant responses by analyzing your codebase:
 
-- **Smart File Scanning**: Memory-mapped I/O with parallel Rayon processing and comprehensive ignore lists
-- **Semantic Chunking**: Intelligent text splitting on paragraph boundaries with deduplication
-- **Embeddings**: Async batched generation via Ollama API with incremental updates
-- **Optimized Storage**: SQLite with WAL mode, bincode serialization, and async operations
-- **Fast Retrieval**: Cosine similarity search with progress indicators
-- **Context Injection**: Dynamic context injection into LLM prompts
+### Pipeline Components
+- **Intelligent Scanning**: Memory-mapped I/O with parallel processing and smart file filtering
+- **Semantic Chunking**: Context-preserving text segmentation with deduplication
+- **Embedding Generation**: Async batched processing via Ollama API
+- **Vector Storage**: SQLite with WAL mode and optimized serialization
+- **Similarity Search**: Cosine similarity ranking with relevance scoring
+- **Context Injection**: Dynamic prompt engineering for accurate responses
 
-Supported file types: Rust (.rs), Markdown (.md), TOML (.toml), JSON (.json), GraphQL (.graphql), PDFs, DOCX
+### Supported Formats
+**Code Files**: Rust (.rs), Go (.go), Python (.py), JavaScript (.js), TypeScript (.ts)
+**Documentation**: Markdown (.md), reStructuredText (.rst)
+**Configuration**: TOML (.toml), JSON (.json), YAML (.yaml)
+**Schemas**: GraphQL (.graphql), Protocol Buffers (.proto)
+**Documents**: PDF (.pdf), Microsoft Office (.docx, .xlsx)
 
-## Requirements
+## Prerequisites
 
-- Rust toolchain (cargo, rustc) with RUSTFLAGS="-C target-cpu=native -C link-arg=-fuse-ld=lld"
-- Ollama running locally:
+### System Requirements
+- **Rust Toolchain**: Latest stable version with Cargo package manager
+- **Build Optimization**: Configure RUSTFLAGS for performance
+  ```bash
+  export RUSTFLAGS="-C target-cpu=native -C link-arg=-fuse-ld=lld"
+  ```
+
+### AI Model Setup
+- **Ollama**: Local AI model server (recommended for privacy and offline usage)
 
 ```bash
+# Install and start Ollama
 ollama serve
+
+# Pull the recommended model
 ollama pull qwen2.5:1.5b-instruct
 ```
 
-Or configure via environment:
+### Alternative Configuration
+For custom Ollama deployments or cloud endpoints:
+
 ```bash
-export OLLAMA_BASE_URL=http://localhost:11434
+export OLLAMA_BASE_URL=http://your-ollama-server:11434
 export BASE_MODEL=qwen2.5:1.5b-instruct
 ```
 
-**Note**: Default model changed to `qwen2.5:1.5b-instruct` for better performance.
+## Installation
 
-## Build
-
+### Build from Source
 ```bash
+git clone <repository-url>
 cd vibe_cli
 cargo build --release
 ```
 
-The binary will be at:
-
+### Binary Location
+The compiled binary is available at:
 ```bash
 target/release/vibe_cli
 ```
 
-You can then move or symlink it into your PATH, e.g.:
-
+### System Integration
+Add to your PATH for global access:
 ```bash
-sudo mv target/release/vibe_cli /usr/local/bin/vibe_cli
+# Option 1: Copy to system directory
+sudo cp target/release/vibe_cli /usr/local/bin/
+
+# Option 2: Create symlink
+sudo ln -sf $(pwd)/target/release/vibe_cli /usr/local/bin/
 ```
 
 ## Usage
 
-The CLI accepts natural language queries directly. Use flags for special modes.
+Vibe CLI accepts natural language queries and supports multiple operational modes through command-line flags.
 
-### Intelligent Caching
+### Core Commands
 
-The CLI features multi-level intelligent caching with:
-- **Command Caching**: Semantic similarity matching for shell commands (TTL: 7 days)
-- **Explain Caching**: Exact-match caching for file explanations (TTL: 7 days)
-- **RAG Caching**: Exact-match caching for RAG queries (TTL: 7 days)
-- **Bincode Optimization**: 2-5x faster serialization than JSON
-- **Persistent Storage**: Caches stored in `~/.local/share/vibe_cli/` with `.bin` extensions
-- **Automatic Cleanup**: Expired entries removed on access
+#### Natural Language Command Generation
+Transform descriptions into safe, executable shell commands:
 
-Cached responses are returned instantly for repeated queries.
-
-### Basic Commands
-
-One-shot command suggestion with intelligent caching:
 ```bash
-vibe_cli find all .rs files larger than 1MB
-vibe_cli check ssh status
-vibe_cli systemctl status sshd  # Now supported!
+# File operations
+vibe_cli find all Rust files larger than 1MB
+vibe_cli compress old log files
+
+# System monitoring
+vibe_cli check SSH service status
+vibe_cli systemctl status sshd
+
+# Development tasks
+vibe_cli run all unit tests
+vibe_cli check code coverage
 ```
 
-The CLI will check for cached commands first, offering to reuse them, then generate new commands with AI if needed, and cache successful executions. System commands like systemctl, ps, df, free, and uptime are now allowed for legitimate system administration tasks.
+#### Interactive Mode
+Start an interactive session for multiple commands:
 
-Interactive command execution:
 ```bash
 vibe_cli --chat
 ```
 
-### Agent and Explanation
+**Features:**
+- Real-time command generation and validation
+- Safety confirmation for potentially risky operations
+- Session persistence across commands
 
-Multi-step agent:
+### Advanced Modes
+
+#### Multi-Step Agent
+Execute complex, multi-phase tasks with planning and validation:
+
 ```bash
-vibe_cli --agent "collect system health info: disk usage, top cpu processes, memory hogs"
+vibe_cli --agent "set up a new Rust project with CI/CD pipeline"
+vibe_cli --agent "analyze system performance and generate optimization report"
 ```
 
-Explain a file (with intelligent caching):
+#### Code Analysis
+AI-powered file and codebase analysis:
+
 ```bash
+# Explain specific files
 vibe_cli --explain src/main.rs
-vibe_cli --explain document.pdf  # Supports PDF text extraction
-vibe_cli --explain file.docx     # Supports DOCX text extraction
+vibe_cli --explain Cargo.toml
+
+# Analyze entire codebases
+vibe_cli --rag "how does the authentication system work?"
+vibe_cli --rag "explain the error handling patterns"
 ```
 
-Supported file types: Rust (.rs), Markdown (.md), TOML (.toml), JSON (.json), text files, PDFs, DOCX. Binary files are detected and rejected. Explanations are cached for instant retrieval on repeat.
+#### Context Loading
+Load documentation and schemas from external sources:
 
-### RAG Commands
-
-Query with codebase context (with intelligent caching):
 ```bash
-vibe_cli --rag "how does the session management work?"
+vibe_cli --context ./docs/ --rag "how does the API work?"
+vibe_cli --context ./schemas/ --explain api.graphql
 ```
 
-Load specific context:
+### Caching System
+
+Vibe CLI implements intelligent multi-level caching for optimal performance:
+
+| Cache Type | Strategy | TTL | Purpose |
+|------------|----------|-----|---------|
+| **Command** | Semantic similarity | 7 days | Shell command suggestions |
+| **Explain** | Exact match | 7 days | File/code explanations |
+| **RAG** | Exact match | 7 days | Context-aware queries |
+
+**Storage Details:**
+- **Location**: `~/.local/share/vibe_cli/`
+- **Format**: Bincode serialization (2-5x faster than JSON)
+- **Cleanup**: Automatic expiration and LRU eviction
+
+#### File Analysis
+Get AI-powered explanations of code and documentation:
+
 ```bash
-vibe_cli --context ./docs/
+# Code files
+vibe_cli --explain src/main.rs
+vibe_cli --explain lib/core.py
+
+# Documentation
+vibe_cli --explain README.md
+vibe_cli --explain API_DOCS.pdf
+
+# Configuration files
+vibe_cli --explain docker-compose.yml
+vibe_cli --explain kubernetes/deployment.yaml
 ```
 
-RAG queries scan and index your codebase using semantic chunking, parallel processing, and smart file filtering. Responses include relevant code snippets for accurate, context-aware answers.
+**Supported Formats:**
+- Programming languages (Rust, Python, Go, JavaScript, etc.)
+- Markup formats (Markdown, reStructuredText)
+- Configuration files (TOML, JSON, YAML)
+- Documentation (PDF, DOCX)
+- Schemas (GraphQL, Protocol Buffers)
 
-**Safety Override**: When RAG queries encounter sensitive information in retrieved content, users are prompted to continue with sanitized (masked) versions rather than blocking the query entirely.
+#### RAG-Powered Queries
+Query your codebase with full context awareness:
+
+```bash
+# Architecture questions
+vibe_cli --rag "how does the authentication system work?"
+vibe_cli --rag "explain the data flow between services"
+
+# Implementation details
+vibe_cli --rag "where is the user validation logic?"
+vibe_cli --rag "how are database connections pooled?"
+
+# Best practices
+vibe_cli --rag "what are the error handling patterns?"
+vibe_cli --rag "how is logging configured?"
+```
+
+**Context Loading:**
+```bash
+# Load specific directories
+vibe_cli --context ./docs/ --rag "how does the API work?"
+vibe_cli --context ./src/ --rag "explain the caching strategy"
+```
+
+**Security Features:**
+- **Automatic sanitization**: Sensitive data is masked in responses
+- **Safety override**: User choice when sensitive content is detected
+- **Content isolation**: Project-specific embeddings prevent cross-contamination
 
 
 
 ## Configuration
 
-Create a `.env` file in the project root:
+### Environment Variables
+Create a `.env` file in your project root or set environment variables:
 
-```env
+```bash
+# AI Model Configuration
 OLLAMA_BASE_URL=http://localhost:11434
 BASE_MODEL=qwen2.5:1.5b-instruct
+
+# Storage Configuration
 DB_PATH=~/.local/share/vibe_cli/embeddings.db
+
+# Security Settings
+VIBE_SANDBOX_ENABLED=true
+VIBE_MAX_MEMORY_MB=1024
 ```
 
-**Data Storage**: All data files (embeddings database, caches) are stored in `~/.local/share/vibe_cli/` to avoid cluttering the project directory. Caches use bincode for optimal performance.
+### Data Storage
 
-## Performance
+Vibe CLI maintains isolated storage for each project:
 
-- **Release Profile**: opt-level=3, LTO, codegen-units=1, panic=abort, strip=true
-- **Async Runtime**: Custom Tokio builder with multi-thread, stack size, max blocking threads
-- **Memory Management**: SmallVec, ArrayVec, Arc<str> for efficient allocations
-- **File I/O**: Memory-mapped reading with memmap2
-- **Parallel Processing**: Rayon for concurrent scanning and chunking
-- **Database**: SQLite WAL mode with bincode serialization and async operations
-- **Caching**: Multi-level bincode-optimized caches with semantic similarity
-- **Chunking**: Semantic paragraph-based splitting with deduplication
-- **Progress Indicators**: Real-time status updates for better UX
+- **Location**: `~/.local/share/vibe_cli/`
+- **Project Isolation**: Each project uses hashed identifiers for separate storage
+- **Cache Types**:
+  - Embeddings databases (SQLite with project-specific names)
+  - Command caches (semantic similarity matching)
+  - Explanation caches (exact match lookup)
+  - RAG response caches (context-aware storage)
+
+## Performance Characteristics
+
+### Optimization Features
+- **Compiler Profile**: opt-level=3, LTO, single codegen unit, panic optimization
+- **Async Runtime**: Custom Tokio configuration with optimized threading
+- **Memory Management**: Efficient allocations with SmallVec, ArrayVec, Arc<str>
+- **I/O Operations**: Memory-mapped file reading with `memmap2`
+- **Concurrency**: Parallel processing with Rayon for CPU-intensive tasks
+
+### Storage Performance
+- **Database**: SQLite with WAL mode for concurrent access
+- **Serialization**: Bincode format (2-5x faster than JSON)
+- **Caching**: Multi-level semantic similarity matching
+- **Chunking**: Intelligent text segmentation with deduplication
+
+### Monitoring
+- **Progress Indicators**: Real-time status updates for long operations
+- **Resource Tracking**: Memory usage monitoring and limits
+- **Performance Metrics**: Operation timing and throughput statistics
 
 ## Deployment
 
-Prepared for rootless Podman microservices:
+### Container Deployment
+Vibe CLI is designed for secure containerized deployment:
 
-- Minimal base images (distroless or ubi-minimal)
-- Configurable Ollama endpoint
-- Infrastructure layer supports HTTP API extension
+```dockerfile
+FROM rust:slim AS builder
+# Build process...
+
+FROM gcr.io/distroless/cc-debian12
+COPY --from=builder /app/target/release/vibe_cli /usr/local/bin/
+ENTRYPOINT ["vibe_cli"]
+```
+
+### Kubernetes Integration
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: vibe-cli
+spec:
+  template:
+    spec:
+      containers:
+      - name: vibe-cli
+        image: vibe-cli:latest
+        env:
+        - name: OLLAMA_BASE_URL
+          value: "http://ollama-service:11434"
+        securityContext:
+          runAsNonRoot: true
+          readOnlyRootFilesystem: true
+```
+
+### Service Architecture
+- **Stateless Design**: No persistent state requirements
+- **HTTP API**: Infrastructure layer supports REST endpoints
+- **Configurable Endpoints**: Environment-based Ollama configuration
+- **Resource Limits**: Memory and CPU constraints for containerized deployment
 
 ## Development
 
-Run tests:
+### Testing
+Run the comprehensive test suite:
 ```bash
 cargo test --workspace
 ```
 
-Lint with clippy:
+### Code Quality
+Lint with Clippy for code standards:
 ```bash
 cargo clippy -- -D unwrap_used -D panic -W expect_used
 ```
 
-## Optional zsh Keybinding
+### Performance Profiling
+```bash
+# Profile with flamegraph
+cargo flamegraph --bin vibe_cli -- --rag "test query"
+```
 
-Add to `.zshrc`:
+## Shell Integration
+
+### Zsh Keybinding
+Add to your `~/.zshrc` for quick access:
+
 ```zsh
 vibe_cli_widget() {
   BUFFER="vibe_cli --chat"
   zle accept-line
 }
 zle -N vibe_cli_widget
-bindkey '^G' vibe_cli_widget
+bindkey '^G' vibe_cli_widget  # Ctrl-G to start interactive mode
 ```
 
-Press `Ctrl-G` to start interactive session.
+### Bash Integration
+```bash
+# Add to ~/.bashrc
+alias vibe='vibe_cli --chat'
+```
+
+## Troubleshooting
+
+### Common Issues
+
+**Ollama Connection Failed**
+```bash
+# Check Ollama status
+ollama list
+curl http://localhost:11434/api/tags
+
+# Verify environment variables
+echo $OLLAMA_BASE_URL
+echo $BASE_MODEL
+```
+
+**Permission Denied**
+```bash
+# Ensure executable permissions
+chmod +x target/release/vibe_cli
+
+# Check sandbox permissions for system commands
+vibe_cli --version
+```
+
+**Slow Performance**
+```bash
+# Enable optimizations
+export RUSTFLAGS="-C target-cpu=native -C link-arg=-fuse-ld=lld"
+
+# Rebuild with optimizations
+cargo build --release
+```
+
+## Contributing
+
+1. Fork the repository
+2. Create a feature branch (`git checkout -b feature/amazing-feature`)
+3. Commit changes (`git commit -m 'Add amazing feature'`)
+4. Push to branch (`git push origin feature/amazing-feature`)
+5. Open a Pull Request
+
+### Development Guidelines
+- Follow Domain-Driven Design principles
+- Maintain comprehensive test coverage
+- Use async patterns for I/O operations
+- Implement proper error handling
+- Document public APIs
+
+## License
+
+[Specify your license here]
+
+---
+
+**Vibe CLI** - Secure, intelligent automation for developers and system administrators.
