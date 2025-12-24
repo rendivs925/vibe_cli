@@ -5,6 +5,7 @@ use anyhow::{anyhow, Result};
 use colored::*;
 use std::process::Command;
 use shared::confirmation::ask_confirmation;
+use infrastructure::command_interpreter::interpret_and_execute_safe_command;
 
 /// Validate basic shell command syntax
 fn validate_command_syntax(cmd: &str) -> Result<()> {
@@ -145,7 +146,7 @@ mod tests {
     }
 }
 
-pub fn confirm_and_run(cmd: &str, config: &Config) -> Result<()> {
+pub async fn confirm_and_run(cmd: &str, config: &Config) -> Result<()> {
     println!("{} {}", "Suggested command:".green().bold(), cmd.yellow());
 
     // Validate command syntax before proceeding
@@ -197,16 +198,60 @@ pub fn confirm_and_run(cmd: &str, config: &Config) -> Result<()> {
 
     println!("{}", "Running command...\n".cyan());
 
-    let status = Command::new("sh").arg("-c").arg(cmd).status()?;
+    // Check if we should use safe tool execution
+    if std::env::var("VIBE_USE_SAFE_TOOLS").unwrap_or_default() == "1" {
+        // Use new safe tool system
+        match interpret_and_execute_safe_command(cmd).await {
+            Ok(result) => {
+                println!("{}", result.stdout);
+                if !result.stderr.is_empty() {
+                    eprintln!("{}", result.stderr);
+                }
+                if result.success {
+                    println!("{}", "Command completed successfully.".green());
+                } else {
+                    println!(
+                        "{} (exit status: {:?})",
+                        "Command failed.".red(),
+                        result.exit_code
+                    );
+                }
+            }
+            Err(e) => {
+                println!(
+                    "{} {}",
+                    "Safe tool execution failed:".red().bold(),
+                    e.to_string().red()
+                );
+                println!("{}", "Falling back to legacy execution...".yellow());
 
-    if status.success() {
-        println!("{}", "Command completed successfully.".green());
+                // Fallback to legacy shell execution
+                let status = Command::new("sh").arg("-c").arg(cmd).status()?;
+
+                if status.success() {
+                    println!("{}", "Command completed successfully.".green());
+                } else {
+                    println!(
+                        "{} (exit status: {:?})",
+                        "Command failed.".red(),
+                        status.code()
+                    );
+                }
+            }
+        }
     } else {
-        println!(
-            "{} (exit status: {:?})",
-            "Command failed.".red(),
-            status.code()
-        );
+        // Legacy shell execution
+        let status = Command::new("sh").arg("-c").arg(cmd).status()?;
+
+        if status.success() {
+            println!("{}", "Command completed successfully.".green());
+        } else {
+            println!(
+                "{} (exit status: {:?})",
+                "Command failed.".red(),
+                status.code()
+            );
+        }
     }
 
     Ok(())

@@ -2863,6 +2863,7 @@ dependencies = [
  "colored",
  "crossterm",
  "dialoguer",
+ "regex",
  "serde",
  "serde_json",
 ]

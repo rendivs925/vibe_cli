@@ -133,7 +133,7 @@ async fn run_chat_mode(config: &LocalConfig) -> Result<()> {
         let cmd = model::request_command(config, &session.messages).await?;
         session.push_assistant(cmd.clone());
 
-        runner::confirm_and_run(&cmd, config)?;
+        runner::confirm_and_run(&cmd, config).await?;
     }
 
     Ok(())
@@ -151,7 +151,7 @@ async fn run_one_shot(config: &LocalConfig, prompt_text: &str) -> Result<()> {
         config.save_cached(prompt_text, &cmd)?;
     }
 
-    runner::confirm_and_run(&cmd, config)?;
+    runner::confirm_and_run(&cmd, config).await?;
 
     Ok(())
 }

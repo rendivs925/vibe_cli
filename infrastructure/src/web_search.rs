@@ -1,4 +1,3 @@
-use reqwest::Client;
 use scraper::{Html, Selector};
 use shared::types::Result;
 use std::collections::HashMap;
@@ -6,10 +5,11 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use url::Url;
+use crate::network_security::{SecureHttpClient, NetworkSecurityError};
 
-/// Web search integration using DuckDuckGo
+/// Secure web search integration using DuckDuckGo with network security
 pub struct WebSearch {
-    client: Client,
+    client: SecureHttpClient,
     last_search: Mutex<Instant>,
     min_interval: Duration,
 }
@@ -40,12 +40,10 @@ impl Default for SearchOptions {
 }
 
 impl WebSearch {
-    /// Create new web search instance
+    /// Create new secure web search instance
     pub fn new() -> Result<Self> {
-        let client = Client::builder()
-            .user_agent("Mozilla/5.0 (compatible; VibeCLI/1.0)")
-            .timeout(Duration::from_secs(15))
-            .build()?;
+        let client = SecureHttpClient::new()
+            .map_err(|e| anyhow::anyhow!("Failed to create secure HTTP client: {}", e))?;
 
         // Rate limit: 20 searches per minute (minimum 3 seconds between requests)
         let min_interval = Duration::from_secs(3);
@@ -71,18 +69,17 @@ impl WebSearch {
         self.search_duckduckgo(&enhanced_query, &options).await
     }
 
-    /// Search using DuckDuckGo HTML interface
+    /// Search using DuckDuckGo HTML interface with security checks
     async fn search_duckduckgo(&self, query: &str, options: &SearchOptions) -> Result<Vec<SearchResult>> {
         let search_url = format!(
             "https://html.duckduckgo.com/html/?q={}&kl=us-en",
             urlencoding::encode(query)
         );
 
-        let response = self.client
-            .get(&search_url)
-            .timeout(options.timeout)
-            .send()
-            .await?;
+        // Network security check is handled by SecureHttpClient
+        let response = self.client.get(&search_url)
+            .await
+            .map_err(|e| anyhow::anyhow!("Network security violation: {}", e))?;
 
         if !response.status().is_success() {
             return Err(anyhow::anyhow!("DuckDuckGo search failed: {}", response.status()));

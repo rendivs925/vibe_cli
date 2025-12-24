@@ -7,7 +7,7 @@ use infrastructure::{
     search::SearchEngine,
 };
 use md5;
-use shared::types::Result;
+use shared::{types::Result, content_sanitizer::ContentSanitizer, secrets_detector::SecretsDetector};
 use std::path::PathBuf;
 
 pub struct RagService {
@@ -16,6 +16,8 @@ pub struct RagService {
     embedder: Embedder,
     client: OllamaClient,
     config: Config,
+    content_sanitizer: ContentSanitizer,
+    secrets_detector: SecretsDetector,
 }
 
 impl RagService {
@@ -24,8 +26,10 @@ impl RagService {
             scanner: FileScanner::new(root_path),
             storage: EmbeddingStorage::new(db_path).await?,
             embedder: Embedder::new(client.clone()),
-            client: client,
+            client,
             config,
+            content_sanitizer: ContentSanitizer::new(),
+            secrets_detector: SecretsDetector::new(),
         })
     }
 
@@ -106,16 +110,53 @@ impl RagService {
             }
         }
 
-        let context = relevant_chunks.join("\n\n");
+        // Check for secrets in retrieved content
+        for chunk in &relevant_chunks {
+            if self.secrets_detector.contains_high_severity_secrets(chunk) {
+                return Ok("Query blocked: Retrieved content contains sensitive information that cannot be displayed.".to_string());
+            }
+        }
+
+        // Sanitize all context chunks
+        let sanitized_chunks: Vec<String> = relevant_chunks
+            .into_iter()
+            .map(|chunk| {
+                // First sanitize content, then scan for secrets
+                let sanitized = self.content_sanitizer.sanitize_rag_content(&chunk).content;
+                // Scan again after sanitization (secrets should be masked)
+                let secrets_scan = self.secrets_detector.scan_content(&sanitized);
+                secrets_scan.sanitized_content
+            })
+            .collect();
+
+        let context = sanitized_chunks.join("\n\n");
         if context.is_empty() {
             return Ok("No relevant code context found for this query.".to_string());
         }
-        let feedback_part = if feedback.is_empty() {
+
+        // Sanitize user inputs
+        let sanitized_question = self.content_sanitizer.sanitize_user_input(question)
+            .unwrap_or_else(|_| "Invalid question provided".to_string());
+
+        let sanitized_feedback = if feedback.is_empty() {
             String::new()
         } else {
-            format!("\n\nUser feedback for improvement: {}", feedback)
+            match self.content_sanitizer.sanitize_user_input(feedback) {
+                Ok(f) => format!("\n\nUser feedback for improvement: {}", f),
+                Err(_) => String::new(),
+            }
         };
-        let prompt = format!("You are an expert software engineer. Based on the provided code context and directory structure, {}{} \n\nContext:\n{}\n\nProvide a concise summary that includes:\n- Project purpose\n- Main features\n- Technologies used\n- Architecture\n- Complete directory structure (copy exactly from the DIRECTORY TREE section in the context)\n\nBe accurate and base your answer only on the provided context. Do not invent or modify the directory structure.", question, feedback_part, context);
+
+        // Create secure prompt with sanitized content
+        let context_blocks = vec![&context];
+        let prompt = self.content_sanitizer.create_secure_prompt(
+            "You are an expert software engineer. Based on the provided code context and directory structure, answer the user's question accurately.",
+            &sanitized_question,
+            &context_blocks,
+        ).unwrap_or_else(|_| format!(
+            "SYSTEM: You are an expert software engineer. Answer based only on provided context.\n\nQUESTION: {}\n\nCONTEXT:\n{}\n\nRESPONSE:",
+            sanitized_question, context
+        ));
         self.client.generate_response(&prompt).await
     }
 
