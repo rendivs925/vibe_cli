@@ -3160,6 +3160,7 @@ dependencies = [
  "domain",
  "infrastructure",
  "presentation",
+ "serde_json",
  "shared",
  "tokio",
 ]

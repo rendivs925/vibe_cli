@@ -242,7 +242,7 @@ impl AuditTrailManager {
         self.record_event(event)
     }
 
-    fn flush_events(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn flush_events(&mut self) -> Result<(), Box<dyn std::error::Error>> {
         if self.events_buffer.is_empty() {
             return Ok(());
         }

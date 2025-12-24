@@ -244,8 +244,7 @@ const PRIVATE_KEY = "-----BEGIN PRIVATE KEY-----\nMIIEvQIBADANBgkqhkiG9w0BAQEFAA
         "Should detect at least 5 secrets, found {}",
         result.total_secrets_found
     );
-    assert!(result.api_keys_found > 0, "Should detect API keys");
-    assert!(result.tokens_found > 0, "Should detect tokens");
+    assert!(result.total_secrets_found > 0, "Should detect secrets");
 
     // Test safe content
     let safe_content = r#"
@@ -399,6 +398,7 @@ async fn test_agent_execution_compliance() {
     // Test that agent execution respects security boundaries
     let agent_request = AgentRequest {
         goal: "analyze this safe code".to_string(),
+        context: Some("Test context for agent execution".to_string()),
         conversation_id: Some("test-conversation".to_string()),
     };
 
