@@ -1,24 +1,385 @@
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::{Duration, Instant, SystemTime};
 use tokio::sync::RwLock;
 use serde::{Deserialize, Serialize};
+use std::fs::{self, OpenOptions};
+use std::io::Write;
+use std::path::PathBuf;
 
-/// Production observability and monitoring system
+/// Structured audit event for compliance tracking
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditEvent {
+    pub timestamp: SystemTime,
+    pub event_type: AuditEventType,
+    pub severity: AuditSeverity,
+    pub user_id: Option<String>,
+    pub session_id: Option<String>,
+    pub operation: String,
+    pub resource: String,
+    pub result: AuditResult,
+    pub details: HashMap<String, serde_json::Value>,
+    pub compliance_flags: Vec<ComplianceFlag>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AuditEventType {
+    AgentExecution,
+    SecurityEvent,
+    ResourceUsage,
+    ConfigurationChange,
+    Authentication,
+    Authorization,
+    DataAccess,
+    SystemHealth,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AuditSeverity {
+    Low,
+    Medium,
+    High,
+    Critical,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum AuditResult {
+    Success,
+    Failure(String),
+    Warning(String),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum ComplianceFlag {
+    GDPR,
+    HIPAA,
+    SOX,
+    PCI,
+    NIST,
+    ISO27001,
+    Custom(String),
+}
+
+impl std::fmt::Display for AuditSeverity {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AuditSeverity::Low => write!(f, "LOW"),
+            AuditSeverity::Medium => write!(f, "MEDIUM"),
+            AuditSeverity::High => write!(f, "HIGH"),
+            AuditSeverity::Critical => write!(f, "CRITICAL"),
+        }
+    }
+}
+
+impl std::fmt::Display for AuditEventType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            AuditEventType::AgentExecution => write!(f, "AGENT_EXECUTION"),
+            AuditEventType::SecurityEvent => write!(f, "SECURITY_EVENT"),
+            AuditEventType::ResourceUsage => write!(f, "RESOURCE_USAGE"),
+            AuditEventType::ConfigurationChange => write!(f, "CONFIG_CHANGE"),
+            AuditEventType::Authentication => write!(f, "AUTHENTICATION"),
+            AuditEventType::Authorization => write!(f, "AUTHORIZATION"),
+            AuditEventType::DataAccess => write!(f, "DATA_ACCESS"),
+            AuditEventType::SystemHealth => write!(f, "SYSTEM_HEALTH"),
+        }
+    }
+}
+
+/// Agent execution audit event
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AgentExecutionAudit {
+    pub request_id: String,
+    pub goal: String,
+    pub iterations_used: u32,
+    pub tools_executed: u32,
+    pub execution_time_ms: u64,
+    pub confidence_score: f32,
+    pub convergence_reason: Option<String>,
+    pub security_checks_passed: bool,
+    pub resource_limits_enforced: bool,
+}
+
+/// Security event audit
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecurityAuditEvent {
+    pub event_type: String,
+    pub risk_level: String,
+    pub blocked: bool,
+    pub source_ip: Option<String>,
+    pub user_agent: Option<String>,
+    pub details: HashMap<String, String>,
+}
+
+/// Audit trail manager for structured logging and compliance
+pub struct AuditTrailManager {
+    log_directory: PathBuf,
+    max_log_files: u32,
+    max_log_size_mb: u64,
+    structured_logging: bool,
+    current_log_file: Option<PathBuf>,
+    events_buffer: Vec<AuditEvent>,
+    buffer_size: usize,
+}
+
+impl AuditTrailManager {
+    pub fn new(config: &crate::config::AuditTrailConfig) -> Self {
+        Self {
+            log_directory: PathBuf::from(&config.log_directory),
+            max_log_files: config.max_log_files,
+            max_log_size_mb: config.max_log_size_mb,
+            structured_logging: config.structured_logging,
+            current_log_file: None,
+            events_buffer: Vec::new(),
+            buffer_size: 100, // Flush every 100 events
+        }
+    }
+
+    pub fn record_event(&mut self, event: AuditEvent) -> Result<(), Box<dyn std::error::Error>> {
+        self.events_buffer.push(event);
+
+        if self.events_buffer.len() >= self.buffer_size {
+            self.flush_events()?;
+        }
+
+        Ok(())
+    }
+
+    pub fn record_agent_execution(&mut self, audit: AgentExecutionAudit) -> Result<(), Box<dyn std::error::Error>> {
+        let event = AuditEvent {
+            timestamp: SystemTime::now(),
+            event_type: AuditEventType::AgentExecution,
+            severity: AuditSeverity::Medium,
+            user_id: None,
+            session_id: Some(audit.request_id.clone()),
+            operation: "agent_execution".to_string(),
+            resource: "agent".to_string(),
+            result: AuditResult::Success,
+            details: {
+                let mut details = HashMap::new();
+                details.insert("request_id".to_string(), serde_json::json!(audit.request_id));
+                details.insert("goal".to_string(), serde_json::json!(audit.goal));
+                details.insert("iterations_used".to_string(), serde_json::json!(audit.iterations_used));
+                details.insert("tools_executed".to_string(), serde_json::json!(audit.tools_executed));
+                details.insert("execution_time_ms".to_string(), serde_json::json!(audit.execution_time_ms));
+                details.insert("confidence_score".to_string(), serde_json::json!(audit.confidence_score));
+                details.insert("security_checks_passed".to_string(), serde_json::json!(audit.security_checks_passed));
+                details.insert("resource_limits_enforced".to_string(), serde_json::json!(audit.resource_limits_enforced));
+                if let Some(reason) = audit.convergence_reason {
+                    details.insert("convergence_reason".to_string(), serde_json::json!(reason));
+                }
+                details
+            },
+            compliance_flags: vec![ComplianceFlag::GDPR, ComplianceFlag::ISO27001],
+        };
+
+        self.record_event(event)
+    }
+
+    pub fn record_security_event(&mut self, audit: SecurityAuditEvent) -> Result<(), Box<dyn std::error::Error>> {
+        let severity = match audit.risk_level.as_str() {
+            "critical" => AuditSeverity::Critical,
+            "high" => AuditSeverity::High,
+            "medium" => AuditSeverity::Medium,
+            _ => AuditSeverity::Low,
+        };
+
+        let event = AuditEvent {
+            timestamp: SystemTime::now(),
+            event_type: AuditEventType::SecurityEvent,
+            severity,
+            user_id: None,
+            session_id: None,
+            operation: audit.event_type.clone(),
+            resource: "security".to_string(),
+            result: if audit.blocked {
+                AuditResult::Success
+            } else {
+                AuditResult::Warning("Security event not blocked".to_string())
+            },
+            details: {
+                let mut details = HashMap::new();
+                details.insert("event_type".to_string(), serde_json::json!(audit.event_type));
+                details.insert("risk_level".to_string(), serde_json::json!(audit.risk_level));
+                details.insert("blocked".to_string(), serde_json::json!(audit.blocked));
+                if let Some(ip) = audit.source_ip {
+                    details.insert("source_ip".to_string(), serde_json::json!(ip));
+                }
+                if let Some(ua) = audit.user_agent {
+                    details.insert("user_agent".to_string(), serde_json::json!(ua));
+                }
+                for (key, value) in audit.details {
+                    details.insert(key, serde_json::json!(value));
+                }
+                details
+            },
+            compliance_flags: vec![ComplianceFlag::GDPR, ComplianceFlag::HIPAA, ComplianceFlag::PCI],
+        };
+
+        self.record_event(event)
+    }
+
+    pub fn record_configuration_change(&mut self, component: &str, setting: &str, old_value: &str, new_value: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let event = AuditEvent {
+            timestamp: SystemTime::now(),
+            event_type: AuditEventType::ConfigurationChange,
+            severity: AuditSeverity::High,
+            user_id: None,
+            session_id: None,
+            operation: "configuration_change".to_string(),
+            resource: component.to_string(),
+            result: AuditResult::Success,
+            details: {
+                let mut details = HashMap::new();
+                details.insert("setting".to_string(), serde_json::json!(setting));
+                details.insert("old_value".to_string(), serde_json::json!(old_value));
+                details.insert("new_value".to_string(), serde_json::json!(new_value));
+                details
+            },
+            compliance_flags: vec![ComplianceFlag::SOX, ComplianceFlag::ISO27001],
+        };
+
+        self.record_event(event)
+    }
+
+    fn flush_events(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        if self.events_buffer.is_empty() {
+            return Ok(());
+        }
+
+        // Ensure log directory exists
+        fs::create_dir_all(&self.log_directory)?;
+
+        // Get or create current log file
+        let log_file = self.get_current_log_file()?;
+
+        let mut file = OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&log_file)?;
+
+        for event in &self.events_buffer {
+            let log_line = if self.structured_logging {
+                serde_json::to_string(event)?
+            } else {
+                format!(
+                    "[{}] {} {} {} {} {} - {:?}",
+                    event.timestamp.duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default().as_secs(),
+                    event.severity,
+                    event.event_type,
+                    event.operation,
+                    event.resource,
+                    match &event.result {
+                        AuditResult::Success => "SUCCESS".to_string(),
+                        AuditResult::Failure(msg) => format!("FAILURE: {}", msg),
+                        AuditResult::Warning(msg) => format!("WARNING: {}", msg),
+                    },
+                    event.details
+                )
+            };
+
+            writeln!(file, "{}", log_line)?;
+        }
+
+        self.events_buffer.clear();
+
+        // Check if we need to rotate logs
+        self.check_log_rotation()?;
+
+        Ok(())
+    }
+
+    fn get_current_log_file(&mut self) -> Result<PathBuf, Box<dyn std::error::Error>> {
+        if let Some(ref file) = self.current_log_file {
+            return Ok(file.clone());
+        }
+
+        let timestamp = SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        let filename = format!("audit_{}.log", timestamp);
+        let file_path = self.log_directory.join(filename);
+
+        self.current_log_file = Some(file_path.clone());
+        Ok(file_path)
+    }
+
+    fn check_log_rotation(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(ref current_file) = self.current_log_file {
+            let metadata = fs::metadata(current_file)?;
+            let size_mb = metadata.len() / (1024 * 1024);
+
+            if size_mb >= self.max_log_size_mb {
+                // Rotate log file
+                self.rotate_log_file()?;
+            }
+        }
+
+        Ok(())
+    }
+
+    fn rotate_log_file(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        if let Some(current_file) = self.current_log_file.take() {
+            // List existing log files
+            let mut log_files = Vec::new();
+            for entry in fs::read_dir(&self.log_directory)? {
+                let entry = entry?;
+                let path = entry.path();
+                if path.extension().and_then(|s| s.to_str()) == Some("log") {
+                    if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
+                        if stem.starts_with("audit_") {
+                            log_files.push(path);
+                        }
+                    }
+                }
+            }
+
+            // Sort by modification time (newest first)
+            log_files.sort_by(|a, b| {
+                b.metadata().and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH)
+                    .cmp(&a.metadata().and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH))
+            });
+
+            // Remove oldest files if we exceed max_log_files
+            while log_files.len() >= self.max_log_files as usize {
+                if let Some(oldest) = log_files.pop() {
+                    fs::remove_file(oldest)?;
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    pub fn shutdown(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        self.flush_events()
+    }
+}
+
+/// Production observability and monitoring system with audit trail
 pub struct ObservabilityManager {
     metrics: Arc<RwLock<MetricsCollector>>,
     health_checker: HealthChecker,
     alert_manager: AlertManager,
     tracer: RequestTracer,
+    audit_trail: Arc<RwLock<AuditTrailManager>>,
 }
 
 impl ObservabilityManager {
     pub fn new() -> Self {
+        Self::with_config(&crate::config::AuditTrailConfig::default())
+    }
+
+    pub fn with_config(audit_config: &crate::config::AuditTrailConfig) -> Self {
         Self {
             metrics: Arc::new(RwLock::new(MetricsCollector::new())),
             health_checker: HealthChecker::new(),
             alert_manager: AlertManager::new(),
             tracer: RequestTracer::new(),
+            audit_trail: Arc::new(RwLock::new(AuditTrailManager::new(audit_config))),
         }
     }
 
@@ -49,12 +410,75 @@ impl ObservabilityManager {
     pub fn start_request_trace(&self, operation: &str) -> TraceHandle {
         self.tracer.start_trace(operation)
     }
+
+    /// Record agent execution for audit trail
+    pub async fn record_agent_execution_audit(&self, audit: AgentExecutionAudit) -> Result<(), Box<dyn std::error::Error>> {
+        let mut audit_trail = self.audit_trail.write().await;
+        audit_trail.record_agent_execution(audit)
+    }
+
+    /// Record security event for audit trail
+    pub async fn record_security_audit(&self, audit: SecurityAuditEvent) -> Result<(), Box<dyn std::error::Error>> {
+        let mut audit_trail = self.audit_trail.write().await;
+        audit_trail.record_security_event(audit)
+    }
+
+    /// Record configuration change for audit trail
+    pub async fn record_configuration_change(&self, component: &str, setting: &str, old_value: &str, new_value: &str) -> Result<(), Box<dyn std::error::Error>> {
+        let mut audit_trail = self.audit_trail.write().await;
+        audit_trail.record_configuration_change(component, setting, old_value, new_value)
+    }
+
+    /// Record generic audit event
+    pub async fn record_audit_event(&self, event: AuditEvent) -> Result<(), Box<dyn std::error::Error>> {
+        let mut audit_trail = self.audit_trail.write().await;
+        audit_trail.record_event(event)
+    }
+
+    /// Flush audit trail to disk
+    pub async fn flush_audit_trail(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let mut audit_trail = self.audit_trail.write().await;
+        audit_trail.flush_events()
+    }
+
+    /// Shutdown observability system and flush all logs
+    pub async fn shutdown(&self) -> Result<(), Box<dyn std::error::Error>> {
+        let mut audit_trail = self.audit_trail.write().await;
+        audit_trail.shutdown()
+    }
 }
 
 impl Default for ObservabilityManager {
     fn default() -> Self {
         Self::new()
     }
+}
+
+/// Global observability instance
+static mut GLOBAL_OBSERVABILITY: Option<ObservabilityManager> = None;
+
+/// Initialize global observability manager
+pub fn init_global_observability(config: &crate::config::AuditTrailConfig) {
+    unsafe {
+        GLOBAL_OBSERVABILITY = Some(ObservabilityManager::with_config(config));
+    }
+}
+
+/// Get global observability manager (panics if not initialized)
+pub fn get_global_observability() -> &'static ObservabilityManager {
+    unsafe {
+        GLOBAL_OBSERVABILITY.as_ref().expect("Global observability not initialized")
+    }
+}
+
+/// Shutdown global observability system
+pub async fn shutdown_global_observability() -> Result<(), Box<dyn std::error::Error>> {
+    unsafe {
+        if let Some(ref manager) = GLOBAL_OBSERVABILITY {
+            manager.shutdown().await?;
+        }
+    }
+    Ok(())
 }
 
 /// Metrics collector for system monitoring
