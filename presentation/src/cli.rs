@@ -703,18 +703,41 @@ User request: {}",
                 println!("{}", "Skipping this step.".yellow());
                 continue;
             }
-            let status = std::process::Command::new("bash")
-                .arg("-c")
-                .arg(cmd)
-                .status()?;
-            if status.success() {
-                println!("{}", "Command completed successfully.".green());
-            } else {
-                println!(
-                    "{} (exit status: {:?})",
-                    "Command failed.".red(),
-                    status.code()
-                );
+            let sandbox = Sandbox::new();
+            match sandbox.execute_safe("bash", vec!["-c".to_string(), cmd.clone()]).await {
+                Ok(output) => {
+                    println!("{}", output);
+                    println!("{}", "Command completed successfully.".green());
+                }
+                Err(e) => {
+                    println!(
+                        "{} (sandbox error: {})",
+                        "Command failed.".red(),
+                        e
+                    );
+                    if ask_confirmation("Try running without sandboxing?", false)? {
+                        match std::process::Command::new("bash").arg("-c").arg(cmd).status() {
+                            Ok(status) => {
+                                if status.success() {
+                                    println!("{}", "Command completed successfully.".green());
+                                } else {
+                                    println!(
+                                        "{} (exit status: {:?})",
+                                        "Command failed.".red(),
+                                        status.code()
+                                    );
+                                }
+                            }
+                            Err(e) => {
+                                println!(
+                                    "{} (direct execution error: {})",
+                                    "Command failed.".red(),
+                                    e
+                                );
+                            }
+                        }
+                    }
+                }
             }
         }
         Ok(())
