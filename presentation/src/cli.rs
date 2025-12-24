@@ -1,4 +1,4 @@
-use application::rag_service::RagService;
+use application::{rag_service::RagService, agent_service::AgentService};
 use clap::Parser;
 use colored::Colorize;
 use docx_rs::*;
@@ -10,6 +10,7 @@ use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::io::{self, Write};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 fn find_project_root() -> Option<String> {
     let mut current = std::env::current_dir().ok()?;
@@ -335,6 +336,10 @@ pub struct Cli {
     #[arg(long)]
     pub agent: bool,
 
+    /// Use enhanced agentic AI assistant
+    #[arg(long)]
+    pub ai_agent: bool,
+
     /// Explain a file
     #[arg(long)]
     pub explain: bool,
@@ -535,6 +540,50 @@ impl CliApp {
         Ok(())
     }
 
+    async fn handle_ai_agent(&mut self, goal: &str) -> Result<()> {
+        use domain::models::AgentRequest;
+        
+        eprintln!("🤖 Enhanced AI Agent processing request...");
+        println!("{}", format!("Goal: {}", goal).bright_blue());
+        
+        // Initialize services
+        let client = OllamaClient::new()?;
+        let agent_service = AgentService::new(client);
+        
+        // Create agent request
+        let request = AgentRequest {
+            goal: goal.to_string(),
+            context: Some(format!("System: {}", self.system_info)),
+            conversation_id: None,
+        };
+        
+        // Process with enhanced agent
+        match agent_service.process_request(&request).await {
+            Ok(response) => {
+                println!("\n{}", "🧠 Reasoning:".bright_cyan());
+                for (i, step) in response.reasoning.iter().enumerate() {
+                    println!("  {}. {}", i + 1, step);
+                }
+                
+                if !response.tool_calls.is_empty() {
+                    println!("\n{}", "🔧 Tools Used:".bright_yellow());
+                    for tool_call in &response.tool_calls {
+                        println!("  • {} ({})", tool_call.name, tool_call.reasoning);
+                    }
+                }
+                
+                println!("\n{}", "💬 Response:".bright_green());
+                println!("{}", response.final_response);
+                println!("\n{}", format!("⚡ Confidence: {:.1}%", response.confidence * 100.0).bright_magenta());
+            }
+            Err(e) => {
+                eprintln!("{} {}", "Agent error:".red(), e);
+            }
+        }
+        
+        Ok(())
+    }
+
     pub async fn run(&mut self, cli: Cli) -> Result<()> {
         let args_str = cli.args.join(" ");
         if cli.chat {
@@ -550,6 +599,8 @@ impl CliApp {
             self.handle_explain(&args_str).await
         } else if cli.rag {
             self.handle_rag(&args_str).await
+        } else if cli.ai_agent {
+            self.handle_ai_agent(&args_str).await
         } else if cli.context {
             self.handle_context(&args_str).await
         } else {

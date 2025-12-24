@@ -2231,6 +2231,7 @@ dependencies = [
  "colored",
  "dialoguer",
  "docx-rs",
+ "domain",
  "infrastructure",
  "pdf-extract",
  "reqwest",
