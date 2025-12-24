@@ -2,7 +2,7 @@ use application::{rag_service::RagService, agent_service::AgentService};
 use clap::Parser;
 use colored::Colorize;
 use docx_rs::*;
-use infrastructure::{config::Config, ollama_client::OllamaClient};
+use infrastructure::{config::Config, ollama_client::OllamaClient, sandbox::Sandbox};
 use serde::{Deserialize, Serialize};
 use shared::confirmation::ask_confirmation;
 use shared::types::Result;
@@ -626,20 +626,33 @@ impl CliApp {
             let command = extract_command_from_response(&response);
             println!("{}", format!("Command: {}", command).green());
             if ask_confirmation("Run this command?", false)? {
-                let output = std::process::Command::new("bash")
-                    .arg("-c")
-                    .arg(&command)
-                    .output()?;
-                println!("{}", String::from_utf8_lossy(&output.stdout));
-                if !output.status.success() {
-                    println!(
-                        "{}",
-                        format!(
-                            "Command failed: {}",
-                            String::from_utf8_lossy(&output.stderr)
-                        )
-                        .red()
-                    );
+                let sandbox = Sandbox::new();
+                match sandbox.execute_safe("bash", vec!["-c".to_string(), command.clone()]).await {
+                    Ok(output) => println!("{}", output),
+                    Err(e) => {
+                        eprintln!("{}", format!("Sandbox execution failed: {}", e).red());
+                        // Offer fallback option for debugging
+                        if ask_confirmation("Try running without sandboxing?", false)? {
+                            match std::process::Command::new("bash").arg("-c").arg(&command).output() {
+                                Ok(output) => {
+                                    println!("{}", String::from_utf8_lossy(&output.stdout));
+                                    if !output.status.success() {
+                                        println!(
+                                            "{}",
+                                            format!(
+                                                "Command failed: {}",
+                                                String::from_utf8_lossy(&output.stderr)
+                                            )
+                                            .red()
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("{}", format!("Direct execution failed: {}", e).red());
+                                }
+                            }
+                        }
+                    }
                 }
             } else {
                 println!("{}", "Command execution cancelled.".yellow());
