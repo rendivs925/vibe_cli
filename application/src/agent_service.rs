@@ -42,53 +42,76 @@ impl AgentService {
     }
 
     pub async fn process_request(&self, request: &AgentRequest) -> Result<AgentResponse> {
-        // For now, implement a basic working version
-        // We'll enhance this incrementally
+        // Clone request data to avoid lifetime issues
+        let request_clone = request.clone();
 
-        // Initialize context
-        let mut context = self.initialize_context(request).await?;
-        let reasoning_steps = self.generate_reasoning(&request.goal, &context).await?;
+        // Create a helper struct to hold the necessary data for the closure
+        struct AgentExecutionHelper {
+            request: AgentRequest,
+            client: OllamaClient,
+            config: Config,
+            rag_service: Option<Arc<RagService>>,
+        }
 
-        // Execute a single iteration manually for now
-        let iteration_result = self.execute_single_iteration(&request.goal, &AgentExecutionState {
-            iteration_count: 0,
-            total_tools_executed: 0,
-            start_time: std::time::SystemTime::now(),
-            last_verification_result: None,
-            execution_history: vec![],
-            failure_count: 0,
-            recovery_attempts: 0,
-        }, request).await?;
+        impl AgentExecutionHelper {
+            async fn execute_iteration(&self, goal: &str, state: &AgentExecutionState) -> Result<AgentIterationResult> {
+                // Create a temporary agent service instance
+                let temp_service = AgentService {
+                    client: self.client.clone(),
+                    rag_service: self.rag_service.clone(),
+                    config: self.config.clone(),
+                    agent_controller: AgentController::new(), // Not used in iteration
+                    failure_handler: SafeFailureHandler::new(), // Not used in iteration
+                };
 
-        // Convert to agent result format
-        let agent_result = AgentResult {
-            final_response: iteration_result.final_response,
-            confidence_score: iteration_result.confidence_score,
-            execution_time: std::time::Duration::from_secs(1),
-            iterations_used: 1,
-            tools_executed: iteration_result.tool_calls.len() as u32,
-            verification_history: vec![], // TODO: Add verification
+                temp_service.execute_single_iteration(goal, state, &self.request).await
+            }
+        }
+
+        let helper = AgentExecutionHelper {
+            request: request_clone,
+            client: self.client.clone(),
+            config: self.config.clone(),
+            rag_service: self.rag_service.clone(),
         };
 
-        // Convert tool calls from strings to proper ToolCall structs
-        let tool_calls = iteration_result.tool_calls.iter().enumerate().map(|(i, tool_str)| {
-            // For now, create basic tool call structures from strings
-            // TODO: Implement proper parsing of tool call strings
-            ToolCall {
-                id: format!("tool_{}", i),
-                name: tool_str.clone(),
-                parameters: HashMap::new(), // Empty parameters for now
-                reasoning: "Generated tool call".to_string(),
-            }
-        }).collect();
+        // Execute bounded agent with failure handling
+        let result = self.failure_handler.execute_with_failure_handling(|| async {
+            self.agent_controller.execute_bounded_agent(
+                &request.goal,
+                |goal, state| {
+                    let helper_ref = &helper;
+                    async move {
+                        helper_ref.execute_iteration(goal, state).await
+                            .map_err(|e| infrastructure::agent_control::AgentError::ExecutionFailed(e.to_string()))
+                    }
+                }
+            ).await
+        }).await;
 
-        // Convert to response format
-        Ok(AgentResponse {
-            reasoning: iteration_result.reasoning_steps,
-            tool_calls,
-            final_response: agent_result.final_response,
-            confidence: agent_result.confidence_score,
-        })
+        // Process the result
+        match result {
+            Ok(agent_result) => {
+                // Convert to legacy AgentResponse format for compatibility
+                Ok(AgentResponse {
+                    reasoning: vec![agent_result.final_response.clone()], // Simplified
+                    tool_calls: vec![], // Would need to track this properly in bounded execution
+                    final_response: agent_result.final_response,
+                    confidence: agent_result.confidence_score,
+                })
+            }
+            Err(agent_error) => {
+                // Generate safe fallback response
+                let fallback_response = self.failure_handler.generate_safe_fallback_response(&agent_error, &request.goal);
+
+                Ok(AgentResponse {
+                    reasoning: vec![format!("Agent execution failed: {}", agent_error)],
+                    tool_calls: vec![],
+                    final_response: fallback_response,
+                    confidence: 0.0,
+                })
+            }
+        }
     }
 
     async fn execute_single_iteration(
