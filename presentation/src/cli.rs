@@ -923,7 +923,24 @@ User request: {}",
                 .query_with_feedback(question, &feedback)
                 .await?;
 
-            println!("{}", response);
+            if response.starts_with("__SECRETS_DETECTED__:") {
+                println!("{}", response.trim_start_matches("__SECRETS_DETECTED__:").trim());
+                if ask_confirmation("Continue with sanitized response?", false)? {
+                    // Re-run the query but force it to continue with sanitized content
+                    let force_response = self
+                        .rag_service
+                        .as_ref()
+                        .unwrap()
+                        .query_with_feedback_force(question, &feedback)
+                        .await?;
+                    println!("{}", force_response);
+                } else {
+                    println!("Query cancelled by user.");
+                    return Ok(());
+                }
+            } else {
+                println!("{}", response);
+            }
 
             if ask_confirmation("Satisfied with this response?", true)? {
                 self.save_cached_rag(question, &response)?;
