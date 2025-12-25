@@ -360,9 +360,21 @@ pub struct Cli {
     #[arg(long)]
     pub stream: bool,
 
-    /// Use safe build mode with user confirmation
-    #[arg(long)]
+    /// Use safe build mode with RAG context and user confirmation
+    #[arg(long, help = "Generate and execute build plans with AI assistance, RAG context retrieval, and transaction safety")]
     pub build: bool,
+
+    /// Dry-run mode: show plan without executing
+    #[arg(long, help = "Preview build plan and operations without making changes")]
+    pub dry_run: bool,
+
+    /// Verbose output: show detailed information
+    #[arg(long, help = "Display retrieved context and detailed operation information")]
+    pub verbose: bool,
+
+    /// Show diffs for file operations (reserved for future use)
+    #[arg(long, help = "Show diffs for file modifications (planned feature)")]
+    pub show_diff: bool,
 
     /// The query or file path to process
     #[arg(trailing_var_arg = true)]
@@ -664,7 +676,10 @@ impl CliApp {
         Ok(())
     }
 
-    async fn handle_build(&mut self, goal: &str) -> Result<()> {
+    async fn handle_build(&mut self, goal: &str, dry_run: bool, verbose: bool, show_diff: bool) -> Result<()> {
+        use application::build_service::{BuildService, ConfirmationMode};
+        use infrastructure::config::Config;
+
         if goal.trim().is_empty() {
             println!(
                 "{}",
@@ -677,50 +692,65 @@ impl CliApp {
         println!("{}", "Build Mode: Safe code modifications with user confirmation".bright_cyan());
         println!("{}", format!("Goal: {}", goal).bright_blue());
 
-        // Initialize enhanced agent for building
-        let client = OllamaClient::new()?;
-        // Use Ollama by default (now the recommended option)
+        // Configure build service based on flags
+        let mut build_service = BuildService::new(std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")));
+        build_service.set_dry_run(dry_run);
+
+        if verbose {
+            build_service.set_confirmation_mode(ConfirmationMode::Interactive);
+        }
+
+        // Initialize services
         let agent_service = application::create_agent_service().await?;
 
-        // Create agent request for building
-        let request = domain::models::AgentRequest {
-            goal: format!("Generate a detailed plan for safely implementing: {}. Include specific file operations (create, read, update, delete) with clear descriptions.", goal),
-            context: Some(format!("System: {} | Mode: Build with confirmation", self.system_info)),
-            conversation_id: None,
-        };
-
-        // Generate build plan using enhanced agent
-        println!("\n{}", "Analyzing requirements and generating build plan...".bright_yellow());
-        match agent_service.process_request(&request).await {
-            Ok(response) => {
-                println!("\n{}", "Build Plan Analysis:".bright_magenta());
-                for (i, step) in response.reasoning.iter().enumerate() {
-                    println!("  {}. {}", format!("Step {}", i + 1).bright_yellow(), step);
-                }
-
-                if !response.tool_calls.is_empty() {
-                    println!("\n{}", "Planned Operations:".bright_yellow());
-                    for tool_call in &response.tool_calls {
-                        println!("  • {} - {}", tool_call.name.bright_green(), tool_call.reasoning);
-                    }
-                }
-
-                println!("\n{}", "Detailed Build Plan:".bright_green());
-                println!("{}", response.final_response);
-
-                println!("\n{}", format!("Confidence: {:.1}%", response.confidence * 100.0).bright_magenta());
-
-                // Ask for user confirmation before proceeding
-                if ask_confirmation("Proceed with this build plan?", false)? {
-                    println!("{}", "Build plan approved. Implementation will be available in Phase 1.3 (Transaction Framework).".bright_green());
-                    println!("{}", "This will include atomic operations, rollback capabilities, and safe file modifications.".bright_cyan());
-                } else {
-                    println!("{}", "Build plan cancelled by user.".yellow());
-                }
-            }
+        // Generate build plan using agent with RAG context
+        println!("\n{}", "Analyzing requirements and retrieving context...".bright_yellow());
+        let (build_plan, retrieved_context) = match agent_service.plan_build(goal).await {
+            Ok(result) => result,
             Err(e) => {
                 eprintln!("{} {}", "Build planning error:".red(), e);
+                return Ok(());
             }
+        };
+
+        // Display retrieved context if verbose
+        if verbose && !retrieved_context.is_empty() {
+            println!("\n{}", "Retrieved Context:".bright_cyan());
+            for context in retrieved_context {
+                println!("  {}", context.dimmed());
+            }
+        }
+
+        // Show plan preview
+        if let Err(e) = build_service.preview_plan(&build_plan) {
+            eprintln!("{} {}", "Plan preview error:".red(), e);
+            return Ok(());
+        }
+
+        // Execute the build plan with transaction support (unless dry-run)
+        if !dry_run {
+            match build_service.execute_plan(&build_plan).await {
+                Ok(result) => {
+                    if result.success {
+                        println!("\n{}", "✅ Build completed successfully!".bright_green());
+                        println!("{} operations completed", result.operations_completed);
+                    } else {
+                        println!("\n{}", "❌ Build failed!".bright_red());
+                        println!("{} operations completed, {} failed", result.operations_completed, result.operations_failed);
+                        for error in &result.error_messages {
+                            eprintln!("  {}", error.red());
+                        }
+                        if result.rollback_performed {
+                            println!("{}", "Changes have been rolled back.".yellow());
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("{} {}", "Build execution error:".red(), e);
+                }
+            }
+        } else {
+            println!("\n{}", "Dry-run mode: No changes were made.".bright_yellow());
         }
 
         Ok(())
@@ -736,7 +766,7 @@ impl CliApp {
                 self.handle_chat().await
             }
         } else if cli.build {
-            self.handle_build(&args_str).await
+            self.handle_build(&args_str, cli.dry_run, cli.verbose, cli.show_diff).await
         } else if cli.agent {
             self.handle_agent(&args_str).await
         } else if cli.ai_agent {

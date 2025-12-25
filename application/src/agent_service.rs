@@ -29,6 +29,8 @@ use shared::types::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
 use uuid::Uuid;
+use crate::build_service::{BuildPlan, FileOperation, RiskLevel};
+use colored::Colorize;
 
 // Forward declare for now - actual implementation when both services are integrated
 pub type RagService = crate::rag_service::RagService;
@@ -140,6 +142,236 @@ impl AgentService {
             tool_calls,
             final_response: agent_result.final_response,
             confidence: agent_result.confidence_score,
+        })
+    }
+
+    /// Generate a build plan with RAG context retrieval
+    pub async fn plan_build(&self, goal: &str) -> Result<(BuildPlan, Vec<String>)> {
+        let mut retrieved_context = Vec::new();
+
+        // Step 1: Retrieve relevant context using RAG
+        if let Some(rag_service) = &self.rag_service {
+            println!("{}", "🔍 Retrieving relevant codebase context...".bright_cyan());
+
+            // Build index if needed
+            let project_root = std::env::current_dir()
+                .unwrap_or_else(|_| std::path::PathBuf::from("."))
+                .to_string_lossy()
+                .to_string();
+            let db_path = format!("{}/.vibe_rag.db", project_root);
+
+            if let Err(e) = rag_service.build_index().await {
+                eprintln!("Warning: Failed to build RAG index: {}", e);
+            }
+
+            // Query for relevant patterns and existing code
+            let rag_query = format!("Find examples and patterns for: {}. Look for similar implementations, utility functions, or scripts.", goal);
+            match rag_service.query(&rag_query).await {
+                Ok(context) => {
+                    retrieved_context.push(format!("📚 RAG Context:\n{}", context));
+                }
+                Err(e) => {
+                    eprintln!("Warning: RAG query failed: {}", e);
+                }
+            }
+
+            // Search for specific keywords from the goal
+            let keywords = self.extract_keywords_from_goal(goal);
+            if !keywords.is_empty() {
+                if let Err(e) = rag_service.build_index_for_keywords(&keywords).await {
+                    eprintln!("Warning: Keyword-based RAG search failed: {}", e);
+                } else {
+                    let keyword_query = format!("Examples of {}", keywords.join(", "));
+                    if let Ok(keyword_context) = rag_service.query(&keyword_query).await {
+                        retrieved_context.push(format!("🔎 Keyword Context ({}):\n{}", keywords.join(", "), keyword_context));
+                    }
+                }
+            }
+        } else {
+            retrieved_context.push("ℹ️  RAG service not available - proceeding without codebase context".to_string());
+        }
+
+        // Step 2: Generate build plan using the inference engine
+        let build_prompt = self.create_build_planning_prompt(goal, &retrieved_context);
+
+        println!("{}", "🤖 Generating build plan...".bright_yellow());
+
+        let plan_text = match self.inference_engine.generate(&build_prompt).await {
+            Ok(text) => text,
+            Err(e) => {
+                return Err(anyhow::anyhow!("Failed to generate build plan: {}", e));
+            }
+        };
+
+        // Step 3: Parse the plan into BuildPlan structure
+        let build_plan = self.parse_build_plan(&plan_text, goal)?;
+
+        Ok((build_plan, retrieved_context))
+    }
+
+    fn extract_keywords_from_goal(&self, goal: &str) -> Vec<String> {
+        // Extract meaningful keywords for RAG search
+        let words: Vec<String> = goal
+            .split_whitespace()
+            .filter(|w| w.len() > 2)
+            .map(|w| w.to_lowercase())
+            .collect();
+
+        // Filter out common words
+        let stop_words = ["make", "create", "write", "build", "script", "file", "add", "implement", "for", "the", "and", "or"];
+        words.into_iter()
+            .filter(|w| !stop_words.contains(&w.as_str()))
+            .collect()
+    }
+
+    fn create_build_planning_prompt(&self, goal: &str, context: &[String]) -> String {
+        let context_str = if context.is_empty() {
+            "No additional context available.".to_string()
+        } else {
+            context.join("\n\n")
+        };
+
+        format!(
+            r#"You are an expert software engineer tasked with creating a detailed implementation plan.
+
+GOAL: {}
+
+RELEVANT CONTEXT:
+{}
+
+INSTRUCTIONS:
+Create a detailed step-by-step plan for implementing this goal. For each step, specify:
+1. What needs to be done
+2. Which files to create/modify/delete
+3. Any dependencies or prerequisites
+4. Risk level (Low/Medium/High/Critical)
+
+Format your response as a JSON object with this structure:
+{{
+  "description": "Brief description of the overall plan",
+  "operations": [
+    {{
+      "type": "create|update|delete|read",
+      "path": "relative/path/to/file",
+      "description": "What this operation does",
+      "content": "For create/update operations, provide the full content or changes"
+    }}
+  ],
+  "risk_assessment": "Low|Medium|High|Critical",
+  "prerequisites": ["Any prerequisites or dependencies"]
+}}
+
+Be specific about file paths and content. Focus on safe, incremental changes."#,
+            goal, context_str
+        )
+    }
+
+    fn parse_build_plan(&self, plan_text: &str, goal: &str) -> Result<BuildPlan> {
+        // Try to extract JSON from the response
+        let json_start = plan_text.find('{');
+        let json_end = plan_text.rfind('}');
+
+        if let (Some(start), Some(end)) = (json_start, json_end) {
+            let json_str = &plan_text[start..=end];
+            match serde_json::from_str::<serde_json::Value>(json_str) {
+                Ok(json) => {
+                    return self.build_plan_from_json(json, goal);
+                }
+                Err(_) => {
+                    // JSON parsing failed, create a basic plan
+                }
+            }
+        }
+
+        // Fallback: Create a basic plan from text analysis
+        self.create_fallback_plan(plan_text, goal)
+    }
+
+    fn build_plan_from_json(&self, json: serde_json::Value, goal: &str) -> Result<BuildPlan> {
+        let description = json.get("description")
+            .and_then(|d| d.as_str())
+            .unwrap_or("Build plan generated from AI analysis")
+            .to_string();
+
+        let risk_level = json.get("risk_assessment")
+            .and_then(|r| r.as_str())
+            .unwrap_or("Medium");
+
+        let estimated_risk = match risk_level.to_lowercase().as_str() {
+            "low" => RiskLevel::Low,
+            "medium" => RiskLevel::Medium,
+            "high" => RiskLevel::High,
+            "critical" => RiskLevel::Critical,
+            _ => RiskLevel::Medium,
+        };
+
+        let mut operations = Vec::new();
+
+        if let Some(ops) = json.get("operations").and_then(|o| o.as_array()) {
+            for op in ops {
+                let op_type = op.get("type").and_then(|t| t.as_str()).unwrap_or("create");
+                let path = op.get("path").and_then(|p| p.as_str()).unwrap_or("unknown");
+                let desc = op.get("description").and_then(|d| d.as_str()).unwrap_or("");
+                let content = op.get("content").and_then(|c| c.as_str()).unwrap_or("");
+
+                let file_op = match op_type {
+                    "create" => FileOperation::Create {
+                        path: std::path::PathBuf::from(path),
+                        content: content.to_string(),
+                    },
+                    "update" => FileOperation::Update {
+                        path: std::path::PathBuf::from(path),
+                        old_content: "".to_string(), // Would need to read current content
+                        new_content: content.to_string(),
+                    },
+                    "delete" => FileOperation::Delete {
+                        path: std::path::PathBuf::from(path),
+                    },
+                    "read" => FileOperation::Read {
+                        path: std::path::PathBuf::from(path),
+                    },
+                    _ => continue,
+                };
+
+                operations.push(file_op);
+            }
+        }
+
+        Ok(BuildPlan {
+            goal: goal.to_string(),
+            operations,
+            description,
+            estimated_risk,
+        })
+    }
+
+    fn create_fallback_plan(&self, plan_text: &str, goal: &str) -> Result<BuildPlan> {
+        // Simple fallback - create a script file based on the goal
+        let script_name = if goal.contains("cpu") && goal.contains("gpu") {
+            "check_system_resources.sh"
+        } else if goal.contains("cpu") {
+            "check_cpu.sh"
+        } else if goal.contains("gpu") {
+            "check_gpu.sh"
+        } else {
+            "generated_script.sh"
+        };
+
+        let content = format!(
+            "#!/bin/bash\n# Generated script for: {}\n# {}\n\necho \"Script execution started\"\n# TODO: Implement the actual functionality\n",
+            goal, plan_text.lines().next().unwrap_or("Auto-generated script")
+        );
+
+        Ok(BuildPlan {
+            goal: goal.to_string(),
+            operations: vec![
+                FileOperation::Create {
+                    path: std::path::PathBuf::from(script_name),
+                    content,
+                }
+            ],
+            description: format!("Auto-generated plan for: {}", goal),
+            estimated_risk: RiskLevel::Low,
         })
     }
 }

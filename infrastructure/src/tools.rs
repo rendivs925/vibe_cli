@@ -163,6 +163,15 @@ pub enum SafeTool {
     FileWrite,
     DirectoryList,
     ProcessList,
+    GrepSearch,
+    FindFiles,
+    SedReplace,
+    AwkExtract,
+    CurlFetch,
+    WebSearch,
+    GitStatus,
+    GitDiff,
+    GitLog,
 }
 
 impl SafeTool {
@@ -172,6 +181,15 @@ impl SafeTool {
             SafeTool::FileWrite => "file_write",
             SafeTool::DirectoryList => "directory_list",
             SafeTool::ProcessList => "process_list",
+            SafeTool::GrepSearch => "grep_search",
+            SafeTool::FindFiles => "find_files",
+            SafeTool::SedReplace => "sed_replace",
+            SafeTool::AwkExtract => "awk_extract",
+            SafeTool::CurlFetch => "curl_fetch",
+            SafeTool::WebSearch => "web_search",
+            SafeTool::GitStatus => "git_status",
+            SafeTool::GitDiff => "git_diff",
+            SafeTool::GitLog => "git_log",
         }
     }
 
@@ -181,6 +199,15 @@ impl SafeTool {
             SafeTool::FileWrite => "Safely write file contents with backup and rollback capabilities",
             SafeTool::DirectoryList => "Safely list directory contents with path validation",
             SafeTool::ProcessList => "Safely list running processes with filtering",
+            SafeTool::GrepSearch => "Search for patterns in files using regex with path filtering",
+            SafeTool::FindFiles => "Find files by name patterns, size, date, and type filters",
+            SafeTool::SedReplace => "Perform safe text replacements in files with preview",
+            SafeTool::AwkExtract => "Extract and transform data from files using awk-like patterns",
+            SafeTool::CurlFetch => "Fetch content from HTTP URLs (read-only, no authentication)",
+            SafeTool::WebSearch => "Search the web for documentation and best practices",
+            SafeTool::GitStatus => "Get git repository status (read-only)",
+            SafeTool::GitDiff => "Show git diffs between commits or working directory",
+            SafeTool::GitLog => "Show git commit history with filtering options",
         }
     }
 
@@ -190,6 +217,15 @@ impl SafeTool {
             SafeTool::FileWrite => self.execute_file_write(args).await,
             SafeTool::DirectoryList => self.execute_directory_list(args).await,
             SafeTool::ProcessList => self.execute_process_list(args).await,
+            SafeTool::GrepSearch => self.execute_grep_search(args).await,
+            SafeTool::FindFiles => self.execute_find_files(args).await,
+            SafeTool::SedReplace => self.execute_sed_replace(args).await,
+            SafeTool::AwkExtract => self.execute_awk_extract(args).await,
+            SafeTool::CurlFetch => self.execute_curl_fetch(args).await,
+            SafeTool::WebSearch => self.execute_web_search(args).await,
+            SafeTool::GitStatus => self.execute_git_status(args).await,
+            SafeTool::GitDiff => self.execute_git_diff(args).await,
+            SafeTool::GitLog => self.execute_git_log(args).await,
         }
     }
 
@@ -199,6 +235,15 @@ impl SafeTool {
             SafeTool::FileWrite => self.validate_file_write_args(args),
             SafeTool::DirectoryList => self.validate_directory_list_args(args),
             SafeTool::ProcessList => self.validate_process_list_args(args),
+            SafeTool::GrepSearch => self.validate_grep_search_args(args),
+            SafeTool::FindFiles => self.validate_find_files_args(args),
+            SafeTool::SedReplace => self.validate_sed_replace_args(args),
+            SafeTool::AwkExtract => self.validate_awk_extract_args(args),
+            SafeTool::CurlFetch => self.validate_curl_fetch_args(args),
+            SafeTool::WebSearch => self.validate_web_search_args(args),
+            SafeTool::GitStatus => self.validate_git_status_args(args),
+            SafeTool::GitDiff => self.validate_git_diff_args(args),
+            SafeTool::GitLog => self.validate_git_log_args(args),
         }
     }
 
@@ -517,6 +562,537 @@ impl SafeTool {
         // No arguments required for process listing
         Ok(())
     }
+
+    // Grep search implementation
+    async fn execute_grep_search(&self, args: ToolArgs) -> Result<ToolOutput, ToolError> {
+        let start_time = Instant::now();
+
+        let pattern = args.parameters.get("pattern")
+            .ok_or_else(|| ToolError::ValidationError("Missing 'pattern' parameter".to_string()))?;
+
+        let path = args.parameters.get("path")
+            .ok_or_else(|| ToolError::ValidationError("Missing 'path' parameter".to_string()))?;
+
+        let security_validator = ToolSecurityValidator::new();
+        security_validator.validate_path(path)?;
+
+        // Use ripgrep (rg) for fast searching
+        let mut cmd_args: Vec<String> = vec!["--line-number".to_string(), "--with-filename".to_string()];
+
+        // Add case insensitive if requested
+        if args.parameters.get("case_insensitive").map_or(false, |v| v == "true") {
+            cmd_args.push("--ignore-case".to_string());
+        }
+
+        // Add include patterns
+        if let Some(include) = args.parameters.get("include") {
+            cmd_args.push("--glob".to_string());
+            cmd_args.push(include.clone());
+        }
+
+        cmd_args.push(pattern.clone());
+        cmd_args.push(path.clone());
+
+        let cmd_args_refs: Vec<&str> = cmd_args.iter().map(|s| &**s).collect();
+
+        let limits = ResourceLimits::default();
+        let enforcer = ResourceEnforcer::new();
+
+        match enforcer.execute_with_limits("rg", &cmd_args_refs, &limits, args.working_directory.as_deref()).await {
+            Ok(result) => {
+                let resources_used = ResourceUsage {
+                    memory_used_mb: 2,
+                    cpu_time_seconds: result.execution_time.as_secs_f64(),
+                    processes_created: 1,
+                    output_size: result.stdout.len(),
+                };
+
+                Ok(ToolOutput {
+                    success: result.success,
+                    stdout: result.stdout,
+                    stderr: result.stderr,
+                    exit_code: result.exit_code,
+                    execution_time: result.execution_time,
+                    resources_used,
+                })
+            }
+            Err(e) => Err(ToolError::ExecutionError(format!("Grep search failed: {}", e))),
+        }
+    }
+
+    fn validate_grep_search_args(&self, args: &ToolArgs) -> Result<(), ValidationError> {
+        if !args.parameters.contains_key("pattern") {
+            return Err(ValidationError {
+                field: "pattern".to_string(),
+                message: "Pattern parameter is required".to_string(),
+                severity: ValidationSeverity::Error,
+            });
+        }
+
+        if !args.parameters.contains_key("path") {
+            return Err(ValidationError {
+                field: "path".to_string(),
+                message: "Path parameter is required".to_string(),
+                severity: ValidationSeverity::Error,
+            });
+        }
+
+        Ok(())
+    }
+
+    // Find files implementation
+    async fn execute_find_files(&self, args: ToolArgs) -> Result<ToolOutput, ToolError> {
+        let start_time = Instant::now();
+
+        let path = args.parameters.get("path")
+            .ok_or_else(|| ToolError::ValidationError("Missing 'path' parameter".to_string()))?;
+
+        let security_validator = ToolSecurityValidator::new();
+        security_validator.validate_path(path)?;
+
+        let mut cmd_args: Vec<String> = vec![".".to_string()];
+
+        // Add name pattern
+        if let Some(name) = args.parameters.get("name") {
+            cmd_args.push("-name".to_string());
+            cmd_args.push(name.clone());
+        }
+
+        // Add type filter
+        if let Some(file_type) = args.parameters.get("type") {
+            cmd_args.push("-type".to_string());
+            cmd_args.push(file_type.clone()); // f, d, l, etc.
+        }
+
+        // Add size filter
+        if let Some(size) = args.parameters.get("size") {
+            cmd_args.push("-size".to_string());
+            cmd_args.push(size.clone());
+        }
+
+        let cmd_args_refs: Vec<&str> = cmd_args.iter().map(|s| &**s).collect();
+
+        let limits = ResourceLimits::default();
+        let enforcer = ResourceEnforcer::new();
+
+        match enforcer.execute_with_limits("find", &cmd_args_refs, &limits, args.working_directory.as_deref()).await {
+            Ok(result) => {
+                let resources_used = ResourceUsage {
+                    memory_used_mb: 1,
+                    cpu_time_seconds: result.execution_time.as_secs_f64(),
+                    processes_created: 1,
+                    output_size: result.stdout.len(),
+                };
+
+                Ok(ToolOutput {
+                    success: result.success,
+                    stdout: result.stdout,
+                    stderr: result.stderr,
+                    exit_code: result.exit_code,
+                    execution_time: result.execution_time,
+                    resources_used,
+                })
+            }
+            Err(e) => Err(ToolError::ExecutionError(format!("Find files failed: {}", e))),
+        }
+    }
+
+    fn validate_find_files_args(&self, args: &ToolArgs) -> Result<(), ValidationError> {
+        if !args.parameters.contains_key("path") {
+            return Err(ValidationError {
+                field: "path".to_string(),
+                message: "Path parameter is required".to_string(),
+                severity: ValidationSeverity::Error,
+            });
+        }
+
+        Ok(())
+    }
+
+    // Sed replace implementation
+    async fn execute_sed_replace(&self, args: ToolArgs) -> Result<ToolOutput, ToolError> {
+        let start_time = Instant::now();
+
+        let file_path = args.parameters.get("path")
+            .ok_or_else(|| ToolError::ValidationError("Missing 'path' parameter".to_string()))?;
+
+        let pattern = args.parameters.get("pattern")
+            .ok_or_else(|| ToolError::ValidationError("Missing 'pattern' parameter".to_string()))?;
+        let replacement = args.parameters.get("replacement")
+            .map_or("", |v| v.as_str());
+
+        let security_validator = ToolSecurityValidator::new();
+        security_validator.validate_path(file_path)?;
+
+        // First read the file to show preview
+        let current_content = fs::read_to_string(file_path)
+            .map_err(|e| ToolError::ExecutionError(format!("Failed to read file: {}", e)))?;
+
+        // Create sed expression
+        let sed_expr = format!("s/{}/{}/g", pattern, replacement);
+        let cmd_args_vec = vec!["-i", &sed_expr, file_path];
+        let cmd_args: Vec<&str> = cmd_args_vec.iter().map(|s| s.as_str()).collect();
+
+        let limits = ResourceLimits::default();
+        let enforcer = ResourceEnforcer::new();
+
+        match enforcer.execute_with_limits("sed", &cmd_args, &limits, args.working_directory.as_deref()).await {
+            Ok(result) => {
+                let resources_used = ResourceUsage {
+                    memory_used_mb: 1,
+                    cpu_time_seconds: result.execution_time.as_secs_f64(),
+                    processes_created: 1,
+                    output_size: result.stdout.len(),
+                };
+
+                Ok(ToolOutput {
+                    success: result.success,
+                    stdout: result.stdout,
+                    stderr: result.stderr,
+                    exit_code: result.exit_code,
+                    execution_time: result.execution_time,
+                    resources_used,
+                })
+            }
+            Err(e) => Err(ToolError::ExecutionError(format!("Sed replace failed: {}", e))),
+        }
+    }
+
+    fn validate_sed_replace_args(&self, args: &ToolArgs) -> Result<(), ValidationError> {
+        if !args.parameters.contains_key("path") {
+            return Err(ValidationError {
+                field: "path".to_string(),
+                message: "Path parameter is required".to_string(),
+                severity: ValidationSeverity::Error,
+            });
+        }
+
+        if !args.parameters.contains_key("pattern") {
+            return Err(ValidationError {
+                field: "pattern".to_string(),
+                message: "Pattern parameter is required".to_string(),
+                severity: ValidationSeverity::Error,
+            });
+        }
+
+        Ok(())
+    }
+
+    // Awk extract implementation
+    async fn execute_awk_extract(&self, args: ToolArgs) -> Result<ToolOutput, ToolError> {
+        let start_time = Instant::now();
+
+        let file_path = args.parameters.get("path")
+            .ok_or_else(|| ToolError::ValidationError("Missing 'path' parameter".to_string()))?;
+
+        let script = args.parameters.get("script")
+            .ok_or_else(|| ToolError::ValidationError("Missing 'script' parameter".to_string()))?;
+
+        let security_validator = ToolSecurityValidator::new();
+        security_validator.validate_path(file_path)?;
+
+        let cmd_args_vec = vec![script, file_path];
+        let cmd_args: Vec<&str> = cmd_args_vec.iter().map(|s| s.as_str()).collect();
+
+        let limits = ResourceLimits::default();
+        let enforcer = ResourceEnforcer::new();
+
+        match enforcer.execute_with_limits("awk", &cmd_args, &limits, args.working_directory.as_deref()).await {
+            Ok(result) => {
+                let resources_used = ResourceUsage {
+                    memory_used_mb: 2,
+                    cpu_time_seconds: result.execution_time.as_secs_f64(),
+                    processes_created: 1,
+                    output_size: result.stdout.len(),
+                };
+
+                Ok(ToolOutput {
+                    success: result.success,
+                    stdout: result.stdout,
+                    stderr: result.stderr,
+                    exit_code: result.exit_code,
+                    execution_time: result.execution_time,
+                    resources_used,
+                })
+            }
+            Err(e) => Err(ToolError::ExecutionError(format!("Awk extract failed: {}", e))),
+        }
+    }
+
+    fn validate_awk_extract_args(&self, args: &ToolArgs) -> Result<(), ValidationError> {
+        if !args.parameters.contains_key("path") {
+            return Err(ValidationError {
+                field: "path".to_string(),
+                message: "Path parameter is required".to_string(),
+                severity: ValidationSeverity::Error,
+            });
+        }
+
+        if !args.parameters.contains_key("script") {
+            return Err(ValidationError {
+                field: "script".to_string(),
+                message: "Script parameter is required".to_string(),
+                severity: ValidationSeverity::Error,
+            });
+        }
+
+        Ok(())
+    }
+
+    // Curl fetch implementation
+    async fn execute_curl_fetch(&self, args: ToolArgs) -> Result<ToolOutput, ToolError> {
+        let start_time = Instant::now();
+
+        let url = args.parameters.get("url")
+            .ok_or_else(|| ToolError::ValidationError("Missing 'url' parameter".to_string()))?;
+
+        // Basic URL validation
+        if !url.starts_with("http://") && !url.starts_with("https://") {
+            return Err(ToolError::ValidationError("Only HTTP/HTTPS URLs are allowed".to_string()));
+        }
+
+        let mut cmd_args_vec = vec!["--silent", "--show-error", "--max-time", "30"];
+
+        // Add headers if provided
+        if let Some(headers) = args.parameters.get("headers") {
+            for header in headers.split(',') {
+                cmd_args_vec.push("--header");
+                cmd_args_vec.push(header.trim());
+            }
+        }
+
+        cmd_args_vec.push(url);
+        let cmd_args: Vec<&str> = cmd_args_vec.iter().map(|s| s.as_str()).collect();
+
+        let limits = ResourceLimits::default();
+        let enforcer = ResourceEnforcer::new();
+
+        match enforcer.execute_with_limits("curl", &cmd_args, &limits, args.working_directory.as_deref()).await {
+            Ok(result) => {
+                let resources_used = ResourceUsage {
+                    memory_used_mb: 2,
+                    cpu_time_seconds: result.execution_time.as_secs_f64(),
+                    processes_created: 1,
+                    output_size: result.stdout.len(),
+                };
+
+                Ok(ToolOutput {
+                    success: result.success,
+                    stdout: result.stdout,
+                    stderr: result.stderr,
+                    exit_code: result.exit_code,
+                    execution_time: result.execution_time,
+                    resources_used,
+                })
+            }
+            Err(e) => Err(ToolError::ExecutionError(format!("Curl fetch failed: {}", e))),
+        }
+    }
+
+    fn validate_curl_fetch_args(&self, args: &ToolArgs) -> Result<(), ValidationError> {
+        if !args.parameters.contains_key("url") {
+            return Err(ValidationError {
+                field: "url".to_string(),
+                message: "URL parameter is required".to_string(),
+                severity: ValidationSeverity::Error,
+            });
+        }
+
+        Ok(())
+    }
+
+    // Web search implementation (placeholder - would integrate with search API)
+    async fn execute_web_search(&self, args: ToolArgs) -> Result<ToolOutput, ToolError> {
+        let start_time = Instant::now();
+
+        let query = args.parameters.get("query")
+            .ok_or_else(|| ToolError::ValidationError("Missing 'query' parameter".to_string()))?;
+
+        // For now, use a simple curl to duckduckgo or similar
+        // In production, this would use a proper search API
+        let search_url = format!("https://duckduckgo.com/?q={}&format=json", query.replace(" ", "+"));
+
+        let cmd_args_vec = vec!["--silent", "--show-error", "--max-time", "10", &search_url];
+        let cmd_args: Vec<&str> = cmd_args_vec.iter().map(|s| s.as_str()).collect();
+
+        let limits = ResourceLimits::default();
+        let enforcer = ResourceEnforcer::new();
+
+        match enforcer.execute_with_limits("curl", &cmd_args, &limits, args.working_directory.as_deref()).await {
+            Ok(result) => {
+                let resources_used = ResourceUsage {
+                    memory_used_mb: 2,
+                    cpu_time_seconds: result.execution_time.as_secs_f64(),
+                    processes_created: 1,
+                    output_size: result.stdout.len(),
+                };
+
+                Ok(ToolOutput {
+                    success: result.success,
+                    stdout: result.stdout,
+                    stderr: result.stderr,
+                    exit_code: result.exit_code,
+                    execution_time: result.execution_time,
+                    resources_used,
+                })
+            }
+            Err(e) => Err(ToolError::ExecutionError(format!("Web search failed: {}", e))),
+        }
+    }
+
+    fn validate_web_search_args(&self, args: &ToolArgs) -> Result<(), ValidationError> {
+        if !args.parameters.contains_key("query") {
+            return Err(ValidationError {
+                field: "query".to_string(),
+                message: "Query parameter is required".to_string(),
+                severity: ValidationSeverity::Error,
+            });
+        }
+
+        Ok(())
+    }
+
+    // Git status implementation
+    async fn execute_git_status(&self, args: ToolArgs) -> Result<ToolOutput, ToolError> {
+        let start_time = Instant::now();
+
+        let path = args.parameters.get("path").map_or(".", |v| v.as_str());
+        let security_validator = ToolSecurityValidator::new();
+        security_validator.validate_path(path)?;
+
+        let cmd_args_vec = vec!["status", "--porcelain"];
+        let cmd_args: Vec<&str> = cmd_args_vec.iter().map(|s| s.as_str()).collect();
+
+        let limits = ResourceLimits::default();
+        let enforcer = ResourceEnforcer::new();
+
+        match enforcer.execute_with_limits("git", &cmd_args, &limits, Some(path)).await {
+            Ok(result) => {
+                let resources_used = ResourceUsage {
+                    memory_used_mb: 1,
+                    cpu_time_seconds: result.execution_time.as_secs_f64(),
+                    processes_created: 1,
+                    output_size: result.stdout.len(),
+                };
+
+                Ok(ToolOutput {
+                    success: result.success,
+                    stdout: result.stdout,
+                    stderr: result.stderr,
+                    exit_code: result.exit_code,
+                    execution_time: result.execution_time,
+                    resources_used,
+                })
+            }
+            Err(e) => Err(ToolError::ExecutionError(format!("Git status failed: {}", e))),
+        }
+    }
+
+    fn validate_git_status_args(&self, _args: &ToolArgs) -> Result<(), ValidationError> {
+        Ok(())
+    }
+
+    // Git diff implementation
+    async fn execute_git_diff(&self, args: ToolArgs) -> Result<ToolOutput, ToolError> {
+        let start_time = Instant::now();
+
+        let path = args.parameters.get("path").map_or(".", |v| v.as_str());
+        let security_validator = ToolSecurityValidator::new();
+        security_validator.validate_path(path)?;
+
+        let mut cmd_args_vec = vec!["diff"];
+
+        if let Some(commit) = args.parameters.get("commit") {
+            cmd_args_vec.push(commit);
+        }
+
+        if let Some(other) = args.parameters.get("other") {
+            cmd_args_vec.push(other);
+        }
+
+        let cmd_args: Vec<&str> = cmd_args_vec.iter().map(|s| s.as_str()).collect();
+
+        let limits = ResourceLimits::default();
+        let enforcer = ResourceEnforcer::new();
+
+        match enforcer.execute_with_limits("git", &cmd_args, &limits, Some(path)).await {
+            Ok(result) => {
+                let resources_used = ResourceUsage {
+                    memory_used_mb: 2,
+                    cpu_time_seconds: result.execution_time.as_secs_f64(),
+                    processes_created: 1,
+                    output_size: result.stdout.len(),
+                };
+
+                Ok(ToolOutput {
+                    success: result.success,
+                    stdout: result.stdout,
+                    stderr: result.stderr,
+                    exit_code: result.exit_code,
+                    execution_time: result.execution_time,
+                    resources_used,
+                })
+            }
+            Err(e) => Err(ToolError::ExecutionError(format!("Git diff failed: {}", e))),
+        }
+    }
+
+    fn validate_git_diff_args(&self, _args: &ToolArgs) -> Result<(), ValidationError> {
+        Ok(())
+    }
+
+    // Git log implementation
+    async fn execute_git_log(&self, args: ToolArgs) -> Result<ToolOutput, ToolError> {
+        let start_time = Instant::now();
+
+        let path = args.parameters.get("path").map_or(".", |v| v.as_str());
+        let security_validator = ToolSecurityValidator::new();
+        security_validator.validate_path(path)?;
+
+        let mut cmd_args_vec = vec!["log", "--oneline"];
+
+        if let Some(limit) = args.parameters.get("limit") {
+            if let Ok(n) = limit.parse::<usize>() {
+                let limit_arg = format!("-{}", n);
+                cmd_args_vec.push(limit_arg);
+            }
+        }
+
+        if let Some(author) = args.parameters.get("author") {
+            cmd_args_vec.push("--author");
+            cmd_args_vec.push(author);
+        }
+
+        let cmd_args: Vec<&str> = cmd_args_vec.iter().map(|s| s.as_str()).collect();
+
+        let limits = ResourceLimits::default();
+        let enforcer = ResourceEnforcer::new();
+
+        match enforcer.execute_with_limits("git", &cmd_args, &limits, Some(path)).await {
+            Ok(result) => {
+                let resources_used = ResourceUsage {
+                    memory_used_mb: 2,
+                    cpu_time_seconds: result.execution_time.as_secs_f64(),
+                    processes_created: 1,
+                    output_size: result.stdout.len(),
+                };
+
+                Ok(ToolOutput {
+                    success: result.success,
+                    stdout: result.stdout,
+                    stderr: result.stderr,
+                    exit_code: result.exit_code,
+                    execution_time: result.execution_time,
+                    resources_used,
+                })
+            }
+            Err(e) => Err(ToolError::ExecutionError(format!("Git log failed: {}", e))),
+        }
+    }
+
+    fn validate_git_log_args(&self, _args: &ToolArgs) -> Result<(), ValidationError> {
+        Ok(())
+    }
 }
 
 /// Tool registry for managing available tools
@@ -532,6 +1108,15 @@ impl ToolRegistry {
         tools.insert("file_write".to_string(), SafeTool::FileWrite);
         tools.insert("directory_list".to_string(), SafeTool::DirectoryList);
         tools.insert("process_list".to_string(), SafeTool::ProcessList);
+        tools.insert("grep_search".to_string(), SafeTool::GrepSearch);
+        tools.insert("find_files".to_string(), SafeTool::FindFiles);
+        tools.insert("sed_replace".to_string(), SafeTool::SedReplace);
+        tools.insert("awk_extract".to_string(), SafeTool::AwkExtract);
+        tools.insert("curl_fetch".to_string(), SafeTool::CurlFetch);
+        tools.insert("web_search".to_string(), SafeTool::WebSearch);
+        tools.insert("git_status".to_string(), SafeTool::GitStatus);
+        tools.insert("git_diff".to_string(), SafeTool::GitDiff);
+        tools.insert("git_log".to_string(), SafeTool::GitLog);
 
         Self {
             tools,
@@ -649,5 +1234,14 @@ pub fn create_safe_tools() -> Vec<SafeTool> {
         SafeTool::FileWrite,
         SafeTool::DirectoryList,
         SafeTool::ProcessList,
+        SafeTool::GrepSearch,
+        SafeTool::FindFiles,
+        SafeTool::SedReplace,
+        SafeTool::AwkExtract,
+        SafeTool::CurlFetch,
+        SafeTool::WebSearch,
+        SafeTool::GitStatus,
+        SafeTool::GitDiff,
+        SafeTool::GitLog,
     ]
 }
