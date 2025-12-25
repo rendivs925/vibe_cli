@@ -168,7 +168,7 @@ impl AgentService {
             let rag_query = format!("Find examples and patterns for: {}. Look for similar implementations, utility functions, or scripts.", goal);
             match rag_service.query(&rag_query).await {
                 Ok(context) => {
-                    retrieved_context.push(format!("📚 RAG Context:\n{}", context));
+                    retrieved_context.push(format!("RAG Context:\n{}", context));
                 }
                 Err(e) => {
                     eprintln!("Warning: RAG query failed: {}", e);
@@ -183,18 +183,18 @@ impl AgentService {
                 } else {
                     let keyword_query = format!("Examples of {}", keywords.join(", "));
                     if let Ok(keyword_context) = rag_service.query(&keyword_query).await {
-                        retrieved_context.push(format!("🔎 Keyword Context ({}):\n{}", keywords.join(", "), keyword_context));
+                        retrieved_context.push(format!("Keyword Context ({}):\n{}", keywords.join(", "), keyword_context));
                     }
                 }
             }
         } else {
-            retrieved_context.push("ℹ️  RAG service not available - proceeding without codebase context".to_string());
+            retrieved_context.push("RAG service not available - proceeding without codebase context".to_string());
         }
 
         // Step 2: Generate build plan using the inference engine
         let build_prompt = self.create_build_planning_prompt(goal, &retrieved_context);
 
-        println!("{}", "🤖 Generating build plan...".bright_yellow());
+        println!("{}", "Generating build plan...");
 
         let plan_text = match self.inference_engine.generate(&build_prompt).await {
             Ok(text) => text,

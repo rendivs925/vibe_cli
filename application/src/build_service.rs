@@ -135,45 +135,38 @@ impl BuildService {
 
     /// Display a file operation with color coding
     pub fn display_operation(&self, operation: &FileOperation, risk: RiskLevel) {
-        let risk_color = match risk {
-            RiskLevel::Low => "green",
-            RiskLevel::Medium => "yellow",
-            RiskLevel::High => "bright red",
-            RiskLevel::Critical => "red",
-        };
-
-        let risk_label = format!("[{:?}]", risk).color(risk_color);
+        let risk_label = format!("[{:?}]", risk);
 
         match operation {
             FileOperation::Create { path, .. } => {
-                println!("  {} CREATE: {}", risk_label, path.display().to_string().bright_blue());
+                println!("  {} CREATE: {}", risk_label, path.display());
             }
             FileOperation::Read { path } => {
-                println!("  {} READ: {}", risk_label, path.display().to_string().bright_cyan());
+                println!("  {} READ: {}", risk_label, path.display());
             }
             FileOperation::Update { path, .. } => {
-                println!("  {} UPDATE: {}", risk_label, path.display().to_string().bright_yellow());
+                println!("  {} UPDATE: {}", risk_label, path.display());
             }
             FileOperation::Delete { path } => {
-                println!("  {} DELETE: {}", risk_label, path.display().to_string().bright_red());
+                println!("  {} DELETE: {}", risk_label, path.display());
             }
         }
     }
 
     /// Preview a build plan with color-coded operations
     pub fn preview_plan(&self, plan: &BuildPlan) -> Result<()> {
-        println!("\n{}", "=== Build Plan Preview ===".bright_cyan().bold());
-        println!("{}: {}", "Goal".bright_green(), plan.goal);
-        println!("{}: {}", "Description".bright_green(), plan.description);
-        println!("{}: {:?}", "Estimated Risk".bright_green(), plan.estimated_risk);
-        println!("\n{}", "Planned Operations:".bright_yellow());
+        println!("\nBuild Plan Preview");
+        println!("Goal: {}", plan.goal);
+        println!("Description: {}", plan.description);
+        println!("Estimated Risk: {:?}", plan.estimated_risk);
+        println!("\nPlanned Operations:");
 
         for operation in &plan.operations {
             let risk = self.assess_risk(operation);
             self.display_operation(operation, risk);
         }
 
-        println!("\n{}", "=== End of Preview ===".bright_cyan().bold());
+        println!("\nEnd of Preview\n");
         Ok(())
     }
 
@@ -274,13 +267,18 @@ impl BuildService {
 
     /// Ask for confirmation to execute entire plan
     pub fn confirm_plan(&self, plan: &BuildPlan) -> Result<bool> {
-        self.preview_plan(plan)?;
-
         match self.confirmation_mode {
             ConfirmationMode::None => Ok(true),
             ConfirmationMode::Interactive | ConfirmationMode::ConfirmAll => {
                 println!();
-                ask_confirmation("Execute this build plan?", false)
+                ask_confirmation(
+                    &format!(
+                        "Execute this build plan ({} operations, estimated {:?} risk)?",
+                        plan.operations.len(),
+                        plan.estimated_risk
+                    ),
+                    false,
+                )
             }
         }
     }

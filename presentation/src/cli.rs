@@ -11,6 +11,8 @@ use std::hash::{Hash, Hasher};
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
+use tokio::sync::oneshot;
+use tokio::time::{self, Duration};
 
 fn find_project_root() -> Option<String> {
     let mut current = std::env::current_dir().ok()?;
@@ -689,8 +691,8 @@ impl CliApp {
             return Ok(());
         }
 
-        println!("{}", "Build Mode: Safe code modifications with user confirmation".bright_cyan());
-        println!("{}", format!("Goal: {}", goal).bright_blue());
+        println!("Build Mode: Safe code modifications with user confirmation");
+        println!("Goal: {}", goal);
 
         // Configure build service based on flags
         let mut build_service = BuildService::new(std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")));
@@ -704,20 +706,45 @@ impl CliApp {
         let agent_service = application::create_agent_service().await?;
 
         // Generate build plan using agent with RAG context
-        println!("\n{}", "Analyzing requirements and retrieving context...".bright_yellow());
+        println!("\nAnalyzing requirements and retrieving context...");
+
+        let (progress_tx, progress_rx) = oneshot::channel();
+        let progress_handle = tokio::spawn(async move {
+            let mut ticker = time::interval(Duration::from_millis(300));
+            let mut dots = 0usize;
+            tokio::pin!(progress_rx);
+            loop {
+                tokio::select! {
+                    _ = ticker.tick() => {
+                        dots = (dots + 1) % 4;
+                        print!("\rPlanning{}", ".".repeat(dots));
+                        let _ = std::io::stdout().flush();
+                    }
+                    _ = &mut progress_rx => {
+                        break;
+                    }
+                }
+            }
+            println!("\rPlanning complete          ");
+        });
+
         let (build_plan, retrieved_context) = match agent_service.plan_build(goal).await {
             Ok(result) => result,
             Err(e) => {
+                let _ = progress_tx.send(());
+                let _ = progress_handle.await;
                 eprintln!("{} {}", "Build planning error:".red(), e);
                 return Ok(());
             }
         };
+        let _ = progress_tx.send(());
+        let _ = progress_handle.await;
 
         // Display retrieved context if verbose
         if verbose && !retrieved_context.is_empty() {
-            println!("\n{}", "Retrieved Context:".bright_cyan());
+            println!("\nRetrieved Context:");
             for context in retrieved_context {
-                println!("  {}", context.dimmed());
+                println!("  {}", context);
             }
         }
 
@@ -732,10 +759,10 @@ impl CliApp {
             match build_service.execute_plan(&build_plan).await {
                 Ok(result) => {
                     if result.success {
-                        println!("\n{}", "✅ Build completed successfully!".bright_green());
+                        println!("\nBuild completed successfully.");
                         println!("{} operations completed", result.operations_completed);
                     } else {
-                        println!("\n{}", "❌ Build failed!".bright_red());
+                        println!("\nBuild failed.");
                         println!("{} operations completed, {} failed", result.operations_completed, result.operations_failed);
                         for error in &result.error_messages {
                             eprintln!("  {}", error.red());
@@ -750,7 +777,7 @@ impl CliApp {
                 }
             }
         } else {
-            println!("\n{}", "Dry-run mode: No changes were made.".bright_yellow());
+            println!("\nDry-run mode: No changes were made.");
         }
 
         Ok(())
