@@ -14,12 +14,14 @@
   - ✅ Phase 2.3: Resource usage monitoring
 
 ### **In Progress**
+- 🔄 **Phase 3 - Candle ML Framework**: Architecture complete, blocked by upstream
+  - ✅ Phase 3.1: Service architecture and API design
+  - ⏳ Phase 3.2: Full integration (awaiting candle-core dependency fixes)
 - 🔄 **Phase 6 - Parallel Agent Architecture**: Foundation implemented
   - ✅ Phase 6.1: Parallel agent orchestrator with dependency resolution
 
 ### **Pending**
-- ⏳ **Phase 3**: Candle ML Framework Migration
-- ⏳ **Phase 4**: Full Qdrant Migration
+- ⏳ **Phase 4**: Full Qdrant Migration (remove SQLite dependencies)
 - ⏳ **Phase 5**: Integration & Testing
 - ⏳ **Phase 6**: Sub-agent decomposition, AI-powered scheduling, result aggregation
 

@@ -19,6 +19,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/SemVer
 - **Convergence Detection**: Smart early termination based on iteration stability, confidence trends, and goal progress
 - **Resource Monitoring**: Complete tracking of CPU time, I/O operations, and network requests
 - **Parallel Agent Orchestrator**: CPU-aware parallel task execution with dependency resolution and load balancing (Phase 6 - Foundation)
+- **Candle Inference Service**: Complete architecture for Rust-based ML inference with quantization, GPU support, and HuggingFace integration (Phase 3 - Design complete, awaiting upstream dependency fixes)
 - **System Command Support**: Expanded sandbox to allow essential system monitoring commands (systemctl, ps, df, free, uptime, etc.) while maintaining security
 - **RAG Safety Override**: Users can now override RAG query blocking when sensitive information is detected, proceeding with sanitized (masked) content
 - **Project Isolation**: Complete separation of caches, embeddings, and context between different projects
