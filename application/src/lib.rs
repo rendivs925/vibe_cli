@@ -39,9 +39,9 @@ pub async fn create_agent_service_with_candle() -> shared::types::Result<agent_s
 
 
 
-/// Default agent service creation - uses Candle (recommended)
+/// Default agent service creation - uses Ollama (recommended)
 pub async fn create_agent_service() -> shared::types::Result<agent_service::AgentService> {
-    create_agent_service_with_candle().await
+    create_agent_service_with_ollama()
 }
 
 /// Convenience function to create a RagService with Candle inference (default)

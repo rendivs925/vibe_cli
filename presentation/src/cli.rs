@@ -568,13 +568,13 @@ impl CliApp {
 
     async fn handle_ai_agent(&mut self, goal: &str) -> Result<()> {
         use domain::models::AgentRequest;
-        
+
         eprintln!("🤖 Enhanced AI Agent processing request...");
         println!("{}", format!("Goal: {}", goal).bright_blue());
-        
+
         // Initialize services
         let client = OllamaClient::new()?;
-        // Use Candle by default instead of Ollama
+        // Use Ollama by default (now the recommended option)
         let agent_service = application::create_agent_service().await?;
         
         // Create agent request
@@ -679,7 +679,7 @@ impl CliApp {
 
         // Initialize enhanced agent for building
         let client = OllamaClient::new()?;
-        // Use Candle by default instead of Ollama
+        // Use Ollama by default (now the recommended option)
         let agent_service = application::create_agent_service().await?;
 
         // Create agent request for building
