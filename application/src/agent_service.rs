@@ -286,7 +286,7 @@ Do not include any other text or explanations."#,
             // Generate targeted changes for existing files
             let content = existing_content.unwrap();
             (format!(
-                r#"Update the existing file with targeted changes. Do NOT rewrite the entire file.
+                r#"Update the existing file with MINIMAL targeted changes. Do NOT generate the full file.
 
 EXISTING FILE CONTENT:
 {}
@@ -294,7 +294,11 @@ EXISTING FILE CONTENT:
 GOAL: {}
 FILE: {}
 
-Generate specific changes using this format:
+INSTRUCTIONS:
+- Analyze the existing content above
+- Generate ONLY the specific changes needed
+- Use this EXACT format:
+
 REPLACE lines X-Y with:
 <new content>
 
@@ -303,7 +307,9 @@ INSERT after line Z:
 
 DELETE lines A-B
 
-Only include the changes needed - do not provide the full file content."#,
+- Do NOT provide the complete file content
+- Only show the minimal changes required
+- If no changes are needed, say "NO CHANGES REQUIRED""#,
                 content, self.goal, file_spec.path
             ), true)
         } else {
@@ -869,7 +875,7 @@ impl AgentService {
 
         static FILE_PATH_REGEX: Lazy<Regex> = Lazy::new(|| {
             Regex::new(r#"(?x)
-                (?:^|\s|[ "'`([])                                   # path start delimiters
+                (?:^|\s|["'`\(\[]])                                 # path start delimiters
                 (                                                   # capture group for full path
                     (?:\.?/)?                                       # optional ./ or / prefix
                     (?:[\w\-]+/)*                                   # optional directory segments
@@ -877,7 +883,7 @@ impl AgentService {
                     \.                                              # extension dot
                     [a-zA-Z]{1,4}                                   # extension (1-4 letters)
                 )
-                (?:$|\s|[ "'`)\]]|\.|,|:|;|>)                        # path end delimiters
+                (?:$|\s|["'`\)\]]|\.|,|:|;|>)                       # path end delimiters
             "#).unwrap()
         });
 

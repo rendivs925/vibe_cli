@@ -810,6 +810,37 @@ impl CliApp {
             return Ok(());
         }
 
+        // Get user confirmation before execution (unless dry-run)
+        if !dry_run {
+            use shared::confirmation::ask_confirmation;
+
+            let operation_count = build_service.buffered_count();
+            if operation_count == 0 {
+                println!("\nNo operations to execute.");
+                return Ok(());
+            }
+
+            let prompt = format!(
+                "\nProceed with executing {} operation{}?",
+                operation_count,
+                if operation_count == 1 { "" } else { "s" }
+            );
+
+            match ask_confirmation(&prompt, false) {
+                Ok(true) => {
+                    println!("{}", "Proceeding with execution...".bright_green());
+                }
+                Ok(false) => {
+                    println!("{}", "Operation cancelled by user.".yellow());
+                    return Ok(());
+                }
+                Err(e) => {
+                    eprintln!("{} {}", "Confirmation error:".red(), e);
+                    return Ok(());
+                }
+            }
+        }
+
         // Execute the buffered operations (unless dry-run)
         if !dry_run {
             match build_service.apply_buffered_operations().await {
@@ -931,38 +962,112 @@ impl CliApp {
     fn display_incremental_changes(code: &str, path: &str, op_type: &str) {
         println!("\nIncremental Changes:");
 
-        // Parse code into logical chunks
         let lines: Vec<&str> = code.lines().collect();
 
-        if lines.len() <= 15 {
-            // Small file - show as single chunk
-            println!("Step 3/5: Creating {}", path);
-            println!("[diff preview - lines 1-{}]", lines.len());
-            Self::display_code_with_syntax(&lines, 0);
-        } else {
-            // Large file - show in chunks
-            let chunks = vec![
-                (1, 15, "HTML skeleton and Tailwind CDN"),
-                (16, 25, "Main content and hero"),
-                (26, lines.len(), "Call to action and footer"),
-            ];
+        match op_type {
+            "create" => {
+                // New file creation - show full content in chunks
+                println!("Step 3/5: Creating new file {}", path.bright_green());
 
-            for (i, (start, end, description)) in chunks.iter().enumerate() {
-                println!("Step 3{}: {}", char::from(b'a' + i as u8), description);
-                println!("[diff preview - lines {}-{}]", start, end);
+                if lines.len() <= 15 {
+                    println!("[full file - {} lines]", lines.len());
+                    Self::display_code_with_syntax(&lines, 0);
+                } else {
+                    // Show in logical chunks for large files
+                    let chunks = Self::create_file_chunks(&lines);
+                    for (i, (start, end, description)) in chunks.iter().enumerate() {
+                        println!("Step 3{}: {}", char::from(b'a' + i as u8), description);
+                        println!("[lines {}-{}]", start, end);
 
-                let chunk_lines = &lines[(start-1)..(*end).min(lines.len())];
-                Self::display_code_with_syntax(chunk_lines, start-1);
-                println!();
+                        let chunk_lines = &lines[(start-1)..(*end).min(lines.len())];
+                        Self::display_code_with_syntax(chunk_lines, start-1);
+                        println!();
+                    }
+                }
+            }
+            "update" => {
+                // File update - try to show as diff if possible
+                println!("Step 3/5: Updating existing file {}", path.bright_yellow());
+
+                // For updates, the AI might generate targeted changes
+                if code.contains("REPLACE") || code.contains("INSERT") || code.contains("DELETE") {
+                    // AI generated targeted changes - display as instructions
+                    println!("[targeted changes]");
+                    for line in code.lines() {
+                        if line.starts_with("REPLACE") || line.starts_with("INSERT") || line.starts_with("DELETE") {
+                            println!("  {}", line.bright_cyan());
+                        } else if !line.trim().is_empty() {
+                            println!("    {}", line.dimmed());
+                        }
+                    }
+                } else {
+                    // Full content replacement - show diff preview
+                    println!("[full replacement - {} lines]", lines.len());
+                    if lines.len() <= 10 {
+                        Self::display_code_with_syntax(&lines, 0);
+                    } else {
+                        println!("  {}... (showing first 10 lines)", lines.len());
+                        Self::display_code_with_syntax(&lines[..10], 0);
+                    }
+                }
+            }
+            _ => {
+                // Unknown operation type - show basic preview
+                println!("Step 3/5: Processing {} ({})", path, op_type);
+                println!("[{} lines]", lines.len());
+                if lines.len() <= 10 {
+                    Self::display_code_with_syntax(&lines, 0);
+                } else {
+                    println!("  {}... (truncated)", lines.len());
+                }
             }
         }
 
-        // Show summary
-        println!("Summary:");
-        println!("  Files: + {} ({}, {} lines)", path, op_type, lines.len());
-        println!("  Confidence: 100%");
+        // Show summary with operation type awareness
+        println!("\nSummary:");
+        match op_type {
+            "create" => {
+                println!("  Files: {} {} (new file, {} lines)", "+".bright_green(), path, lines.len());
+            }
+            "update" => {
+                println!("  Files: {} {} (modified, {} lines)", "~".bright_yellow(), path, lines.len());
+            }
+            _ => {
+                println!("  Files: {} {} ({}, {} lines)", "?".bright_blue(), path, op_type, lines.len());
+            }
+        }
+        println!("  Confidence: High");
         println!("  Risk: Low");
-        println!("\nProceed with applying these changes? [y/N]");
+        println!("\n{}", "(Full confirmation will be requested before execution)".dimmed());
+    }
+
+    /// Create logical chunks for displaying large files
+    fn create_file_chunks(lines: &[&str]) -> Vec<(usize, usize, &'static str)> {
+        let total_lines = lines.len();
+        let mut chunks = Vec::new();
+
+        if total_lines <= 20 {
+            chunks.push((1, total_lines, "Complete file"));
+        } else {
+            // HTML-specific chunking (could be made more generic)
+            if lines.iter().any(|l| l.contains("<html") || l.contains("DOCTYPE")) {
+                chunks = vec![
+                    (1, 15, "HTML skeleton and setup"),
+                    (16, 30, "Main content structure"),
+                    (31, total_lines, "Footer and closing tags"),
+                ];
+            } else {
+                // Generic chunking for other file types
+                let chunk_size = (total_lines as f32 / 3.0).ceil() as usize;
+                chunks = vec![
+                    (1, chunk_size, "Beginning of file"),
+                    (chunk_size + 1, chunk_size * 2, "Middle section"),
+                    (chunk_size * 2 + 1, total_lines, "End of file"),
+                ];
+            }
+        }
+
+        chunks
     }
 
     /// Display code with basic syntax highlighting
