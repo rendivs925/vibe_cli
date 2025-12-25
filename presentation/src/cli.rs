@@ -1710,16 +1710,34 @@ User request: {}",
         }
 
         // Use context-aware command generation
-        // List files in current directory for context
-        let ls_output = std::process::Command::new("ls")
-            .arg("-la")
+        let system_context = infrastructure::config::SystemContext::gather();
+
+        // Gather dynamic context based on request type
+        let ls_output = std::process::Command::new("sh")
+            .arg("-c")
+            .arg("ls -la 2>/dev/null | head -n 30")
             .output()
             .ok()
             .and_then(|o| String::from_utf8(o.stdout).ok())
             .unwrap_or_else(|| String::new());
 
+        // List available services if request is about services
+        let services_output = if query.to_lowercase().contains("service") ||
+                                  query.to_lowercase().contains("status") ||
+                                  query.to_lowercase().contains("ssh") ||
+                                  query.to_lowercase().contains("systemctl") {
+            std::process::Command::new("sh")
+                .arg("-c")
+                .arg("systemctl list-units --type=service --no-pager 2>/dev/null | grep -E '(running|active)' | awk '{print $1}' | head -n 50 || service --status-all 2>/dev/null | grep '+' | awk '{print $NF}' | head -n 30")
+                .output()
+                .ok()
+                .and_then(|o| String::from_utf8(o.stdout).ok())
+                .unwrap_or_else(|| String::new())
+        } else {
+            String::new()
+        };
+
         let client = infrastructure::ollama_client::OllamaClient::new()?;
-        let system_context = infrastructure::config::SystemContext::gather();
 
         let prompt = format!(
             r#"Generate a precise bash command for the user's request.
@@ -1729,32 +1747,34 @@ USER REQUEST: {}
 SYSTEM CONTEXT:
 {}
 
-CURRENT DIRECTORY FILES (for reference only - use ONLY if request mentions files):
+CURRENT DIRECTORY FILES:
 {}
+{}
+PROBLEM-SOLVING APPROACH:
+1. Understand what the user wants to accomplish
+2. Check the context above for relevant information
+3. For service operations: look at AVAILABLE SERVICES to find the exact service name
+4. For file operations: look at CURRENT DIRECTORY FILES for exact file names
+5. For package operations: use the package manager specified in system context
+6. Generate the most accurate command using ACTUAL names from the context
 
-CRITICAL INSTRUCTIONS:
-1. READ THE USER REQUEST CAREFULLY - what are they actually asking for?
-2. If request is about SSH, generate SSH commands (systemctl status ssh, etc.)
-3. If request is about system status, use appropriate system commands
-4. If request is about package management, use: {}
-5. ONLY use directory files if the request explicitly mentions file operations
-6. Generate ONLY the command - no explanations, markdown, or quotes
-7. Focus on the REQUEST, not the directory listing
+RULES:
+- If asking about a service (ssh, nginx, etc.), check AVAILABLE SERVICES list for the exact name
+- Example: User says "ssh" but AVAILABLE SERVICES shows "sshd.service" → use "sshd"
+- If file/folder mentioned, use EXACT name from directory listing
+- Use appropriate package manager: {}
+- Output ONLY the command, no explanations or formatting
 
-Examples:
-- "check ssh status" → systemctl status ssh
-- "install python" → sudo {} install python3
-- "zip file.txt" → zip file.txt.zip file.txt
-
-Generate the command now:"#,
+Generate the command:"#,
             query,
             system_context.to_context_string(),
             ls_output,
-            system_context.package_manager,
-            if system_context.package_manager.contains("pacman") { "pacman" }
-            else if system_context.package_manager.contains("apt") { "apt" }
-            else if system_context.package_manager.contains("dnf") { "dnf" }
-            else { "package-manager" }
+            if !services_output.is_empty() {
+                format!("\nAVAILABLE SERVICES (running):\n{}\n", services_output)
+            } else {
+                String::new()
+            },
+            system_context.package_manager
         );
 
         let response = client.generate_response(&prompt).await?;
