@@ -9,6 +9,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/SemVer
 
 ### Added
 
+- **Build Mode (--build)**: New CLI mode for safe code modifications with user confirmation and AI-powered planning
+- **BuildService**: Comprehensive orchestration service for file operations with risk assessment and color-coded previews
+- **Advanced Agent Monitoring**: Real-time memory tracking, convergence detection, and resource usage monitoring
+- **Memory Tracking**: Cross-platform memory usage estimation with peak and current tracking
+- **Convergence Detection**: Smart early termination based on iteration stability, confidence trends, and goal progress
+- **Resource Monitoring**: Complete tracking of CPU time, I/O operations, and network requests
 - **System Command Support**: Expanded sandbox to allow essential system monitoring commands (systemctl, ps, df, free, uptime, etc.) while maintaining security
 - **RAG Safety Override**: Users can now override RAG query blocking when sensitive information is detected, proceeding with sanitized (masked) content
 - **Project Isolation**: Complete separation of caches, embeddings, and context between different projects
