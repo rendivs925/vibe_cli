@@ -5,3 +5,4 @@ pub mod utils;
 pub mod confirmation;
 pub mod content_sanitizer;
 pub mod secrets_detector;
+pub mod performance;
