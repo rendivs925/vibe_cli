@@ -272,7 +272,6 @@ impl SafeTool {
         security_validator.validate_file_size(metadata.len())?;
 
         // Use resource enforcement for file operations
-        let enforcer = crate::resource_enforcement::ResourceEnforcer::new();
         let limits = ResourceLimits::default();
 
         // For file reading, we simulate the operation with resource limits
@@ -439,7 +438,7 @@ impl SafeTool {
         let start_time = Instant::now();
 
         let dir_path = args.parameters.get("path")
-            .map(|s| s)
+            .map(|s| s.as_str())
             .unwrap_or("."); // Default to current directory
 
         // Validate path security
@@ -531,7 +530,7 @@ impl SafeTool {
     }
 
     // Process list implementation
-    async fn execute_process_list(&self, args: ToolArgs) -> Result<ToolOutput, ToolError> {
+    async fn execute_process_list(&self, _args: ToolArgs) -> Result<ToolOutput, ToolError> {
         // Use resource enforcement for process listing
         let enforcer = ResourceEnforcer::new();
         let limits = ResourceLimits::default();
@@ -565,8 +564,6 @@ impl SafeTool {
 
     // Grep search implementation
     async fn execute_grep_search(&self, args: ToolArgs) -> Result<ToolOutput, ToolError> {
-        let start_time = Instant::now();
-
         let pattern = args.parameters.get("pattern")
             .ok_or_else(|| ToolError::ValidationError("Missing 'pattern' parameter".to_string()))?;
 
@@ -642,8 +639,6 @@ impl SafeTool {
 
     // Find files implementation
     async fn execute_find_files(&self, args: ToolArgs) -> Result<ToolOutput, ToolError> {
-        let start_time = Instant::now();
-
         let path = args.parameters.get("path")
             .ok_or_else(|| ToolError::ValidationError("Missing 'path' parameter".to_string()))?;
 
@@ -711,8 +706,6 @@ impl SafeTool {
 
     // Sed replace implementation
     async fn execute_sed_replace(&self, args: ToolArgs) -> Result<ToolOutput, ToolError> {
-        let start_time = Instant::now();
-
         let file_path = args.parameters.get("path")
             .ok_or_else(|| ToolError::ValidationError("Missing 'path' parameter".to_string()))?;
 
@@ -780,8 +773,6 @@ impl SafeTool {
 
     // Awk extract implementation
     async fn execute_awk_extract(&self, args: ToolArgs) -> Result<ToolOutput, ToolError> {
-        let start_time = Instant::now();
-
         let file_path = args.parameters.get("path")
             .ok_or_else(|| ToolError::ValidationError("Missing 'path' parameter".to_string()))?;
 
@@ -791,8 +782,7 @@ impl SafeTool {
         let security_validator = ToolSecurityValidator::new();
         security_validator.validate_path(file_path)?;
 
-        let cmd_args_vec = vec![script, file_path];
-        let cmd_args: Vec<&str> = cmd_args_vec.iter().map(|s| s).collect();
+        let cmd_args = vec![script.as_str(), file_path.as_str()];
 
         let limits = ResourceLimits::default();
         let enforcer = ResourceEnforcer::new();
@@ -841,8 +831,6 @@ impl SafeTool {
 
     // Curl fetch implementation
     async fn execute_curl_fetch(&self, args: ToolArgs) -> Result<ToolOutput, ToolError> {
-        let start_time = Instant::now();
-
         let url = args.parameters.get("url")
             .ok_or_else(|| ToolError::ValidationError("Missing 'url' parameter".to_string()))?;
 
@@ -851,18 +839,23 @@ impl SafeTool {
             return Err(ToolError::ValidationError("Only HTTP/HTTPS URLs are allowed".to_string()));
         }
 
-        let mut cmd_args_vec: Vec<String> = vec!["--silent", "--show-error", "--max-time", "30"];
+        let mut cmd_args_vec: Vec<String> = vec![
+            "--silent".to_string(),
+            "--show-error".to_string(),
+            "--max-time".to_string(),
+            "30".to_string(),
+        ];
 
         // Add headers if provided
         if let Some(headers) = args.parameters.get("headers") {
             for header in headers.split(',') {
-                cmd_args_vec.push("--header");
-                cmd_args_vec.push(header.trim());
+                cmd_args_vec.push("--header".to_string());
+                cmd_args_vec.push(header.trim().to_string());
             }
         }
 
-        cmd_args_vec.push(url);
-        let cmd_args: Vec<&str> = cmd_args_vec.iter().map(|s| s).collect();
+        cmd_args_vec.push(url.to_string());
+        let cmd_args: Vec<&str> = cmd_args_vec.iter().map(|s| s.as_str()).collect();
 
         let limits = ResourceLimits::default();
         let enforcer = ResourceEnforcer::new();
@@ -903,8 +896,6 @@ impl SafeTool {
 
     // Web search implementation (placeholder - would integrate with search API)
     async fn execute_web_search(&self, args: ToolArgs) -> Result<ToolOutput, ToolError> {
-        let start_time = Instant::now();
-
         let query = args.parameters.get("query")
             .ok_or_else(|| ToolError::ValidationError("Missing 'query' parameter".to_string()))?;
 
@@ -912,8 +903,13 @@ impl SafeTool {
         // In production, this would use a proper search API
         let search_url = format!("https://duckduckgo.com/?q={}&format=json", query.replace(" ", "+"));
 
-        let cmd_args_vec = vec!["--silent", "--show-error", "--max-time", "10", &search_url];
-        let cmd_args: Vec<&str> = cmd_args_vec.iter().map(|s| s).collect();
+        let cmd_args = vec![
+            "--silent",
+            "--show-error",
+            "--max-time",
+            "10",
+            search_url.as_str(),
+        ];
 
         let limits = ResourceLimits::default();
         let enforcer = ResourceEnforcer::new();
@@ -954,14 +950,12 @@ impl SafeTool {
 
     // Git status implementation
     async fn execute_git_status(&self, args: ToolArgs) -> Result<ToolOutput, ToolError> {
-        let start_time = Instant::now();
-
-        let path = args.parameters.get("path").map_or(".", |v| v);
+        let path = args.parameters.get("path").map_or(".", |v| v.as_str());
         let security_validator = ToolSecurityValidator::new();
         security_validator.validate_path(path)?;
 
         let cmd_args_vec = vec!["status", "--porcelain"];
-        let cmd_args: Vec<&str> = cmd_args_vec.iter().map(|s| s).collect();
+        let cmd_args: Vec<&str> = cmd_args_vec.into_iter().collect();
 
         let limits = ResourceLimits::default();
         let enforcer = ResourceEnforcer::new();
@@ -994,23 +988,21 @@ impl SafeTool {
 
     // Git diff implementation
     async fn execute_git_diff(&self, args: ToolArgs) -> Result<ToolOutput, ToolError> {
-        let start_time = Instant::now();
-
-        let path = args.parameters.get("path").map_or(".", |v| v);
+        let path = args.parameters.get("path").map_or(".", |v| v.as_str());
         let security_validator = ToolSecurityValidator::new();
         security_validator.validate_path(path)?;
 
-        let mut cmd_args_vec: Vec<String> = vec!["diff"];
+        let mut cmd_args_vec: Vec<String> = vec!["diff".to_string()];
 
         if let Some(commit) = args.parameters.get("commit") {
-            cmd_args_vec.push(commit);
+            cmd_args_vec.push(commit.to_string());
         }
 
         if let Some(other) = args.parameters.get("other") {
-            cmd_args_vec.push(other);
+            cmd_args_vec.push(other.to_string());
         }
 
-        let cmd_args: Vec<&str> = cmd_args_vec.iter().map(|s| s).collect();
+        let cmd_args: Vec<&str> = cmd_args_vec.iter().map(|s| s.as_str()).collect();
 
         let limits = ResourceLimits::default();
         let enforcer = ResourceEnforcer::new();
@@ -1043,9 +1035,7 @@ impl SafeTool {
 
     // Git log implementation
     async fn execute_git_log(&self, args: ToolArgs) -> Result<ToolOutput, ToolError> {
-        let start_time = Instant::now();
-
-        let path = args.parameters.get("path").map_or(".", |v| v);
+        let path = args.parameters.get("path").map_or(".", |v| v.as_str());
         let security_validator = ToolSecurityValidator::new();
         security_validator.validate_path(path)?;
 
@@ -1063,7 +1053,7 @@ impl SafeTool {
             cmd_args_vec.push(author.clone());
         }
 
-        let cmd_args: Vec<&str> = cmd_args_vec.iter().map(|s| s).collect();
+        let cmd_args: Vec<&str> = cmd_args_vec.iter().map(|s| s.as_str()).collect();
 
         let limits = ResourceLimits::default();
         let enforcer = ResourceEnforcer::new();
@@ -1161,7 +1151,7 @@ impl ToolRegistry {
     }
 
     async fn check_policy(&self, tool_name: &str, args: &ToolArgs) -> Result<(), ToolError> {
-        use crate::policy_engine::{evaluate_tool_request, ResourceLimits, RiskLevel};
+        use crate::policy_engine::{evaluate_tool_request, ResourceLimits};
 
         let resource_limits = ResourceLimits {
             max_memory_mb: 512,
@@ -1184,12 +1174,6 @@ impl ToolRegistry {
             .filter(|v| v.contains("/") || v.contains("\\"))
             .cloned()
             .collect::<Vec<_>>();
-
-        let risk_assessment = match tool_name {
-            "file_write" => RiskLevel::Medium,
-            "process_list" => RiskLevel::Low,
-            _ => RiskLevel::Low,
-        };
 
         match evaluate_tool_request(
             tool_name,

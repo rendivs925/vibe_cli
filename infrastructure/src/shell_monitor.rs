@@ -505,8 +505,6 @@ impl ExpertPredictor {
 
     /// Update predictions based on pattern history
     async fn update_predictions(&self) -> Result<()> {
-        let patterns = self.recent_patterns.read().await;
-
         // Clean old patterns (older than 1 hour)
         let mut patterns_write = self.recent_patterns.write().await;
         let cutoff = Instant::now() - Duration::from_secs(3600);

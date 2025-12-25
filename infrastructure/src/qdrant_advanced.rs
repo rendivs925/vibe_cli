@@ -3,7 +3,6 @@ use domain::models::Embedding;
 use shared::types::Result;
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
-use std::sync::Arc;
 use tokio::sync::RwLock;
 
 /// Advanced Qdrant features with language-specific partitioning
@@ -84,7 +83,6 @@ impl AdvancedQdrantManager {
 
         for language in &self.supported_languages {
             let collection_name = format!("vibe_{}", language);
-            let storage_path = self.base_path.join(format!("{}_embeddings.db", language));
 
             let storage = QdrantStorage::new(
                 qdrant_url.clone(),
@@ -271,7 +269,7 @@ impl AdvancedQdrantManager {
         // - Update quantization parameters
         // - Balance collection sizes
 
-        for (language, storage) in collections.iter() {
+        for (language, _storage) in collections.iter() {
             eprintln!("Optimizing collection for language: {}", language);
             // Placeholder optimization logic
         }
@@ -305,13 +303,12 @@ impl AdvancedQdrantManager {
 
         let collections = self.collections.read().await;
 
-        for (language, storage) in collections.iter() {
+        for (language, _storage) in collections.iter() {
             let backup_file = backup_path.join(format!("{}_backup.db", language));
 
             // In a real implementation, this would backup Qdrant collections
             // For now, just copy SQLite files
-            let _ = storage; // Placeholder
-            eprintln!("Backing up collection: {}", language);
+            eprintln!("Backing up collection: {} to {:?}", language, backup_file);
         }
 
         Ok(())
@@ -321,7 +318,7 @@ impl AdvancedQdrantManager {
     pub async fn restore_collections(&self, backup_path: &Path) -> Result<()> {
         let collections = self.collections.read().await;
 
-        for (language, storage) in collections.iter() {
+        for (language, _storage) in collections.iter() {
             let backup_file = backup_path.join(format!("{}_backup.db", language));
 
             if backup_file.exists() {
@@ -373,8 +370,6 @@ impl AdvancedQdrantManager {
         self.supported_languages.insert(language.clone());
 
         let collection_name = format!("vibe_{}", language);
-        let storage_path = self.base_path.join(format!("{}_embeddings.db", language));
-
         let storage = QdrantStorage::new(
             qdrant_url,
             collection_name,
@@ -406,9 +401,9 @@ impl AdvancedQdrantManager {
     pub async fn clear_all_collections(&self) -> Result<()> {
         let collections = self.collections.read().await;
 
-        for storage in collections.values() {
+        for (language, _storage) in collections.iter() {
             // In a real implementation, this would clear Qdrant collections
-            eprintln!("Clearing collection...");
+            eprintln!("Clearing collection: {}", language);
         }
 
         Ok(())
