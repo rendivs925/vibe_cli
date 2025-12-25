@@ -37,3 +37,11 @@ docx-rs = "0.4"
 crossterm = "0.27"
 uuid = { version = "1.8", features = ["v4"] }
 num_cpus = "1.16"
+# Candle ML Framework dependencies
+# NOTE: Candle has upstream dependency conflicts (half/rand versions)
+# Dependencies are documented here for future integration once resolved
+# candle-core = "0.7"
+# candle-nn = "0.7"
+# candle-transformers = "0.7"
+# hf-hub = "0.3"
+# tokenizers = "0.19"

@@ -22,3 +22,4 @@ pub mod policy_engine;
 pub mod agent_control;
 pub mod observability;
 pub mod feature_flags;
+pub mod candle_inference;
