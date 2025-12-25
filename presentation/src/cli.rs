@@ -726,8 +726,14 @@ impl CliApp {
         println!("[→] [1/{}] Analyzing project context", total_steps);
 
         let mut step_count = 0;
+        let mut code_generation_complete = false;
 
         loop {
+            // Stop processing if code generation is complete
+            if code_generation_complete {
+                break;
+            }
+
             match planner.stream_next_step(&agent_service.inference_engine).await {
                 Ok(Some(step)) => {
                     step_count += 1;
@@ -745,40 +751,24 @@ impl CliApp {
                         Self::display_tool_usage();
                     }
 
-                    // Handle incremental code generation (Step 4)
-                    if step_count == 4 {
+                    // Handle incremental code generation (Step 3)
+                    if step_count == 3 {
                         if let (Some(code), Some(path), Some(op_type)) = (&step.code_chunk, &step.file_path, &step.operation_type) {
+                            // Display the incremental changes from AI
                             Self::display_incremental_changes(code, path, op_type);
-                        } else {
-                            // Generate sample landing page code for demonstration
-                            let sample_code = r#"<!DOCTYPE html>
-<html lang="en" class="h-full">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Landing Page</title>
-  <script src="https://cdn.tailwindcss.com"></script>
-</head>
-<body class="h-full bg-gradient-to-br from-indigo-900 via-purple-900 to-pink-900 text-white">
-  <main class="min-h-screen flex flex-col items-center justify-center px-6 py-12">
-    <h1 class="text-5xl md:text-7xl font-bold text-center mb-8">
-      Welcome to Our Platform
-    </h1>
-    <p class="text-xl md:text-2xl text-center mb-12 opacity-90 max-w-2xl">
-      Experience the future of web development with our cutting-edge solutions.
-    </p>
-    <button class="px-10 py-4 bg-white text-indigo-900 font-bold text-lg rounded-xl
-                    shadow-2xl hover:scale-105 hover:shadow-xl transition transform">
-      Get Started
-    </button>
-    <footer class="mt-auto py-8 text-center opacity-70 text-sm">
-      © 2025 Our Company. All rights reserved.
-    </footer>
-  </main>
-</body>
-</html>"#;
-                            Self::display_incremental_changes(sample_code, "index.html", "create");
+
+                            // Buffer the operation for execution
+                            if op_type == "create" {
+                                build_service.buffer_operation(application::build_service::FileOperation::Create {
+                                    path: std::path::PathBuf::from(path),
+                                    content: code.clone(),
+                                });
+                            }
+
+                            // Mark code generation as complete to prevent duplicate steps
+                            code_generation_complete = true;
                         }
+                        // If no code provided by AI, skip this step (don't use hardcoded fallbacks)
                     }
 
                     // Pacing delay for natural feel
@@ -937,7 +927,7 @@ impl CliApp {
         println!("    |-- plan: Generate single new file");
     }
 
-    /// Display incremental changes in diff format
+    /// Display incremental changes in diff format with syntax highlighting
     fn display_incremental_changes(code: &str, path: &str, op_type: &str) {
         println!("\nIncremental Changes:");
 
@@ -946,11 +936,9 @@ impl CliApp {
 
         if lines.len() <= 15 {
             // Small file - show as single chunk
-            println!("Step 4/5: Creating {}", path);
+            println!("Step 3/5: Creating {}", path);
             println!("[diff preview - lines 1-{}]", lines.len());
-            for line in &lines {
-                println!("+{}", line);
-            }
+            Self::display_code_with_syntax(&lines, 0);
         } else {
             // Large file - show in chunks
             let chunks = vec![
@@ -960,13 +948,11 @@ impl CliApp {
             ];
 
             for (i, (start, end, description)) in chunks.iter().enumerate() {
-                println!("Step 4{}: {}", char::from(b'a' + i as u8), description);
+                println!("Step 3{}: {}", char::from(b'a' + i as u8), description);
                 println!("[diff preview - lines {}-{}]", start, end);
 
                 let chunk_lines = &lines[(start-1)..(*end).min(lines.len())];
-                for line in chunk_lines {
-                    println!("+{}", line);
-                }
+                Self::display_code_with_syntax(chunk_lines, start-1);
                 println!();
             }
         }
@@ -977,6 +963,41 @@ impl CliApp {
         println!("  Confidence: 100%");
         println!("  Risk: Low");
         println!("\nProceed with applying these changes? [y/N]");
+    }
+
+    /// Display code with basic syntax highlighting
+    fn display_code_with_syntax(lines: &[&str], start_line: usize) {
+        for (i, line) in lines.iter().enumerate() {
+            let line_num = start_line + i + 1;
+            let line_num_display = format!("{:2}", line_num).bright_black();
+
+            // Simple HTML syntax highlighting
+            let highlighted = if line.trim().is_empty() {
+                String::new()
+            } else if line.contains("<!DOCTYPE") {
+                line.bright_blue().to_string()
+            } else if line.contains("<html") || line.contains("<head") || line.contains("<body") ||
+                      line.contains("</html>") || line.contains("</head>") || line.contains("</body>") {
+                line.bright_blue().to_string()
+            } else if line.contains("<div") || line.contains("<main") || line.contains("<h1") ||
+                      line.contains("<p") || line.contains("<button") || line.contains("<footer") ||
+                      line.contains("</div>") || line.contains("</main>") || line.contains("</h1>") ||
+                      line.contains("</p>") || line.contains("</button>") || line.contains("</footer>") {
+                line.bright_green().to_string()
+            } else if line.contains("class=") || line.contains("href=") || line.contains("src=") {
+                line.bright_yellow().to_string()
+            } else if line.contains("<!--") || line.contains("-->") {
+                line.bright_black().to_string()
+            } else if line.contains("bg-") || line.contains("text-") || line.contains("p-") || line.contains("m-") {
+                // Tailwind classes
+                line.bright_cyan().to_string()
+            } else {
+                // Regular content
+                line.to_string()
+            };
+
+            println!("  {} │ {}", line_num_display, highlighted);
+        }
     }
 
     async fn handle_chat(&self) -> Result<()> {
