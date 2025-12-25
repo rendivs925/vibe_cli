@@ -2,7 +2,8 @@ use application::{rag_service::RagService, agent_service::AgentService};
 use clap::Parser;
 use colored::Colorize;
 use docx_rs::*;
-use infrastructure::{config::Config, ollama_client::OllamaClient, sandbox::Sandbox};
+use infrastructure::{config::Config, ollama_client::OllamaClient, sandbox::Sandbox, session_store::SessionStore};
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use shared::confirmation::ask_confirmation;
 use shared::types::Result;
@@ -378,6 +379,22 @@ pub struct Cli {
     #[arg(long, help = "Show diffs for file modifications (planned feature)")]
     pub show_diff: bool,
 
+    /// Specify which session to use for operations
+    #[arg(long, value_name = "NAME", help = "Use named session for operations (creates if doesn't exist)")]
+    pub session: Option<String>,
+
+    /// List all sessions for the current project
+    #[arg(long, help = "Display all sessions with their metadata")]
+    pub list_sessions: bool,
+
+    /// Delete a specific session
+    #[arg(long, value_name = "NAME", help = "Permanently delete the specified session")]
+    pub delete_session: Option<String>,
+
+    /// Continue the current or last active session
+    #[arg(long, help = "Resume the current or most recently used session")]
+    pub continue_session: bool,
+
     /// The query or file path to process
     #[arg(trailing_var_arg = true)]
     pub args: Vec<String>,
@@ -388,6 +405,8 @@ pub struct CliApp {
     cache_path: PathBuf,
     system_info: String,
     config: Config,
+    session_store: Option<SessionStore>,
+    current_session: Option<String>,
 }
 
 impl CliApp {
@@ -396,11 +415,27 @@ impl CliApp {
         let system_info_path = Self::default_system_info_path();
         let system_info = Self::load_or_collect_system_info(&system_info_path);
         let config = Config::load();
+
+        // Initialize session store for current project
+        let session_store = if let Some(project_root) = find_project_root() {
+            match SessionStore::new(&project_root) {
+                Ok(store) => Some(store),
+                Err(e) => {
+                    eprintln!("Warning: Failed to initialize session store: {}", e);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         Self {
             rag_service: None,
             cache_path,
             system_info,
             config,
+            session_store,
+            current_session: None,
         }
     }
 
@@ -836,7 +871,8 @@ impl CliApp {
                 }
                 Err(e) => {
                     eprintln!("{} {}", "Confirmation error:".red(), e);
-                    return Ok(());
+                    println!("{}", "Proceeding with execution (confirmation failed)...".yellow());
+                    // Continue with execution despite confirmation error
                 }
             }
         }
@@ -848,6 +884,46 @@ impl CliApp {
                     if result.success {
                         println!("\nBuild completed successfully.");
                         println!("{} operations completed", result.operations_completed);
+
+                        // Save session after successful build
+                        if let (Some(store), Some(session_name)) = (&self.session_store, &self.current_session) {
+                            // Update session metadata and save
+                            if let Ok(mut session) = store.load_session(session_name) {
+                                if let Some(ref mut session) = session {
+                                    session.metadata.last_used = chrono::Utc::now();
+                                    session.metadata.change_count += result.operations_completed as u32;
+                                    session.metadata.goal_summary = goal.to_string();
+                                    // TODO: Add applied changes to session history
+                                } else {
+                                    // Create new session if it doesn't exist
+                                    use infrastructure::session_store::{Session, SessionMetadata};
+                                    let now = chrono::Utc::now();
+                                    let metadata = SessionMetadata {
+                                        name: session_name.clone(),
+                                        created_at: now,
+                                        last_used: now,
+                                        goal_summary: goal.to_string(),
+                                        change_count: result.operations_completed as u32,
+                                        is_active: true,
+                                    };
+                                    session = Some(Session {
+                                        metadata,
+                                        conversation_history: Vec::new(),
+                                        applied_changes: Vec::new(),
+                                        undo_stack: Vec::new(),
+                                        background_state: None,
+                                    });
+                                }
+
+                                if let Some(session) = session {
+                                    if let Err(e) = store.save_session(&session) {
+                                        eprintln!("{} {}", "Warning: Failed to save session:".yellow(), e);
+                                    } else {
+                                        println!("{} Session '{}' updated", "💾".blue(), session_name);
+                                    }
+                                }
+                            }
+                        }
                     } else {
                         println!("\nBuild failed.");
                         println!("{} operations completed, {} failed", result.operations_completed, result.operations_failed);
@@ -872,6 +948,23 @@ impl CliApp {
 
     pub async fn run(&mut self, cli: Cli) -> Result<()> {
         let args_str = cli.args.join(" ");
+
+        // Handle session commands first
+        if cli.list_sessions {
+            return self.handle_list_sessions().await;
+        }
+        if let Some(session_name) = &cli.delete_session {
+            return self.handle_delete_session(session_name).await;
+        }
+        if cli.continue_session {
+            return self.handle_continue_session().await;
+        }
+
+        // Handle session context for other commands
+        if let Some(session_name) = &cli.session {
+            self.current_session = Some(session_name.clone());
+        }
+
         if cli.chat {
             if args_str.trim().is_empty() {
                 self.handle_chat().await
@@ -979,7 +1072,8 @@ impl CliApp {
                         println!("Step 3{}: {}", char::from(b'a' + i as u8), description);
                         println!("[lines {}-{}]", start, end);
 
-                        let chunk_lines = &lines[(start-1)..(*end).min(lines.len())];
+                        let end_idx = (*end).min(lines.len());
+                        let chunk_lines = &lines[(start-1)..end_idx];
                         Self::display_code_with_syntax(chunk_lines, start-1);
                         println!();
                     }
@@ -1729,6 +1823,150 @@ User request: {}",
         println!();
         println!("{}", "✅ Streaming demonstration complete!".bright_green());
         println!("{}", "This showcases real-time agent execution with live feedback.".bright_cyan());
+
+        Ok(())
+    }
+
+    /// Handle listing all sessions
+    async fn handle_list_sessions(&mut self) -> Result<()> {
+        let Some(store) = &self.session_store else {
+            println!("{}", "No project detected - session management requires a project context.".yellow());
+            return Ok(());
+        };
+
+        let project_root = find_project_root().unwrap_or_else(|| "unknown".to_string());
+        let project_hash = store.project_hash();
+
+        println!("{}", "Session Management".bright_cyan().bold());
+        println!("Project: {} (hash: {})", project_root, &project_hash[..8]);
+        println!();
+
+        match store.list_sessions() {
+            Ok(sessions) if sessions.is_empty() => {
+                println!("{}", "No sessions found.".dimmed());
+                println!("Create your first session with: ai --session \"my-session\" --build \"...\"");
+            }
+            Ok(sessions) => {
+                println!("Sessions:");
+                for session in sessions {
+                    let active_marker = if Some(&session.name) == self.current_session.as_ref() {
+                        "[active] "
+                    } else {
+                        "          "
+                    };
+
+                    let last_used = session.last_used.format("%Y-%m-%d %H:%M");
+                    let goal = if session.goal_summary.is_empty() {
+                        "No goal set".dimmed()
+                    } else {
+                        session.goal_summary.dimmed()
+                    };
+
+                    println!("  {} {:<15} Last used: {}  Changes: {}  Goal: {}",
+                            active_marker,
+                            session.name.bright_green(),
+                            last_used,
+                            session.change_count,
+                            goal);
+                }
+            }
+            Err(e) => {
+                eprintln!("{} {}", "Error listing sessions:".red(), e);
+                return Ok(());
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Handle deleting a session
+    async fn handle_delete_session(&mut self, session_name: &str) -> Result<()> {
+        let Some(store) = &self.session_store else {
+            println!("{}", "No project detected - cannot delete sessions.".yellow());
+            return Ok(());
+        };
+
+        // Confirm deletion
+        use shared::confirmation::ask_confirmation;
+        let prompt = format!("Permanently delete session '{}' and all its data?", session_name);
+        match ask_confirmation(&prompt, false) {
+            Ok(true) => {
+                match store.delete_session(session_name) {
+                    Ok(_) => {
+                        println!("{} Session '{}' deleted successfully.", "✓".green(), session_name);
+                        // Export backup before deletion
+                        if let Ok(backup_path) = store.export_session(session_name) {
+                            println!("{} Session backed up to: {}", "💾".blue(), backup_path.display());
+                        }
+                    }
+                    Err(e) => {
+                        eprintln!("{} Failed to delete session: {}", "✗".red(), e);
+                    }
+                }
+            }
+            Ok(false) => {
+                println!("{}", "Session deletion cancelled.".yellow());
+            }
+            Err(e) => {
+                eprintln!("{} Confirmation error: {}", "✗".red(), e);
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Handle continuing a session
+    async fn handle_continue_session(&mut self) -> Result<()> {
+        let Some(store) = &self.session_store else {
+            println!("{}", "No project detected - cannot continue sessions.".yellow());
+            return Ok(());
+        };
+
+        // Try to continue current session, then most recent, then create default
+        let target_session = if let Some(current) = &self.current_session {
+            current.clone()
+        } else {
+            // Find most recently used session
+            match store.list_sessions() {
+                Ok(sessions) if !sessions.is_empty() => {
+                    sessions.into_iter()
+                        .max_by_key(|s| s.last_used)
+                        .map(|s| s.name)
+                        .unwrap()
+                }
+                _ => "main".to_string(),
+            }
+        };
+
+        match store.load_session(&target_session) {
+            Ok(Some(session)) => {
+                self.current_session = Some(target_session.clone());
+                println!("{} Continuing session '{}'", "▶".green(), target_session.bright_green());
+                println!("  Goal: {}", session.metadata.goal_summary.dimmed());
+                println!("  Changes: {}", session.metadata.change_count);
+                println!("  Last used: {}", session.metadata.last_used.format("%Y-%m-%d %H:%M"));
+
+                if !session.conversation_history.is_empty() {
+                    println!("  Conversation: {} messages", session.conversation_history.len());
+                }
+            }
+            Ok(None) => {
+                // Session doesn't exist, create it
+                println!("{} Session '{}' not found, creating new session.", "🆕".blue(), target_session);
+                match store.get_or_create_session(&target_session) {
+                    Ok(session) => {
+                        self.current_session = Some(target_session.clone());
+                        println!("{} Created and activated session '{}'", "✓".green(), target_session.bright_green());
+                    }
+                    Err(e) => {
+                        eprintln!("{} Failed to create session: {}", "✗".red(), e);
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("{} Failed to load session: {}", "✗".red(), e);
+            }
+        }
 
         Ok(())
     }

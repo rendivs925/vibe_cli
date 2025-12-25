@@ -23,6 +23,7 @@ pub mod agent_control;
 pub mod observability;
 pub mod feature_flags;
 pub mod candle_inference;
+pub mod session_store;
 
 /// Common inference enum for different backends (Candle, Ollama, etc.)
 #[derive(Clone)]
