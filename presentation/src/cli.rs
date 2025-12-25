@@ -1740,41 +1740,49 @@ User request: {}",
         let client = infrastructure::ollama_client::OllamaClient::new()?;
 
         let prompt = format!(
-            r#"Generate a precise bash command for the user's request.
+            r#"Generate ONE bash command for the user's request. Output ONLY the command, nothing else.
 
-USER REQUEST: {}
+REQUEST: {}
 
-SYSTEM CONTEXT:
-{}
-
-CURRENT DIRECTORY FILES:
+SYSTEM: {}
+Package Manager: {}
 {}
 {}
-PROBLEM-SOLVING APPROACH:
-1. Understand what the user wants to accomplish
-2. Check the context above for relevant information
-3. For service operations: look at AVAILABLE SERVICES to find the exact service name
-4. For file operations: look at CURRENT DIRECTORY FILES for exact file names
-5. For package operations: use the package manager specified in system context
-6. Generate the most accurate command using ACTUAL names from the context
+COMMAND GENERATION RULES:
+1. Output format: ONE line, ONE command, NO markdown, NO explanations, NO backticks
+2. For services: Use "systemctl status SERVICE_NAME" where SERVICE_NAME is from the list above
+3. For files: Use exact names from directory listing
+4. For packages: Use the package manager shown above
+5. Common patterns:
+   - Service status: systemctl status SERVICE_NAME
+   - Install package: sudo PACKAGE_MANAGER install PACKAGE
+   - File operations: Use actual file names from directory
 
-RULES:
-- If asking about a service (ssh, nginx, etc.), check AVAILABLE SERVICES list for the exact name
-- Example: User says "ssh" but AVAILABLE SERVICES shows "sshd.service" → use "sshd"
-- If file/folder mentioned, use EXACT name from directory listing
-- Use appropriate package manager: {}
-- Output ONLY the command, no explanations or formatting
+HOW TO FIND THE RIGHT SERVICE NAME:
+- User says "ssh" or "sshd" → Look in AVAILABLE SERVICES for "ssh.service" or "sshd.service"
+- If you see "sshd.service" in the list, use: systemctl status sshd
+- If you see "ssh.service" in the list, use: systemctl status ssh
+- Remove ".service" suffix when using with systemctl
 
-Generate the command:"#,
+VALID COMMAND EXAMPLES (adjust based on actual context):
+systemctl status nginx
+sudo apt install python3
+zip archive.zip file.txt
+
+OUTPUT ONLY THE COMMAND:"#,
             query,
-            system_context.to_context_string(),
-            ls_output,
+            system_context.distro,
+            system_context.package_manager,
             if !services_output.is_empty() {
-                format!("\nAVAILABLE SERVICES (running):\n{}\n", services_output)
+                format!("AVAILABLE SERVICES:\n{}", services_output.lines().take(20).collect::<Vec<_>>().join("\n"))
             } else {
                 String::new()
             },
-            system_context.package_manager
+            if !ls_output.is_empty() {
+                format!("\nCURRENT DIRECTORY:\n{}", ls_output.lines().take(15).collect::<Vec<_>>().join("\n"))
+            } else {
+                String::new()
+            }
         );
 
         let response = client.generate_response(&prompt).await?;
@@ -2205,12 +2213,10 @@ use shared::confirmation::{ask_confirmation, ask_enhanced_confirmation, Confirma
 
     /// Display background status and system information
     fn display_background_status(&self) {
-        // Clean, minimal output
-        print!("🤖 ");
+        // Clean, minimal output - no robot icon
         if let Some(session) = &self.current_session {
-            print!("[{}] ", session.bright_cyan());
+            println!("[{}]", session.bright_cyan());
         }
-        println!();
     }
 
     /// Handle background events and display them in the UI
