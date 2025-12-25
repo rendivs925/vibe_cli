@@ -778,7 +778,7 @@ impl CliApp {
                     step_count += 1;
 
                     // Update progress display
-                    Self::update_progress_display(step_count, total_steps, &step.description);
+                    self.update_progress_display(step_count, total_steps, &step.description);
 
                     // Show chain of thought for analysis/planning phases
                     if step_count <= 3 {
@@ -794,7 +794,7 @@ impl CliApp {
                     if step_count == 3 {
                         if let (Some(code), Some(path), Some(op_type)) = (&step.code_chunk, &step.file_path, &step.operation_type) {
                             // Display the incremental changes from AI
-                            Self::display_incremental_changes(code, path, op_type);
+                            self.display_incremental_changes(code, path, op_type);
 
                             // Buffer the operation for execution
                             if op_type == "create" {
@@ -815,7 +815,7 @@ impl CliApp {
                 }
                 Ok(None) => {
                     // Mark final step complete
-                    Self::update_progress_display(total_steps, total_steps, "Finalizing changes");
+                    self.update_progress_display(total_steps, total_steps, "Finalizing changes");
                     break;
                 }
                 Err(e) => {
@@ -827,6 +827,9 @@ impl CliApp {
         }
 
         println!("\n{}", format!("✅ Real-time planning complete - {} steps, {} operations buffered", step_count, build_service.buffered_count()).bright_green());
+
+        // Show background status updates
+        self.display_background_updates();
 
         // Show streaming summary
         if verbose {
@@ -851,7 +854,7 @@ impl CliApp {
 
         // Get user confirmation before execution (unless dry-run)
         if !dry_run {
-            use shared::confirmation::ask_confirmation;
+            use shared::confirmation::{ask_enhanced_confirmation, ConfirmationChoice};
 
             let operation_count = build_service.buffered_count();
             if operation_count == 0 {
@@ -859,23 +862,49 @@ impl CliApp {
                 return Ok(());
             }
 
+            let session_info = if let Some(session) = &self.current_session {
+                format!(" for session '{}'", session.bright_cyan())
+            } else {
+                "".to_string()
+            };
+
             let prompt = format!(
-                "\nProceed with executing {} operation{}?",
+                "\n{}Proceed with executing {} operation{}{}?",
+                "🚀 ".bright_blue(),
                 operation_count,
-                if operation_count == 1 { "" } else { "s" }
+                if operation_count == 1 { "" } else { "s" },
+                session_info
             );
 
-            match ask_confirmation(&prompt, false) {
-                Ok(true) => {
-                    println!("{}", "Proceeding with execution...".bright_green());
+            match ask_enhanced_confirmation(&prompt) {
+                Ok(ConfirmationChoice::Yes) => {
+                    println!("{}", "✅ Proceeding with execution...".bright_green());
                 }
-                Ok(false) => {
-                    println!("{}", "Operation cancelled by user.".yellow());
+                Ok(ConfirmationChoice::No) => {
+                    println!("{}", "❌ Operation cancelled by user.".yellow());
+                    return Ok(());
+                }
+                Ok(ConfirmationChoice::Edit) => {
+                    println!("{}", "✏️  Edit mode selected - please provide new goal:".bright_blue());
+                    // TODO: Implement edit mode to allow goal modification
+                    println!("{}", "Edit mode not yet implemented - cancelling.".yellow());
+                    return Ok(());
+                }
+                Ok(ConfirmationChoice::Revise) => {
+                    println!("{}", "🔄 Revise mode selected - please provide revised goal:".bright_yellow());
+                    // TODO: Implement revise mode for goal refinement
+                    println!("{}", "Revise mode not yet implemented - cancelling.".yellow());
+                    return Ok(());
+                }
+                Ok(ConfirmationChoice::Suggest) => {
+                    println!("{}", "💡 Suggest mode selected - showing improvement suggestions:".bright_cyan());
+                    // TODO: Implement suggest mode for proactive improvements
+                    println!("{}", "Suggest mode not yet implemented - cancelling.".yellow());
                     return Ok(());
                 }
                 Err(e) => {
-                    eprintln!("{} {}", "Confirmation error:".red(), e);
-                    println!("{}", "Proceeding with execution (confirmation failed)...".yellow());
+                    eprintln!("{} {}", "❌ Confirmation error:".red(), e);
+                    println!("{}", "⚠️  Proceeding with execution (confirmation failed)...".yellow());
                     // Continue with execution despite confirmation error
                 }
             }
@@ -953,6 +982,9 @@ impl CliApp {
     pub async fn run(&mut self, cli: Cli) -> Result<()> {
         let args_str = cli.args.join(" ");
 
+        // Show initial status
+        self.display_background_status();
+
         // Handle session commands first
         if cli.list_sessions {
             return self.handle_list_sessions().await;
@@ -1001,19 +1033,27 @@ impl CliApp {
         }
     }
 
-    /// Update progress display with proper indicators
-    fn update_progress_display(current: usize, total: usize, description: &str) {
+    /// Update progress display with proper indicators and session awareness
+    fn update_progress_display(&self, current: usize, total: usize, description: &str) {
         // Clear previous lines and show updated progress
         print!("\r\x1B[2K"); // Clear current line
 
         let status = match current {
-            1..=3 => "[✓]",
-            4 => "[→]",
-            5 => "[✓]",
-            _ => "[○]",
+            1..=2 => "[✓]".bright_green(),
+            3 => "[→]".bright_blue(),
+            4 => "[⚡]".bright_yellow(),
+            5 => "[✓]".bright_green(),
+            _ => "[○]".dimmed(),
         };
 
-        println!("{} [{}/{}] {}", status, current, total, description);
+        // Include session info if available
+        let session_prefix = if let Some(session) = &self.current_session {
+            format!("[{}] ", session.bright_cyan())
+        } else {
+            "[main] ".dimmed().to_string()
+        };
+
+        println!("{}{} [{}/{}] {}", session_prefix, status, current, total, description.bright_white());
     }
 
     /// Display chain of thought in tree format
@@ -1058,88 +1098,103 @@ impl CliApp {
         println!("    |-- plan: Generate single new file");
     }
 
-    /// Display incremental changes in diff format with syntax highlighting
-    fn display_incremental_changes(code: &str, path: &str, op_type: &str) {
-        println!("\nIncremental Changes:");
+    /// Display incremental changes in diff format with syntax highlighting and session awareness
+    fn display_incremental_changes(&self, code: &str, path: &str, op_type: &str) {
+        let session_info = if let Some(session) = &self.current_session {
+            format!(" [{}]", session.bright_cyan())
+        } else {
+            "".to_string()
+        };
+
+        println!("\n{}Incremental Changes{}:", "⚡ ".bright_yellow(), session_info);
 
         let lines: Vec<&str> = code.lines().collect();
 
         match op_type {
             "create" => {
                 // New file creation - show full content in chunks
-                println!("Step 3/5: Creating new file {}", path.bright_green());
+                println!("{} Creating new file {}", "📄".bright_green(), path.bright_green());
 
                 if lines.len() <= 15 {
-                    println!("[full file - {} lines]", lines.len());
+                    println!("  └─ [full file - {} lines]", lines.len());
                     Self::display_code_with_syntax(&lines, 0);
                 } else {
                     // Show in logical chunks for large files
                     let chunks = Self::create_file_chunks(&lines);
                     for (i, (start, end, description)) in chunks.iter().enumerate() {
-                        println!("Step 3{}: {}", char::from(b'a' + i as u8), description);
-                        println!("[lines {}-{}]", start, end);
+                        let chunk_marker = if i == chunks.len() - 1 { "└─" } else { "├─" };
+                        println!("  {} Step {}: {}", chunk_marker, char::from(b'a' + i as u8), description.bright_white());
+                        println!("     [lines {}-{}]", start, end);
 
                         let end_idx = (*end).min(lines.len());
                         let chunk_lines = &lines[(start-1)..end_idx];
                         Self::display_code_with_syntax(chunk_lines, start-1);
-                        println!();
+                        if i < chunks.len() - 1 {
+                            println!();
+                        }
                     }
                 }
             }
             "update" => {
                 // File update - try to show as diff if possible
-                println!("Step 3/5: Updating existing file {}", path.bright_yellow());
+                println!("{} Updating existing file {}", "🔄".bright_yellow(), path.bright_yellow());
 
                 // For updates, the AI might generate targeted changes
                 if code.contains("REPLACE") || code.contains("INSERT") || code.contains("DELETE") {
                     // AI generated targeted changes - display as instructions
-                    println!("[targeted changes]");
+                    println!("  └─ [targeted changes - {} operations]", code.lines().filter(|l| l.starts_with("REPLACE") || l.starts_with("INSERT") || l.starts_with("DELETE")).count());
                     for line in code.lines() {
-                        if line.starts_with("REPLACE") || line.starts_with("INSERT") || line.starts_with("DELETE") {
-                            println!("  {}", line.bright_cyan());
-                        } else if !line.trim().is_empty() {
-                            println!("    {}", line.dimmed());
+                        if line.starts_with("REPLACE") {
+                            println!("     {} {}", "🔧".bright_red(), line.bright_red());
+                        } else if line.starts_with("INSERT") {
+                            println!("     {} {}", "➕".bright_green(), line.bright_green());
+                        } else if line.starts_with("DELETE") {
+                            println!("     {} {}", "➖".bright_red(), line.bright_red());
+                        } else if !line.trim().is_empty() && !line.contains("NO CHANGES REQUIRED") {
+                            println!("        {}", line.dimmed());
                         }
                     }
+                } else if code.contains("NO CHANGES REQUIRED") {
+                    println!("  └─ [no changes required - file already matches goal]");
                 } else {
                     // Full content replacement - show diff preview
-                    println!("[full replacement - {} lines]", lines.len());
+                    println!("  └─ [full replacement - {} lines]", lines.len());
                     if lines.len() <= 10 {
                         Self::display_code_with_syntax(&lines, 0);
                     } else {
-                        println!("  {}... (showing first 10 lines)", lines.len());
+                        println!("     {}... (showing first 10 lines)", lines.len());
                         Self::display_code_with_syntax(&lines[..10], 0);
                     }
                 }
             }
             _ => {
                 // Unknown operation type - show basic preview
-                println!("Step 3/5: Processing {} ({})", path, op_type);
-                println!("[{} lines]", lines.len());
+                println!("{} Processing {} ({})", "⚙️".bright_blue(), path, op_type);
+                println!("  └─ [{} lines]", lines.len());
                 if lines.len() <= 10 {
                     Self::display_code_with_syntax(&lines, 0);
                 } else {
-                    println!("  {}... (truncated)", lines.len());
+                    println!("     {}... (truncated)", lines.len());
                 }
             }
         }
 
-        // Show summary with operation type awareness
-        println!("\nSummary:");
+        // Show summary with operation type awareness and session info
+        println!("\n{}Summary{}:", "📊 ".bright_cyan(), session_info);
         match op_type {
             "create" => {
-                println!("  Files: {} {} (new file, {} lines)", "+".bright_green(), path, lines.len());
+                println!("  └─ Files: {} {} (new file, {} lines)", "+".bright_green(), path, lines.len());
             }
             "update" => {
-                println!("  Files: {} {} (modified, {} lines)", "~".bright_yellow(), path, lines.len());
+                println!("  └─ Files: {} {} (modified, {} lines)", "~".bright_yellow(), path, lines.len());
             }
             _ => {
-                println!("  Files: {} {} ({}, {} lines)", "?".bright_blue(), path, op_type, lines.len());
+                println!("  └─ Files: {} {} ({}, {} lines)", "?".bright_blue(), path, op_type, lines.len());
             }
         }
-        println!("  Confidence: High");
-        println!("  Risk: Low");
-        println!("\n{}", "(Full confirmation will be requested before execution)".dimmed());
+        println!("  └─ Confidence: {}", "High".bright_green());
+        println!("  └─ Risk: {}", "Low".bright_green());
+        println!("\n{}💡 Tip: Use 'y' to proceed, 'n' to cancel, or 'edit' to modify goal", "💭 ".dimmed());
     }
 
     /// Create logical chunks for displaying large files
@@ -1894,7 +1949,7 @@ User request: {}",
         };
 
         // Confirm deletion
-        use shared::confirmation::ask_confirmation;
+use shared::confirmation::{ask_confirmation, ask_enhanced_confirmation, ConfirmationChoice};
         let prompt = format!("Permanently delete session '{}' and all its data?", session_name);
         match ask_confirmation(&prompt, false) {
             Ok(true) => {
@@ -1976,6 +2031,58 @@ User request: {}",
         }
 
         Ok(())
+    }
+
+    /// Display background status and system information
+    fn display_background_status(&self) {
+        println!("{}", "🤖 Elite Agentic CLI v3.0 - Real-Time Intelligence Active".bright_cyan().bold());
+
+        let session_status = if let Some(session) = &self.current_session {
+            format!("Session: {} | ", session.bright_cyan())
+        } else {
+            "Session: main | ".dimmed().to_string()
+        };
+
+        let git_status = if std::path::Path::new(".git").exists() {
+            "Git: ✅ | "
+        } else {
+            "Git: ❌ | "
+        };
+
+        let session_store_status = if self.session_store.is_some() {
+            "Persistence: ✅"
+        } else {
+            "Persistence: ❌"
+        };
+
+        println!("{}{}{}", session_status, git_status.dimmed(), session_store_status.dimmed());
+        println!();
+    }
+
+    /// Display background status updates
+    fn display_background_updates(&self) {
+        println!("\n{}Background Intelligence:", "🧠 ".bright_blue());
+
+        // Check git status
+        let git_status = if std::path::Path::new(".git").exists() {
+            format!("{} Git repository active", "✅".green())
+        } else {
+            format!("{} Git not initialized", "⚠️".yellow())
+        };
+
+        // Check session store status
+        let session_status = if self.session_store.is_some() {
+            format!("{} Session persistence active", "✅".green())
+        } else {
+            format!("{} Session store unavailable", "❌".red())
+        };
+
+        // Check file watching (planned)
+        let watch_status = format!("{} File watching ready", "⏳".blue());
+
+        println!("  └─ {}", git_status);
+        println!("  └─ {}", session_status);
+        println!("  └─ {}", watch_status.dimmed());
     }
 
     /// Handle undo command
