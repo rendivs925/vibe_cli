@@ -696,7 +696,6 @@ impl CliApp {
         println!("{}", "Planning mode: Create execution plan without running commands".bright_cyan());
         println!("{}", format!("Goal: {}", goal).bright_blue());
 
-        println!("📊 Gathering system context and analyzing current directory...");
         let system_context = infrastructure::config::SystemContext::gather();
         let ls_output = std::process::Command::new("ls")
             .arg("-la")
@@ -1405,8 +1404,6 @@ impl CliApp {
     }
 
     async fn handle_agent(&self, task: &str) -> Result<()> {
-        println!("📊 Gathering system context and analyzing current directory...");
-
         let system_context = infrastructure::config::SystemContext::gather();
         let ls_output = std::process::Command::new("ls")
             .arg("-la")
@@ -1713,8 +1710,6 @@ User request: {}",
         }
 
         // Use context-aware command generation
-        println!("📊 Analyzing current directory and system context...");
-
         // List files in current directory for context
         let ls_output = std::process::Command::new("ls")
             .arg("-la")
@@ -1734,22 +1729,32 @@ USER REQUEST: {}
 SYSTEM CONTEXT:
 {}
 
-CURRENT DIRECTORY FILES:
+CURRENT DIRECTORY FILES (for reference only - use ONLY if request mentions files):
 {}
 
 CRITICAL INSTRUCTIONS:
-1. Look at the CURRENT DIRECTORY FILES above - these are the ACTUAL files that exist
-2. If the request mentions a file/folder name, find it in the listing above
-3. Use the EXACT file/folder names from the listing
-4. Generate ONLY the command - no explanations, markdown, or quotes
-5. Use the appropriate package manager: {}
-6. Make the command safe and correct
+1. READ THE USER REQUEST CAREFULLY - what are they actually asking for?
+2. If request is about SSH, generate SSH commands (systemctl status ssh, etc.)
+3. If request is about system status, use appropriate system commands
+4. If request is about package management, use: {}
+5. ONLY use directory files if the request explicitly mentions file operations
+6. Generate ONLY the command - no explanations, markdown, or quotes
+7. Focus on the REQUEST, not the directory listing
+
+Examples:
+- "check ssh status" → systemctl status ssh
+- "install python" → sudo {} install python3
+- "zip file.txt" → zip file.txt.zip file.txt
 
 Generate the command now:"#,
             query,
             system_context.to_context_string(),
             ls_output,
-            system_context.package_manager
+            system_context.package_manager,
+            if system_context.package_manager.contains("pacman") { "pacman" }
+            else if system_context.package_manager.contains("apt") { "apt" }
+            else if system_context.package_manager.contains("dnf") { "dnf" }
+            else { "package-manager" }
         );
 
         let response = client.generate_response(&prompt).await?;
@@ -2180,27 +2185,11 @@ use shared::confirmation::{ask_confirmation, ask_enhanced_confirmation, Confirma
 
     /// Display background status and system information
     fn display_background_status(&self) {
-        println!("{}", "🤖 Elite Agentic CLI v3.0 - Real-Time Intelligence Active".bright_cyan().bold());
-
-        let session_status = if let Some(session) = &self.current_session {
-            format!("Session: {} | ", session.bright_cyan())
-        } else {
-            "Session: main | ".dimmed().to_string()
-        };
-
-        let git_status = if std::path::Path::new(".git").exists() {
-            "Git: ✅ | "
-        } else {
-            "Git: ❌ | "
-        };
-
-        let session_store_status = if self.session_store.is_some() {
-            "Persistence: ✅"
-        } else {
-            "Persistence: ❌"
-        };
-
-        println!("{}{}{}", session_status, git_status.dimmed(), session_store_status.dimmed());
+        // Clean, minimal output
+        print!("🤖 ");
+        if let Some(session) = &self.current_session {
+            print!("[{}] ", session.bright_cyan());
+        }
         println!();
     }
 
