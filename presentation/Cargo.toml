@@ -22,3 +22,4 @@ docx-rs = "0.4"
 reqwest = { version = "0.12", features = ["blocking"] }
 tokio.workspace = true
 git2 = "0.18"
+flume = "0.11"

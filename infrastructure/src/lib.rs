@@ -24,6 +24,11 @@ pub mod observability;
 pub mod feature_flags;
 pub mod candle_inference;
 pub mod session_store;
+pub mod background_supervisor;
+pub mod lsp_client;
+pub mod test_watcher;
+pub mod log_tailer;
+pub mod error_analyzer;
 
 /// Common inference enum for different backends (Candle, Ollama, etc.)
 #[derive(Clone)]

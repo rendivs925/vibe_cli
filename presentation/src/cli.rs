@@ -2,7 +2,8 @@ use application::{rag_service::RagService, agent_service::AgentService};
 use clap::Parser;
 use colored::Colorize;
 use docx_rs::*;
-use infrastructure::{config::Config, ollama_client::OllamaClient, sandbox::Sandbox, session_store::SessionStore};
+use infrastructure::{config::Config, ollama_client::OllamaClient, sandbox::Sandbox, session_store::SessionStore, background_supervisor::{BackgroundSupervisor, BackgroundEvent, FileChangeType, TestStatus, LogLevel, DiagnosticSeverity, GitStatus}};
+use flume::Receiver;
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use shared::confirmation::ask_confirmation;
@@ -12,7 +13,7 @@ use std::hash::{Hash, Hasher};
 use std::io::{self, Write};
 use std::path::PathBuf;
 use std::sync::Arc;
-use tokio::sync::oneshot;
+use tokio::sync::{oneshot, RwLock};
 use tokio::time::{self, Duration};
 
 fn find_project_root() -> Option<String> {
@@ -367,6 +368,10 @@ pub struct Cli {
     #[arg(long, help = "Generate and execute build plans with AI assistance, RAG context retrieval, and transaction safety")]
     pub build: bool,
 
+    /// Run tests with real-time monitoring
+    #[arg(long, help = "Execute cargo test with real-time result monitoring and background intelligence")]
+    pub test: bool,
+
     /// Dry-run mode: show plan without executing
     #[arg(long, help = "Preview build plan and operations without making changes")]
     pub dry_run: bool,
@@ -411,6 +416,7 @@ pub struct CliApp {
     config: Config,
     session_store: Option<SessionStore>,
     current_session: Option<String>,
+    background_supervisor: Option<BackgroundSupervisor>,
 }
 
 impl CliApp {
@@ -440,6 +446,7 @@ impl CliApp {
             config,
             session_store,
             current_session: None,
+            background_supervisor: Some(BackgroundSupervisor::new()),
         }
     }
 
@@ -985,6 +992,26 @@ impl CliApp {
         // Show initial status
         self.display_background_status();
 
+        // Initialize background services
+        if let Some(project_root) = find_project_root() {
+            if let Some(mut supervisor) = self.background_supervisor.take() {
+                let project_root_path = std::path::PathBuf::from(project_root);
+
+                // Start background event listener
+                let event_receiver = supervisor.event_receiver();
+                tokio::spawn(async move {
+                    Self::handle_background_events(event_receiver).await;
+                });
+
+                // Start background services
+                tokio::spawn(async move {
+                    if let Err(e) = supervisor.start(&project_root_path).await {
+                        eprintln!("Failed to start background services: {}", e);
+                    }
+                });
+            }
+        }
+
         // Handle session commands first
         if cli.list_sessions {
             return self.handle_list_sessions().await;
@@ -1011,6 +1038,8 @@ impl CliApp {
                 // Perhaps chat with initial message, but for now, just enter chat
                 self.handle_chat().await
             }
+        } else if cli.test {
+            self.handle_test_run().await
         } else if cli.build {
             self.handle_build(&args_str, cli.dry_run, cli.verbose, cli.show_diff).await
         } else if cli.agent {
@@ -2059,6 +2088,81 @@ use shared::confirmation::{ask_confirmation, ask_enhanced_confirmation, Confirma
         println!();
     }
 
+    /// Handle background events and display them in the UI
+    async fn handle_background_events(mut event_receiver: Receiver<BackgroundEvent>) {
+        while let Ok(event) = event_receiver.recv_async().await {
+            match event {
+                BackgroundEvent::FileChanged { path, change_type } => {
+                    let (change_icon, change_str) = match change_type {
+                        FileChangeType::Created => ("🆕", "created"),
+                        FileChangeType::Modified => ("✏️", "modified"),
+                        FileChangeType::Deleted => ("🗑️", "deleted"),
+                        FileChangeType::Renamed => ("📝", "renamed"),
+                    };
+                    println!("{} {} {}", change_icon, change_str, path.display());
+                }
+                BackgroundEvent::TestResult { session, status, output } => {
+                    let (status_icon, status_str) = match status {
+                        TestStatus::Started => ("▶️", "started"),
+                        TestStatus::Passed => ("✅", "passed"),
+                        TestStatus::Failed { .. } => ("❌", "failed"),
+                        TestStatus::Completed => ("🏁", "completed"),
+                    };
+                    println!("{} Test {}: {}", status_icon, session, output.lines().next().unwrap_or(""));
+                }
+                BackgroundEvent::LogEntry { source, level, message } => {
+                    let (level_icon, level_str) = match level {
+                        LogLevel::Debug => ("🐛", "debug"),
+                        LogLevel::Info => ("ℹ️", "info"),
+                        LogLevel::Warn => ("⚠️", "warn"),
+                        LogLevel::Error => ("🚨", "error"),
+                    };
+                    println!("{} [{}] {}: {}", level_icon, source, level_str, message);
+                }
+                BackgroundEvent::LspDiagnostic { file, severity, message } => {
+                    let severity_icon = match severity {
+                        DiagnosticSeverity::Error => "🚨",
+                        DiagnosticSeverity::Warning => "⚠️",
+                        DiagnosticSeverity::Information => "ℹ️",
+                        DiagnosticSeverity::Hint => "💡",
+                    };
+                    println!("{} {}: {}", severity_icon, file.display(), message);
+                }
+                BackgroundEvent::GitStatus { status } => {
+                    match status {
+                        GitStatus::Clean => println!("{} Repository is clean", "✅".green()),
+                        GitStatus::Dirty { modified_files } => {
+                            println!("{} {} modified files", "📝".yellow(), modified_files.len());
+                        }
+                        GitStatus::Untracked { files } => {
+                            println!("{} {} untracked files", "📄".yellow(), files.len());
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Handle test execution with real-time monitoring
+    async fn handle_test_run(&mut self) -> Result<()> {
+        println!("🧪 Running tests with real-time monitoring...");
+
+        // Get project root
+        let project_root = find_project_root()
+            .ok_or_else(|| anyhow::anyhow!("Could not find project root. Are you in a Rust project?"))?;
+
+        // Start test watcher if background supervisor is available
+        if let Some(supervisor) = self.background_supervisor.as_mut() {
+            let session_name = self.current_session.clone().unwrap_or_else(|| "test-session".to_string());
+            supervisor.start_test_watcher(std::path::PathBuf::from(project_root), session_name).await?;
+        }
+
+        println!("✅ Test monitoring started. Background intelligence will report results in real-time.");
+        println!("📊 Test events will appear as they happen...");
+
+        Ok(())
+    }
+
     /// Display background status updates
     fn display_background_updates(&self) {
         println!("\n{}Background Intelligence:", "🧠 ".bright_blue());
@@ -2077,12 +2181,27 @@ use shared::confirmation::{ask_confirmation, ask_enhanced_confirmation, Confirma
             format!("{} Session store unavailable", "❌".red())
         };
 
-        // Check file watching (planned)
-        let watch_status = format!("{} File watching ready", "⏳".blue());
-
-        println!("  └─ {}", git_status);
-        println!("  └─ {}", session_status);
-        println!("  └─ {}", watch_status.dimmed());
+        // Check background services
+        if let Some(ref supervisor) = self.background_supervisor {
+            let service_status = supervisor.service_status();
+            for (service_name, status) in service_status {
+                let icon = match status.as_str() {
+                    "Running" => "✅",
+                    "Starting" => "⏳",
+                    "Stopped" => "🛑",
+                    _ => "❌",
+                };
+                let color = match status.as_str() {
+                    "Running" => icon.green(),
+                    "Starting" => icon.blue(),
+                    "Stopped" => icon.yellow(),
+                    _ => icon.red(),
+                };
+                println!("  └─ {} {}: {}", color, service_name, status);
+            }
+        } else {
+            println!("  └─ {} Background services unavailable", "❌".red());
+        }
     }
 
     /// Handle undo command
