@@ -96,7 +96,6 @@ impl ExecutionCoordinator {
         });
 
         let max_iters = self
-            .context
             .config
             .security
             .agent_execution
@@ -125,6 +124,14 @@ impl ExecutionCoordinator {
         let mut all_tool_calls: Vec<ToolCall> = Vec::new();
         let mut all_tool_results: Vec<ToolResult> = Vec::new();
 
+        // Create execution context for tool calls
+        let exec_context = Arc::new(AgentExecutionContext {
+            ollama_client: self.client.clone(),
+            config: self.config.clone(),
+            rag_service: self.rag_service.clone(),
+            sandbox: infrastructure::sandbox::Sandbox::new(),
+        });
+
         for i in 0..max_iters {
             execution_state.iteration_count = i as u32;
 
@@ -134,7 +141,7 @@ impl ExecutionCoordinator {
 
             // 2) Decide whether tools are needed, then plan tool calls
             let tool_calls = if self.needs_tools(goal, &reasoning_steps) {
-                self.plan_tool_calls(goal, &reasoning_steps, &agent_context, &self.context)
+                self.plan_tool_calls(goal, &reasoning_steps, &agent_context, &exec_context)
                     .await
                     .unwrap_or_default()
             } else {
@@ -147,7 +154,7 @@ impl ExecutionCoordinator {
 
             // 3) Execute tools (if any)
             let tool_results = self
-                .execute_tool_calls(&tool_calls, &mut agent_context, &self.context)
+                .execute_tool_calls(&tool_calls, &mut agent_context, &exec_context)
                 .await
                 .unwrap_or_else(|e| {
                     vec![ToolResult {
@@ -169,7 +176,7 @@ impl ExecutionCoordinator {
                     &reasoning_steps,
                     &tool_results,
                     &agent_context,
-                    &self.context,
+                    &exec_context,
                 )
                 .await
                 .unwrap_or_else(|e| format!("Failed to generate final response: {e}"));
@@ -178,33 +185,35 @@ impl ExecutionCoordinator {
             let iteration_result = AgentIterationResult {
                 reasoning_steps: reasoning_steps.clone(),
                 tool_calls: tool_calls.iter().map(|tc| format!("{:?}", tc)).collect(),
-                final_response: final_text.clone(),
+                tool_results: tool_results.iter().map(|tr| format!("{:?}", tr)).collect(),
                 confidence_score: self.calculate_confidence(&all_reasoning, &all_tool_results),
-                next_goal: format!("Continue with goal: {}", goal),
+                should_continue: false, // Simplified: always finalize after tools
+                execution_time_ms: 0,
+                memory_used_bytes: execution_state.memory_usage_bytes,
+                error_message: None,
             };
 
-            // Simple decision logic: continue if we have tools and haven't reached max iterations
-            let should_continue = !tool_calls.is_empty() && execution_state.iteration_count < max_iters - 1 && iteration_result.confidence_score < 0.9;
+            execution_state.execution_history.push(iteration_result);
 
-            if !should_continue {
-                let confidence = self.calculate_confidence(&all_reasoning, &all_tool_results);
+            // Check convergence
+            if self.has_converged(&all_reasoning, &all_tool_results) {
                 return Ok(infrastructure::agent_control::AgentResult {
                     final_response: final_text,
-                    confidence_score: confidence,
-                    iterations_used: execution_state.iteration_count,
+                    confidence_score: self.calculate_confidence(&all_reasoning, &all_tool_results),
+                    iterations_used: execution_state.iteration_count + 1,
                     tools_executed: execution_state.total_tools_executed,
                     verification_history: Vec::new(),
                     execution_time: std::time::Duration::from_secs(0),
                 });
-            } else {
-                // Add assistant message so next iteration can build upon it
-                agent_context.conversation_history.push(ConversationMessage {
-                    role: "assistant".to_string(),
-                    content: final_text,
-                    tool_calls: None,
-                    tool_call_id: None,
-                });
             }
+
+            // Add assistant message so next iteration can build upon it
+            agent_context.conversation_history.push(ConversationMessage {
+                role: "assistant".to_string(),
+                content: final_text,
+                tool_calls: None,
+                tool_call_id: None,
+            });
         }
 
         // Max iteration hit: return best-effort
@@ -236,471 +245,6 @@ impl ExecutionCoordinator {
             .collect()
     }
 
-    async fn generate_reasoning(
-        &self,
-        goal: &str,
-        agent_context: &AgentContext,
-    ) -> Result<Vec<String>> {
-        let system_prompt = self.create_reasoning_prompt();
-
-        // Keep prompt short and deterministic.
-        let prompt = format!(
-            "Goal: {goal}\n\n\
-             Provide 3-6 short reasoning steps as bullet points. No tool calls, no JSON."
-        );
-
-        let raw = self
-            .context
-            .ollama_client
-            .generate_response_with_system(&prompt, &system_prompt)
-            .await
-            .map_err(|e| AgentError::InternalError(format!("Ollama client error: {e}")))?;
-
-        // Parse bullets into Vec<String>, fallback to single step.
-        let steps: Vec<String> = raw
-            .lines()
-            .map(|l| l.trim())
-            .filter(|l| !l.is_empty())
-            .map(|l| {
-                l.trim_start_matches(['-', '*', '•', ' '])
-                    .trim()
-                    .to_string()
-            })
-            .filter(|l| !l.is_empty())
-            .collect();
-
-        Ok(if steps.is_empty() {
-            vec![raw.trim().to_string()]
-        } else {
-            steps
-        })
-    }
-
-    fn needs_tools(&self, goal: &str, reasoning_steps: &[String]) -> bool {
-        // Simple heuristic: if goal asks about code, files, or requires specific information
-        let keywords = [
-            "code", "file", "search", "find", "analyze", "explain", "show", "list", "read",
-        ];
-        let goal_lower = goal.to_lowercase();
-
-        let has_keywords = keywords.iter().any(|k| goal_lower.contains(k));
-
-        let reasoning_mentions_info = reasoning_steps.iter().any(|step| {
-            let s = step.to_lowercase();
-            s.contains("need") || s.contains("find") || s.contains("look up") || s.contains("analy")
-        });
-
-        has_keywords || reasoning_mentions_info
-    }
-
-    async fn plan_tool_calls(
-        &self,
-        goal: &str,
-        reasoning: &[String],
-        agent_context: &AgentContext,
-        context: &Arc<AgentExecutionContext>,
-    ) -> anyhow::Result<Vec<ToolCall>> {
-        let tool_descriptions: Vec<String> = agent_context
-            .available_tools
-            .iter()
-            .map(|tool| format!("- {}: {}", tool.name, tool.description))
-            .collect();
-
-        let system_prompt = format!(
-            "You are an AI assistant that can use tools to help with software development tasks.\n\
-             If a tool is needed, respond with ONLY a JSON object:\n\
-             {{\"name\": \"tool_name\", \"parameters\": {{...}}}}\n\
-             If no tool is needed, respond with ONLY: \"NO_TOOL\".\n\n\
-             Available tools:\n{}\n",
-            tool_descriptions.join("\n")
-        );
-
-        let prompt = format!(
-            "Goal: {}\nReasoning:\n{}\n\nDecide whether to call a tool.",
-            goal,
-            reasoning
-                .iter()
-                .enumerate()
-                .map(|(i, r)| format!("{}. {}", i + 1, r))
-                .collect::<Vec<_>>()
-                .join("\n")
-        );
-
-        let response = context
-            .ollama_client
-            .generate_response_with_system(&prompt, &system_prompt)
-            .await
-            .map_err(|e| AgentError::InternalError(format!("Ollama client error: {e}")))?;
-
-        let trimmed = response.trim();
-
-        if trimmed.eq_ignore_ascii_case("NO_TOOL") {
-            return Ok(Vec::new());
-        }
-
-        // Try parse JSON
-        if let Ok(tool_call_json) = serde_json::from_str::<Value>(trimmed) {
-            if let Some(tool_name) = tool_call_json.get("name").and_then(|v| v.as_str()) {
-                let parameters = tool_call_json
-                    .get("parameters")
-                    .cloned()
-                    .unwrap_or(Value::Object(Default::default()));
-
-                return Ok(vec![ToolCall {
-                    id: Uuid::new_v4().to_string(),
-                    name: tool_name.to_string(),
-                    parameters: self.value_to_hashmap(parameters),
-                    reasoning: "Tool selected based on goal analysis".to_string(),
-                }]);
-            }
-        }
-
-        // If model responded with something else (non-JSON), treat as no tools.
-        Ok(Vec::new())
-    }
-
-    async fn execute_tool_calls(
-        &self,
-        tool_calls: &[ToolCall],
-        agent_context: &mut AgentContext,
-        context: &Arc<AgentExecutionContext>,
-    ) -> anyhow::Result<Vec<ToolResult>> {
-        let mut results = Vec::new();
-
-        for tool_call in tool_calls {
-            let result = match tool_call.name.as_str() {
-                "rag_query" => {
-                    self.execute_rag_query(tool_call, agent_context, context)
-                        .await
-                }
-                "file_read" => {
-                    self.execute_file_read(tool_call, agent_context, context)
-                        .await
-                }
-                "code_analysis" => {
-                    self.execute_code_analysis(tool_call, agent_context, context)
-                        .await
-                }
-                _ => Ok(ToolResult {
-                    tool_call_id: tool_call.id.clone(),
-                    success: false,
-                    result: json!(null),
-                    error: Some(format!("Unknown tool: {}", tool_call.name)),
-                }),
-            };
-
-            results.push(result?);
-        }
-
-        Ok(results)
-    }
-
-    async fn execute_rag_query(
-        &self,
-        tool_call: &ToolCall,
-        _agent_context: &AgentContext,
-        context: &Arc<AgentExecutionContext>,
-    ) -> anyhow::Result<ToolResult> {
-        let question = tool_call
-            .parameters
-            .get("question")
-            .and_then(|v| v.as_str())
-            .unwrap_or("No question provided");
-
-        if let Some(rag_service) = &context.rag_service {
-            match rag_service.query(question).await {
-                Ok(answer) => Ok(ToolResult {
-                    tool_call_id: tool_call.id.clone(),
-                    success: true,
-                    result: json!({"answer": answer, "source": "rag_service"}),
-                    error: None,
-                }),
-                Err(e) => Ok(ToolResult {
-                    tool_call_id: tool_call.id.clone(),
-                    success: false,
-                    result: json!(null),
-                    error: Some(format!("RAG query failed: {e}")),
-                }),
-            }
-        } else {
-            Ok(ToolResult {
-                tool_call_id: tool_call.id.clone(),
-                success: true,
-                result: json!({"answer": format!("RAG service not available for question: {question}"), "source": "fallback"}),
-                error: None,
-            })
-        }
-    }
-
-    async fn execute_file_read(
-        &self,
-        tool_call: &ToolCall,
-        _agent_context: &AgentContext,
-        context: &Arc<AgentExecutionContext>,
-    ) -> anyhow::Result<ToolResult> {
-        let file_path = tool_call
-            .parameters
-            .get("path")
-            .and_then(|v| v.as_str())
-            .unwrap_or("")
-            .trim();
-
-        if file_path.is_empty() {
-            return Ok(ToolResult {
-                tool_call_id: tool_call.id.clone(),
-                success: false,
-                result: json!(null),
-                error: Some("Missing 'path' parameter".to_string()),
-            });
-        }
-
-        // Basic path safety guardrails (you can harden further to your needs)
-        if file_path.contains('\0') {
-            return Ok(ToolResult {
-                tool_call_id: tool_call.id.clone(),
-                success: false,
-                result: json!(null),
-                error: Some("Invalid path".to_string()),
-            });
-        }
-
-        // Validate with sandbox first, then execute actual file read
-        if let Err(e) = context
-            .sandbox
-            .test_command("cat", &vec![file_path.to_string()])
-        {
-            return Ok(ToolResult {
-                tool_call_id: tool_call.id.clone(),
-                success: false,
-                result: json!(null),
-                error: Some(format!("Sandbox blocked file read: {e}")),
-            });
-        }
-
-        match std::fs::read_to_string(file_path) {
-            Ok(content) => {
-                let content_size = content.len();
-                let max = 5000usize;
-                let limited_content = if content_size > max {
-                    format!(
-                        "{}...\n\n[Content truncated. File is {} bytes total]",
-                        &content[..max],
-                        content_size
-                    )
-                } else {
-                    content
-                };
-
-                Ok(ToolResult {
-                    tool_call_id: tool_call.id.clone(),
-                    success: true,
-                    result: json!({"content": limited_content, "size": content_size, "source": "file_read_tool"}),
-                    error: None,
-                })
-            }
-            Err(e) => Ok(ToolResult {
-                tool_call_id: tool_call.id.clone(),
-                success: false,
-                result: json!(null),
-                error: Some(format!("Failed to read file '{file_path}': {e}")),
-            }),
-        }
-    }
-
-    async fn execute_code_analysis(
-        &self,
-        tool_call: &ToolCall,
-        _agent_context: &AgentContext,
-        _context: &Arc<AgentExecutionContext>,
-    ) -> anyhow::Result<ToolResult> {
-        let analysis_type = tool_call
-            .parameters
-            .get("type")
-            .and_then(|v| v.as_str())
-            .unwrap_or("general");
-
-        Ok(ToolResult {
-            tool_call_id: tool_call.id.clone(),
-            success: true,
-            result: json!({ "analysis": format!("Code analysis of type: {analysis_type}") }),
-            error: None,
-        })
-    }
-
-    async fn generate_final_response(
-        &self,
-        goal: &str,
-        reasoning: &[String],
-        tool_results: &[ToolResult],
-        agent_context: &AgentContext,
-        context: &Arc<AgentExecutionContext>,
-    ) -> anyhow::Result<String> {
-        let tool_results_text: String = tool_results
-            .iter()
-            .map(|r| {
-                if r.success {
-                    format!(
-                        "Tool result: {}",
-                        serde_json::to_string_pretty(&r.result).unwrap_or_default()
-                    )
-                } else {
-                    format!(
-                        "Tool error: {}",
-                        r.error.as_deref().unwrap_or("Unknown error")
-                    )
-                }
-            })
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        let system_prompt =
-            "You are a helpful AI assistant that provides clear, accurate, and concise responses. \
-Use the reasoning steps and tool results. If tool results contain file content, cite it inline.";
-
-        // If you store conversation context, you can include last N messages here.
-        let recent_context = agent_context
-            .conversation_history
-            .iter()
-            .rev()
-            .take(6)
-            .map(|m| format!("{}: {}", m.role, m.content))
-            .collect::<Vec<_>>()
-            .into_iter()
-            .rev()
-            .collect::<Vec<_>>()
-            .join("\n");
-
-        let prompt = format!(
-            "Conversation context:\n{}\n\n\
-             Goal: {}\n\n\
-             Reasoning steps:\n{}\n\n\
-             Tool results:\n{}\n\n\
-             Write the final response to accomplish the goal.",
-            recent_context,
-            goal,
-            reasoning
-                .iter()
-                .enumerate()
-                .map(|(i, r)| format!("{}. {}", i + 1, r))
-                .collect::<Vec<_>>()
-                .join("\n"),
-            tool_results_text
-        );
-
-        context
-            .ollama_client
-            .generate_response_with_system(&prompt, system_prompt)
-            .await
-            .map_err(|e| anyhow::anyhow!("Ollama client error: {e}"))
-    }
-
-    fn calculate_confidence(&self, reasoning_steps: &[String], tool_results: &[ToolResult]) -> f32 {
-        let reasoning_confidence = if reasoning_steps.len() >= 3 { 0.8 } else { 0.6 };
-
-        let tool_success_rate = if tool_results.is_empty() {
-            0.7
-        } else {
-            let ok = tool_results.iter().filter(|r| r.success).count();
-            ok as f32 / tool_results.len().max(1) as f32
-        };
-
-        ((reasoning_confidence + tool_success_rate) / 2.0).clamp(0.0, 1.0)
-    }
-
-    fn create_reasoning_prompt(&self) -> String {
-        "You are an intelligent AI assistant that thinks step by step before responding. \
-Break down complex problems into logical steps, consider what information you need, \
-and plan your approach systematically."
-            .to_string()
-    }
-
-    fn get_available_tools(&self) -> Vec<ToolDefinition> {
-        vec![
-            ToolDefinition {
-                name: "rag_query".to_string(),
-                description: "Search the codebase for relevant information using RAG".to_string(),
-                parameters: ToolParameters {
-                    param_type: "object".to_string(),
-                    properties: {
-                        let mut props = HashMap::new();
-                        props.insert(
-                            "question".to_string(),
-                            ParameterProperty {
-                                param_type: "string".to_string(),
-                                description: "The question to search for in the codebase"
-                                    .to_string(),
-                                enum_values: None,
-                            },
-                        );
-                        props
-                    },
-                    required: vec!["question".to_string()],
-                },
-            },
-            ToolDefinition {
-                name: "file_read".to_string(),
-                description: "Read the contents of a specific file".to_string(),
-                parameters: ToolParameters {
-                    param_type: "object".to_string(),
-                    properties: {
-                        let mut props = HashMap::new();
-                        props.insert(
-                            "path".to_string(),
-                            ParameterProperty {
-                                param_type: "string".to_string(),
-                                description: "Path to the file to read".to_string(),
-                                enum_values: None,
-                            },
-                        );
-                        props
-                    },
-                    required: vec!["path".to_string()],
-                },
-            },
-            ToolDefinition {
-                name: "code_analysis".to_string(),
-                description: "Analyze code structure and patterns".to_string(),
-                parameters: ToolParameters {
-                    param_type: "object".to_string(),
-                    properties: {
-                        let mut props = HashMap::new();
-                        props.insert(
-                            "type".to_string(),
-                            ParameterProperty {
-                                param_type: "string".to_string(),
-                                description: "Type of analysis to perform".to_string(),
-                                enum_values: Some(vec![
-                                    "structure".to_string(),
-                                    "dependencies".to_string(),
-                                    "patterns".to_string(),
-                                ]),
-                            },
-                        );
-                        props
-                    },
-                    required: vec!["type".to_string()],
-                },
-            },
-        ]
-    }
-
-    fn value_to_hashmap(&self, value: Value) -> HashMap<String, Value> {
-        match value {
-            Value::Object(map) => map.into_iter().collect(),
-            _ => HashMap::new(),
-        }
-    }
-}
-
-pub struct AgentService {
-    client: OllamaClient,
-    rag_service: Option<Arc<RagService>>,
-    config: Config,
-    agent_controller: AgentController,
-    failure_handler: SafeFailureHandler,
-}
-
-impl AgentService {
     pub fn new(client: OllamaClient) -> Self {
         Self {
             client,

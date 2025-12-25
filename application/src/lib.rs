@@ -7,5 +7,6 @@ pub mod parallel_agent;
 pub mod rag_service;
 pub mod result_aggregator;
 pub mod safety_service;
+pub mod streaming_agent;
 pub mod task_decomposer;
 pub mod transaction;

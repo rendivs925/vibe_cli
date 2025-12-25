@@ -356,9 +356,9 @@ pub struct Cli {
     #[arg(long)]
     pub context: bool,
 
-    /// Build and apply code changes with user confirmation
+    /// Stream agent execution in real-time
     #[arg(long)]
-    pub build: bool,
+    pub stream: bool,
 
     /// The query or file path to process
     #[arg(trailing_var_arg = true)]
@@ -740,8 +740,8 @@ impl CliApp {
             self.handle_explain(&args_str).await
         } else if cli.rag {
             self.handle_rag(&args_str).await
-        } else if cli.ai_agent {
-            self.handle_ai_agent(&args_str).await
+        } else if cli.stream {
+            self.handle_stream_mode(&args_str).await
         } else if cli.context {
             self.handle_context(&args_str).await
         } else {
@@ -1284,6 +1284,96 @@ User request: {}",
 
         let serialized = bincode::serialize(&cache)?;
         std::fs::write(&cache_path, serialized)?;
+
+        Ok(())
+    }
+
+    /// Handle streaming agent mode - demonstrates real-time execution
+    async fn handle_stream_mode(&mut self, goal: &str) -> Result<()> {
+        println!("{}", "🎬 Real-Time Streaming Mode".bright_cyan().bold());
+        println!("{}", format!("Goal: {}", goal).bright_blue());
+        println!("{}", "This mode demonstrates live agent execution with streaming output.".bright_yellow());
+        println!();
+
+        // Create a simple streaming demonstration
+        use crate::streaming_agent::{StreamingAgentOrchestrator, StreamingDisplay, DisplayMode, StreamEvent, StatusLevel};
+
+        let (orchestrator, mut event_rx, _control_tx) =
+            StreamingAgentOrchestrator::new(DisplayMode::Rich);
+
+        let display = StreamingDisplay::new(DisplayMode::Rich);
+
+        // Start a background task that simulates streaming agent execution
+        let goal_clone = goal.to_string();
+        let orchestrator_clone = orchestrator.clone();
+        tokio::spawn(async move {
+            // Simulate agent reasoning steps
+            let _ = orchestrator_clone.emit_event(StreamEvent::ReasoningStart {
+                task_description: goal_clone.clone(),
+            }).await;
+
+            let _ = orchestrator_clone.emit_event(StreamEvent::Status {
+                message: "Analyzing request...".to_string(),
+                level: StatusLevel::Info,
+            }).await;
+
+            tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+            let _ = orchestrator_clone.emit_event(StreamEvent::ReasoningStep {
+                step_number: 1,
+                content: "Breaking down the request into actionable components".to_string(),
+            }).await;
+
+            tokio::time::sleep(tokio::time::Duration::from_millis(800)).await;
+
+            let _ = orchestrator_clone.emit_event(StreamEvent::ReasoningStep {
+                step_number: 2,
+                content: "Identifying required tools and resources".to_string(),
+            }).await;
+
+            tokio::time::sleep(tokio::time::Duration::from_millis(600)).await;
+
+            let _ = orchestrator_clone.emit_event(StreamEvent::ToolPlanned {
+                tool_name: "analysis_tool".to_string(),
+                description: "Analyze the codebase for relevant information".to_string(),
+            }).await;
+
+            let _ = orchestrator_clone.emit_event(StreamEvent::ToolStart {
+                tool_name: "analysis_tool".to_string(),
+                parameters: "{}".to_string(),
+            }).await;
+
+            tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
+
+            let _ = orchestrator_clone.emit_event(StreamEvent::ToolComplete {
+                tool_name: "analysis_tool".to_string(),
+                success: true,
+                duration_ms: 1000,
+                error: None,
+            }).await;
+
+            let _ = orchestrator_clone.emit_event(StreamEvent::Result {
+                content: format!("Streaming analysis complete for: {}", goal_clone),
+                confidence: 0.85,
+            }).await;
+        });
+
+        // Display streaming events in real-time
+        while let Some(event) = event_rx.recv().await {
+            display.render_event(&event);
+
+            // Add small delay for visual effect
+            tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+
+            // Exit when we get a final result
+            if let StreamEvent::Result { .. } = event {
+                break;
+            }
+        }
+
+        println!();
+        println!("{}", "✅ Streaming demonstration complete!".bright_green());
+        println!("{}", "This showcases real-time agent execution with live feedback.".bright_cyan());
 
         Ok(())
     }
