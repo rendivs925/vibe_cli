@@ -20,19 +20,13 @@ use infrastructure::{
         IterationRecord, SafeFailureHandler, VerificationResult,
     },
     config::Config,
-    candle_inference::CandleInferenceService,
     tools::{ToolArgs, ToolRegistry},
     sandbox::Sandbox,
-    InferenceEngine,
 };
 use serde_json::{json, Value};
 use shared::types::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
-use tokio::sync::mpsc;
-use tokio_stream::{Stream, StreamExt};
-use futures::future::BoxFuture;
-use uuid::Uuid;
 use crate::build_service::{BuildPlan, FileOperation, RiskLevel, ComplexOperation, ValidationRule};
 
 // Forward declare for now - actual implementation when both services are integrated
@@ -998,7 +992,7 @@ Generate the command now:"#,
     }
 
     /// Built-in safe tool definitions exposed to the agent for selection
-    fn default_tool_definitions() -> Vec<ToolDefinition> {
+    fn default_tool_definitions(&self) -> Vec<ToolDefinition> {
         fn param(name: &str, description: &str) -> (String, ParameterProperty) {
             (
                 name.to_string(),
@@ -1018,7 +1012,10 @@ Generate the command now:"#,
             }
         }
 
-        vec![
+        let registry_tools = ToolRegistry::new().list_tools();
+        let allowed: std::collections::HashSet<String> = registry_tools.into_iter().collect();
+
+        let base_defs = vec![
             ToolDefinition {
                 name: "file_read".to_string(),
                 description: "Read file contents safely with validation and size limits".to_string(),
@@ -1123,7 +1120,14 @@ Generate the command now:"#,
                     vec![],
                 ),
             },
-        ]
+        ];
+
+        let mut dedup = std::collections::HashSet::new();
+        base_defs
+            .into_iter()
+            .filter(|def| allowed.contains(&def.name))
+            .filter(|def| dedup.insert(def.name.clone()))
+            .collect()
     }
 
 
@@ -1865,7 +1869,7 @@ Rules: keep it concise and deterministic; only include real files; if context is
     }
 
     /// Plan tool calls based on reasoning
-    pub fn plan_tool_calls(&self, goal: &str, reasoning: &[String], context: &AgentContext, _exec_context: &AgentExecutionContext) -> Vec<ToolCall> {
+    pub fn plan_tool_calls(&self, goal: &str, _reasoning: &[String], context: &AgentContext, _exec_context: &AgentExecutionContext) -> Vec<ToolCall> {
         let mut calls = Vec::new();
         let lower_goal = goal.to_lowercase();
         let primary_path = self
@@ -2127,7 +2131,7 @@ Respond now."#,
     pub async fn execute_agent(&self, goal: &str, request: &AgentRequest, exec_context: Arc<AgentExecutionContext>) -> Result<(AgentResult, Vec<ToolCall>, Vec<ToolResult>)> {
         // Build initial agent context with available tools + conversation.
         let mut agent_context = AgentContext {
-            available_tools: Self::default_tool_definitions(),
+            available_tools: self.default_tool_definitions(),
             conversation_history: Vec::<ConversationMessage>::new(),
             working_memory: std::collections::HashMap::new(),
         };
