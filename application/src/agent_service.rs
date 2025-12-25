@@ -44,6 +44,7 @@ pub struct AgentService {
     pub config: Config,
     pub agent_controller: AgentController,
     pub failure_handler: SafeFailureHandler,
+    pub system_context: infrastructure::config::SystemContext,
 }
 
 /// Artifacts returned when planning a build
@@ -884,23 +885,82 @@ impl AgentExecutionContext {
 
 impl AgentService {
     pub fn new(inference_engine: infrastructure::InferenceEngine) -> Self {
+        println!("📊 Gathering system context...");
+        let system_context = infrastructure::config::SystemContext::gather();
+
         Self {
             inference_engine,
             rag_service: None,
             config: Config::load(),
             agent_controller: AgentController::new(),
             failure_handler: SafeFailureHandler::new(),
+            system_context,
         }
     }
 
     pub fn with_rag_service(inference_engine: infrastructure::InferenceEngine, rag_service: Arc<RagService>) -> Self {
+        println!("📊 Gathering system context...");
+        let system_context = infrastructure::config::SystemContext::gather();
+
         Self {
             inference_engine,
             rag_service: Some(rag_service),
             config: Config::load(),
             agent_controller: AgentController::new(),
             failure_handler: SafeFailureHandler::new(),
+            system_context,
         }
+    }
+
+    /// Generate a shell command based on natural language request with full system context
+    pub async fn generate_command(&self, request: &str) -> Result<String> {
+        let prompt = format!(
+            r#"You are a shell command generator. Generate a precise, safe shell command based on the user's request.
+
+USER REQUEST: {}
+
+SYSTEM CONTEXT:
+{}
+
+CRITICAL INSTRUCTIONS:
+1. Generate ONLY the command - no explanations, no markdown
+2. Use the actual paths and file names from the system context
+3. Use the appropriate package manager for this distro: {}
+4. Consider the current directory: {}
+5. Make the command safe and practical
+6. If the request mentions a file/folder, search for it in the current directory first
+
+EXAMPLES:
+Request: "zip rendi folder"
+Context shows: Current directory is /home/user/projects, folder "rendi" exists here
+Output: zip -r rendi.zip rendi
+
+Request: "install python package requests"
+Context shows: Package manager is apt (Debian/Ubuntu)
+Output: sudo apt install python3-requests
+
+Request: "show GPU info"
+Context shows: GPU is NVIDIA
+Output: nvidia-smi
+
+Generate the command now:"#,
+            request,
+            self.system_context.to_context_string(),
+            self.system_context.package_manager,
+            self.system_context.current_dir
+        );
+
+        let command = self.inference_engine.generate(&prompt).await?;
+
+        // Clean up the response (remove markdown, explanations, etc.)
+        let cleaned = command
+            .lines()
+            .find(|line| !line.trim().is_empty() && !line.starts_with("```") && !line.starts_with("#"))
+            .unwrap_or(&command)
+            .trim()
+            .to_string();
+
+        Ok(cleaned)
     }
 
 
@@ -1465,6 +1525,9 @@ impl AgentService {
 
 GOAL: {}
 
+SYSTEM ENVIRONMENT:
+{}
+
 RELEVANT CONTEXT:
 {}
 
@@ -1495,8 +1558,14 @@ Rules:
 - Ensure code compiles/runs; apply SOLID/DRY/YAGNI; guard clauses over deep nesting.
 - Include only files that exist or will be created.
 - If you cannot provide full content, say so explicitly and stop.
-- Keep it concise and deterministic."#,
-            goal, context_str
+- Keep it concise and deterministic.
+- Use package manager commands appropriate for this system: {}
+- Consider the display server when suggesting GUI-related changes: {}"#,
+            goal,
+            self.system_context.to_context_string(),
+            context_str,
+            self.system_context.package_manager,
+            self.system_context.display_server
         )
     }
 
