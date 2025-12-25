@@ -24,7 +24,7 @@ use infrastructure::{
     sandbox::Sandbox,
     InferenceEngine,
 };
-use serde_json::{json, Value};
+use serde_json::json;
 use shared::types::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -59,13 +59,6 @@ pub struct AgentExecutionContext {
     pub config: Config,
     pub rag_service: Option<Arc<RagService>>,
     pub sandbox: Sandbox,
-}
-
-/// Coordinates planning/execution/finalization for an agent run.
-pub struct ExecutionCoordinator {
-    context: Arc<AgentExecutionContext>,
-    controller: AgentController,
-    failure_handler: SafeFailureHandler,
 }
 
 impl AgentExecutionContext {
@@ -124,18 +117,15 @@ impl AgentService {
     }
 
     pub async fn process_request(&self, request: &AgentRequest) -> Result<AgentResponse> {
-        let execution_context = AgentExecutionContext::new(
+        let execution_context = Arc::new(AgentExecutionContext::new(
             self.inference_engine.clone(),
             self.config.clone(),
             self.rag_service.clone(),
-        );
-
-        let coordinator =
-            ExecutionCoordinator::new(execution_context, self.agent_controller.clone());
+        ));
 
         // Execute bounded multi-iteration agent
-        let agent_result = coordinator
-            .execute_agent(&request.goal, request)
+        let agent_result = self
+            .execute_agent(&request.goal, request, Arc::clone(&execution_context))
             .await
             .map_err(|e| AgentError::InternalError(format!("Agent execution failed: {e}")))?;
 
@@ -159,22 +149,16 @@ impl AgentService {
         let mut retrieved_context = Vec::new();
         let mut planning_logs = Vec::new();
 
-        // Step 1: Retrieve relevant context using RAG
+        // Step 1: Retrieve relevant context using RAG or fast rg search
+        let keywords = self.extract_keywords_from_goal(goal);
+
         if let Some(rag_service) = &self.rag_service {
             println!("Retrieving relevant codebase context...");
-
-            // Build index if needed
-            let project_root = std::env::current_dir()
-                .unwrap_or_else(|_| std::path::PathBuf::from("."))
-                .to_string_lossy()
-                .to_string();
-            let db_path = format!("{}/.vibe_rag.db", project_root);
 
             if let Err(e) = rag_service.build_index().await {
                 eprintln!("Warning: Failed to build RAG index: {}", e);
             }
 
-            // Query for relevant patterns and existing code
             let rag_query = format!("Find examples and patterns for: {}. Look for similar implementations, utility functions, or scripts.", goal);
             match rag_service.query(&rag_query).await {
                 Ok(context) => {
@@ -182,15 +166,13 @@ impl AgentService {
                     planning_logs.push("RAG query succeeded".to_string());
                 }
                 Err(e) => {
-                    eprintln!("Warning: RAG query failed: {}", e);
+                    planning_logs.push(format!("RAG query failed: {}", e));
                 }
             }
 
-            // Search for specific keywords from the goal
-            let keywords = self.extract_keywords_from_goal(goal);
             if !keywords.is_empty() {
                 if let Err(e) = rag_service.build_index_for_keywords(&keywords).await {
-                    eprintln!("Warning: Keyword-based RAG search failed: {}", e);
+                    planning_logs.push(format!("Keyword index failed: {}", e));
                 } else {
                     let keyword_query = format!("Examples of {}", keywords.join(", "));
                     if let Ok(keyword_context) = rag_service.query(&keyword_query).await {
@@ -200,8 +182,13 @@ impl AgentService {
                 }
             }
         } else {
-            retrieved_context.push("RAG service not available - proceeding without codebase context".to_string());
-            planning_logs.push("RAG unavailable; proceeding without indexed context".to_string());
+            planning_logs.push("RAG unavailable; using fast rg search".to_string());
+            let rg_hits = self.fast_rg_context(&keywords)?;
+            if !rg_hits.is_empty() {
+                retrieved_context.push(format!("rg snippets:\n{}", rg_hits.join("\n")));
+            } else {
+                retrieved_context.push("No rg snippets found for goal keywords".to_string());
+            }
         }
 
         // Step 2: Generate build plan using the inference engine with guarded retries
@@ -280,6 +267,33 @@ impl AgentService {
             .collect()
     }
 
+    fn fast_rg_context(&self, keywords: &[String]) -> Result<Vec<String>> {
+        let mut hits = Vec::new();
+        let mut seen = 0;
+        for kw in keywords.iter().take(3) {
+            let output = std::process::Command::new("rg")
+                .arg("-n")
+                .arg("--max-count")
+                .arg("2")
+                .arg(kw)
+                .arg(".")
+                .output();
+            if let Ok(out) = output {
+                if out.status.success() {
+                    let text = String::from_utf8_lossy(&out.stdout);
+                    for line in text.lines().take(4) {
+                        hits.push(format!("rg [{}]: {}", kw, line));
+                        seen += 1;
+                        if seen >= 8 {
+                            return Ok(hits);
+                        }
+                    }
+                }
+            }
+        }
+        Ok(hits)
+    }
+
     fn create_build_planning_prompt(&self, goal: &str, context: &[String]) -> String {
         let context_str = if context.is_empty() {
             "No additional context available.".to_string()
@@ -296,137 +310,102 @@ RELEVANT CONTEXT:
 {}
 
 INSTRUCTIONS:
-Create a detailed step-by-step plan for implementing this goal. For each step, specify:
-1. What needs to be done
-2. Which files to create/modify/delete
-3. Any dependencies or prerequisites
-4. Risk level (Low/Medium/High/Critical)
+- Create a concise plan with these sections (plain text, no JSON):
 
-Return ONLY JSON. For create/update operations, include full updated file contents in the "content" field (no placeholders, no prose). If editing an existing file, include the complete post-edit file text so we can show an accurate diff. Do not leave "content" empty for writes.
-Apply SOLID, DRY, and YAGNI principles; use guard clauses over deep nesting; target concise, maintainable code that will compile/run. If you cannot produce a fully specified, reliable plan, respond with an explicit error instead of a partial plan.
-Use multi-step reasoning to ensure completeness: verify imports, types, and file paths are correct; include only files that exist or will be created. Plans must be runnable and self-consistent.
+Build Plan:
+- Step 1: ...
+- Step 2: ...
 
-Format your response as a JSON object with this structure:
-{{
-  "description": "Brief description of the overall plan",
-  "operations": [
-    {{
-      "type": "create|update|delete|read",
-      "path": "relative/path/to/file",
-      "description": "What this operation does",
-      "content": "For create/update operations, provide the full updated file content"
-    }}
-  ],
-  "risk_assessment": "Low|Medium|High|Critical",
-  "prerequisites": ["Any prerequisites or dependencies"]
-}}
+Files:
+- path: relative/path.ext
+- action: create|update
+- reason: short note
+- content: placed in a fenced block as shown below
 
-Be specific about file paths and content. Do not include commentary outside the JSON."#,
+Safety: note risk, backups, and rollback
+Estimate: size/time
+Confidence: percentage
+
+For every create/update, include the full post-change file content in fenced code blocks like:
+```file:path=relative/path.ext;action=create
+<full file content here>
+```
+
+Rules:
+- No JSON. Use the exact fence header shown above for each file.
+- Ensure code compiles/runs; apply SOLID/DRY/YAGNI; guard clauses over deep nesting.
+- Include only files that exist or will be created.
+- If you cannot provide full content, say so explicitly and stop.
+- Keep it concise and deterministic."#,
             goal, context_str
         )
     }
 
-    fn extract_plan_json(&self, plan_text: &str) -> Option<String> {
-        // Prefer fenced ```json blocks if present
-        if let Some(start) = plan_text.find("```json") {
-            let rest = &plan_text[start + "```json".len()..];
-            if let Some(end) = rest.find("```") {
-                let block = &rest[..end];
-                let trimmed = block.trim();
-                if !trimmed.is_empty() {
-                    return Some(trimmed.to_string());
+    fn parse_build_plan(&self, plan_text: &str, goal: &str) -> Result<BuildPlan> {
+        let mut operations = Vec::new();
+        let mut description = String::from("Build plan (markdown)");
+        let estimated_risk = RiskLevel::Low;
+
+        if let Some(idx) = plan_text.find("Build Plan") {
+            description = plan_text[idx..]
+                .lines()
+                .take(8)
+                .collect::<Vec<_>>()
+                .join(" ");
+        }
+
+        for fence in plan_text.match_indices("```file:") {
+            let header_start = fence.0 + "```file:".len();
+            let after_header = match plan_text[header_start..].find('\n') {
+                Some(v) => header_start + v + 1,
+                None => continue,
+            };
+            let header = &plan_text[header_start..after_header - 1];
+            let end_fence = match plan_text[after_header..].find("```") {
+                Some(v) => after_header + v,
+                None => continue,
+            };
+            let content = &plan_text[after_header..end_fence];
+
+            let mut path = "";
+            let mut action = "create";
+            for part in header.split(';') {
+                let part = part.trim();
+                if let Some(rest) = part.strip_prefix("path=") {
+                    path = rest;
+                } else if let Some(rest) = part.strip_prefix("action=") {
+                    action = rest;
                 }
             }
-        }
 
-        // Fallback: first '{' to last '}'
-        let json_start = plan_text.find('{')?;
-        let json_end = plan_text.rfind('}')?;
-        if json_end > json_start {
-            Some(plan_text[json_start..=json_end].to_string())
-        } else {
-            None
-        }
-    }
-
-    fn parse_build_plan(&self, plan_text: &str, goal: &str) -> Result<BuildPlan> {
-        let json_str = self
-            .extract_plan_json(plan_text)
-            .ok_or_else(|| anyhow::anyhow!("No JSON build plan found in model response; cannot proceed."))?;
-
-        match serde_json::from_str::<serde_json::Value>(&json_str) {
-            Ok(json) => self.build_plan_from_json(json, goal),
-            Err(e) => Err(anyhow::anyhow!(format!(
-                "Unable to parse build plan JSON: {}",
-                e
-            ))),
-        }
-    }
-
-    fn build_plan_from_json(&self, json: serde_json::Value, goal: &str) -> Result<BuildPlan> {
-        let description = json.get("description")
-            .and_then(|d| d.as_str())
-            .unwrap_or("Build plan generated from AI analysis")
-            .to_string();
-
-        let risk_level = json.get("risk_assessment")
-            .and_then(|r| r.as_str())
-            .unwrap_or("Medium");
-
-        let estimated_risk = match risk_level.to_lowercase().as_str() {
-            "low" => RiskLevel::Low,
-            "medium" => RiskLevel::Medium,
-            "high" => RiskLevel::High,
-            "critical" => RiskLevel::Critical,
-            _ => RiskLevel::Medium,
-        };
-
-        let mut operations = Vec::new();
-
-        if let Some(ops) = json.get("operations").and_then(|o| o.as_array()) {
-            for op in ops {
-                let op_type = op.get("type").and_then(|t| t.as_str()).unwrap_or("create");
-                let path = op.get("path").and_then(|p| p.as_str()).unwrap_or("unknown");
-                let desc = op.get("description").and_then(|d| d.as_str()).unwrap_or("");
-                let content = op.get("content").and_then(|c| c.as_str()).unwrap_or("");
-
-                let file_op = match op_type {
-                    "create" => {
-                        if content.trim().is_empty() {
-                            continue;
-                        }
-                        FileOperation::Create {
-                            path: std::path::PathBuf::from(path),
-                            content: content.to_string(),
-                        }
-                    }
-                    "update" => {
-                        if content.trim().is_empty() {
-                            continue;
-                        }
-                        let existing = std::fs::read_to_string(path).unwrap_or_default();
-                        FileOperation::Update {
-                            path: std::path::PathBuf::from(path),
-                            old_content: existing,
-                            new_content: content.to_string(),
-                        }
-                    }
-                    "delete" => FileOperation::Delete {
-                        path: std::path::PathBuf::from(path),
-                    },
-                    "read" => FileOperation::Read {
-                        path: std::path::PathBuf::from(path),
-                    },
-                    _ => continue,
-                };
-
-                operations.push(file_op);
+            if path.is_empty() {
+                continue;
             }
+
+            let op = match action {
+                "update" => {
+                    let existing = std::fs::read_to_string(path).unwrap_or_default();
+                    FileOperation::Update {
+                        path: std::path::PathBuf::from(path),
+                        old_content: existing,
+                        new_content: content.to_string(),
+                    }
+                }
+                "delete" => FileOperation::Delete {
+                    path: std::path::PathBuf::from(path),
+                },
+                _ => FileOperation::Create {
+                    path: std::path::PathBuf::from(path),
+                    content: content.to_string(),
+                },
+            };
+
+            operations.push(op);
         }
 
         if operations.is_empty() {
             return Err(anyhow::anyhow!(
-                "AI plan did not include concrete operations with content; cannot proceed."
+                "Plan did not include any file fences with actions; cannot proceed."
             ));
         }
 
@@ -436,22 +415,6 @@ Be specific about file paths and content. Do not include commentary outside the 
             description,
             estimated_risk,
         })
-    }
-
-}
-
-impl ExecutionCoordinator {
-    pub fn new(context: AgentExecutionContext, controller: AgentController) -> Self {
-        Self {
-            context: Arc::new(context),
-            controller,
-            failure_handler: SafeFailureHandler::new(),
-        }
-    }
-
-    /// Get available tools from context
-    pub fn get_available_tools(&self) -> Vec<ToolDefinition> {
-        vec![] // TODO: Implement proper tool loading from config
     }
 
     /// Generate reasoning steps for a goal
@@ -521,7 +484,7 @@ impl ExecutionCoordinator {
     /// - Decide/plan tools (optional)
     /// - Execute tools
     /// - Ask model to produce final answer (or continue)
-    pub async fn execute_agent(&self, goal: &str, request: &AgentRequest) -> Result<AgentResult> {
+    pub async fn execute_agent(&self, goal: &str, request: &AgentRequest, exec_context: Arc<AgentExecutionContext>) -> Result<AgentResult> {
         // Build initial agent context with available tools + conversation.
         let mut agent_context = AgentContext {
             available_tools: vec![], // TODO: Get available tools from config
@@ -562,9 +525,6 @@ impl ExecutionCoordinator {
         let mut all_tool_calls: Vec<ToolCall> = Vec::new();
         let mut all_tool_results: Vec<ToolResult> = Vec::new();
 
-        // Use the existing execution context for tool calls
-        let exec_context = Arc::clone(&self.context);
-
         for i in 0..max_iters {
             execution_state.iteration_count = i as u32;
 
@@ -574,7 +534,7 @@ impl ExecutionCoordinator {
 
             // 2) Decide whether tools are needed, then plan tool calls
             let tool_calls = if self.needs_tools(goal, &reasoning_steps) {
-                self.plan_tool_calls(goal, &reasoning_steps, &agent_context, &self.context)
+                self.plan_tool_calls(goal, &reasoning_steps, &agent_context, &exec_context)
             } else {
                 Vec::new()
             };
@@ -585,7 +545,7 @@ impl ExecutionCoordinator {
 
             // 3) Execute tools (if any)
             let tool_results = self
-                .execute_tool_calls(&tool_calls, &mut agent_context, &self.context)
+                .execute_tool_calls(&tool_calls, &mut agent_context, &exec_context)
                 .await
                 .unwrap_or_else(|e| {
                     vec![ToolResult {
