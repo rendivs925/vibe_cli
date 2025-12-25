@@ -10,4 +10,6 @@ serde_json.workspace = true
 dialoguer.workspace = true
 crossterm.workspace = true
 colored.workspace = true
+rayon.workspace = true
+num_cpus.workspace = true
 regex = "1.10"

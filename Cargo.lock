@@ -2932,6 +2932,8 @@ dependencies = [
  "colored",
  "crossterm",
  "dialoguer",
+ "num_cpus",
+ "rayon",
  "regex",
  "serde",
  "serde_json",
