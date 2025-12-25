@@ -3,8 +3,9 @@ use infrastructure::{
     embedder::{Embedder, EmbeddingInput},
     embedding_storage::EmbeddingStorage,
     file_scanner::FileScanner,
-    ollama_client::OllamaClient,
+    candle_inference::CandleInferenceService,
     search::SearchEngine,
+    InferenceEngine,
 };
 use md5;
 use shared::{types::Result, content_sanitizer::ContentSanitizer, secrets_detector::SecretsDetector};
@@ -14,19 +15,19 @@ pub struct RagService {
     scanner: FileScanner,
     storage: EmbeddingStorage,
     embedder: Embedder,
-    client: OllamaClient,
+    inference_engine: infrastructure::InferenceEngine,
     config: Config,
     content_sanitizer: ContentSanitizer,
     secrets_detector: SecretsDetector,
 }
 
 impl RagService {
-    pub async fn new(root_path: &str, db_path: &str, client: OllamaClient, config: Config) -> Result<Self> {
+    pub async fn new(root_path: &str, db_path: &str, inference_engine: infrastructure::InferenceEngine, config: Config) -> Result<Self> {
         Ok(Self {
             scanner: FileScanner::new(root_path),
             storage: EmbeddingStorage::new(db_path).await?,
-            embedder: Embedder::new(client.clone()),
-            client,
+            embedder: Embedder::new_with_inference_engine(inference_engine.clone()),
+            inference_engine,
             config,
             content_sanitizer: ContentSanitizer::new(),
             secrets_detector: SecretsDetector::new(),
@@ -94,7 +95,7 @@ impl RagService {
     }
 
     pub async fn query_with_feedback(&self, question: &str, feedback: &str) -> Result<String> {
-        let query_embedding = self.client.generate_embedding(question).await?;
+        let query_embedding = self.inference_engine.generate_embeddings(question).await?;
         let all_embeddings = self.storage.get_all_embeddings().await?;
         let mut relevant_chunks =
             SearchEngine::find_relevant_chunks(&query_embedding, &all_embeddings, 50);
@@ -163,12 +164,12 @@ impl RagService {
             "SYSTEM: You are an expert software engineer. Answer based only on provided context.\n\nQUESTION: {}\n\nCONTEXT:\n{}\n\nRESPONSE:",
             sanitized_question, context
         ));
-        self.client.generate_response(&prompt).await
+        self.inference_engine.generate(&prompt).await
     }
 
     /// Query with feedback, forcing continuation even if secrets are detected
     pub async fn query_with_feedback_force(&self, question: &str, feedback: &str) -> Result<String> {
-        let query_embedding = self.client.generate_embedding(question).await?;
+        let query_embedding = self.inference_engine.generate_embeddings(question).await?;
         let all_embeddings = self.storage.get_all_embeddings().await?;
         let mut relevant_chunks =
             SearchEngine::find_relevant_chunks(&query_embedding, &all_embeddings, 50);
@@ -226,7 +227,7 @@ impl RagService {
             "SYSTEM: You are an expert software engineer. Answer based only on provided context.\n\nQUESTION: {}\n\nCONTEXT:\n{}\n\nRESPONSE:",
             sanitized_question, context
         ));
-        self.client.generate_response(&prompt).await
+        self.inference_engine.generate(&prompt).await
     }
 
     fn filter_files_by_patterns(&self, files: &[PathBuf]) -> Vec<PathBuf> {

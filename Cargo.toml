@@ -38,11 +38,9 @@ crossterm = "0.27"
 uuid = { version = "1.8", features = ["v4"] }
 num_cpus = "1.16"
 criterion = { version = "0.5", features = ["html_reports"] }
-# Candle ML Framework dependencies
-# NOTE: Candle has upstream dependency conflicts (half/rand versions)
-# Dependencies are documented here for future integration once resolved
-# candle-core = "0.7"
-# candle-nn = "0.7"
-# candle-transformers = "0.7"
-# hf-hub = "0.3"
-# tokenizers = "0.19"
+candle-core = { version = "0.7", default-features = false }
+candle-nn = { version = "0.7", default-features = false }
+candle-transformers = { version = "0.7", default-features = false }
+hf-hub = "0.3"
+tokenizers = "0.19"
+half = { version = "2.4", features = ["std", "serde"] }

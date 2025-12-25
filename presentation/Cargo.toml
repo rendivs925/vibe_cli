@@ -19,3 +19,4 @@ bincode = "1.3"
 pdf-extract = "0.7"
 docx-rs = "0.4"
 reqwest = { version = "0.12", features = ["blocking"] }
+tokio.workspace = true

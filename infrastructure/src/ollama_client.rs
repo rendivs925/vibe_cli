@@ -53,6 +53,10 @@ impl OllamaClient {
         })
     }
 
+    pub fn model(&self) -> &str {
+        &self.model
+    }
+
     pub async fn generate_embedding(&self, text: &str) -> Result<Vec<f32>> {
         let url = format!("{}/api/embeddings", self.base_url);
         let request = EmbeddingRequest {
@@ -107,3 +111,5 @@ impl OllamaClient {
         Ok(full_content)
     }
 }
+
+

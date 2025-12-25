@@ -109,6 +109,11 @@ impl StreamingAgentOrchestrator {
         (orchestrator, event_rx, control_tx)
     }
 
+    /// Get a clone of the event sender for external use
+    pub fn event_sender(&self) -> mpsc::Sender<StreamEvent> {
+        self.event_tx.clone()
+    }
+
     /// Emit a streaming event
     pub async fn emit_event(&mut self, event: StreamEvent) -> Result<()> {
         // Check if execution is paused

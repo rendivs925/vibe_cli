@@ -360,6 +360,10 @@ pub struct Cli {
     #[arg(long)]
     pub stream: bool,
 
+    /// Use safe build mode with user confirmation
+    #[arg(long)]
+    pub build: bool,
+
     /// The query or file path to process
     #[arg(trailing_var_arg = true)]
     pub args: Vec<String>,
@@ -570,7 +574,8 @@ impl CliApp {
         
         // Initialize services
         let client = OllamaClient::new()?;
-        let agent_service = AgentService::new(client);
+        // Use Candle by default instead of Ollama
+        let agent_service = application::create_agent_service().await?;
         
         // Create agent request
         let request = AgentRequest {
@@ -621,7 +626,8 @@ impl CliApp {
         
         // Initialize enhanced agent for planning
         let client = OllamaClient::new()?;
-        let agent_service = AgentService::new(client);
+        // Use Candle by default instead of Ollama
+        let agent_service = application::create_agent_service().await?;
         
         // Create agent request for planning
         let request = domain::models::AgentRequest {
@@ -673,7 +679,8 @@ impl CliApp {
 
         // Initialize enhanced agent for building
         let client = OllamaClient::new()?;
-        let agent_service = AgentService::new(client);
+        // Use Candle by default instead of Ollama
+        let agent_service = application::create_agent_service().await?;
 
         // Create agent request for building
         let request = domain::models::AgentRequest {
@@ -986,7 +993,7 @@ User request: {}",
             eprintln!("Analyzing query and scanning codebase...");
             let client = OllamaClient::new()?;
             let project_root = find_project_root().unwrap_or_else(|| ".".to_string());
-            self.rag_service = Some(RagService::new(&project_root, &self.config.db_path, client, self.config.clone()).await?);
+            self.rag_service = Some(application::create_rag_service(&project_root, &self.config.db_path).await?);
             let keywords = Self::keywords_from_text(question);
             self.rag_service
                 .as_ref()
@@ -1049,7 +1056,7 @@ User request: {}",
         let context_db_path = Self::context_specific_db_path(path);
         context_config.db_path = context_db_path;
 
-        self.rag_service = Some(RagService::new(path, &context_config.db_path.clone(), client, context_config).await?);
+        self.rag_service = Some(application::create_rag_service(path, &context_config.db_path.clone()).await?);
         self.rag_service.as_ref().unwrap().build_index().await?;
         eprintln!("Context loaded from {}", path);
         self.handle_chat().await
@@ -1296,7 +1303,7 @@ User request: {}",
         println!();
 
         // Create a simple streaming demonstration
-        use crate::streaming_agent::{StreamingAgentOrchestrator, StreamingDisplay, DisplayMode, StreamEvent, StatusLevel};
+        use application::streaming_agent::{StreamingAgentOrchestrator, StreamingDisplay, DisplayMode, StreamEvent, StatusLevel};
 
         let (orchestrator, mut event_rx, _control_tx) =
             StreamingAgentOrchestrator::new(DisplayMode::Rich);
@@ -1305,54 +1312,54 @@ User request: {}",
 
         // Start a background task that simulates streaming agent execution
         let goal_clone = goal.to_string();
-        let orchestrator_clone = orchestrator.clone();
+        let event_tx = orchestrator.event_sender();
         tokio::spawn(async move {
             // Simulate agent reasoning steps
-            let _ = orchestrator_clone.emit_event(StreamEvent::ReasoningStart {
+            let _ = event_tx.send(StreamEvent::ReasoningStart {
                 task_description: goal_clone.clone(),
             }).await;
 
-            let _ = orchestrator_clone.emit_event(StreamEvent::Status {
-                message: "Analyzing request...".to_string(),
+            let _ = event_tx.send(StreamEvent::Status {
+                message: "Starting agent execution simulation".to_string(),
                 level: StatusLevel::Info,
             }).await;
 
             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-            let _ = orchestrator_clone.emit_event(StreamEvent::ReasoningStep {
+            let _ = event_tx.send(StreamEvent::ReasoningStep {
                 step_number: 1,
                 content: "Breaking down the request into actionable components".to_string(),
             }).await;
 
             tokio::time::sleep(tokio::time::Duration::from_millis(800)).await;
 
-            let _ = orchestrator_clone.emit_event(StreamEvent::ReasoningStep {
+            let _ = event_tx.send(StreamEvent::ReasoningStep {
                 step_number: 2,
                 content: "Identifying required tools and resources".to_string(),
             }).await;
 
             tokio::time::sleep(tokio::time::Duration::from_millis(600)).await;
 
-            let _ = orchestrator_clone.emit_event(StreamEvent::ToolPlanned {
+            let _ = event_tx.send(StreamEvent::ToolPlanned {
                 tool_name: "analysis_tool".to_string(),
                 description: "Analyze the codebase for relevant information".to_string(),
             }).await;
 
-            let _ = orchestrator_clone.emit_event(StreamEvent::ToolStart {
+            let _ = event_tx.send(StreamEvent::ToolStart {
                 tool_name: "analysis_tool".to_string(),
                 parameters: "{}".to_string(),
             }).await;
 
             tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
-            let _ = orchestrator_clone.emit_event(StreamEvent::ToolComplete {
+            let _ = event_tx.send(StreamEvent::ToolComplete {
                 tool_name: "analysis_tool".to_string(),
                 success: true,
                 duration_ms: 1000,
                 error: None,
             }).await;
 
-            let _ = orchestrator_clone.emit_event(StreamEvent::Result {
+            let _ = event_tx.send(StreamEvent::Result {
                 content: format!("Streaming analysis complete for: {}", goal_clone),
                 confidence: 0.85,
             }).await;

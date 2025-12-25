@@ -1,10 +1,10 @@
-use super::ollama_client::OllamaClient;
+use super::{ollama_client::OllamaClient, InferenceEngine};
 use domain::models::Embedding;
 use futures::stream::{self, StreamExt};
 use shared::types::Result;
 
 pub struct Embedder {
-    client: OllamaClient,
+    inference_engine: InferenceEngine,
 }
 
 #[derive(Clone)]
@@ -16,7 +16,13 @@ pub struct EmbeddingInput {
 
 impl Embedder {
     pub fn new(client: OllamaClient) -> Self {
-        Self { client }
+        // For backward compatibility, wrap OllamaClient in InferenceEngine
+        // In practice, this should be removed once all usage is migrated to Candle
+        Self { inference_engine: InferenceEngine::Ollama(client) }
+    }
+
+    pub fn new_with_inference_engine(inference_engine: InferenceEngine) -> Self {
+        Self { inference_engine }
     }
 
     pub async fn generate_embeddings(&self, inputs: &[EmbeddingInput]) -> Result<Vec<Embedding>> {
@@ -35,9 +41,9 @@ impl Embedder {
         let futures: Vec<_> = inputs
             .iter()
             .map(|input| {
-                let client = &self.client;
+                let inference_engine = &self.inference_engine;
                 async move {
-                    let vector = client.generate_embedding(&input.text).await?;
+                    let vector = inference_engine.generate_embeddings(&input.text).await?;
                     Ok(Embedding {
                         id: input.id.clone(),
                         vector,

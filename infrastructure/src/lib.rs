@@ -23,3 +23,58 @@ pub mod agent_control;
 pub mod observability;
 pub mod feature_flags;
 pub mod candle_inference;
+
+/// Common inference enum for different backends (Candle, Ollama, etc.)
+#[derive(Clone)]
+pub enum InferenceEngine {
+    Ollama(ollama_client::OllamaClient),
+    Candle(candle_inference::CandleInferenceService),
+}
+
+impl InferenceEngine {
+    /// Generate text completion
+    pub async fn generate(&self, prompt: &str) -> shared::types::Result<String> {
+        match self {
+            InferenceEngine::Ollama(client) => client.generate_response(prompt).await,
+            InferenceEngine::Candle(service) => service.generate(prompt).await,
+        }
+    }
+
+    /// Generate embeddings for text
+    pub async fn generate_embeddings(&self, text: &str) -> shared::types::Result<Vec<f32>> {
+        match self {
+            InferenceEngine::Ollama(client) => client.generate_embedding(text).await,
+            InferenceEngine::Candle(service) => service.generate_embeddings(text).await,
+        }
+    }
+
+    /// Get model information
+    pub async fn get_model_info(&self) -> ModelInfo {
+        match self {
+            InferenceEngine::Ollama(client) => ModelInfo {
+                model_id: client.model().to_string(),
+                architecture: "Unknown".to_string(),
+                backend: "Ollama".to_string(),
+                device: "Remote".to_string(),
+            },
+            InferenceEngine::Candle(service) => {
+                let info = service.get_model_info().await;
+                ModelInfo {
+                    model_id: info.model_id,
+                    architecture: format!("{:?}", info.architecture),
+                    backend: "Candle".to_string(),
+                    device: if service.config().use_gpu { "GPU".to_string() } else { "CPU".to_string() },
+                }
+            }
+        }
+    }
+}
+
+/// Model information
+#[derive(Debug, Clone)]
+pub struct ModelInfo {
+    pub model_id: String,
+    pub architecture: String,
+    pub backend: String,
+    pub device: String,
+}
