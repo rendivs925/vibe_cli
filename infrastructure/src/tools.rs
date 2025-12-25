@@ -439,7 +439,7 @@ impl SafeTool {
         let start_time = Instant::now();
 
         let dir_path = args.parameters.get("path")
-            .map(|s| s.as_str())
+            .map(|s| s)
             .unwrap_or("."); // Default to current directory
 
         // Validate path security
@@ -719,19 +719,19 @@ impl SafeTool {
         let pattern = args.parameters.get("pattern")
             .ok_or_else(|| ToolError::ValidationError("Missing 'pattern' parameter".to_string()))?;
         let replacement = args.parameters.get("replacement")
-            .map_or("", |v| v.as_str());
+            .map_or("", |v| v);
 
         let security_validator = ToolSecurityValidator::new();
         security_validator.validate_path(file_path)?;
 
         // First read the file to show preview
-        let current_content = fs::read_to_string(file_path)
+        let _current_content = fs::read_to_string(file_path)
             .map_err(|e| ToolError::ExecutionError(format!("Failed to read file: {}", e)))?;
 
         // Create sed expression
         let sed_expr = format!("s/{}/{}/g", pattern, replacement);
-        let cmd_args_vec = vec!["-i", &sed_expr, file_path];
-        let cmd_args: Vec<&str> = cmd_args_vec.iter().map(|s| s.as_str()).collect();
+        let cmd_args_vec = vec!["-i".to_string(), sed_expr, file_path.to_string()];
+        let cmd_args: Vec<&str> = cmd_args_vec.iter().map(|s| &**s).collect();
 
         let limits = ResourceLimits::default();
         let enforcer = ResourceEnforcer::new();
@@ -792,7 +792,7 @@ impl SafeTool {
         security_validator.validate_path(file_path)?;
 
         let cmd_args_vec = vec![script, file_path];
-        let cmd_args: Vec<&str> = cmd_args_vec.iter().map(|s| s.as_str()).collect();
+        let cmd_args: Vec<&str> = cmd_args_vec.iter().map(|s| s).collect();
 
         let limits = ResourceLimits::default();
         let enforcer = ResourceEnforcer::new();
@@ -851,7 +851,7 @@ impl SafeTool {
             return Err(ToolError::ValidationError("Only HTTP/HTTPS URLs are allowed".to_string()));
         }
 
-        let mut cmd_args_vec = vec!["--silent", "--show-error", "--max-time", "30"];
+        let mut cmd_args_vec: Vec<String> = vec!["--silent", "--show-error", "--max-time", "30"];
 
         // Add headers if provided
         if let Some(headers) = args.parameters.get("headers") {
@@ -862,7 +862,7 @@ impl SafeTool {
         }
 
         cmd_args_vec.push(url);
-        let cmd_args: Vec<&str> = cmd_args_vec.iter().map(|s| s.as_str()).collect();
+        let cmd_args: Vec<&str> = cmd_args_vec.iter().map(|s| s).collect();
 
         let limits = ResourceLimits::default();
         let enforcer = ResourceEnforcer::new();
@@ -913,7 +913,7 @@ impl SafeTool {
         let search_url = format!("https://duckduckgo.com/?q={}&format=json", query.replace(" ", "+"));
 
         let cmd_args_vec = vec!["--silent", "--show-error", "--max-time", "10", &search_url];
-        let cmd_args: Vec<&str> = cmd_args_vec.iter().map(|s| s.as_str()).collect();
+        let cmd_args: Vec<&str> = cmd_args_vec.iter().map(|s| s).collect();
 
         let limits = ResourceLimits::default();
         let enforcer = ResourceEnforcer::new();
@@ -956,12 +956,12 @@ impl SafeTool {
     async fn execute_git_status(&self, args: ToolArgs) -> Result<ToolOutput, ToolError> {
         let start_time = Instant::now();
 
-        let path = args.parameters.get("path").map_or(".", |v| v.as_str());
+        let path = args.parameters.get("path").map_or(".", |v| v);
         let security_validator = ToolSecurityValidator::new();
         security_validator.validate_path(path)?;
 
         let cmd_args_vec = vec!["status", "--porcelain"];
-        let cmd_args: Vec<&str> = cmd_args_vec.iter().map(|s| s.as_str()).collect();
+        let cmd_args: Vec<&str> = cmd_args_vec.iter().map(|s| s).collect();
 
         let limits = ResourceLimits::default();
         let enforcer = ResourceEnforcer::new();
@@ -996,11 +996,11 @@ impl SafeTool {
     async fn execute_git_diff(&self, args: ToolArgs) -> Result<ToolOutput, ToolError> {
         let start_time = Instant::now();
 
-        let path = args.parameters.get("path").map_or(".", |v| v.as_str());
+        let path = args.parameters.get("path").map_or(".", |v| v);
         let security_validator = ToolSecurityValidator::new();
         security_validator.validate_path(path)?;
 
-        let mut cmd_args_vec = vec!["diff"];
+        let mut cmd_args_vec: Vec<String> = vec!["diff"];
 
         if let Some(commit) = args.parameters.get("commit") {
             cmd_args_vec.push(commit);
@@ -1010,7 +1010,7 @@ impl SafeTool {
             cmd_args_vec.push(other);
         }
 
-        let cmd_args: Vec<&str> = cmd_args_vec.iter().map(|s| s.as_str()).collect();
+        let cmd_args: Vec<&str> = cmd_args_vec.iter().map(|s| s).collect();
 
         let limits = ResourceLimits::default();
         let enforcer = ResourceEnforcer::new();
@@ -1045,11 +1045,11 @@ impl SafeTool {
     async fn execute_git_log(&self, args: ToolArgs) -> Result<ToolOutput, ToolError> {
         let start_time = Instant::now();
 
-        let path = args.parameters.get("path").map_or(".", |v| v.as_str());
+        let path = args.parameters.get("path").map_or(".", |v| v);
         let security_validator = ToolSecurityValidator::new();
         security_validator.validate_path(path)?;
 
-        let mut cmd_args_vec = vec!["log", "--oneline"];
+        let mut cmd_args_vec: Vec<String> = vec!["log".to_string(), "--oneline".to_string()];
 
         if let Some(limit) = args.parameters.get("limit") {
             if let Ok(n) = limit.parse::<usize>() {
@@ -1059,11 +1059,11 @@ impl SafeTool {
         }
 
         if let Some(author) = args.parameters.get("author") {
-            cmd_args_vec.push("--author");
-            cmd_args_vec.push(author);
+            cmd_args_vec.push("--author".to_string());
+            cmd_args_vec.push(author.clone());
         }
 
-        let cmd_args: Vec<&str> = cmd_args_vec.iter().map(|s| s.as_str()).collect();
+        let cmd_args: Vec<&str> = cmd_args_vec.iter().map(|s| s).collect();
 
         let limits = ResourceLimits::default();
         let enforcer = ResourceEnforcer::new();
