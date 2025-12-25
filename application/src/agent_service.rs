@@ -258,6 +258,7 @@ Create a detailed step-by-step plan for implementing this goal. For each step, s
 4. Risk level (Low/Medium/High/Critical)
 
 Return ONLY JSON. For create/update operations, include full updated file contents in the "content" field (no placeholders, no prose). If editing an existing file, include the complete post-edit file text so we can show an accurate diff. Do not leave "content" empty for writes.
+Apply SOLID, DRY, and YAGNI principles; use guard clauses over deep nesting; target concise, maintainable code that will compile/run. If you cannot produce a fully specified, reliable plan, respond with an explicit error instead of a partial plan.
 
 Format your response as a JSON object with this structure:
 {{
@@ -290,14 +291,18 @@ Be specific about file paths and content. Do not include commentary outside the 
                 Ok(json) => {
                     return self.build_plan_from_json(json, goal);
                 }
-                Err(_) => {
-                    // JSON parsing failed, create a basic plan
+                Err(e) => {
+                    return Err(anyhow::anyhow!(format!(
+                        "Unable to parse build plan JSON: {}",
+                        e
+                    )));
                 }
             }
         }
 
-        // Fallback: Create a basic plan from text analysis
-        self.create_fallback_plan(plan_text, goal)
+        Err(anyhow::anyhow!(
+            "No JSON build plan found in model response; cannot proceed."
+        ))
     }
 
     fn build_plan_from_json(&self, json: serde_json::Value, goal: &str) -> Result<BuildPlan> {
@@ -362,10 +367,9 @@ Be specific about file paths and content. Do not include commentary outside the 
         }
 
         if operations.is_empty() {
-            return self.create_fallback_plan(
-                "AI plan did not return concrete file contents; generating fallback plan.",
-                goal,
-            );
+            return Err(anyhow::anyhow!(
+                "AI plan did not include concrete operations with content; cannot proceed."
+            ));
         }
 
         Ok(BuildPlan {
@@ -376,45 +380,6 @@ Be specific about file paths and content. Do not include commentary outside the 
         })
     }
 
-    fn create_fallback_plan(&self, plan_text: &str, goal: &str) -> Result<BuildPlan> {
-        // Simple fallback - create a script file based on the goal
-        let lower_goal = goal.to_lowercase();
-        let (script_name, content) = if lower_goal.contains("python") {
-            let name = if lower_goal.contains("snake") {
-                "snake_game.py"
-            } else {
-                "generated_script.py"
-            };
-            let body = format!(
-                "# Generated script for: {goal}\n# {summary}\n\nimport sys\n\n\ndef main():\n    print(\"TODO: implement goal-specific logic here\")\n\n\nif __name__ == \"__main__\":\n    sys.exit(main())\n",
-                goal = goal,
-                summary = plan_text.lines().next().unwrap_or("Auto-generated script")
-            );
-            (name, body)
-        } else if lower_goal.contains("gpu") || lower_goal.contains("cpu") {
-            ("check_system_resources.sh".into(), format!(
-                "#!/bin/bash\n# Generated script for: {}\n# {}\n\necho \"CPU: $(lscpu | head -n 5)\"\necho \"GPU: $(lspci | grep -i vga)\"\n",
-                goal, plan_text.lines().next().unwrap_or("Auto-generated script")
-            ))
-        } else {
-            ("generated_script.sh".into(), format!(
-                "#!/bin/bash\n# Generated script for: {}\n# {}\n\necho \"Script execution started\"\n",
-                goal, plan_text.lines().next().unwrap_or("Auto-generated script")
-            ))
-        };
-
-        Ok(BuildPlan {
-            goal: goal.to_string(),
-            operations: vec![
-                FileOperation::Create {
-                    path: std::path::PathBuf::from(script_name),
-                    content,
-                }
-            ],
-            description: format!("Auto-generated plan for: {}", goal),
-            estimated_risk: RiskLevel::Low,
-        })
-    }
 }
 
 impl ExecutionCoordinator {
