@@ -138,11 +138,28 @@ impl IncrementalBuildPlanner {
                 self.stream_operation_planning_step(inference_engine).await
             }
             PlanningState::PlanningOperations => {
-                let files = self.stream_file_discovery_step(inference_engine).await?;
+                let mut files = self.stream_file_discovery_step(inference_engine).await?;
+                if files.is_empty() {
+                    files = self.infer_files_from_goal(inference_engine).await?;
+                }
+
                 if files.is_empty() {
                     self.planning_state = PlanningState::Finalizing;
                     self.stream_finalizing_step().await
                 } else {
+                    // Seed contexts for newly proposed files
+                    for spec in &files {
+                        self.file_contexts.entry(spec.path.clone()).or_insert(FileContext {
+                            path: spec.path.clone(),
+                            exists: false,
+                            content: None,
+                            size_bytes: 0,
+                            line_count: 0,
+                            modified: None,
+                            operation_type: FileOperationType::Create,
+                        });
+                    }
+
                     self.planning_state = PlanningState::GeneratingCode {
                         files,
                         current_index: 0,
@@ -261,8 +278,8 @@ CRITICAL INSTRUCTIONS:
 1. Read the FILE CONTEXT above carefully - it shows which files "EXISTS" or "DOES NOT EXIST"
 2. For ANY file listed as "EXISTS" → use ACTION: update
 3. For ANY file listed as "DOES NOT EXIST" → use ACTION: create
-4. If no files are listed above, infer what file should be affected by the goal
-5. NEVER guess file existence - trust the FILE CONTEXT information
+4. If no files are listed above, infer a minimal set of files to build the goal from scratch (return at least one).
+5. NEVER guess file existence - trust the FILE CONTEXT information; if context is empty, make clear you are creating new files.
 
 RESPONSE FORMAT (required):
 FILE: path/to/file.ext
@@ -270,15 +287,15 @@ ACTION: update|create
 REASON: brief explanation
 
 EXAMPLES:
-Context shows "index.html: EXISTS (1250 bytes, 42 lines)" →
-FILE: index.html
+Context shows "existing_file.ext: EXISTS (1250 bytes, 42 lines)" →
+FILE: existing_file.ext
 ACTION: update
-REASON: Modify existing HTML file
+REASON: Modify existing content
 
-Context shows "newfile.py: DOES NOT EXIST" →
-FILE: newfile.py
+Context shows "new_file.py: DOES NOT EXIST" →
+FILE: new_file.py
 ACTION: create
-REASON: Create new Python module"#,
+REASON: Create new module"#,
             self.goal, context_summary
         );
 
@@ -330,6 +347,41 @@ REASON: Create new Python module"#,
         }
 
         Ok(filtered_files)
+    }
+
+    async fn infer_files_from_goal(&self, inference_engine: &infrastructure::InferenceEngine) -> Result<Vec<FileSpec>> {
+        let prompt = format!(
+            r#"The filesystem has no relevant files for this goal. Propose a minimal set of files to create to deliver the goal.
+
+GOAL: {}
+
+Rules:
+- Return at least one file.
+- Prefer 1-5 files that together produce a runnable, testable solution.
+- Use ACTION: create for each.
+- Choose sensible names and locations (e.g., src/, public/, index.html) based on the goal; avoid placeholders.
+- Keep the list concise.
+
+FORMAT (required):
+FILE: path/to/file.ext
+ACTION: create
+REASON: brief explanation"#,
+            self.goal
+        );
+
+        let response = inference_engine.generate(&prompt).await?;
+        let files = self.parse_file_specs(&response);
+
+        // Ensure action is create
+        let normalized = files
+            .into_iter()
+            .map(|mut f| {
+                f.action = "create".to_string();
+                f
+            })
+            .collect();
+
+        Ok(normalized)
     }
 
     async fn stream_next_code_step(&mut self, inference_engine: &infrastructure::InferenceEngine) -> Result<Option<IncrementalPlanStep>> {
@@ -1595,22 +1647,6 @@ Generate the command now:"#,
                 if self.validate_path_format(candidate) &&
                    self.is_likely_file_path(candidate) {
                     paths.push(candidate.to_string());
-                }
-            }
-        }
-
-        // Phase 3: Intelligent fallback based on project type and goal intent
-        if paths.is_empty() {
-            let lower_goal = goal.to_lowercase();
-            let implies_modification = lower_goal.contains("update") ||
-                                       lower_goal.contains("modify") ||
-                                       lower_goal.contains("change") ||
-                                       lower_goal.contains("add to") ||
-                                       lower_goal.contains("remove from");
-
-            if implies_modification {
-                if self.detects_web_intent(&lower_goal) {
-                    paths.push("index.html".to_string());
                 }
             }
         }

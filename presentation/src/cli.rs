@@ -1421,15 +1421,6 @@ impl CliApp {
             .unwrap_or_else(|| String::new());
 
         let client = infrastructure::ollama_client::OllamaClient::new()?;
-        let install_pm = if system_context.package_manager.contains("apt") {
-            "apt"
-        } else if system_context.package_manager.contains("pacman") {
-            "pacman"
-        } else if system_context.package_manager.contains("dnf") {
-            "dnf"
-        } else {
-            "package-manager"
-        };
         let prompt = format!(
             r#"You generate a STRICT JSON array of executable shell commands for the user's goal.
 
@@ -1441,31 +1432,21 @@ ENVIRONMENT:
 {ls}
 
 SYSTEM:
-- Distro: {distro}
-- Package Manager: {pm}
+- Auto-detect distro and package manager at runtime; do not assume one unless required by the task.
 
 HARD RULES (no exceptions):
 1) Output ONLY a JSON array of strings, like ["cmd1", "cmd2"]. No prose, code fences, or extra text.
 2) Assume you are already in the current directory—never emit cd/pushd for it.
 3) Use only files and paths that appear in the directory listing; do not invent names.
-4) Every command must be syntactically complete. For zip, the archive name goes first: zip archive.zip file1 file2.
+4) Every command must be syntactically complete (e.g., zip archive.zip file1 file2).
 5) Prefer the simplest minimal set of commands. If one command solves it, return a single-element array.
 6) Use real paths (relative to the current directory) and avoid placeholders like /path/to or ~.
 7) If the task cannot be satisfied with the available files, respond with [].
-
-EXAMPLES:
-- Request: "zip snake_game.py and index.html"
-  Output: ["zip snake_game.zip snake_game.py index.html"]
-- Request: "install python3"
-  Output: ["sudo {install_pm} install -y python3"]
 
 OUTPUT:"#,
             task = task,
             cwd = current_dir,
             ls = ls_output,
-            distro = system_context.distro,
-            pm = system_context.package_manager,
-            install_pm = install_pm
         );
         let response = client.generate_response(&prompt).await?;
         let commands = parse_agent_plan(&response);
