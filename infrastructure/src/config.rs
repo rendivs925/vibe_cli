@@ -198,6 +198,209 @@ impl Default for AuditTrailConfig {
     }
 }
 
+/// System context information gathered from the environment (like neofetch/fastfetch)
+#[derive(Clone, Debug)]
+pub struct SystemContext {
+    pub os_type: String,
+    pub distro: String,
+    pub distro_id: String,
+    pub kernel: String,
+    pub hostname: String,
+    pub current_dir: String,
+    pub home_dir: String,
+    pub shell: String,
+    pub user: String,
+    pub architecture: String,
+    pub cpu_model: String,
+    pub cpu_cores: String,
+    pub gpu_model: String,
+    pub gpu_driver: String,
+    pub ram_total: String,
+    pub ram_used: String,
+    pub terminal: String,
+    pub package_manager: String,
+    pub desktop_env: String,
+    pub window_manager: String,
+    pub display_server: String,
+    pub uptime: String,
+}
+
+impl SystemContext {
+    /// Gather comprehensive system context using shell commands (like neofetch)
+    pub fn gather() -> Self {
+        use std::process::Command;
+
+        // Helper function to run shell command
+        let run_cmd = |cmd: &str| -> String {
+            Command::new("sh")
+                .arg("-c")
+                .arg(cmd)
+                .output()
+                .ok()
+                .and_then(|o| String::from_utf8(o.stdout).ok())
+                .unwrap_or_else(|| "Unknown".to_string())
+                .trim()
+                .to_string()
+        };
+
+        // Basic system info
+        let os_type = std::env::consts::OS.to_string();
+        let architecture = std::env::consts::ARCH.to_string();
+
+        // Distribution info
+        let distro = run_cmd("lsb_release -d 2>/dev/null | cut -f2 || grep PRETTY_NAME /etc/os-release 2>/dev/null | cut -d'\"' -f2 || echo 'Unknown'");
+        let distro_id = run_cmd("lsb_release -i 2>/dev/null | cut -f2 || grep '^ID=' /etc/os-release 2>/dev/null | cut -d'=' -f2 | tr -d '\"' || echo 'unknown'");
+
+        // Kernel and hostname
+        let kernel = run_cmd("uname -r");
+        let hostname = run_cmd("hostname");
+
+        // User and directories
+        let user = std::env::var("USER").unwrap_or_else(|_| run_cmd("whoami"));
+        let home_dir = std::env::var("HOME").unwrap_or_else(|_| "~".to_string());
+        let current_dir = std::env::current_dir()
+            .ok()
+            .and_then(|p| p.to_str().map(|s| s.to_string()))
+            .unwrap_or_else(|| ".".to_string());
+
+        // Shell info
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| run_cmd("echo $SHELL"));
+
+        // CPU info
+        let cpu_model = run_cmd("lscpu | grep 'Model name' | sed 's/Model name: *//' | sed 's/  */ /g'");
+        let cpu_cores = run_cmd("nproc --all 2>/dev/null || grep -c ^processor /proc/cpuinfo 2>/dev/null || echo '?'");
+
+        // GPU info
+        let gpu_model = run_cmd("lspci 2>/dev/null | grep -i 'vga\\|3d\\|display' | head -n1 | sed 's/.*: //' || echo 'Unknown'");
+        let gpu_driver = run_cmd("lspci -k 2>/dev/null | grep -A 2 -i 'vga\\|3d' | grep 'Kernel driver' | sed 's/.*: //' | head -n1 || echo 'Unknown'");
+
+        // RAM info
+        let ram_total = run_cmd("free -h 2>/dev/null | awk '/^Mem:/ {print $2}' || echo 'Unknown'");
+        let ram_used = run_cmd("free -h 2>/dev/null | awk '/^Mem:/ {print $3}' || echo 'Unknown'");
+
+        // Terminal
+        let terminal = std::env::var("TERM").unwrap_or_else(|_|
+            std::env::var("TERMINAL").unwrap_or_else(|_| run_cmd("ps -o comm= -p $PPID 2>/dev/null || echo 'Unknown'"))
+        );
+
+        // Package manager detection
+        let package_manager = if Command::new("which").arg("pacman").output().ok().map(|o| o.status.success()).unwrap_or(false) {
+            "pacman (Arch)".to_string()
+        } else if Command::new("which").arg("apt").output().ok().map(|o| o.status.success()).unwrap_or(false) {
+            "apt (Debian/Ubuntu)".to_string()
+        } else if Command::new("which").arg("dnf").output().ok().map(|o| o.status.success()).unwrap_or(false) {
+            "dnf (Fedora)".to_string()
+        } else if Command::new("which").arg("yum").output().ok().map(|o| o.status.success()).unwrap_or(false) {
+            "yum (RHEL/CentOS)".to_string()
+        } else if Command::new("which").arg("zypper").output().ok().map(|o| o.status.success()).unwrap_or(false) {
+            "zypper (openSUSE)".to_string()
+        } else if Command::new("which").arg("emerge").output().ok().map(|o| o.status.success()).unwrap_or(false) {
+            "emerge (Gentoo)".to_string()
+        } else {
+            "unknown".to_string()
+        };
+
+        // Desktop environment and window manager
+        let desktop_env = std::env::var("XDG_CURRENT_DESKTOP")
+            .or_else(|_| std::env::var("DESKTOP_SESSION"))
+            .unwrap_or_else(|_| run_cmd("echo $XDG_CURRENT_DESKTOP"));
+
+        let window_manager = std::env::var("WINDOW_MANAGER")
+            .unwrap_or_else(|_| run_cmd("wmctrl -m 2>/dev/null | grep 'Name:' | cut -d' ' -f2 || echo 'Unknown'"));
+
+        // Display server
+        let display_server = if std::env::var("WAYLAND_DISPLAY").is_ok() {
+            "Wayland".to_string()
+        } else if std::env::var("DISPLAY").is_ok() {
+            "X11".to_string()
+        } else {
+            "Unknown".to_string()
+        };
+
+        // Uptime
+        let uptime = run_cmd("uptime -p 2>/dev/null | sed 's/up //' || uptime | awk '{print $3,$4}' | sed 's/,//'");
+
+        Self {
+            os_type,
+            distro,
+            distro_id,
+            kernel,
+            hostname,
+            current_dir,
+            home_dir,
+            shell,
+            user,
+            architecture,
+            cpu_model,
+            cpu_cores,
+            gpu_model,
+            gpu_driver,
+            ram_total,
+            ram_used,
+            terminal,
+            package_manager,
+            desktop_env,
+            window_manager,
+            display_server,
+            uptime,
+        }
+    }
+
+    /// Format as a comprehensive string for AI context (like neofetch output)
+    pub fn to_context_string(&self) -> String {
+        format!(
+            r#"=== SYSTEM INFORMATION ===
+User: {}@{}
+OS: {} ({})
+Distro: {} [{}]
+Kernel: {}
+Architecture: {}
+Uptime: {}
+
+=== HARDWARE ===
+CPU: {} ({} cores)
+GPU: {} (Driver: {})
+RAM: {} / {} (used/total)
+
+=== ENVIRONMENT ===
+Shell: {}
+Terminal: {}
+Display Server: {}
+Desktop Environment: {}
+Window Manager: {}
+
+=== PACKAGE MANAGER ===
+{}
+
+=== PATHS ===
+Working Directory: {}
+Home Directory: {}
+"#,
+            self.user, self.hostname,
+            self.os_type, self.distro,
+            self.distro, self.distro_id,
+            self.kernel,
+            self.architecture,
+            self.uptime,
+
+            self.cpu_model, self.cpu_cores,
+            self.gpu_model, self.gpu_driver,
+            self.ram_used, self.ram_total,
+
+            self.shell,
+            self.terminal,
+            self.display_server,
+            self.desktop_env,
+            self.window_manager,
+
+            self.package_manager,
+
+            self.current_dir,
+            self.home_dir
+        )
+    }
+}
+
 /// Context window management configuration
 #[derive(Clone)]
 pub struct ContextConfig {
@@ -217,17 +420,17 @@ pub struct ContextConfig {
 impl Default for ContextConfig {
     fn default() -> Self {
         Self {
-            max_file_size_bytes: 2 * 1024 * 1024, // 2MB per file
-            max_files_in_context: 10,
-            max_context_tokens: 8000, // Reserve space for response
-            max_file_preview_lines: 200,
+            max_file_size_bytes: 10 * 1024 * 1024, // 10MB per file (increased for long files)
+            max_files_in_context: 20, // Increased to handle more context
+            max_context_tokens: 16000, // Increased token budget
+            max_file_preview_lines: 1000, // Increased to show more content
             token_estimation_ratio: 4.0, // ~4 chars per token for English
-            max_plan_attempts: 3,
-            max_search_candidates: 100,
-            max_search_results: 5,
-            max_keywords_for_search: 3,
-            max_lines_per_keyword: 4,
-            max_rg_context_snippets: 8,
+            max_plan_attempts: 5, // More attempts for complex tasks
+            max_search_candidates: 200, // Scan more files
+            max_search_results: 10, // Return more results
+            max_keywords_for_search: 5, // More keywords
+            max_lines_per_keyword: 10, // More context per keyword
+            max_rg_context_snippets: 15, // More snippets
         }
     }
 }
