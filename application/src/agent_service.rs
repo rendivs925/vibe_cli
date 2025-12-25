@@ -24,7 +24,7 @@ use infrastructure::{
     sandbox::Sandbox,
     InferenceEngine,
 };
-use serde_json::json;
+use serde_json::{json, Value};
 use shared::types::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -1961,7 +1961,13 @@ Rules: keep it concise and deterministic; only include real files; if context is
             results.push(ToolResult {
                 tool_call_id: tool_call.id.clone(),
                 success: true,
-                result: serde_json::json!({"message": "Tool executed successfully"}),
+                result: serde_json::json!({
+                    "message": "Tool executed successfully",
+                    "tool": tool_call.name,
+                    "stdout": "",
+                    "stderr": "",
+                    "duration_ms": 0
+                }),
                 error: None,
             });
         }
@@ -1970,11 +1976,97 @@ Rules: keep it concise and deterministic; only include real files; if context is
 
     /// Generate final response
     pub async fn generate_final_response(&self, goal: &str, reasoning: &[String], tool_results: &[ToolResult]) -> Result<String> {
-        // Simplified implementation
-        Ok(format!("Goal: {}\nReasoning: {}\nResults: {} tools executed",
-                   goal,
-                   reasoning.join(", "),
-                   tool_results.len()))
+        let facts = self.summarize_tool_results(tool_results);
+        if facts.is_empty() {
+            return Ok("Insufficient context to answer; gather tool outputs (files/tests/commands) and retry.".to_string());
+        }
+
+        let max_facts = 8usize;
+        let facts_text = facts
+            .into_iter()
+            .take(max_facts)
+            .map(|f| format!("- {}", f))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let reasoning_text = if reasoning.is_empty() {
+            "No prior reasoning; rely only on facts.".to_string()
+        } else {
+            reasoning.join(" ")
+        };
+
+        let prompt = format!(
+            r#"You are a coding agent producing a grounded, concise answer.
+Goal: {goal}
+Reasoning (for background only; do not invent from it): {reasoning}
+Facts (authoritative, from tools): 
+{facts}
+Instructions:
+- Base the answer ONLY on the Facts above. Do not invent file paths, outputs, APIs, or behavior not present in Facts.
+- If the facts are insufficient, reply exactly: "Insufficient context to answer."
+- Keep the answer <= 6 sentences.
+- Include a "Facts:" section echoing the facts you used, and nothing else.
+Respond now."#,
+            goal = goal,
+            reasoning = reasoning_text,
+            facts = facts_text
+        );
+
+        let response = self.inference_engine.generate(&prompt).await?;
+        Ok(response.trim().to_string())
+    }
+
+    fn truncate_text(&self, input: &str, max_len: usize) -> String {
+        if input.len() <= max_len {
+            input.to_string()
+        } else {
+            format!("{}…", &input[..max_len])
+        }
+    }
+
+    fn summarize_tool_results(&self, tool_results: &[ToolResult]) -> Vec<String> {
+        let mut facts = Vec::new();
+        let max_len = 240usize;
+
+        for tr in tool_results {
+            if let Some(err) = &tr.error {
+                facts.push(format!(
+                    "tool_call_id={} success=false error={}",
+                    tr.tool_call_id,
+                    self.truncate_text(err, max_len)
+                ));
+                continue;
+            }
+
+            let mut fact = format!("tool_call_id={} success={}", tr.tool_call_id, tr.success);
+            if let Value::Object(map) = &tr.result {
+                if let Some(tool) = map.get("tool").and_then(|v| v.as_str()) {
+                    fact.push_str(&format!(" tool={}", tool));
+                }
+                if let Some(stdout) = map.get("stdout").and_then(|v| v.as_str()) {
+                    let cleaned = stdout.trim();
+                    if !cleaned.is_empty() {
+                        fact.push_str(&format!(" stdout=\"{}\"", self.truncate_text(cleaned, max_len)));
+                    }
+                }
+                if let Some(stderr) = map.get("stderr").and_then(|v| v.as_str()) {
+                    let cleaned = stderr.trim();
+                    if !cleaned.is_empty() {
+                        fact.push_str(&format!(" stderr=\"{}\"", self.truncate_text(cleaned, max_len)));
+                    }
+                }
+                if let Some(msg) = map.get("message").and_then(|v| v.as_str()) {
+                    let cleaned = msg.trim();
+                    if !cleaned.is_empty() {
+                        fact.push_str(&format!(" note=\"{}\"", self.truncate_text(cleaned, max_len)));
+                    }
+                }
+            }
+
+            facts.push(fact);
+        }
+
+        facts
     }
 
     /// Calculate confidence score
