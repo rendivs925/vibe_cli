@@ -213,13 +213,11 @@ pub async fn request_command(config: &Config, messages: &[Message]) -> Result<St
             "Convert the user's last request into ONE POSIX shell command. \
               Current working directory: {}. \
               Project root: {}. \
-              Use actual paths and commands that will work in this environment. \
-              Avoid placeholders like '/path/to/' - use real paths or relative paths from the project root. \
-              For project-wide operations, use the project root as the base. \
-             Common patterns: 'disk space/free space' → df -h, 'folder sizes/largest folders' → du -sh */ | sort -hr. \
-             Distinguish between filesystem space (df) and folder sizes (du). \
-             Cache management: 'clear cache' uses --retrain flag, 'show cache' → cat ~/.config/vibe_cli/cache.json. \
-             Output ONLY the command, no markdown, no explanation.",
+              Use real paths (absolute or relative to the project root) and commands that run in this environment. \
+              Pick the right tool automatically; keep the command minimal, deterministic, and non-destructive unless asked. \
+              Distinguish filesystem usage (df) from directory sizes (du) when relevant. \
+              For cache operations, prefer the application's flags (e.g., --retrain) instead of manual file edits. \
+              Output ONLY the command text—no markdown or explanation.",
             cwd, project_root
         ),
     });

@@ -27,24 +27,17 @@ impl ChatSession {
         };
 
         let env_context = format!(
-            "Environment: Current working directory is '{}', running on {} platform.",
+            "Environment: cwd='{}', platform='{}'. Use commands that run here without extra setup.",
             cwd, platform
         );
 
-        let base_instructions = "Convert natural language requests into POSIX shell commands. \
-                                Use actual paths, not placeholders like '/path/to/'. \
-                                Commands should work in the current environment. \
-                                Prefer robust commands that handle errors gracefully.\n\n\
-                                Common command patterns:\n\
-                                - 'disk space' or 'free space' → df -h (filesystem usage)\n\
-                                - 'folder sizes' or 'directory sizes' → du -sh */ (directory usage)\n\
-                                - 'largest folders' → du -sh */ | sort -hr\n\
-                                - 'file sizes' → ls -lh | sort -k5 -hr\n\
-                                - 'clear cache' or 'reset cache' → handled by application flags (--retrain)\n\
-                                - 'show cache' or 'list cached commands' → cat ~/.config/vibe_cli/cache.json\n\
-                                Distinguish between filesystem space (df) and folder/directory sizes (du). \
-                                When users mention 'folders' or 'directories', they usually want du commands, not df. \
-                                For cache management, use the application's built-in commands rather than direct file manipulation.";
+        let base_instructions = "Role: Turn natural language tasks into a single POSIX shell command ready to run. \
+                                Infer the right tool automatically; avoid long pattern lists or unnecessary context. \
+                                Use real paths (absolute or relative), never placeholders. \
+                                Keep commands deterministic and minimal; prefer read-only/non-destructive actions unless told otherwise. \
+                                Distinguish filesystem usage (df) from directory sizes (du) and pick accordingly. \
+                                Use application flags for cache management (--retrain) instead of editing cache files by hand. \
+                                Respond with plain commands (no markdown or extra prose).";
 
         let safety_note = if safe_mode {
             "Avoid destructive operations, never format disks, and avoid sudo. \
