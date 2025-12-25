@@ -97,6 +97,7 @@ pub struct IncrementalBuildPlanner {
     completed_operations: Vec<FileOperation>,
     complex_operations: Vec<ComplexOperation>,
     file_contexts: HashMap<String, FileContext>,
+    config: Config,
 }
 
 #[derive(Debug, Clone)]
@@ -117,7 +118,7 @@ struct FileSpec {
 }
 
 impl IncrementalBuildPlanner {
-    pub fn new(goal: String, context: Vec<String>) -> Self {
+    pub fn new(goal: String, context: Vec<String>, config: Config) -> Self {
         Self {
             goal,
             context,
@@ -125,6 +126,7 @@ impl IncrementalBuildPlanner {
             completed_operations: Vec::new(),
             complex_operations: Vec::new(),
             file_contexts: HashMap::new(),
+            config,
         }
     }
 
@@ -252,65 +254,84 @@ Do not include any other text or explanations."#,
         let context_summary = self.build_context_summary();
 
         let prompt = format!(
-            r#"You are a code modification assistant. Analyze the user's goal and determine what file changes are required.
+            r#"Analyze the goal and determine file operations based on ACTUAL file existence.
 
 GOAL: {}
 
-ACTUAL FILE CONTEXT:
+FILE CONTEXT (from filesystem scan):
 {}
 
-TASK: Determine what files must be created or modified to accomplish this goal.
-Every goal requires some file change - there are no goals that need "NO FILES".
+CRITICAL INSTRUCTIONS:
+1. Read the FILE CONTEXT above carefully - it shows which files "EXISTS" or "DOES NOT EXIST"
+2. For ANY file listed as "EXISTS" → use ACTION: update
+3. For ANY file listed as "DOES NOT EXIST" → use ACTION: create
+4. If no files are listed above, infer what file should be affected by the goal
+5. NEVER guess file existence - trust the FILE CONTEXT information
 
-RESPONSE FORMAT: You must respond with file operations in this EXACT format:
+RESPONSE FORMAT (required):
 FILE: path/to/file.ext
-ACTION: create|update
+ACTION: update|create
 REASON: brief explanation
 
-RULES:
-- Start each file with "FILE:" (capital F)
-- Use "ACTION: update" for existing files that need changes
-- Use "ACTION: create" for new files that don't exist
-- Provide a clear reason for each change
-- You MUST specify at least one file operation
-
-EXAMPLE:
-If the goal is "add logging to main.rs", respond:
-FILE: src/main.rs
+EXAMPLES:
+Context shows "index.html: EXISTS (1250 bytes, 42 lines)" →
+FILE: index.html
 ACTION: update
-REASON: Add logging statements to main function
+REASON: Modify existing HTML file
 
-If the goal is "create a utils file", respond:
-FILE: src/utils.rs
+Context shows "newfile.py: DOES NOT EXIST" →
+FILE: newfile.py
 ACTION: create
-REASON: Create new utility functions file"#,
+REASON: Create new Python module"#,
             self.goal, context_summary
         );
 
         let response = inference_engine.generate(&prompt).await?;
         let files = self.parse_file_specs(&response);
 
-        // Filter out files that don't exist when action is "update"
-        let filtered_files: Vec<FileSpec> = files.into_iter()
-            .filter(|file_spec| {
-                let should_include = match file_spec.action.as_str() {
-                    "update" => {
-                        // Only allow updates for files that actually exist
-                        self.file_contexts.get(&file_spec.path)
-                            .map(|ctx| ctx.exists)
-                            .unwrap_or(false)
+        // Validate and filter files based on actual filesystem state
+        let mut filtered_files: Vec<FileSpec> = Vec::new();
+
+        for file_spec in files {
+            let file_exists = self.file_contexts.get(&file_spec.path)
+                .map(|ctx| ctx.exists)
+                .unwrap_or_else(|| std::path::Path::new(&file_spec.path).exists());
+
+            let should_include = match file_spec.action.as_str() {
+                "update" => {
+                    if !file_exists {
+                        eprintln!("⚠️  Correcting: AI suggested 'update' for non-existent file '{}' - changing to 'create'", file_spec.path);
+                        // Auto-correct: change update to create
+                        let mut corrected = file_spec.clone();
+                        corrected.action = "create".to_string();
+                        filtered_files.push(corrected);
+                        false
+                    } else {
+                        true
                     }
-                    "create" => {
-                        // Only allow creates for files that don't exist
-                        !self.file_contexts.get(&file_spec.path)
-                            .map(|ctx| ctx.exists)
-                            .unwrap_or(false)
+                }
+                "create" => {
+                    if file_exists {
+                        eprintln!("⚠️  Correcting: AI suggested 'create' for existing file '{}' - changing to 'update'", file_spec.path);
+                        // Auto-correct: change create to update
+                        let mut corrected = file_spec.clone();
+                        corrected.action = "update".to_string();
+                        filtered_files.push(corrected);
+                        false
+                    } else {
+                        true
                     }
-                    _ => false,
-                };
-                should_include
-            })
-            .collect();
+                }
+                _ => {
+                    eprintln!("⚠️  Skipping invalid action '{}' for file '{}'", file_spec.action, file_spec.path);
+                    false
+                }
+            };
+
+            if should_include {
+                filtered_files.push(file_spec);
+            }
+        }
 
         Ok(filtered_files)
     }
@@ -333,67 +354,80 @@ REASON: Create new utility functions file"#,
             .and_then(|ctx| ctx.content.as_ref());
 
         let (prompt, is_update) = if file_spec.action == "update" && existing_content.is_some() {
-            // Generate targeted changes for existing files
+            // Generate targeted changes for existing files using smart context
             let content = existing_content.unwrap();
             let lines: Vec<&str> = content.lines().collect();
             let line_count = lines.len();
 
-            (format!(
-                r#"You are a code editing assistant. Generate precise, targeted changes to update an existing file.
+            // Create smart preview of file with line numbers
+            let preview = self.create_numbered_preview(content, line_count);
 
-EXISTING FILE CONTENT ({}, {} lines):
-{}
+            (format!(
+                r#"Task: Generate precise changes to update an existing file based on the goal.
 
 GOAL: {}
-FILE TO UPDATE: {}
+FILE: {}
+SIZE: {} lines
 
-CRITICAL REQUIREMENTS:
-1. DO NOT generate the complete file - only specific changes
-2. Use line numbers from the existing content (1-indexed)
-3. Output changes in this EXACT format:
+FILE CONTENT (with line numbers):
+{}
 
-REPLACE lines X-Y with:
-<new content here>
+INSTRUCTIONS:
+- Analyze the existing content and determine minimal changes needed
+- Generate ONLY the specific changes required - do NOT rewrite the entire file
+- Use exact line numbers from the content above
+- Output changes using this format:
 
-INSERT after line Z:
-<new content here>
+  REPLACE lines X-Y with:
+  <replacement content>
 
-DELETE lines A-B
+  INSERT after line N:
+  <new content>
 
-4. Each change must be on separate lines
-5. Use accurate line numbers based on the provided content
-6. If multiple changes needed, list them sequentially
-7. If no changes needed, output: NO CHANGES REQUIRED
+  DELETE lines M-N
 
-EXAMPLE:
-REPLACE lines 5-7 with:
-new line 5 content
-new line 6 content
-new line 7 content
+- If no changes needed: output "NO CHANGES REQUIRED"
 
-INSERT after line 12:
-new line inserted after 12
-
-DELETE lines 20-22"#,
-                file_spec.path, line_count, content, self.goal, file_spec.path
+Remember: Be precise with line numbers. The file currently has {} lines."#,
+                self.goal, file_spec.path, line_count, preview, line_count
             ), true)
         } else {
             // Generate complete new file for creation
+            let file_extension = std::path::Path::new(&file_spec.path)
+                .extension()
+                .and_then(|s| s.to_str())
+                .unwrap_or("");
+
+            let language_hint = match file_extension {
+                "rs" => "Rust",
+                "py" => "Python",
+                "js" => "JavaScript",
+                "ts" => "TypeScript",
+                "html" => "HTML",
+                "css" => "CSS",
+                "go" => "Go",
+                "java" => "Java",
+                _ => "code"
+            };
+
             (format!(
-                r#"Generate the complete HTML code for a landing page with Tailwind CSS.
+                r#"Task: Generate a complete new file to accomplish the goal.
 
-Create a beautiful, responsive landing page that includes:
-- Modern gradient background
-- Centered hero section with title and description
-- Call-to-action button with hover effects
-- Footer with copyright
-- Proper HTML structure and Tailwind CDN
+GOAL: {}
+FILE TO CREATE: {}
+LANGUAGE/TYPE: {}
 
-Goal: {}
-File: {}
+INSTRUCTIONS:
+- Generate the complete, working {} file
+- Include necessary imports, dependencies, or boilerplate
+- Follow best practices and conventions for {}
+- Ensure the code is production-ready and well-structured
+- Do NOT include explanations or markdown formatting
+- Return ONLY the file content
 
-Return ONLY the complete HTML code, no explanations or markdown."#,
-                self.goal, file_spec.path
+Generate the complete file content now:"#,
+                self.goal, file_spec.path, language_hint,
+                language_hint, language_hint
             ), false)
         };
 
@@ -600,8 +634,22 @@ Return ONLY the complete HTML code, no explanations or markdown."#,
             return "No specific files identified for this goal.".to_string();
         }
 
+        let max_tokens = self.config.context.max_context_tokens;
+        let mut current_tokens = 0;
         let mut summary = String::new();
-        for (path, context) in &self.file_contexts {
+
+        // Prioritize files: existing files first, then by relevance to goal
+        let mut contexts: Vec<_> = self.file_contexts.iter().collect();
+        contexts.sort_by(|a, b| {
+            // Sort by: 1) exists, 2) smaller size (more likely to be relevant)
+            match (a.1.exists, b.1.exists) {
+                (true, false) => std::cmp::Ordering::Less,
+                (false, true) => std::cmp::Ordering::Greater,
+                _ => a.1.size_bytes.cmp(&b.1.size_bytes),
+            }
+        });
+
+        for (path, context) in contexts.iter().take(self.config.context.max_files_in_context) {
             let status = if context.exists { "EXISTS" } else { "DOES NOT EXIST" };
             let size_info = if context.exists {
                 format!(" ({} bytes, {} lines)", context.size_bytes, context.line_count)
@@ -609,20 +657,107 @@ Return ONLY the complete HTML code, no explanations or markdown."#,
                 "".to_string()
             };
 
-            summary.push_str(&format!("- {}: {}{}\n", path, status, size_info));
+            let file_header = format!("- {}: {}{}\n", path, status, size_info);
+            let header_tokens = self.estimate_tokens(&file_header);
 
-            // Include a brief content preview for existing files
+            // Check if adding this file would exceed token limit
+            if current_tokens + header_tokens > max_tokens {
+                summary.push_str("... (additional files truncated to fit context window)\n");
+                break;
+            }
+
+            summary.push_str(&file_header);
+            current_tokens += header_tokens;
+
+            // Include smart content preview for existing files
             if let Some(content) = &context.content {
-                let preview = if content.len() > 200 {
-                    format!("{}...", &content[..200])
-                } else {
-                    content.clone()
-                };
-                summary.push_str(&format!("  Content preview: {}\n", preview));
+                let preview = self.create_smart_preview(content, max_tokens - current_tokens);
+                if !preview.is_empty() {
+                    let preview_text = format!("  Preview:\n{}\n", preview);
+                    let preview_tokens = self.estimate_tokens(&preview_text);
+
+                    if current_tokens + preview_tokens <= max_tokens {
+                        summary.push_str(&preview_text);
+                        current_tokens += preview_tokens;
+                    }
+                }
             }
         }
 
         summary
+    }
+
+    /// Estimate token count from text
+    fn estimate_tokens(&self, text: &str) -> usize {
+        (text.len() as f32 / self.config.context.token_estimation_ratio) as usize
+    }
+
+    /// Create smart preview of file content using shell commands
+    fn create_smart_preview(&self, content: &str, remaining_tokens: usize) -> String {
+        let max_lines = self.config.context.max_file_preview_lines;
+        let lines: Vec<&str> = content.lines().collect();
+
+        if lines.len() <= max_lines {
+            return content.to_string();
+        }
+
+        // Use head and tail strategy for large files
+        let head_lines = max_lines / 2;
+        let tail_lines = max_lines / 2;
+
+        let mut preview = String::new();
+
+        // First N lines
+        for line in lines.iter().take(head_lines) {
+            preview.push_str(line);
+            preview.push('\n');
+        }
+
+        preview.push_str("\n    ... (truncated) ...\n\n");
+
+        // Last N lines
+        for line in lines.iter().skip(lines.len() - tail_lines) {
+            preview.push_str(line);
+            preview.push('\n');
+        }
+
+        preview
+    }
+
+    /// Create numbered preview of file content for precise editing
+    fn create_numbered_preview(&self, content: &str, total_lines: usize) -> String {
+        let max_preview_lines = self.config.context.max_file_preview_lines;
+        let lines: Vec<&str> = content.lines().collect();
+
+        if total_lines <= max_preview_lines {
+            // Show all lines with numbers
+            return lines.iter()
+                .enumerate()
+                .map(|(i, line)| format!("{:4} | {}", i + 1, line))
+                .collect::<Vec<_>>()
+                .join("\n");
+        }
+
+        // Show head and tail with line numbers
+        let head_count = max_preview_lines / 2;
+        let tail_count = max_preview_lines / 2;
+
+        let mut preview = String::new();
+
+        // Head lines
+        for (i, line) in lines.iter().take(head_count).enumerate() {
+            preview.push_str(&format!("{:4} | {}\n", i + 1, line));
+        }
+
+        preview.push_str("\n     ... (lines hidden for brevity) ...\n\n");
+
+        // Tail lines
+        let skip_count = total_lines - tail_count;
+        for (i, line) in lines.iter().skip(skip_count).enumerate() {
+            preview.push_str(&format!("{:4} | {}\n", skip_count + i + 1, line));
+        }
+
+        preview
     }
 
     /// Parse AI-generated diff format and apply changes to existing content
@@ -866,7 +1001,7 @@ impl AgentService {
         }
 
         // Create planner with populated file contexts
-        let mut planner = IncrementalBuildPlanner::new(goal.to_string(), retrieved_context);
+        let mut planner = IncrementalBuildPlanner::new(goal.to_string(), retrieved_context, self.config.clone());
         planner.file_contexts = file_contexts;
 
         Ok(planner)
@@ -920,13 +1055,13 @@ impl AgentService {
         }
 
         // Step 2: Generate build plan using the inference engine with guarded retries
-        const MAX_PLAN_ATTEMPTS: usize = 3;
+        let max_plan_attempts = self.config.context.max_plan_attempts;
         let mut last_error = None;
         let mut raw_plan_text = String::new();
         let mut plan: Option<BuildPlan> = None;
         let mut attempt_count = 0;
 
-        for attempt in 1..=MAX_PLAN_ATTEMPTS {
+        for attempt in 1..=max_plan_attempts {
             attempt_count = attempt;
             let prompt = self.create_build_planning_prompt(goal, &retrieved_context);
             planning_logs.push(format!("Attempt {}: generating plan", attempt));
@@ -963,7 +1098,7 @@ impl AgentService {
                 };
                 return Err(anyhow::anyhow!(format!(
                     "Failed to produce a valid build plan after {} attempts: {}\nLast plan text:\n{}\nLogs:\n{}",
-                    MAX_PLAN_ATTEMPTS,
+                    max_plan_attempts,
                     last_error.unwrap_or_else(|| anyhow::anyhow!("Unknown planning error")),
                     snippet,
                     planning_logs.join("\n")
@@ -995,12 +1130,39 @@ impl AgentService {
             .collect()
     }
 
-    /// Prepare file context by reading existing files mentioned in the goal
+    /// Prepare file context by discovering relevant files from project structure and content
     async fn prepare_file_context(&self, goal: &str) -> Result<HashMap<String, FileContext>> {
-        let file_paths = self.extract_file_paths_from_goal(goal)?;
-        let mut file_contexts = HashMap::new();
+        let mut file_paths = Vec::new();
 
-        for path in file_paths {
+        // 1. Extract explicitly mentioned files from goal
+        let explicit_files = self.extract_file_paths_from_goal(goal)?;
+        file_paths.extend(explicit_files);
+
+        // 2. Use ripgrep to discover relevant files based on keywords from goal
+        let keywords = self.extract_keywords_from_goal(goal);
+        if !keywords.is_empty() {
+            if let Ok(discovered) = self.search_files_by_content(&keywords).await {
+                file_paths.extend(discovered);
+            }
+        }
+
+        // 3. If no files discovered yet, check if any common entry point files exist
+        if file_paths.is_empty() {
+            if let Ok(entry_files) = self.find_likely_entry_files().await {
+                file_paths.extend(entry_files);
+            }
+        }
+
+        // 4. Deduplicate while preserving order
+        let mut seen = std::collections::HashSet::new();
+        let deduplicated: Vec<String> = file_paths
+            .into_iter()
+            .filter(|p| seen.insert(p.clone()))
+            .collect();
+
+        // 5. Build context for each discovered file
+        let mut file_contexts = HashMap::new();
+        for path in deduplicated {
             let full_path = std::path::Path::new(&path);
             let exists = full_path.exists();
 
@@ -1020,9 +1182,8 @@ impl AgentService {
                     context.size_bytes = metadata.len();
                     context.modified = Some(metadata.modified()?);
 
-                    // Read content with size limit for safety
-                    const MAX_FILE_SIZE: u64 = 1024 * 1024; // 1MB limit
-                    if metadata.len() <= MAX_FILE_SIZE {
+                    // Read content with configurable size limit for safety
+                    if metadata.len() <= self.config.context.max_file_size_bytes {
                         if let Ok(content) = tokio::fs::read_to_string(&full_path).await {
                             context.line_count = content.lines().count();
                             context.content = Some(content);
@@ -1035,6 +1196,123 @@ impl AgentService {
         }
 
         Ok(file_contexts)
+    }
+
+    /// Search for files containing keywords using grep with advanced shell commands
+    async fn search_files_by_content(&self, keywords: &[String]) -> Result<Vec<String>> {
+        use std::process::Command;
+
+        let mut discovered = Vec::new();
+
+        // Build grep pattern from keywords (escaped and joined)
+        let pattern = keywords.iter()
+            .map(|k| k.replace("'", "\\'"))
+            .collect::<Vec<_>>()
+            .join("\\|");
+
+        // Use shell command with grep, find, and awk for efficient searching
+        // This finds files containing any keyword, filters out binary/build dirs, and limits results
+        let max_candidates = self.config.context.max_search_candidates;
+        let max_results = self.config.context.max_search_results;
+
+        let shell_cmd = format!(
+            r#"
+            find . -type f \
+                ! -path '*/.*' \
+                ! -path '*/node_modules/*' \
+                ! -path '*/target/*' \
+                ! -path '*/dist/*' \
+                ! -path '*/build/*' \
+                ! -path '*/vendor/*' \
+                ! -path '*/__pycache__/*' \
+                -size -1M \
+                2>/dev/null \
+            | head -n {} \
+            | xargs -I {{}} sh -c 'grep -l -i -m 1 "{}" "{{}}" 2>/dev/null' \
+            | head -n {} \
+            | sed 's|^\./||'
+            "#,
+            max_candidates, pattern, max_results
+        );
+
+        let output = Command::new("sh")
+            .arg("-c")
+            .arg(&shell_cmd)
+            .output();
+
+        if let Ok(output) = output {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                for line in stdout.lines() {
+                    let trimmed = line.trim();
+                    if !trimmed.is_empty() {
+                        discovered.push(trimmed.to_string());
+                    }
+                }
+            }
+        }
+
+        Ok(discovered)
+    }
+
+    /// Find likely entry point files using find, grep, and awk
+    async fn find_likely_entry_files(&self) -> Result<Vec<String>> {
+        use std::process::Command;
+
+        let mut entry_files = Vec::new();
+
+        // Use advanced shell commands to find relevant files
+        // Priority: recently modified files in root/src/public/static, exclude build artifacts
+        let max_results = self.config.context.max_files_in_context;
+
+        let shell_cmd = format!(
+            r#"
+            {{
+                # Find files in root directory (depth 1)
+                find . -maxdepth 1 -type f -size -1M 2>/dev/null | sed 's|^\./||'
+
+                # Find files in common source directories (depth 2)
+                find ./src ./public ./static ./app -maxdepth 2 -type f -size -1M 2>/dev/null | sed 's|^\./||'
+            }} \
+            | grep -v '/\.' \
+            | grep -vE '(node_modules|target|dist|build|vendor|__pycache__|\.git)' \
+            | awk -v max={} '
+                BEGIN {{ count = 0 }}
+                {{
+                    # Prioritize certain file types
+                    if ($0 ~ /\.(html|js|ts|py|rs|go|java|cpp|c|rb|php|jsx|tsx)$/) {{
+                        print
+                        count++
+                    }} else if (count < max / 2) {{
+                        print
+                        count++
+                    }}
+                    if (count >= max) exit
+                }}
+            ' \
+            | head -n {}
+            "#,
+            max_results, max_results
+        );
+
+        let output = Command::new("sh")
+            .arg("-c")
+            .arg(shell_cmd)
+            .output();
+
+        if let Ok(output) = output {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                for line in stdout.lines() {
+                    let trimmed = line.trim();
+                    if !trimmed.is_empty() {
+                        entry_files.push(trimmed.to_string());
+                    }
+                }
+            }
+        }
+
+        Ok(entry_files)
     }
 
 
@@ -1147,7 +1425,11 @@ impl AgentService {
     fn fast_rg_context(&self, keywords: &[String]) -> Result<Vec<String>> {
         let mut hits = Vec::new();
         let mut seen = 0;
-        for kw in keywords.iter().take(3) {
+        let max_keywords = self.config.context.max_keywords_for_search;
+        let max_lines_per_keyword = self.config.context.max_lines_per_keyword;
+        let max_total_snippets = self.config.context.max_rg_context_snippets;
+
+        for kw in keywords.iter().take(max_keywords) {
             let output = std::process::Command::new("rg")
                 .arg("-n")
                 .arg("--max-count")
@@ -1158,10 +1440,10 @@ impl AgentService {
             if let Ok(out) = output {
                 if out.status.success() {
                     let text = String::from_utf8_lossy(&out.stdout);
-                    for line in text.lines().take(4) {
+                    for line in text.lines().take(max_lines_per_keyword) {
                         hits.push(format!("rg [{}]: {}", kw, line));
                         seen += 1;
-                        if seen >= 8 {
+                        if seen >= max_total_snippets {
                             return Ok(hits);
                         }
                     }

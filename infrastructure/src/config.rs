@@ -198,6 +198,40 @@ impl Default for AuditTrailConfig {
     }
 }
 
+/// Context window management configuration
+#[derive(Clone)]
+pub struct ContextConfig {
+    pub max_file_size_bytes: u64,
+    pub max_files_in_context: usize,
+    pub max_context_tokens: usize,
+    pub max_file_preview_lines: usize,
+    pub token_estimation_ratio: f32, // chars per token estimate
+    pub max_plan_attempts: usize,
+    pub max_search_candidates: usize, // Max files to scan when searching
+    pub max_search_results: usize, // Max results to return from search
+    pub max_keywords_for_search: usize,
+    pub max_lines_per_keyword: usize,
+    pub max_rg_context_snippets: usize,
+}
+
+impl Default for ContextConfig {
+    fn default() -> Self {
+        Self {
+            max_file_size_bytes: 2 * 1024 * 1024, // 2MB per file
+            max_files_in_context: 10,
+            max_context_tokens: 8000, // Reserve space for response
+            max_file_preview_lines: 200,
+            token_estimation_ratio: 4.0, // ~4 chars per token for English
+            max_plan_attempts: 3,
+            max_search_candidates: 100,
+            max_search_results: 5,
+            max_keywords_for_search: 3,
+            max_lines_per_keyword: 4,
+            max_rg_context_snippets: 8,
+        }
+    }
+}
+
 #[derive(Clone)]
 pub struct Config {
     pub ollama_base_url: String,
@@ -206,6 +240,7 @@ pub struct Config {
     pub rag_include_patterns: Vec<String>,
     pub rag_exclude_patterns: Vec<String>,
     pub security: SecurityConfig,
+    pub context: ContextConfig,
 }
 
 impl Config {
@@ -239,6 +274,55 @@ impl Config {
         // Load security configuration
         let security = Self::load_security_config();
 
+        // Load context configuration from environment or use defaults
+        let defaults = ContextConfig::default();
+        let context = ContextConfig {
+            max_file_size_bytes: env::var("CONTEXT_MAX_FILE_SIZE")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(defaults.max_file_size_bytes),
+            max_files_in_context: env::var("CONTEXT_MAX_FILES")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(defaults.max_files_in_context),
+            max_context_tokens: env::var("CONTEXT_MAX_TOKENS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(defaults.max_context_tokens),
+            max_file_preview_lines: env::var("CONTEXT_MAX_PREVIEW_LINES")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(defaults.max_file_preview_lines),
+            token_estimation_ratio: env::var("CONTEXT_TOKEN_RATIO")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(defaults.token_estimation_ratio),
+            max_plan_attempts: env::var("CONTEXT_MAX_PLAN_ATTEMPTS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(defaults.max_plan_attempts),
+            max_search_candidates: env::var("CONTEXT_MAX_SEARCH_CANDIDATES")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(defaults.max_search_candidates),
+            max_search_results: env::var("CONTEXT_MAX_SEARCH_RESULTS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(defaults.max_search_results),
+            max_keywords_for_search: env::var("CONTEXT_MAX_KEYWORDS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(defaults.max_keywords_for_search),
+            max_lines_per_keyword: env::var("CONTEXT_MAX_LINES_PER_KEYWORD")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(defaults.max_lines_per_keyword),
+            max_rg_context_snippets: env::var("CONTEXT_MAX_RG_SNIPPETS")
+                .ok()
+                .and_then(|s| s.parse().ok())
+                .unwrap_or(defaults.max_rg_context_snippets),
+        };
+
         Self {
             ollama_base_url: env::var("OLLAMA_BASE_URL")
                 .unwrap_or_else(|_| "http://localhost:11434".to_string()),
@@ -248,6 +332,7 @@ impl Config {
             rag_include_patterns,
             rag_exclude_patterns,
             security,
+            context,
         }
     }
 

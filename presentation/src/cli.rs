@@ -1155,9 +1155,16 @@ impl CliApp {
                         println!("  {} Step {}: {}", chunk_marker, char::from(b'a' + i as u8), description.bright_white());
                         println!("     [lines {}-{}]", start, end);
 
+                        // Safe bounds checking to prevent panic
+                        let start_idx = start.saturating_sub(1).min(lines.len());
                         let end_idx = (*end).min(lines.len());
-                        let chunk_lines = &lines[(start-1)..end_idx];
-                        Self::display_code_with_syntax(chunk_lines, start-1);
+
+                        // Only slice if we have a valid range
+                        if start_idx < end_idx && start_idx < lines.len() {
+                            let chunk_lines = &lines[start_idx..end_idx];
+                            Self::display_code_with_syntax(chunk_lines, start_idx);
+                        }
+
                         if i < chunks.len() - 1 {
                             println!();
                         }
@@ -1231,24 +1238,49 @@ impl CliApp {
         let total_lines = lines.len();
         let mut chunks = Vec::new();
 
+        if total_lines == 0 {
+            return chunks;
+        }
+
         if total_lines <= 20 {
             chunks.push((1, total_lines, "Complete file"));
         } else {
-            // HTML-specific chunking (could be made more generic)
-            if lines.iter().any(|l| l.contains("<html") || l.contains("DOCTYPE")) {
+            // Dynamic chunking - divide into 3 equal parts
+            let chunk_size = (total_lines as f32 / 3.0).ceil() as usize;
+
+            // Ensure chunks don't overlap and stay within bounds
+            let chunk1_end = chunk_size.min(total_lines);
+            let chunk2_start = (chunk1_end + 1).min(total_lines);
+            let chunk2_end = (chunk_size * 2).min(total_lines);
+            let chunk3_start = (chunk2_end + 1).min(total_lines);
+
+            // Determine labels based on file type
+            let is_html = lines.iter().any(|l| l.contains("<html") || l.contains("DOCTYPE"));
+
+            if chunk3_start <= total_lines {
+                // Three chunks
+                if is_html {
+                    chunks = vec![
+                        (1, chunk1_end, "HTML skeleton and setup"),
+                        (chunk2_start, chunk2_end, "Main content structure"),
+                        (chunk3_start, total_lines, "Footer and closing tags"),
+                    ];
+                } else {
+                    chunks = vec![
+                        (1, chunk1_end, "Beginning of file"),
+                        (chunk2_start, chunk2_end, "Middle section"),
+                        (chunk3_start, total_lines, "End of file"),
+                    ];
+                }
+            } else if chunk2_start <= total_lines {
+                // Two chunks (file too small for 3)
                 chunks = vec![
-                    (1, 15, "HTML skeleton and setup"),
-                    (16, 30, "Main content structure"),
-                    (31, total_lines, "Footer and closing tags"),
+                    (1, chunk1_end, if is_html { "HTML skeleton and setup" } else { "Beginning of file" }),
+                    (chunk2_start, total_lines, if is_html { "Main content and footer" } else { "Rest of file" }),
                 ];
             } else {
-                // Generic chunking for other file types
-                let chunk_size = (total_lines as f32 / 3.0).ceil() as usize;
-                chunks = vec![
-                    (1, chunk_size, "Beginning of file"),
-                    (chunk_size + 1, chunk_size * 2, "Middle section"),
-                    (chunk_size * 2 + 1, total_lines, "End of file"),
-                ];
+                // Single chunk
+                chunks.push((1, total_lines, "Complete file"));
             }
         }
 
