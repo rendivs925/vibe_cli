@@ -835,6 +835,11 @@ impl BuildService {
         self.buffered_operations.push(operation);
     }
 
+    /// Replace buffered operations (used by agentic planners)
+    pub fn set_buffered_operations(&mut self, operations: Vec<FileOperation>) {
+        self.buffered_operations = operations;
+    }
+
     /// Stream a file operation with syntax-highlighted diff
     pub fn stream_operation(&self, operation: &FileOperation, step_number: usize, total_steps: usize) -> Result<()> {
         println!("\n{}", format!("Step {}/{}", step_number, total_steps).bright_cyan().bold());
