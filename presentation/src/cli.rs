@@ -728,7 +728,7 @@ impl CliApp {
             println!("\rPlanning complete          ");
         });
 
-        let (build_plan, retrieved_context) = match agent_service.plan_build(goal).await {
+        let plan_outcome = match agent_service.plan_build(goal).await {
             Ok(result) => result,
             Err(e) => {
                 let _ = progress_tx.send(());
@@ -740,23 +740,30 @@ impl CliApp {
         let _ = progress_tx.send(());
         let _ = progress_handle.await;
 
+        println!("\nAgent thinking:");
+        for line in plan_outcome.raw_plan_text.lines() {
+            println!("  {}", line.trim_end());
+            let _ = std::io::stdout().flush();
+            time::sleep(Duration::from_millis(40)).await;
+        }
+
         // Display retrieved context if verbose
-        if verbose && !retrieved_context.is_empty() {
+        if verbose && !plan_outcome.retrieved_context.is_empty() {
             println!("\nRetrieved Context:");
-            for context in retrieved_context {
+            for context in plan_outcome.retrieved_context {
                 println!("  {}", context);
             }
         }
 
         // Show plan preview
-        if let Err(e) = build_service.preview_plan(&build_plan) {
+        if let Err(e) = build_service.preview_plan(&plan_outcome.plan) {
             eprintln!("{} {}", "Plan preview error:".red(), e);
             return Ok(());
         }
 
         // Execute the build plan with transaction support (unless dry-run)
         if !dry_run {
-            match build_service.execute_plan(&build_plan).await {
+            match build_service.execute_plan(&plan_outcome.plan).await {
                 Ok(result) => {
                     if result.success {
                         println!("\nBuild completed successfully.");

@@ -44,6 +44,13 @@ pub struct AgentService {
     pub failure_handler: SafeFailureHandler,
 }
 
+/// Artifacts returned when planning a build
+pub struct BuildPlanOutcome {
+    pub plan: BuildPlan,
+    pub retrieved_context: Vec<String>,
+    pub raw_plan_text: String,
+}
+
 /// Execution context for agent operations with owned data to avoid lifetime issues
 pub struct AgentExecutionContext {
     pub inference_engine: infrastructure::InferenceEngine,
@@ -146,12 +153,12 @@ impl AgentService {
     }
 
     /// Generate a build plan with RAG context retrieval
-    pub async fn plan_build(&self, goal: &str) -> Result<(BuildPlan, Vec<String>)> {
+    pub async fn plan_build(&self, goal: &str) -> Result<BuildPlanOutcome> {
         let mut retrieved_context = Vec::new();
 
         // Step 1: Retrieve relevant context using RAG
         if let Some(rag_service) = &self.rag_service {
-            println!("{}", "🔍 Retrieving relevant codebase context...".bright_cyan());
+            println!("Retrieving relevant codebase context...");
 
             // Build index if needed
             let project_root = std::env::current_dir()
@@ -194,7 +201,7 @@ impl AgentService {
         // Step 2: Generate build plan using the inference engine
         let build_prompt = self.create_build_planning_prompt(goal, &retrieved_context);
 
-        println!("{}", "Generating build plan...");
+        println!("Generating build plan...");
 
         let plan_text = match self.inference_engine.generate(&build_prompt).await {
             Ok(text) => text,
@@ -206,7 +213,11 @@ impl AgentService {
         // Step 3: Parse the plan into BuildPlan structure
         let build_plan = self.parse_build_plan(&plan_text, goal)?;
 
-        Ok((build_plan, retrieved_context))
+        Ok(BuildPlanOutcome {
+            plan: build_plan,
+            retrieved_context,
+            raw_plan_text: plan_text,
+        })
     }
 
     fn extract_keywords_from_goal(&self, goal: &str) -> Vec<String> {
@@ -246,6 +257,8 @@ Create a detailed step-by-step plan for implementing this goal. For each step, s
 3. Any dependencies or prerequisites
 4. Risk level (Low/Medium/High/Critical)
 
+Return ONLY JSON. For create/update operations, include full updated file contents in the "content" field (no placeholders, no prose). If editing an existing file, include the complete post-edit file text so we can show an accurate diff. Do not leave "content" empty for writes.
+
 Format your response as a JSON object with this structure:
 {{
   "description": "Brief description of the overall plan",
@@ -254,14 +267,14 @@ Format your response as a JSON object with this structure:
       "type": "create|update|delete|read",
       "path": "relative/path/to/file",
       "description": "What this operation does",
-      "content": "For create/update operations, provide the full content or changes"
+      "content": "For create/update operations, provide the full updated file content"
     }}
   ],
   "risk_assessment": "Low|Medium|High|Critical",
   "prerequisites": ["Any prerequisites or dependencies"]
 }}
 
-Be specific about file paths and content. Focus on safe, incremental changes."#,
+Be specific about file paths and content. Do not include commentary outside the JSON."#,
             goal, context_str
         )
     }
@@ -315,15 +328,26 @@ Be specific about file paths and content. Focus on safe, incremental changes."#,
                 let content = op.get("content").and_then(|c| c.as_str()).unwrap_or("");
 
                 let file_op = match op_type {
-                    "create" => FileOperation::Create {
-                        path: std::path::PathBuf::from(path),
-                        content: content.to_string(),
-                    },
-                    "update" => FileOperation::Update {
-                        path: std::path::PathBuf::from(path),
-                        old_content: "".to_string(), // Would need to read current content
-                        new_content: content.to_string(),
-                    },
+                    "create" => {
+                        if content.trim().is_empty() {
+                            continue;
+                        }
+                        FileOperation::Create {
+                            path: std::path::PathBuf::from(path),
+                            content: content.to_string(),
+                        }
+                    }
+                    "update" => {
+                        if content.trim().is_empty() {
+                            continue;
+                        }
+                        let existing = std::fs::read_to_string(path).unwrap_or_default();
+                        FileOperation::Update {
+                            path: std::path::PathBuf::from(path),
+                            old_content: existing,
+                            new_content: content.to_string(),
+                        }
+                    }
                     "delete" => FileOperation::Delete {
                         path: std::path::PathBuf::from(path),
                     },
@@ -337,6 +361,13 @@ Be specific about file paths and content. Focus on safe, incremental changes."#,
             }
         }
 
+        if operations.is_empty() {
+            return self.create_fallback_plan(
+                "AI plan did not return concrete file contents; generating fallback plan.",
+                goal,
+            );
+        }
+
         Ok(BuildPlan {
             goal: goal.to_string(),
             operations,
@@ -347,20 +378,30 @@ Be specific about file paths and content. Focus on safe, incremental changes."#,
 
     fn create_fallback_plan(&self, plan_text: &str, goal: &str) -> Result<BuildPlan> {
         // Simple fallback - create a script file based on the goal
-        let script_name = if goal.contains("cpu") && goal.contains("gpu") {
-            "check_system_resources.sh"
-        } else if goal.contains("cpu") {
-            "check_cpu.sh"
-        } else if goal.contains("gpu") {
-            "check_gpu.sh"
+        let lower_goal = goal.to_lowercase();
+        let (script_name, content) = if lower_goal.contains("python") {
+            let name = if lower_goal.contains("snake") {
+                "snake_game.py"
+            } else {
+                "generated_script.py"
+            };
+            let body = format!(
+                "# Generated script for: {goal}\n# {summary}\n\nimport sys\n\n\ndef main():\n    print(\"TODO: implement goal-specific logic here\")\n\n\nif __name__ == \"__main__\":\n    sys.exit(main())\n",
+                goal = goal,
+                summary = plan_text.lines().next().unwrap_or("Auto-generated script")
+            );
+            (name, body)
+        } else if lower_goal.contains("gpu") || lower_goal.contains("cpu") {
+            ("check_system_resources.sh".into(), format!(
+                "#!/bin/bash\n# Generated script for: {}\n# {}\n\necho \"CPU: $(lscpu | head -n 5)\"\necho \"GPU: $(lspci | grep -i vga)\"\n",
+                goal, plan_text.lines().next().unwrap_or("Auto-generated script")
+            ))
         } else {
-            "generated_script.sh"
+            ("generated_script.sh".into(), format!(
+                "#!/bin/bash\n# Generated script for: {}\n# {}\n\necho \"Script execution started\"\n",
+                goal, plan_text.lines().next().unwrap_or("Auto-generated script")
+            ))
         };
-
-        let content = format!(
-            "#!/bin/bash\n# Generated script for: {}\n# {}\n\necho \"Script execution started\"\n# TODO: Implement the actual functionality\n",
-            goal, plan_text.lines().next().unwrap_or("Auto-generated script")
-        );
 
         Ok(BuildPlan {
             goal: goal.to_string(),
