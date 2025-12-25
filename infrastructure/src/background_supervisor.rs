@@ -1,4 +1,6 @@
+use crate::compilation_watcher::CompilationWatcher;
 use crate::error_analyzer::{ErrorAnalyzer, ErrorContext};
+use crate::fix_applier::{FixApplier, FixConfidence};
 use crate::session_store::SessionStore;
 use anyhow::Result;
 use flume::{Receiver, Sender};
@@ -67,6 +69,7 @@ pub struct BackgroundSupervisor {
     shutdown_tx: flume::Sender<()>,
     shutdown_rx: flume::Receiver<()>,
     error_analyzer: ErrorAnalyzer,
+    fix_applier: Option<FixApplier>,
     project_root: Option<PathBuf>,
 }
 
@@ -99,6 +102,7 @@ impl BackgroundSupervisor {
             shutdown_tx,
             shutdown_rx,
             error_analyzer: ErrorAnalyzer,
+            fix_applier: None,
             project_root: None,
         }
     }
@@ -114,11 +118,14 @@ impl BackgroundSupervisor {
         println!("🧠 Starting background intelligence services...");
         self.project_root = Some(project_root.clone());
 
+        // Initialize fix applier
+        self.fix_applier = Some(FixApplier::new(project_root.clone()));
+
         // Start file watcher
         self.start_file_watcher(project_root.clone()).await?;
 
-        // Start LSP client
-        self.start_lsp_client(project_root.clone()).await?;
+        // Start compilation watcher (replaces LSP client for now)
+        self.start_compilation_watcher(project_root.clone()).await?;
 
         // Start log tailer
         self.start_log_tailer().await?;
@@ -208,6 +215,9 @@ impl BackgroundSupervisor {
     ) -> Result<()> {
         println!("🤖 Autonomous fix analyzer active - monitoring for errors...");
 
+        // Initialize fix applier
+        let mut fix_applier = FixApplier::new(project_root.clone());
+
         while let Ok(event) = event_rx.recv_async().await {
             // Only process error events
             let should_analyze = matches!(event,
@@ -227,17 +237,38 @@ impl BackgroundSupervisor {
 
                     match analyzer.analyze_and_fix(error_context, &project_root).await {
                         Ok(suggestions) if !suggestions.is_empty() => {
-                            println!("💡 Found {} fix suggestions (confidence > 0.5):", suggestions.len());
+                            println!("💡 Found {} fix suggestions", suggestions.len());
+
+                            // Try to apply high-confidence fixes automatically
+                            let mut applied_any = false;
                             for (i, suggestion) in suggestions.iter().enumerate() {
-                                if suggestion.confidence > 0.5 {
-                                    println!("   {}. {} (confidence: {:.1}%)", i + 1, suggestion.description, suggestion.confidence * 100.0);
-                                    println!("      {}", suggestion.explanation);
+                                println!("   {}. {} (confidence: {:.1}%)", i + 1, suggestion.description, suggestion.confidence * 100.0);
+
+                                // Apply high-confidence fixes automatically
+                                if suggestion.confidence >= 0.8 && !suggestion.changes.is_empty() {
+                                    println!("🚀 Applying high-confidence fix automatically...");
+                                    match fix_applier.apply_fix(suggestion, FixConfidence::High).await {
+                                        Ok(applied_fix) => {
+                                            println!("✅ Fix applied successfully! ID: {}", applied_fix.id);
+                                            applied_any = true;
+                                        }
+                                        Err(e) => {
+                                            println!("❌ Failed to apply fix: {}", e);
+                                        }
+                                    }
+                                }
+                                // Ask for medium-confidence fixes
+                                else if suggestion.confidence >= 0.6 && !suggestion.changes.is_empty() {
+                                    println!("⚠️ Medium confidence - would ask for confirmation in interactive mode");
                                 }
                             }
-                            println!("🚀 Ready to apply fixes automatically (feature in development)");
+
+                            if !applied_any && suggestions.iter().any(|s| s.confidence >= 0.6) {
+                                println!("💭 High-confidence automatic fixes available - run in interactive mode for application");
+                            }
                         }
                         Ok(_) => {
-                            println!("🤔 No high-confidence fixes found for this error");
+                            println!("🤔 No applicable fixes found for this error");
                         }
                         Err(e) => {
                             eprintln!("❌ Error during fix analysis: {}", e);
@@ -278,7 +309,29 @@ impl BackgroundSupervisor {
         Ok(())
     }
 
-    /// Start LSP client service
+    /// Start compilation watcher service
+    async fn start_compilation_watcher(&mut self, project_root: PathBuf) -> Result<()> {
+        let event_tx = self.event_tx.clone();
+
+        let handle = tokio::spawn(async move {
+            if let Err(e) = CompilationWatcher::start_monitoring(project_root, event_tx).await {
+                eprintln!("Compilation watcher error: {}", e);
+            }
+        });
+
+        self.services.insert(
+            "compilation-watcher".to_string(),
+            BackgroundService {
+                name: "compilation-watcher".to_string(),
+                handle,
+                status: ServiceStatus::Running,
+            },
+        );
+
+        Ok(())
+    }
+
+    /// Start LSP client service (placeholder - using compilation watcher instead)
     async fn start_lsp_client(&mut self, project_root: PathBuf) -> Result<()> {
         let event_tx = self.event_tx.clone();
 
@@ -286,8 +339,6 @@ impl BackgroundSupervisor {
             match crate::lsp_client::LspClient::start_rust_analyzer(project_root, event_tx).await {
                 Ok(_client) => {
                     // Keep the client alive for the duration
-                    // In a real implementation, we'd handle graceful shutdown
-                    // For now, just let it run
                     futures::future::pending::<()>().await;
                 }
                 Err(e) => {
