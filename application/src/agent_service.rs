@@ -1016,6 +1016,22 @@ Generate the command now:"#,
     pub async fn plan_build_incremental(&self, goal: &str) -> Result<IncrementalBuildPlanner> {
         let mut retrieved_context = Vec::new();
 
+        // Add system context first
+        retrieved_context.push(format!("SYSTEM CONTEXT:\n{}", self.system_context.to_context_string()));
+
+        // Add current directory listing
+        let ls_output = std::process::Command::new("sh")
+            .arg("-c")
+            .arg("ls -la 2>/dev/null | head -n 50")
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .unwrap_or_else(|| String::new());
+
+        if !ls_output.is_empty() {
+            retrieved_context.push(format!("CURRENT DIRECTORY CONTENTS:\n{}", ls_output));
+        }
+
         // Step 1: Prepare file context by reading existing files
         println!("🔍 Analyzing project structure and existing files...");
         let file_contexts = self.prepare_file_context(goal).await?;

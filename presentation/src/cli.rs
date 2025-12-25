@@ -695,16 +695,32 @@ impl CliApp {
 
         println!("{}", "Planning mode: Create execution plan without running commands".bright_cyan());
         println!("{}", format!("Goal: {}", goal).bright_blue());
-        
+
+        println!("📊 Gathering system context and analyzing current directory...");
+        let system_context = infrastructure::config::SystemContext::gather();
+        let ls_output = std::process::Command::new("ls")
+            .arg("-la")
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .unwrap_or_else(|| String::new());
+
         // Initialize enhanced agent for planning
         let client = OllamaClient::new()?;
         // Use Candle by default instead of Ollama
         let agent_service = application::create_agent_service().await?;
-        
-        // Create agent request for planning
+
+        // Create agent request for planning with full context
+        let context_info = format!(
+            "SYSTEM CONTEXT:\n{}\n\nCURRENT DIRECTORY FILES:\n{}\n\nPackage Manager: {}\nMode: Plan Only",
+            system_context.to_context_string(),
+            ls_output,
+            system_context.package_manager
+        );
+
         let request = domain::models::AgentRequest {
             goal: format!("Create a detailed step-by-step execution plan for: {}", goal),
-            context: Some(format!("System: {} | Mode: Plan Only", self.system_info)),
+            context: Some(context_info),
             conversation_id: None,
         };
         
@@ -1389,18 +1405,35 @@ impl CliApp {
     }
 
     async fn handle_agent(&self, task: &str) -> Result<()> {
+        println!("📊 Gathering system context and analyzing current directory...");
+
+        let system_context = infrastructure::config::SystemContext::gather();
+        let ls_output = std::process::Command::new("ls")
+            .arg("-la")
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .unwrap_or_else(|| String::new());
+
         let client = infrastructure::ollama_client::OllamaClient::new()?;
         let prompt = format!(
-            "You are an assistant that turns a user's goal into a sequence of POSIX shell commands that can be run one-by-one with confirmation in between.\n\
-Environment: {}.\n\
+            "You are an assistant that turns a user's goal into a sequence of POSIX shell commands that can be run one-by-one with confirmation in between.\n\n\
+SYSTEM CONTEXT:\n\
+{}\n\n\
+CURRENT DIRECTORY FILES:\n\
+{}\n\n\
 Constraints:\n\
 - Respond ONLY with a JSON array of strings. Each element must be a complete shell command ready to run.\n\
 - No prose, no markdown, no comments. If you cannot produce a valid JSON array, respond with [].\n\
-- Prefer Debian/Ubuntu defaults (apt/apt-get, systemctl) unless otherwise implied.\n\
+- Use the appropriate package manager for this system: {}\n\
+- Use ACTUAL file/folder names from the current directory listing above\n\
 - Use real paths; avoid placeholders like /path/to.\n\
 - Keep commands minimal and idempotent (check state before changing it).\n\n\
 User request: {}",
-            self.system_info, task
+            system_context.to_context_string(),
+            ls_output,
+            system_context.package_manager,
+            task
         );
         let response = client.generate_response(&prompt).await?;
         let commands = parse_agent_plan(&response);
