@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use colored::Colorize;
 use crate::transaction::{Transaction, TransactionGuard};
+use shared::confirmation::ask_confirmation;
 
 /// Represents a file operation in the build process
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -41,12 +42,25 @@ pub struct BuildResult {
     pub rollback_performed: bool,
 }
 
+/// Confirmation mode for build operations
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ConfirmationMode {
+    /// Ask for confirmation on each operation
+    Interactive,
+    /// Confirm all operations at once
+    ConfirmAll,
+    /// No confirmation (auto-approve)
+    None,
+}
+
 /// Service for managing build mode operations
 pub struct BuildService {
     /// Workspace root directory
     workspace_root: PathBuf,
     /// Enable dry-run mode (preview only)
     dry_run: bool,
+    /// Confirmation mode
+    confirmation_mode: ConfirmationMode,
 }
 
 impl BuildService {
@@ -55,12 +69,18 @@ impl BuildService {
         Self {
             workspace_root: workspace_root.as_ref().to_path_buf(),
             dry_run: false,
+            confirmation_mode: ConfirmationMode::Interactive,
         }
     }
 
     /// Enable or disable dry-run mode
     pub fn set_dry_run(&mut self, dry_run: bool) {
         self.dry_run = dry_run;
+    }
+
+    /// Set confirmation mode
+    pub fn set_confirmation_mode(&mut self, mode: ConfirmationMode) {
+        self.confirmation_mode = mode;
     }
 
     /// Assess risk level of a file operation
@@ -157,6 +177,114 @@ impl BuildService {
         Ok(())
     }
 
+    /// Display detailed operation preview with content
+    fn display_operation_detail(&self, operation: &FileOperation) -> Result<()> {
+        let risk = self.assess_risk(operation);
+
+        println!("\n{}", "─".repeat(60).bright_black());
+        self.display_operation(operation, risk);
+
+        match operation {
+            FileOperation::Create { path, content } => {
+                println!("\n{}", "Content to be created:".bright_cyan());
+                let preview = if content.len() > 500 {
+                    format!("{}... ({} bytes total)", &content[..500], content.len())
+                } else {
+                    content.clone()
+                };
+                println!("{}", preview.dimmed());
+            }
+            FileOperation::Update { path, old_content, new_content } => {
+                println!("\n{}", "Changes:".bright_cyan());
+                self.display_diff(old_content, new_content);
+            }
+            FileOperation::Delete { path } => {
+                if path.exists() {
+                    let size = std::fs::metadata(path)?.len();
+                    println!("{}", format!("File size: {} bytes", size).dimmed());
+                }
+            }
+            FileOperation::Read { .. } => {
+                // No additional details for read operations
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Display a simple diff between old and new content
+    fn display_diff(&self, old_content: &str, new_content: &str) {
+        let old_lines: Vec<&str> = old_content.lines().collect();
+        let new_lines: Vec<&str> = new_content.lines().collect();
+
+        let max_lines = old_lines.len().max(new_lines.len()).min(20);
+
+        for i in 0..max_lines {
+            match (old_lines.get(i), new_lines.get(i)) {
+                (Some(old_line), Some(new_line)) => {
+                    if old_line != new_line {
+                        println!("{} {}", "-".red(), old_line.red());
+                        println!("{} {}", "+".green(), new_line.green());
+                    } else {
+                        println!("  {}", old_line.dimmed());
+                    }
+                }
+                (Some(old_line), None) => {
+                    println!("{} {}", "-".red(), old_line.red());
+                }
+                (None, Some(new_line)) => {
+                    println!("{} {}", "+".green(), new_line.green());
+                }
+                (None, None) => break,
+            }
+        }
+
+        if old_lines.len() > max_lines || new_lines.len() > max_lines {
+            println!("{}", "... (diff truncated)".dimmed());
+        }
+    }
+
+    /// Ask for user confirmation for an operation
+    fn confirm_operation(&self, operation: &FileOperation, operation_num: usize, total_ops: usize) -> Result<bool> {
+        match self.confirmation_mode {
+            ConfirmationMode::None => Ok(true),
+            ConfirmationMode::ConfirmAll => {
+                // Already confirmed at plan level
+                Ok(true)
+            }
+            ConfirmationMode::Interactive => {
+                let risk = self.assess_risk(operation);
+
+                // Show detailed preview
+                self.display_operation_detail(operation)?;
+
+                // Higher risk operations default to 'no'
+                let default_yes = risk <= RiskLevel::Medium;
+
+                let prompt = format!(
+                    "\nProceed with operation {}/{}?",
+                    operation_num + 1,
+                    total_ops
+                );
+
+                ask_confirmation(&prompt, default_yes)
+            }
+        }
+    }
+
+    /// Ask for confirmation to execute entire plan
+    pub fn confirm_plan(&self, plan: &BuildPlan) -> Result<bool> {
+        self.preview_plan(plan)?;
+
+        match self.confirmation_mode {
+            ConfirmationMode::None => Ok(true),
+            ConfirmationMode::Interactive | ConfirmationMode::ConfirmAll => {
+                println!();
+                ask_confirmation("Execute this build plan?", false)
+            }
+        }
+    }
+
     /// Execute a single file operation
     async fn execute_operation(&self, operation: &FileOperation) -> Result<()> {
         if self.dry_run {
@@ -215,7 +343,7 @@ impl BuildService {
         }
     }
 
-    /// Execute a build plan with transaction support
+    /// Execute a build plan with transaction support and user confirmation
     pub async fn execute_plan(&mut self, plan: &BuildPlan) -> Result<BuildResult> {
         let mut result = BuildResult {
             success: true,
@@ -225,14 +353,30 @@ impl BuildService {
             rollback_performed: false,
         };
 
+        // Get plan-level confirmation if needed
+        if !self.confirm_plan(plan)? {
+            println!("{}", "Build plan cancelled by user.".yellow());
+            return Ok(result);
+        }
+
         // Create transaction for atomic operations
         let mut transaction = Transaction::new();
         transaction.begin()?;
 
-        println!("{}", format!("Executing {} operations...", plan.operations.len()).bright_cyan());
+        println!("\n{}", format!("Executing {} operations...", plan.operations.len()).bright_cyan());
+
+        let total_ops = plan.operations.len();
 
         // Execute operations within transaction
-        for operation in &plan.operations {
+        for (idx, operation) in plan.operations.iter().enumerate() {
+            // Get operation-level confirmation in interactive mode
+            if self.confirmation_mode == ConfirmationMode::Interactive {
+                if !self.confirm_operation(operation, idx, total_ops)? {
+                    println!("{}", "Operation skipped by user.".yellow());
+                    continue;
+                }
+            }
+
             match self.execute_operation_transactional(operation, &mut transaction).await {
                 Ok(_) => {
                     result.operations_completed += 1;
@@ -243,10 +387,18 @@ impl BuildService {
                     result.error_messages.push(format!("{:?}: {}", operation, e));
                     eprintln!("{}", format!("Operation failed: {}", e).red());
 
-                    // Rollback transaction on failure
-                    println!("{}", "Rolling back all operations...".bright_yellow());
-                    transaction.rollback()?;
-                    result.rollback_performed = true;
+                    // Ask if user wants to rollback
+                    let should_rollback = if self.confirmation_mode == ConfirmationMode::Interactive {
+                        ask_confirmation("Rollback all changes?", true)?
+                    } else {
+                        true // Auto-rollback in non-interactive mode
+                    };
+
+                    if should_rollback {
+                        println!("{}", "Rolling back all operations...".bright_yellow());
+                        transaction.rollback()?;
+                        result.rollback_performed = true;
+                    }
                     break;
                 }
             }
@@ -255,6 +407,18 @@ impl BuildService {
         // Commit transaction if all operations succeeded
         if result.success {
             transaction.commit()?;
+        }
+
+        // Print summary
+        println!("\n{}", "=== Build Summary ===".bright_cyan().bold());
+        println!("{}: {}", "Operations completed".green(), result.operations_completed);
+        if result.operations_failed > 0 {
+            println!("{}: {}", "Operations failed".red(), result.operations_failed);
+        }
+        if result.rollback_performed {
+            println!("{}", "Transaction rolled back".yellow());
+        } else if result.success {
+            println!("{}", "All changes committed successfully".green());
         }
 
         Ok(result)
