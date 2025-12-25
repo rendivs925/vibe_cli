@@ -294,11 +294,70 @@ impl AgentController {
             let reasoning_steps_clone = iteration_result.reasoning_steps.clone();
             let tool_calls_clone = iteration_result.tool_calls.clone();
 
+            // Implement memory tracking
+            let current_memory = self.estimate_memory_usage().unwrap_or(0);
+            let memory_peak_bytes = current_memory.max(state.resource_usage_stats.peak_memory_bytes);
+
+            // Update state's peak memory
+            state.resource_usage_stats.peak_memory_bytes = memory_peak_bytes;
+
+            // Implement convergence detection
+            let mut convergence_indicators = HashMap::new();
+
+            // Calculate iteration stability (how much results are changing)
+            let iteration_stability = if state.execution_history.len() >= 2 {
+                let prev_confidence = state.execution_history.last().unwrap().confidence_score;
+                let confidence_change = (iteration_result.confidence_score - prev_confidence).abs();
+                1.0 - confidence_change.min(1.0) // Higher stability = less change
+            } else {
+                0.5 // Neutral stability for first iterations
+            };
+            convergence_indicators.insert("iteration_stability".to_string(), iteration_stability);
+
+            // Calculate confidence trend (moving average of confidence scores)
+            let confidence_trend = if !state.execution_history.is_empty() {
+                let recent_confidences: Vec<f32> = state.execution_history.iter()
+                    .rev()
+                    .take(3)
+                    .map(|r| r.confidence_score)
+                    .collect();
+                let avg = recent_confidences.iter().sum::<f32>() / recent_confidences.len() as f32;
+                avg
+            } else {
+                iteration_result.confidence_score
+            };
+            convergence_indicators.insert("confidence_trend".to_string(), confidence_trend);
+
+            // Calculate goal progress score based on iteration metrics
+            let goal_progress_score = {
+                let tools_used_score = (iteration_result.tool_calls.len() as f32 /
+                    self.config.agent_execution.max_tools_per_iteration as f32).min(1.0);
+                let reasoning_score = (iteration_result.reasoning_steps.len() as f32 / 5.0).min(1.0);
+                let confidence_score = iteration_result.confidence_score;
+
+                (tools_used_score * 0.3 + reasoning_score * 0.3 + confidence_score * 0.4)
+            };
+            convergence_indicators.insert("goal_progress_score".to_string(), goal_progress_score);
+
+            // Update convergence metrics in state
+            state.convergence_metrics = convergence_indicators.clone();
+
+            // Implement resource tracking
+            let resource_usage = ResourceUsageStats {
+                peak_memory_bytes: memory_peak_bytes,
+                total_cpu_time_ms: state.resource_usage_stats.total_cpu_time_ms + execution_time.as_millis() as u64,
+                io_operations: state.resource_usage_stats.io_operations + iteration_result.tool_calls.len() as u32,
+                network_requests: state.resource_usage_stats.network_requests + 1, // Each iteration likely involves network
+            };
+
+            // Update state's resource usage
+            state.resource_usage_stats = resource_usage.clone();
+
             let record = IterationRecord {
-                memory_peak_bytes: 0, // TODO: Implement memory tracking
+                memory_peak_bytes,
                 confidence_score: iteration_result.confidence_score,
-                convergence_indicators: HashMap::new(), // TODO: Implement convergence detection
-                resource_usage: ResourceUsageStats::default(), // TODO: Implement resource tracking
+                convergence_indicators,
+                resource_usage,
                 iteration_number: state.iteration_count,
                 reasoning_steps: reasoning_steps_clone,
                 tool_calls: tool_calls_clone.iter().map(|tc| format!("{:?}", tc)).collect(),
@@ -436,11 +495,70 @@ impl AgentController {
             let reasoning_steps_clone = iteration_result.reasoning_steps.clone();
             let tool_calls_clone = iteration_result.tool_calls.clone();
 
+            // Implement memory tracking
+            let current_memory = self.estimate_memory_usage().unwrap_or(0);
+            let memory_peak_bytes = current_memory.max(state.resource_usage_stats.peak_memory_bytes);
+
+            // Update state's peak memory
+            state.resource_usage_stats.peak_memory_bytes = memory_peak_bytes;
+
+            // Implement convergence detection
+            let mut convergence_indicators = HashMap::new();
+
+            // Calculate iteration stability (how much results are changing)
+            let iteration_stability = if state.execution_history.len() >= 2 {
+                let prev_confidence = state.execution_history.last().unwrap().confidence_score;
+                let confidence_change = (iteration_result.confidence_score - prev_confidence).abs();
+                1.0 - confidence_change.min(1.0) // Higher stability = less change
+            } else {
+                0.5 // Neutral stability for first iterations
+            };
+            convergence_indicators.insert("iteration_stability".to_string(), iteration_stability);
+
+            // Calculate confidence trend (moving average of confidence scores)
+            let confidence_trend = if !state.execution_history.is_empty() {
+                let recent_confidences: Vec<f32> = state.execution_history.iter()
+                    .rev()
+                    .take(3)
+                    .map(|r| r.confidence_score)
+                    .collect();
+                let avg = recent_confidences.iter().sum::<f32>() / recent_confidences.len() as f32;
+                avg
+            } else {
+                iteration_result.confidence_score
+            };
+            convergence_indicators.insert("confidence_trend".to_string(), confidence_trend);
+
+            // Calculate goal progress score based on iteration metrics
+            let goal_progress_score = {
+                let tools_used_score = (iteration_result.tool_calls.len() as f32 /
+                    self.config.agent_execution.max_tools_per_iteration as f32).min(1.0);
+                let reasoning_score = (iteration_result.reasoning_steps.len() as f32 / 5.0).min(1.0);
+                let confidence_score = iteration_result.confidence_score;
+
+                (tools_used_score * 0.3 + reasoning_score * 0.3 + confidence_score * 0.4)
+            };
+            convergence_indicators.insert("goal_progress_score".to_string(), goal_progress_score);
+
+            // Update convergence metrics in state
+            state.convergence_metrics = convergence_indicators.clone();
+
+            // Implement resource tracking
+            let resource_usage = ResourceUsageStats {
+                peak_memory_bytes: memory_peak_bytes,
+                total_cpu_time_ms: state.resource_usage_stats.total_cpu_time_ms + execution_time.as_millis() as u64,
+                io_operations: state.resource_usage_stats.io_operations + iteration_result.tool_calls.len() as u32,
+                network_requests: state.resource_usage_stats.network_requests + 1, // Each iteration likely involves network
+            };
+
+            // Update state's resource usage
+            state.resource_usage_stats = resource_usage.clone();
+
             let record = IterationRecord {
-                memory_peak_bytes: 0, // TODO: Implement memory tracking
+                memory_peak_bytes,
                 confidence_score: iteration_result.confidence_score,
-                convergence_indicators: HashMap::new(), // TODO: Implement convergence detection
-                resource_usage: ResourceUsageStats::default(), // TODO: Implement resource tracking
+                convergence_indicators,
+                resource_usage,
                 iteration_number: state.iteration_count,
                 reasoning_steps: reasoning_steps_clone,
                 tool_calls: tool_calls_clone.iter().map(|tc| format!("{:?}", tc)).collect(),
@@ -553,6 +671,31 @@ impl AgentController {
         }
     }
 
+    /// Check if the agent has converged based on convergence indicators
+    fn has_converged(&self, state: &AgentExecutionState) -> bool {
+        // Need at least 2 iterations to detect convergence
+        if state.iteration_count < 2 {
+            return false;
+        }
+
+        // Get convergence indicators from the latest iteration
+        let iteration_stability = state.convergence_metrics.get("iteration_stability").copied().unwrap_or(0.0);
+        let confidence_trend = state.convergence_metrics.get("confidence_trend").copied().unwrap_or(0.0);
+        let goal_progress_score = state.convergence_metrics.get("goal_progress_score").copied().unwrap_or(0.0);
+
+        // Check for convergence:
+        // 1. High iteration stability (results are not changing much)
+        // 2. High confidence trend (confidence is consistently high)
+        // 3. Good goal progress score (we're making meaningful progress)
+        let stability_threshold = 0.8;
+        let confidence_threshold = state.convergence_threshold;
+        let progress_threshold = 0.7;
+
+        iteration_stability >= stability_threshold &&
+        confidence_trend >= confidence_threshold &&
+        goal_progress_score >= progress_threshold
+    }
+
     /// Decide whether to continue iterating
     fn should_continue_iterating(
         &self,
@@ -566,7 +709,12 @@ impl AgentController {
             }
         }
 
-        // Check if we have a conclusive answer
+        // Check for convergence using advanced detection
+        if self.has_converged(state) {
+            return IterationDecision::Complete;
+        }
+
+        // Check if we have a conclusive answer with high confidence
         if result.confidence_score > 0.8 && state.iteration_count >= 2 {
             return IterationDecision::Complete;
         }
