@@ -960,8 +960,8 @@ CRITICAL INSTRUCTIONS:
 2. Use the actual paths and file names from the system context
 3. Use the appropriate package manager for this distro: {}
 4. Consider the current directory: {}
-5. Make the command safe and practical
-6. If the request mentions a file/folder, search for it in the current directory first
+5. Make the command safe and practical; if the request is ambiguous or lacks paths, respond with 'Cannot determine safe command'
+6. If the request mentions a file/folder, search for it in the current directory first; never invent paths
 
 EXAMPLES:
 Request: "zip rendi folder"
