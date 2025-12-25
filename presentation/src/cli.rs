@@ -1169,7 +1169,13 @@ impl CliApp {
 
         println!("\n{}Incremental Changes{}:", "⚡ ".bright_yellow(), session_info);
 
-        let lines: Vec<&str> = code.lines().collect();
+        let ext = std::path::Path::new(path)
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_string();
+        let cleaned_code = Self::strip_code_fences(code);
+        let lines: Vec<&str> = cleaned_code.lines().collect();
 
         match op_type {
             "create" => {
@@ -1178,7 +1184,7 @@ impl CliApp {
 
                 if lines.len() <= 15 {
                     println!("  └─ [full file - {} lines]", lines.len());
-                    Self::display_code_with_syntax(&lines, 0);
+                    Self::display_code_with_syntax(&lines, 0, &ext);
                 } else {
                     // Show in logical chunks for large files
                     let chunks = Self::create_file_chunks(&lines);
@@ -1194,7 +1200,7 @@ impl CliApp {
                         // Only slice if we have a valid range
                         if start_idx < end_idx && start_idx < lines.len() {
                             let chunk_lines = &lines[start_idx..end_idx];
-                            Self::display_code_with_syntax(chunk_lines, start_idx);
+                            Self::display_code_with_syntax(chunk_lines, start_idx, &ext);
                         }
 
                         if i < chunks.len() - 1 {
@@ -1228,10 +1234,10 @@ impl CliApp {
                     // Full content replacement - show diff preview
                     println!("  └─ [full replacement - {} lines]", lines.len());
                     if lines.len() <= 10 {
-                        Self::display_code_with_syntax(&lines, 0);
+                        Self::display_code_with_syntax(&lines, 0, &ext);
                     } else {
                         println!("     {}... (showing first 10 lines)", lines.len());
-                        Self::display_code_with_syntax(&lines[..10], 0);
+                        Self::display_code_with_syntax(&lines[..10], 0, &ext);
                     }
                 }
             }
@@ -1240,7 +1246,7 @@ impl CliApp {
                 println!("{} Processing {} ({})", "⚙️".bright_blue(), path, op_type);
                 println!("  └─ [{} lines]", lines.len());
                 if lines.len() <= 10 {
-                    Self::display_code_with_syntax(&lines, 0);
+                    Self::display_code_with_syntax(&lines, 0, &ext);
                 } else {
                     println!("     {}... (truncated)", lines.len());
                 }
@@ -1320,38 +1326,79 @@ impl CliApp {
     }
 
     /// Display code with basic syntax highlighting
-    fn display_code_with_syntax(lines: &[&str], start_line: usize) {
+    fn display_code_with_syntax(lines: &[&str], start_line: usize, ext: &str) {
         for (i, line) in lines.iter().enumerate() {
             let line_num = start_line + i + 1;
             let line_num_display = format!("{:2}", line_num).bright_black();
 
-            // Simple HTML syntax highlighting
-            let highlighted = if line.trim().is_empty() {
-                String::new()
-            } else if line.contains("<!DOCTYPE") {
-                line.bright_blue().to_string()
-            } else if line.contains("<html") || line.contains("<head") || line.contains("<body") ||
-                      line.contains("</html>") || line.contains("</head>") || line.contains("</body>") {
-                line.bright_blue().to_string()
-            } else if line.contains("<div") || line.contains("<main") || line.contains("<h1") ||
-                      line.contains("<p") || line.contains("<button") || line.contains("<footer") ||
-                      line.contains("</div>") || line.contains("</main>") || line.contains("</h1>") ||
-                      line.contains("</p>") || line.contains("</button>") || line.contains("</footer>") {
-                line.bright_green().to_string()
-            } else if line.contains("class=") || line.contains("href=") || line.contains("src=") {
-                line.bright_yellow().to_string()
-            } else if line.contains("<!--") || line.contains("-->") {
-                line.bright_black().to_string()
-            } else if line.contains("bg-") || line.contains("text-") || line.contains("p-") || line.contains("m-") {
-                // Tailwind classes
-                line.bright_cyan().to_string()
-            } else {
-                // Regular content
-                line.to_string()
+            let trimmed = line.trim_start();
+            let highlighted = match ext {
+                "py" => {
+                    if trimmed.starts_with('#') {
+                        trimmed.bright_black().to_string()
+                    } else if trimmed.starts_with("def ") || trimmed.starts_with("class ") {
+                        trimmed.bright_blue().to_string()
+                    } else if trimmed.starts_with("import ") || trimmed.starts_with("from ") {
+                        trimmed.bright_magenta().to_string()
+                    } else {
+                        line.to_string()
+                    }
+                }
+                "js" | "ts" => {
+                    if trimmed.starts_with("//") {
+                        trimmed.bright_black().to_string()
+                    } else if trimmed.starts_with("function ")
+                        || trimmed.starts_with("const ")
+                        || trimmed.starts_with("let ")
+                        || trimmed.starts_with("class ")
+                    {
+                        trimmed.bright_blue().to_string()
+                    } else {
+                        line.to_string()
+                    }
+                }
+                "html" => {
+                    if line.trim().is_empty() {
+                        String::new()
+                    } else if line.contains("<!DOCTYPE") {
+                        line.bright_blue().to_string()
+                    } else if line.contains("<html") || line.contains("<head") || line.contains("<body")
+                        || line.contains("</html>") || line.contains("</head>") || line.contains("</body>")
+                    {
+                        line.bright_blue().to_string()
+                    } else if line.contains("<div") || line.contains("<main") || line.contains("<h1")
+                        || line.contains("<p") || line.contains("<button") || line.contains("<footer")
+                        || line.contains("</div>") || line.contains("</main>") || line.contains("</h1>")
+                        || line.contains("</p>") || line.contains("</button>") || line.contains("</footer>")
+                    {
+                        line.bright_green().to_string()
+                    } else if line.contains("class=") || line.contains("href=") || line.contains("src=") {
+                        line.bright_yellow().to_string()
+                    } else {
+                        line.to_string()
+                    }
+                }
+                _ => line.to_string(),
             };
 
             println!("  {} │ {}", line_num_display, highlighted);
         }
+    }
+
+    /// Strip surrounding code fences/backticks to avoid emitting markdown into files
+    fn strip_code_fences(code: &str) -> String {
+        let trimmed = code.trim();
+        if trimmed.starts_with("```") && trimmed.ends_with("```") {
+            let mut lines: Vec<&str> = trimmed.lines().collect();
+            if !lines.is_empty() && lines.first().map(|l| l.trim().starts_with("```")).unwrap_or(false) {
+                lines.remove(0);
+            }
+            if !lines.is_empty() && lines.last().map(|l| l.trim() == "```").unwrap_or(false) {
+                lines.pop();
+            }
+            return lines.join("\n").trim().to_string();
+        }
+        trimmed.trim_matches('`').trim().to_string()
     }
 
     async fn handle_chat(&self) -> Result<()> {
