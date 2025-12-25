@@ -356,6 +356,10 @@ pub struct Cli {
     #[arg(long)]
     pub context: bool,
 
+    /// Build and apply code changes with user confirmation
+    #[arg(long)]
+    pub build: bool,
+
     /// The query or file path to process
     #[arg(trailing_var_arg = true)]
     pub args: Vec<String>,
@@ -654,6 +658,67 @@ impl CliApp {
         Ok(())
     }
 
+    async fn handle_build(&mut self, goal: &str) -> Result<()> {
+        if goal.trim().is_empty() {
+            println!(
+                "{}",
+                "Build mode requires a goal (e.g. vibe_cli --build \"Add error handling to the parser\")"
+                    .red()
+            );
+            return Ok(());
+        }
+
+        println!("{}", "Build Mode: Safe code modifications with user confirmation".bright_cyan());
+        println!("{}", format!("Goal: {}", goal).bright_blue());
+
+        // Initialize enhanced agent for building
+        let client = OllamaClient::new()?;
+        let agent_service = AgentService::new(client);
+
+        // Create agent request for building
+        let request = domain::models::AgentRequest {
+            goal: format!("Generate a detailed plan for safely implementing: {}. Include specific file operations (create, read, update, delete) with clear descriptions.", goal),
+            context: Some(format!("System: {} | Mode: Build with confirmation", self.system_info)),
+            conversation_id: None,
+        };
+
+        // Generate build plan using enhanced agent
+        println!("\n{}", "Analyzing requirements and generating build plan...".bright_yellow());
+        match agent_service.process_request(&request).await {
+            Ok(response) => {
+                println!("\n{}", "Build Plan Analysis:".bright_magenta());
+                for (i, step) in response.reasoning.iter().enumerate() {
+                    println!("  {}. {}", format!("Step {}", i + 1).bright_yellow(), step);
+                }
+
+                if !response.tool_calls.is_empty() {
+                    println!("\n{}", "Planned Operations:".bright_yellow());
+                    for tool_call in &response.tool_calls {
+                        println!("  • {} - {}", tool_call.name.bright_green(), tool_call.reasoning);
+                    }
+                }
+
+                println!("\n{}", "Detailed Build Plan:".bright_green());
+                println!("{}", response.final_response);
+
+                println!("\n{}", format!("Confidence: {:.1}%", response.confidence * 100.0).bright_magenta());
+
+                // Ask for user confirmation before proceeding
+                if ask_confirmation("Proceed with this build plan?", false)? {
+                    println!("{}", "Build plan approved. Implementation will be available in Phase 1.3 (Transaction Framework).".bright_green());
+                    println!("{}", "This will include atomic operations, rollback capabilities, and safe file modifications.".bright_cyan());
+                } else {
+                    println!("{}", "Build plan cancelled by user.".yellow());
+                }
+            }
+            Err(e) => {
+                eprintln!("{} {}", "Build planning error:".red(), e);
+            }
+        }
+
+        Ok(())
+    }
+
     pub async fn run(&mut self, cli: Cli) -> Result<()> {
         let args_str = cli.args.join(" ");
         if cli.chat {
@@ -663,6 +728,8 @@ impl CliApp {
                 // Perhaps chat with initial message, but for now, just enter chat
                 self.handle_chat().await
             }
+        } else if cli.build {
+            self.handle_build(&args_str).await
         } else if cli.agent {
             self.handle_agent(&args_str).await
         } else if cli.ai_agent {
