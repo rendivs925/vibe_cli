@@ -157,11 +157,11 @@ impl RagService {
         // Create secure prompt with sanitized content
         let context_refs: Vec<&str> = vec![&context];
         let prompt = self.content_sanitizer.create_secure_prompt(
-            "You are an expert software engineer. Based on the provided code context and directory structure, answer the user's question accurately.",
+            "Answer strictly from the provided context. If the context is insufficient, reply: 'Insufficient context to answer.'",
             &sanitized_question,
             &context_refs,
         ).unwrap_or_else(|_| format!(
-            "SYSTEM: You are an expert software engineer. Answer based only on provided context.\n\nQUESTION: {}\n\nCONTEXT:\n{}\n\nRESPONSE:",
+            "SYSTEM: Answer strictly from the provided context. If insufficient, reply: 'Insufficient context to answer.'\n\nQUESTION: {}\n\nCONTEXT:\n{}\n\nRESPONSE:",
             sanitized_question, context
         ));
         self.inference_engine.generate(&prompt).await
@@ -220,11 +220,11 @@ impl RagService {
         // Create secure prompt with sanitized content
         let context_refs: Vec<&str> = vec![&context];
         let prompt = self.content_sanitizer.create_secure_prompt(
-            "You are an expert software engineer. Based on the provided code context and directory structure, answer the user's question accurately.",
+            "Answer strictly from the provided context. If the context is insufficient, reply: 'Insufficient context to answer.'",
             &sanitized_question,
             &context_refs,
         ).unwrap_or_else(|_| format!(
-            "SYSTEM: You are an expert software engineer. Answer based only on provided context.\n\nQUESTION: {}\n\nCONTEXT:\n{}\n\nRESPONSE:",
+            "SYSTEM: Answer strictly from the provided context. If insufficient, reply: 'Insufficient context to answer.'\n\nQUESTION: {}\n\nCONTEXT:\n{}\n\nRESPONSE:",
             sanitized_question, context
         ));
         self.inference_engine.generate(&prompt).await
