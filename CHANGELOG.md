@@ -11,6 +11,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/SemVer
 
 - **Build Mode (--build)**: New CLI mode for safe code modifications with user confirmation and AI-powered planning
 - **BuildService**: Comprehensive orchestration service for file operations with risk assessment and color-coded previews
+- **Transaction Framework**: Full ACID transaction support with automatic rollback on failure
+- **TransactionGuard**: RAII-style transaction management with auto-commit and cleanup
 - **Advanced Agent Monitoring**: Real-time memory tracking, convergence detection, and resource usage monitoring
 - **Memory Tracking**: Cross-platform memory usage estimation with peak and current tracking
 - **Convergence Detection**: Smart early termination based on iteration stability, confidence trends, and goal progress
