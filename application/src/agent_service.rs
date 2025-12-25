@@ -350,7 +350,8 @@ Rules:
 - Return at least one file.
 - Prefer 1-5 files that together produce a runnable, testable solution.
 - Use ACTION: create for each.
-- Choose sensible names and locations (e.g., src/, public/, index.html) based on the goal; avoid placeholders.
+- Choose sensible names and locations based on the goal; avoid placeholders.
+- If the goal implies an app/game/UI, include an entrypoint and any supporting files needed to run without external assets.
 - Keep the list concise.
 
 FORMAT (required):
@@ -457,12 +458,13 @@ FILE TO CREATE: {}
 LANGUAGE/TYPE: {}
 
 INSTRUCTIONS:
-- Generate the complete, working {} file
-- Include necessary imports, dependencies, or boilerplate
+- Generate a complete, working {} file that runs as-is (no placeholders or TODOs)
+- Include necessary imports, dependencies, entrypoints, and minimal wiring to run
+- If the goal implies an app/game/UI, include a runnable entry (e.g., main loop or HTML with inline CSS/JS) without external assets
 - Follow best practices and conventions for {}
 - Ensure the code is production-ready and well-structured
 - Do NOT include explanations or markdown formatting
-- Return ONLY the file content
+- Return ONLY the file content (plain text)
 
 Generate the complete file content now:"#,
                 self.goal, file_spec.path, language_hint,
