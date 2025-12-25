@@ -287,6 +287,21 @@ impl BuildService {
         }
     }
 
+    fn strip_fences_for_preview(content: &str) -> String {
+        let trimmed = content.trim();
+        if trimmed.starts_with("```") && trimmed.ends_with("```") {
+            let mut lines: Vec<&str> = trimmed.lines().collect();
+            if !lines.is_empty() && lines.first().map(|l| l.trim().starts_with("```")).unwrap_or(false) {
+                lines.remove(0);
+            }
+            if !lines.is_empty() && lines.last().map(|l| l.trim() == "```").unwrap_or(false) {
+                lines.pop();
+            }
+            return lines.join("\n").trim().to_string();
+        }
+        trimmed.trim_matches('`').trim().to_string()
+    }
+
     /// Enable or disable dry-run mode
     pub fn set_dry_run(&mut self, dry_run: bool) {
         self.dry_run = dry_run;
@@ -394,18 +409,20 @@ impl BuildService {
                 match operation {
                     FileOperation::Create { content, .. } => {
                         println!("\n{}", "Content preview:".bright_cyan());
-                        let snippet = if content.len() > 200 { &content[..200] } else { content };
+                        let cleaned = Self::strip_fences_for_preview(content);
+                        let snippet = if cleaned.len() > 200 { &cleaned[..200] } else { &cleaned };
                         println!("    {}", snippet.dimmed());
-                        if content.len() > 200 {
-                            println!("    {}... ({} more chars)", "...".dimmed(), content.len() - 200);
+                        if cleaned.len() > 200 {
+                            println!("    {}... ({} more chars)", "...".dimmed(), cleaned.len() - 200);
                         }
                     }
                     FileOperation::Update { new_content, .. } => {
                         println!("\n{}", "Content preview:".bright_cyan());
-                        let snippet = if new_content.len() > 200 { &new_content[..200] } else { new_content };
+                        let cleaned = Self::strip_fences_for_preview(new_content);
+                        let snippet = if cleaned.len() > 200 { &cleaned[..200] } else { &cleaned };
                         println!("    {}", snippet.dimmed());
-                        if new_content.len() > 200 {
-                            println!("    {}... ({} more chars)", "...".dimmed(), new_content.len() - 200);
+                        if cleaned.len() > 200 {
+                            println!("    {}... ({} more chars)", "...".dimmed(), cleaned.len() - 200);
                         }
                     }
                     _ => {}
@@ -429,10 +446,11 @@ impl BuildService {
         match operation {
             FileOperation::Create { path, content } => {
                 println!("\n{}", "Content to be created:".bright_cyan());
-                let preview = if content.len() > 500 {
-                    format!("{}... ({} bytes total)", &content[..500], content.len())
+                let cleaned = Self::strip_fences_for_preview(content);
+                let preview = if cleaned.len() > 500 {
+                    format!("{}... ({} bytes total)", &cleaned[..500], cleaned.len())
                 } else {
-                    content.clone()
+                    cleaned
                 };
                 println!("{}", preview.dimmed());
             }
