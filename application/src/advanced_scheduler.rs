@@ -335,6 +335,117 @@ impl AdvancedScheduler {
             .context("Failed to acquire semaphore permit")
     }
 
+    /// AI-powered task scheduling with predictive optimization
+    pub async fn schedule_with_ai_prediction(
+        &self,
+        task: &crate::parallel_agent::SubTask,
+        system_metrics: &crate::dynamic_scaling::SystemMetrics,
+        workers: &[WorkerNode],
+    ) -> Result<usize> {
+        // Use AI-like logic to predict optimal worker assignment
+        let predictions = self.predict_task_performance(task, workers).await;
+
+        // Consider system load and task complexity
+        let load_score = system_metrics.load_score();
+        let complexity_factor = task.estimated_complexity;
+
+        // Select worker based on predictions and current load
+        let best_worker = self.select_optimal_worker(&predictions, workers, load_score, complexity_factor);
+
+        Ok(best_worker)
+    }
+
+    /// Predict task performance on each worker
+    async fn predict_task_performance(
+        &self,
+        task: &crate::parallel_agent::SubTask,
+        workers: &[WorkerNode],
+    ) -> Vec<f32> {
+        let mut predictions = Vec::new();
+
+        for worker in workers {
+            // Simple prediction model based on worker history and task complexity
+            let base_performance = worker.avg_execution_time_ms() as f32;
+            let complexity_penalty = task.estimated_complexity * 1000.0; // Convert to ms scale
+            let load_penalty = worker.load_score() * 500.0;
+
+            let predicted_time = base_performance + complexity_penalty + load_penalty;
+            let performance_score = 1.0 / (1.0 + predicted_time / 1000.0); // Normalize to 0-1
+
+            predictions.push(performance_score);
+        }
+
+        predictions
+    }
+
+    /// Select optimal worker based on predictions and constraints
+    fn select_optimal_worker(
+        &self,
+        predictions: &[f32],
+        workers: &[WorkerNode],
+        load_score: f32,
+        complexity_factor: f32,
+    ) -> usize {
+        let mut best_worker = 0;
+        let mut best_score = 0.0;
+
+        for (i, (prediction, worker)) in predictions.iter().zip(workers).enumerate() {
+            // Combined score considering prediction, current load, and worker capacity
+            let worker_load = worker.load_score();
+            let capacity_score = 1.0 - worker_load; // Higher capacity = better score
+
+            let combined_score = *prediction * capacity_score * (1.0 + complexity_factor);
+
+            // Prefer workers with recent activity for cache locality
+            let recency_bonus = if worker.last_task_completion.is_some() {
+                0.1
+            } else {
+                0.0
+            };
+
+            let final_score = combined_score + recency_bonus;
+
+            if final_score > best_score {
+                best_score = final_score;
+                best_worker = i;
+            }
+        }
+
+        best_worker
+    }
+
+    /// Adaptive strategy selection based on workload patterns
+    pub async fn adapt_strategy(
+        &self,
+        recent_tasks: &[crate::parallel_agent::SubTask],
+        system_metrics: &crate::dynamic_scaling::SystemMetrics,
+    ) -> SchedulingStrategy {
+        // Analyze task patterns
+        let avg_complexity: f32 = recent_tasks.iter()
+            .map(|t| t.estimated_complexity)
+            .sum::<f32>() / recent_tasks.len() as f32;
+
+        let has_dependencies = recent_tasks.iter()
+            .any(|t| !t.dependencies.is_empty());
+
+        let queue_pressure = system_metrics.queue_length as f32 / 10.0; // Normalize
+
+        // Adaptive strategy selection
+        if avg_complexity > 0.7 && has_dependencies {
+            // Complex tasks with dependencies - use priority scheduling
+            SchedulingStrategy::Priority
+        } else if queue_pressure > 0.8 {
+            // High queue pressure - use work stealing for load balancing
+            SchedulingStrategy::WorkStealing
+        } else if avg_complexity < 0.3 {
+            // Simple tasks - use FIFO for efficiency
+            SchedulingStrategy::FIFO
+        } else {
+            // Mixed complexity - use shortest job first
+            SchedulingStrategy::ShortestJobFirst
+        }
+    }
+
     /// Generate scheduler statistics report
     pub fn generate_report(&self, workers: &[WorkerNode]) -> String {
         let mut report = String::from("Scheduler Statistics\n");
