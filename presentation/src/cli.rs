@@ -1679,9 +1679,46 @@ User request: {}",
             }
         }
 
+        // Use context-aware command generation
+        println!("📊 Analyzing current directory and system context...");
+
+        // List files in current directory for context
+        let ls_output = std::process::Command::new("ls")
+            .arg("-la")
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .unwrap_or_else(|| String::new());
+
         let client = infrastructure::ollama_client::OllamaClient::new()?;
-        let system_info = detect_system_info();
-        let prompt = format!("You are on a system with: {}. Generate a bash command to: {}. Respond with only the exact command to run, without any formatting, backticks, quotes, or explanation. Ensure the command is complete, syntactically correct, and uses standard Unix tools. For size comparisons, use appropriate units like -BG for gigabytes in df.", system_info, query);
+        let system_context = infrastructure::config::SystemContext::gather();
+
+        let prompt = format!(
+            r#"Generate a precise bash command for the user's request.
+
+USER REQUEST: {}
+
+SYSTEM CONTEXT:
+{}
+
+CURRENT DIRECTORY FILES:
+{}
+
+CRITICAL INSTRUCTIONS:
+1. Look at the CURRENT DIRECTORY FILES above - these are the ACTUAL files that exist
+2. If the request mentions a file/folder name, find it in the listing above
+3. Use the EXACT file/folder names from the listing
+4. Generate ONLY the command - no explanations, markdown, or quotes
+5. Use the appropriate package manager: {}
+6. Make the command safe and correct
+
+Generate the command now:"#,
+            query,
+            system_context.to_context_string(),
+            ls_output,
+            system_context.package_manager
+        );
+
         let response = client.generate_response(&prompt).await?;
         let command = extract_command_from_response(&response);
         println!("{}", format!("Command: {}", command).green());
