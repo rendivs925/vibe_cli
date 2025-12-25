@@ -241,10 +241,17 @@ impl AgentService {
         let build_plan = match plan {
             Some(p) => p,
             None => {
+                let snippet = if raw_plan_text.len() > 800 {
+                    format!("{}...", &raw_plan_text[..800])
+                } else {
+                    raw_plan_text.clone()
+                };
                 return Err(anyhow::anyhow!(format!(
-                    "Failed to produce a valid build plan after {} attempts: {}",
+                    "Failed to produce a valid build plan after {} attempts: {}\nLast plan text:\n{}\nLogs:\n{}",
                     MAX_PLAN_ATTEMPTS,
-                    last_error.unwrap_or_else(|| anyhow::anyhow!("Unknown planning error"))
+                    last_error.unwrap_or_else(|| anyhow::anyhow!("Unknown planning error")),
+                    snippet,
+                    planning_logs.join("\n")
                 )))
             }
         };
@@ -319,29 +326,41 @@ Be specific about file paths and content. Do not include commentary outside the 
         )
     }
 
-    fn parse_build_plan(&self, plan_text: &str, goal: &str) -> Result<BuildPlan> {
-        // Try to extract JSON from the response
-        let json_start = plan_text.find('{');
-        let json_end = plan_text.rfind('}');
-
-        if let (Some(start), Some(end)) = (json_start, json_end) {
-            let json_str = &plan_text[start..=end];
-            match serde_json::from_str::<serde_json::Value>(json_str) {
-                Ok(json) => {
-                    return self.build_plan_from_json(json, goal);
-                }
-                Err(e) => {
-                    return Err(anyhow::anyhow!(format!(
-                        "Unable to parse build plan JSON: {}",
-                        e
-                    )));
+    fn extract_plan_json(&self, plan_text: &str) -> Option<String> {
+        // Prefer fenced ```json blocks if present
+        if let Some(start) = plan_text.find("```json") {
+            let rest = &plan_text[start + "```json".len()..];
+            if let Some(end) = rest.find("```") {
+                let block = &rest[..end];
+                let trimmed = block.trim();
+                if !trimmed.is_empty() {
+                    return Some(trimmed.to_string());
                 }
             }
         }
 
-        Err(anyhow::anyhow!(
-            "No JSON build plan found in model response; cannot proceed."
-        ))
+        // Fallback: first '{' to last '}'
+        let json_start = plan_text.find('{')?;
+        let json_end = plan_text.rfind('}')?;
+        if json_end > json_start {
+            Some(plan_text[json_start..=json_end].to_string())
+        } else {
+            None
+        }
+    }
+
+    fn parse_build_plan(&self, plan_text: &str, goal: &str) -> Result<BuildPlan> {
+        let json_str = self
+            .extract_plan_json(plan_text)
+            .ok_or_else(|| anyhow::anyhow!("No JSON build plan found in model response; cannot proceed."))?;
+
+        match serde_json::from_str::<serde_json::Value>(&json_str) {
+            Ok(json) => self.build_plan_from_json(json, goal),
+            Err(e) => Err(anyhow::anyhow!(format!(
+                "Unable to parse build plan JSON: {}",
+                e
+            ))),
+        }
     }
 
     fn build_plan_from_json(&self, json: serde_json::Value, goal: &str) -> Result<BuildPlan> {

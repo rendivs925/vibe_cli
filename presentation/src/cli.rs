@@ -736,6 +736,15 @@ impl CliApp {
                 let _ = progress_tx.send(());
                 let _ = progress_handle.await;
                 eprintln!("{} {}", "Build planning error:".red(), e);
+                if let Some(raw_text) = e
+                    .to_string()
+                    .split("Last plan text:")
+                    .skip(1)
+                    .next()
+                {
+                    println!("\n{}", "Model output (raw):".bright_magenta());
+                    println!("{}", raw_text.trim());
+                }
                 return Ok(());
             }
         };
