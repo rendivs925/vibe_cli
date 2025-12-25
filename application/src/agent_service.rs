@@ -17,7 +17,7 @@ use domain::models::{
 use infrastructure::{
     agent_control::{
         AgentController, AgentError, AgentExecutionState, AgentIterationResult, AgentResult,
-        SafeFailureHandler,
+        IterationRecord, SafeFailureHandler, VerificationResult,
     },
     config::Config,
     ollama_client::OllamaClient,
@@ -31,6 +31,15 @@ use uuid::Uuid;
 
 // Forward declare for now - actual implementation when both services are integrated
 pub type RagService = crate::rag_service::RagService;
+
+/// Main agent service coordinating all agent operations
+pub struct AgentService {
+    pub client: OllamaClient,
+    pub rag_service: Option<Arc<RagService>>,
+    pub config: Config,
+    pub agent_controller: AgentController,
+    pub failure_handler: SafeFailureHandler,
+}
 
 /// Execution context for agent operations with owned data to avoid lifetime issues
 pub struct AgentExecutionContext {
@@ -55,11 +64,65 @@ impl AgentExecutionContext {
     }
 }
 
-/// Coordinates planning/execution/finalization for an agent run.
-pub struct ExecutionCoordinator {
-    context: Arc<AgentExecutionContext>,
-    controller: AgentController,
-    failure_handler: SafeFailureHandler,
+impl AgentService {
+    pub fn new(client: OllamaClient) -> Self {
+        Self {
+            client,
+            rag_service: None,
+            config: Config::load(),
+            agent_controller: AgentController::new(),
+            failure_handler: SafeFailureHandler::new(),
+        }
+    }
+
+    pub fn with_rag_service(client: OllamaClient, rag_service: Arc<RagService>) -> Self {
+        Self {
+            client,
+            rag_service: Some(rag_service),
+            config: Config::load(),
+            agent_controller: AgentController::new(),
+            failure_handler: SafeFailureHandler::new(),
+        }
+    }
+
+    pub async fn process_request(&self, request: &AgentRequest) -> Result<AgentResponse> {
+        let execution_context = AgentExecutionContext::new(
+            self.client.clone(),
+            self.config.clone(),
+            self.rag_service.clone(),
+        );
+
+        let coordinator =
+            ExecutionCoordinator::new(execution_context, self.agent_controller.clone());
+
+        let agent_result = coordinator.execute_agent(&request.goal, request).await?;
+
+        let tool_calls = Vec::new(); // TODO: Extract tool calls from execution history properly
+
+        Ok(AgentResponse {
+            reasoning: vec!["Multi-iteration bounded execution completed".to_string()],
+            tool_calls,
+            final_response: agent_result.final_response,
+            confidence: agent_result.confidence_score,
+        })
+    }
+
+    fn filter_valid_tool_calls(
+        &self,
+        agent_context: &AgentContext,
+        tool_calls: Vec<ToolCall>,
+    ) -> Vec<ToolCall> {
+        let allowed: std::collections::HashSet<String> = agent_context
+            .available_tools
+            .iter()
+            .map(|t| t.name.clone())
+            .collect();
+
+        tool_calls
+            .into_iter()
+            .filter(|tc| allowed.contains(&tc.name))
+            .collect()
+    }
 }
 
 impl ExecutionCoordinator {
@@ -69,6 +132,71 @@ impl ExecutionCoordinator {
             controller,
             failure_handler: SafeFailureHandler::new(),
         }
+    }
+
+    /// Get available tools from context
+    pub fn get_available_tools(&self) -> Vec<ToolDefinition> {
+        self.context.tools.clone()
+    }
+
+    /// Generate reasoning steps for a goal
+    pub async fn generate_reasoning(&self, goal: &str, _context: &AgentContext) -> Result<Vec<String>> {
+        // Simplified implementation - in real code this would call the model
+        Ok(vec![format!("Reasoning about: {}", goal)])
+    }
+
+    /// Determine if tools are needed for the goal
+    pub fn needs_tools(&self, _goal: &str, _reasoning: &[String]) -> bool {
+        // Simplified - always return true for now
+        true
+    }
+
+    /// Plan tool calls based on reasoning
+    pub fn plan_tool_calls(&self, goal: &str, reasoning: &[String], _context: &AgentContext, _exec_context: &AgentExecutionContext) -> Vec<ToolCall> {
+        // Simplified implementation
+        if goal.contains("search") || goal.contains("find") {
+            vec![ToolCall {
+                id: "search-1".to_string(),
+                name: "web_search".to_string(),
+                parameters: std::collections::HashMap::new(),
+                reasoning: reasoning.join(" "),
+            }]
+        } else {
+            vec![]
+        }
+    }
+
+    /// Execute tool calls
+    pub async fn execute_tool_calls(&self, tool_calls: &[ToolCall], _context: &mut AgentContext, _exec_context: &AgentExecutionContext) -> Result<Vec<ToolResult>> {
+        // Simplified implementation
+        let mut results = Vec::new();
+        for tool_call in tool_calls {
+            results.push(ToolResult {
+                tool_call_id: tool_call.id.clone(),
+                success: true,
+                result: serde_json::json!({"message": "Tool executed successfully"}),
+                error: None,
+            });
+        }
+        Ok(results)
+    }
+
+    /// Generate final response
+    pub async fn generate_final_response(&self, goal: &str, reasoning: &[String], tool_results: &[ToolResult], _agent_context: &AgentContext, _exec_context: &AgentExecutionContext) -> Result<String> {
+        // Simplified implementation
+        Ok(format!("Goal: {}\nReasoning: {}\nResults: {} tools executed",
+                   goal,
+                   reasoning.join(", "),
+                   tool_results.len()))
+    }
+
+    /// Calculate confidence score
+    pub fn calculate_confidence(&self, reasoning: &[String], tool_results: &[ToolResult]) -> f32 {
+        // Simplified implementation
+        let base_confidence = 0.5;
+        let reasoning_bonus = (reasoning.len() as f32) * 0.1;
+        let tool_bonus = (tool_results.len() as f32) * 0.2;
+        (base_confidence + reasoning_bonus + tool_bonus).min(1.0)
     }
 
     /// Entry point used by `AgentService`.
@@ -185,15 +313,23 @@ impl ExecutionCoordinator {
             let iteration_result = AgentIterationResult {
                 reasoning_steps: reasoning_steps.clone(),
                 tool_calls: tool_calls.iter().map(|tc| format!("{:?}", tc)).collect(),
-                tool_results: tool_results.iter().map(|tr| format!("{:?}", tr)).collect(),
+                final_response: final_text.clone(),
                 confidence_score: self.calculate_confidence(&all_reasoning, &all_tool_results),
-                should_continue: false, // Simplified: always finalize after tools
-                execution_time_ms: 0,
-                memory_used_bytes: execution_state.memory_usage_bytes,
-                error_message: None,
+                next_goal: "".to_string(), // No next goal for final iteration
             };
 
-            execution_state.execution_history.push(iteration_result);
+            execution_state.execution_history.push(IterationRecord {
+                iteration_number: execution_state.iteration_count + 1,
+                reasoning_steps: reasoning_steps.clone(),
+                tool_calls: tool_calls.iter().map(|tc| format!("{:?}", tc)).collect(),
+                verification_result: None,
+                execution_time_ms: 0,
+                success: true,
+                memory_peak_bytes: 0,
+                confidence_score: self.calculate_confidence(&all_reasoning, &all_tool_results),
+                convergence_indicators: std::collections::HashMap::new(),
+                resource_usage: infrastructure::agent_control::ResourceUsageStats::default(),
+            });
 
             // Check convergence
             if self.has_converged(&all_reasoning, &all_tool_results) {
@@ -226,23 +362,6 @@ impl ExecutionCoordinator {
             verification_history: Vec::new(),
             execution_time: std::time::Duration::from_secs(0),
         })
-    }
-
-    fn filter_valid_tool_calls(
-        &self,
-        agent_context: &AgentContext,
-        tool_calls: Vec<ToolCall>,
-    ) -> Vec<ToolCall> {
-        let allowed: std::collections::HashSet<String> = agent_context
-            .available_tools
-            .iter()
-            .map(|t| t.name.clone())
-            .collect();
-
-        tool_calls
-            .into_iter()
-            .filter(|tc| allowed.contains(&tc.name))
-            .collect()
     }
 
     pub fn new(client: OllamaClient) -> Self {

@@ -88,7 +88,6 @@ impl AdvancedQdrantManager {
 
             let storage = QdrantStorage::new(
                 qdrant_url.clone(),
-                storage_path,
                 collection_name,
                 self.vector_dim,
             ).await?;
@@ -378,7 +377,6 @@ impl AdvancedQdrantManager {
 
         let storage = QdrantStorage::new(
             qdrant_url,
-            storage_path,
             collection_name,
             self.vector_dim,
         ).await?;

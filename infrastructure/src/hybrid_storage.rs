@@ -22,7 +22,7 @@ impl HybridStorage {
     ) -> Result<Self> {
         let sqlite = EmbeddingStorage::new(&sqlite_path).await?;
         let qdrant = if let Some(url) = qdrant_url {
-            match QdrantStorage::new(Some(url), &sqlite_path, collection_name, vector_dim).await {
+            match QdrantStorage::new(Some(url), collection_name, vector_dim).await {
                 Ok(storage) => Some(storage),
                 Err(e) => {
                     eprintln!("Warning: Qdrant initialization failed: {}", e);
@@ -120,7 +120,7 @@ impl HybridStorage {
     pub async fn delete_embeddings_for_path(&self, path: String) -> Result<()> {
         if self.use_qdrant {
             if let Some(qdrant) = &self.qdrant {
-                qdrant.delete_embeddings_for_path(path.clone()).await?;
+                qdrant.delete_embeddings_for_path(path.as_str()).await?;
             }
         }
         self.sqlite.delete_embeddings_for_path(path).await
