@@ -728,11 +728,17 @@ impl CliApp {
             match planner.stream_next_step(&agent_service.inference_engine).await {
                 Ok(Some(step)) => {
                     step_count += 1;
-                    println!("\n{}", format!("Planning Step {}: {}", step.step_number, step.description).bright_yellow().bold());
-                    println!("{}", step.reasoning);
+                    println!("\n{}", format!("[{}/?] Planning Step {}: {}",
+                        step_count, step.step_number, step.description
+                    ).bright_yellow().bold());
 
+                    // Display reasoning with gradual reveal for better UX
+                    Self::display_reasoning_gradually(&step.reasoning).await;
+
+                    // Show confidence with visual indicator
                     if let Some(confidence) = step.confidence {
-                        println!("{} {:.1}%", "Confidence:".bright_green(), confidence * 100.0);
+                        let confidence_bar = Self::create_confidence_bar(confidence);
+                        println!("{} {:.1}% {}", "Confidence:".bright_green(), confidence * 100.0, confidence_bar);
                     }
 
                     // If this step has code, buffer the operation
@@ -849,6 +855,41 @@ impl CliApp {
             // Default: general query
             self.handle_query(&args_str).await
         }
+    }
+
+    /// Display reasoning text gradually for better user experience
+    async fn display_reasoning_gradually(reasoning: &str) {
+        let words: Vec<&str> = reasoning.split_whitespace().collect();
+        let mut current_line = String::new();
+
+        for word in words {
+            current_line.push_str(word);
+            current_line.push(' ');
+
+            // Print line by line for better readability
+            if current_line.len() > 80 || word.ends_with('.') || word.ends_with('!') || word.ends_with('?') {
+                println!("  {}", current_line.trim());
+                current_line.clear();
+                time::sleep(Duration::from_millis(50)).await;
+            }
+        }
+
+        // Print any remaining text
+        if !current_line.is_empty() {
+            println!("  {}", current_line.trim());
+        }
+    }
+
+    /// Create a visual confidence bar
+    fn create_confidence_bar(confidence: f32) -> String {
+        let bar_length = 20;
+        let filled = (confidence * bar_length as f32) as usize;
+        let empty = bar_length - filled;
+
+        let filled_bar = "█".repeat(filled);
+        let empty_bar = "░".repeat(empty);
+
+        format!("[{}{}]", filled_bar.bright_green(), empty_bar.bright_black())
     }
 
     async fn handle_chat(&self) -> Result<()> {
