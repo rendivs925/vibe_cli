@@ -395,6 +395,10 @@ pub struct Cli {
     #[arg(long, help = "Resume the current or most recently used session")]
     pub continue_session: bool,
 
+    /// Undo the last operation in the current session
+    #[arg(long, help = "Revert the last applied changes in the current session")]
+    pub undo: bool,
+
     /// The query or file path to process
     #[arg(trailing_var_arg = true)]
     pub args: Vec<String>,
@@ -958,6 +962,9 @@ impl CliApp {
         }
         if cli.continue_session {
             return self.handle_continue_session().await;
+        }
+        if cli.undo {
+            return self.handle_undo().await;
         }
 
         // Handle session context for other commands
@@ -1969,5 +1976,86 @@ User request: {}",
         }
 
         Ok(())
+    }
+
+    /// Handle undo command
+    async fn handle_undo(&mut self) -> Result<()> {
+        let Some(session_name) = &self.current_session.clone() else {
+            println!("{}", "No active session. Use --session to specify a session first.".yellow());
+            return Ok(());
+        };
+
+        let Some(store) = &self.session_store else {
+            println!("{}", "No project detected - cannot undo operations.".yellow());
+            return Ok(());
+        };
+
+        // Try git undo first (preferred)
+        let repo_path = std::env::current_dir()?;
+        if repo_path.join(".git").exists() {
+            match self.git_undo_last_commit().await {
+                Ok(true) => {
+                    println!("{} Undid last commit via git", "✓".green());
+
+                    // Update session metadata
+                    if let Ok(mut session) = store.load_session(session_name) {
+                        if let Some(ref mut session) = session {
+                            session.metadata.change_count = session.metadata.change_count.saturating_sub(1);
+                            if let Err(e) = store.save_session(session) {
+                                eprintln!("{} {}", "Warning: Failed to update session:".yellow(), e);
+                            }
+                        }
+                    }
+                    return Ok(());
+                }
+                Ok(false) => {
+                    // Git undo not available, fall through to manual undo
+                }
+                Err(e) => {
+                    eprintln!("{} {}", "Warning: Git undo failed:".yellow(), e);
+                    // Fall through to manual undo
+                }
+            }
+        }
+
+        println!("{}", "Git undo not available, manual undo not yet implemented".yellow());
+        println!("{}", "Tip: Use 'git reset --hard HEAD~1' for manual git rollback".bright_black());
+        Ok(())
+    }
+
+    /// Attempt to undo the last git commit
+    async fn git_undo_last_commit(&self) -> Result<bool> {
+        let repo_path = std::env::current_dir()?;
+        let repo = git2::Repository::open(&repo_path)
+            .map_err(|e| anyhow::anyhow!("Failed to open git repository: {}", e))?;
+
+        // Check if there are commits to undo
+        let head = repo.head()
+            .map_err(|e| anyhow::anyhow!("Failed to get HEAD: {}", e))?;
+
+        if head.name() != Some("refs/heads/master") && head.name() != Some("refs/heads/main") {
+            return Ok(false); // Not on main/master branch
+        }
+
+        // Get the current commit
+        let head_commit = repo.find_commit(head.target().unwrap())
+            .map_err(|e| anyhow::anyhow!("Failed to find HEAD commit: {}", e))?;
+
+        // Check if this commit was made by the agent
+        let commit_msg = head_commit.message().unwrap_or("");
+        if !commit_msg.contains("elite agentic CLI") && !commit_msg.contains("Applied") {
+            return Ok(false); // Not an agent commit
+        }
+
+        // Reset to parent commit
+        let parent_commit = head_commit.parents().next();
+        if let Some(parent) = parent_commit {
+            let parent_oid = parent.id();
+            repo.reset(parent.as_object(), git2::ResetType::Hard, None)
+                .map_err(|e| anyhow::anyhow!("Failed to reset to parent commit: {}", e))?;
+            Ok(true)
+        } else {
+            Ok(false) // No parent commit (initial commit)
+        }
     }
 }

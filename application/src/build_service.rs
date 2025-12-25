@@ -658,6 +658,12 @@ impl BuildService {
         // Commit transaction if all operations succeeded
         if result.success {
             transaction.commit()?;
+
+            // Auto-commit to git if available
+            if let Err(e) = self.git_commit_changes(plan).await {
+                eprintln!("{} {}", "Warning: Git commit failed:".yellow(), e);
+                // Don't fail the build for git issues
+            }
         }
 
         // Print summary
@@ -673,6 +679,81 @@ impl BuildService {
         }
 
         Ok(result)
+    }
+
+    /// Auto-commit changes to git if repository exists
+    async fn git_commit_changes(&self, plan: &BuildPlan) -> Result<()> {
+        // Check if we're in a git repository
+        let repo_path = std::env::current_dir()?;
+        if !repo_path.join(".git").exists() {
+            return Ok(()); // Not a git repo, skip
+        }
+
+        // Initialize git repo
+        let repo = git2::Repository::open(&repo_path)
+            .map_err(|e| anyhow::anyhow!("Failed to open git repository: {}", e))?;
+
+        // Get current status
+        let mut index = repo.index()
+            .map_err(|e| anyhow::anyhow!("Failed to get git index: {}", e))?;
+
+        // Add all modified files
+        index.add_all(["*"].iter(), git2::IndexAddOption::DEFAULT, None)
+            .map_err(|e| anyhow::anyhow!("Failed to add files to git index: {}", e))?;
+
+        // Write index
+        index.write()
+            .map_err(|e| anyhow::anyhow!("Failed to write git index: {}", e))?;
+
+        // Create commit message
+        let commit_msg = format!(
+            "feat: {}\n\nApplied {} operations via elite agentic CLI\n\nOperations:\n{}",
+            plan.goal,
+            plan.operations.len(),
+            plan.operations.iter()
+                .map(|op| format!("- {:?}", op))
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+
+        // Get signature
+        let sig = git2::Signature::now("Elite Agentic CLI", "agent@cli.local")
+            .map_err(|e| anyhow::anyhow!("Failed to create git signature: {}", e))?;
+
+        // Get head commit for parent
+        let head_commit = match repo.head() {
+            Ok(head) => {
+                let oid = head.target().unwrap();
+                Some(repo.find_commit(oid)
+                    .map_err(|e| anyhow::anyhow!("Failed to find head commit: {}", e))?)
+            }
+            Err(_) => None, // First commit
+        };
+
+        let parents = if let Some(ref commit) = head_commit {
+            vec![commit]
+        } else {
+            vec![]
+        };
+
+        // Create tree from index
+        let tree_oid = index.write_tree()
+            .map_err(|e| anyhow::anyhow!("Failed to write tree: {}", e))?;
+        let tree = repo.find_tree(tree_oid)
+            .map_err(|e| anyhow::anyhow!("Failed to find tree: {}", e))?;
+
+        // Create commit
+        let _commit_oid = repo.commit(
+            Some("HEAD"),
+            &sig,
+            &sig,
+            &commit_msg,
+            &tree,
+            &parents,
+        ).map_err(|e| anyhow::anyhow!("Failed to create commit: {}", e))?;
+
+        println!("{}", "✓ Changes committed to git".bright_green());
+        Ok(())
     }
 
     /// Execute a single file operation within a transaction

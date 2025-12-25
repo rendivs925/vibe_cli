@@ -285,32 +285,47 @@ Do not include any other text or explanations."#,
         let (prompt, is_update) = if file_spec.action == "update" && existing_content.is_some() {
             // Generate targeted changes for existing files
             let content = existing_content.unwrap();
-            (format!(
-                r#"Update the existing file with MINIMAL targeted changes. Do NOT generate the full file.
+            let lines: Vec<&str> = content.lines().collect();
+            let line_count = lines.len();
 
-EXISTING FILE CONTENT:
+            (format!(
+                r#"You are a code editing assistant. Generate precise, targeted changes to update an existing file.
+
+EXISTING FILE CONTENT ({}, {} lines):
 {}
 
 GOAL: {}
-FILE: {}
+FILE TO UPDATE: {}
 
-INSTRUCTIONS:
-- Analyze the existing content above
-- Generate ONLY the specific changes needed
-- Use this EXACT format:
+CRITICAL REQUIREMENTS:
+1. DO NOT generate the complete file - only specific changes
+2. Use line numbers from the existing content (1-indexed)
+3. Output changes in this EXACT format:
 
 REPLACE lines X-Y with:
-<new content>
+<new content here>
 
 INSERT after line Z:
-<new content>
+<new content here>
 
 DELETE lines A-B
 
-- Do NOT provide the complete file content
-- Only show the minimal changes required
-- If no changes are needed, say "NO CHANGES REQUIRED""#,
-                content, self.goal, file_spec.path
+4. Each change must be on separate lines
+5. Use accurate line numbers based on the provided content
+6. If multiple changes needed, list them sequentially
+7. If no changes needed, output: NO CHANGES REQUIRED
+
+EXAMPLE:
+REPLACE lines 5-7 with:
+new line 5 content
+new line 6 content
+new line 7 content
+
+INSERT after line 12:
+new line inserted after 12
+
+DELETE lines 20-22"#,
+                file_spec.path, line_count, content, self.goal, file_spec.path
             ), true)
         } else {
             // Generate complete new file for creation
@@ -349,13 +364,27 @@ Return ONLY the complete HTML code, no explanations or markdown."#,
                 }
             );
         } else if file_spec.action == "update" {
-            // For updates, we need old content to create a proper update operation
+            // For updates, apply the diff to existing content to get the new content
             let old_content = existing_content.map_or(String::new(), |s| s.clone());
+            let new_content = if is_update {
+                // Apply diff to existing content
+                match self.apply_diff_to_content(&old_content, code.trim()) {
+                    Ok(applied) => applied,
+                    Err(e) => {
+                        eprintln!("Failed to apply diff: {}", e);
+                        // Fall back to treating the diff as the full content
+                        code.trim().to_string()
+                    }
+                }
+            } else {
+                code.trim().to_string()
+            };
+
             self.completed_operations.push(
                 crate::build_service::FileOperation::Update {
                     path: std::path::PathBuf::from(&file_spec.path),
                     old_content,
-                    new_content: code.trim().to_string(),
+                    new_content,
                 }
             );
         }
@@ -544,6 +573,98 @@ Return ONLY the complete HTML code, no explanations or markdown."#,
         }
 
         summary
+    }
+
+    /// Parse AI-generated diff format and apply changes to existing content
+    fn apply_diff_to_content(&self, original_content: &str, diff_text: &str) -> Result<String> {
+        if diff_text.trim() == "NO CHANGES REQUIRED" {
+            return Ok(original_content.to_string());
+        }
+
+        let mut lines: Vec<String> = original_content.lines().map(|s| s.to_string()).collect();
+        let diff_lines: Vec<&str> = diff_text.lines().collect();
+
+        let mut i = 0;
+        while i < diff_lines.len() {
+            let line = diff_lines[i].trim();
+
+            if line.starts_with("REPLACE lines ") && line.contains(" with:") {
+                // Parse REPLACE operation: "REPLACE lines X-Y with:"
+                let parts: Vec<&str> = line.split("REPLACE lines ").collect();
+                if parts.len() == 2 {
+                    let range_part = parts[1].split(" with:").next().unwrap_or("");
+                    if let Some((start, end)) = self.parse_line_range(range_part) {
+                        // Collect replacement content
+                        i += 1;
+                        let mut replacement_lines = Vec::new();
+                        while i < diff_lines.len() && !diff_lines[i].trim().is_empty() &&
+                              !diff_lines[i].starts_with("REPLACE") &&
+                              !diff_lines[i].starts_with("INSERT") &&
+                              !diff_lines[i].starts_with("DELETE") {
+                            replacement_lines.push(diff_lines[i].to_string());
+                            i += 1;
+                        }
+                        i -= 1; // Adjust for the outer loop increment
+
+                        // Apply replacement
+                        if start <= end && end <= lines.len() {
+                            lines.splice(start-1..end, replacement_lines);
+                        }
+                    }
+                }
+            } else if line.starts_with("INSERT after line ") && line.contains(":") {
+                // Parse INSERT operation: "INSERT after line Z:"
+                let parts: Vec<&str> = line.split("INSERT after line ").collect();
+                if parts.len() == 2 {
+                    let line_num_part = parts[1].split(":").next().unwrap_or("");
+                    if let Ok(line_num) = line_num_part.trim().parse::<usize>() {
+                        // Collect insertion content
+                        i += 1;
+                        let mut insertion_lines = Vec::new();
+                        while i < diff_lines.len() && !diff_lines[i].trim().is_empty() &&
+                              !diff_lines[i].starts_with("REPLACE") &&
+                              !diff_lines[i].starts_with("INSERT") &&
+                              !diff_lines[i].starts_with("DELETE") {
+                            insertion_lines.push(diff_lines[i].to_string());
+                            i += 1;
+                        }
+                        i -= 1; // Adjust for the outer loop increment
+
+                        // Apply insertion
+                        let insert_pos = if line_num >= lines.len() { lines.len() } else { line_num };
+                        for (offset, insert_line) in insertion_lines.into_iter().enumerate() {
+                            lines.insert(insert_pos + offset, insert_line);
+                        }
+                    }
+                }
+            } else if line.starts_with("DELETE lines ") {
+                // Parse DELETE operation: "DELETE lines A-B"
+                let parts: Vec<&str> = line.split("DELETE lines ").collect();
+                if parts.len() == 2 {
+                    if let Some((start, end)) = self.parse_line_range(parts[1]) {
+                        // Apply deletion
+                        if start <= end && end <= lines.len() {
+                            lines.drain(start-1..end);
+                        }
+                    }
+                }
+            }
+
+            i += 1;
+        }
+
+        Ok(lines.join("\n"))
+    }
+
+    /// Parse line range like "5-7" into (5, 7)
+    fn parse_line_range(&self, range_str: &str) -> Option<(usize, usize)> {
+        let parts: Vec<&str> = range_str.split('-').collect();
+        if parts.len() == 2 {
+            if let (Ok(start), Ok(end)) = (parts[0].trim().parse::<usize>(), parts[1].trim().parse::<usize>()) {
+                return Some((start, end));
+            }
+        }
+        None
     }
 
     pub fn get_completed_operations(&self) -> &[FileOperation] {
