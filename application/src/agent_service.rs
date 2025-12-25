@@ -49,6 +49,8 @@ pub struct BuildPlanOutcome {
     pub plan: BuildPlan,
     pub retrieved_context: Vec<String>,
     pub raw_plan_text: String,
+    pub planning_attempts: usize,
+    pub planning_logs: Vec<String>,
 }
 
 /// Execution context for agent operations with owned data to avoid lifetime issues
@@ -155,6 +157,7 @@ impl AgentService {
     /// Generate a build plan with RAG context retrieval
     pub async fn plan_build(&self, goal: &str) -> Result<BuildPlanOutcome> {
         let mut retrieved_context = Vec::new();
+        let mut planning_logs = Vec::new();
 
         // Step 1: Retrieve relevant context using RAG
         if let Some(rag_service) = &self.rag_service {
@@ -176,6 +179,7 @@ impl AgentService {
             match rag_service.query(&rag_query).await {
                 Ok(context) => {
                     retrieved_context.push(format!("RAG Context:\n{}", context));
+                    planning_logs.push("RAG query succeeded".to_string());
                 }
                 Err(e) => {
                     eprintln!("Warning: RAG query failed: {}", e);
@@ -191,32 +195,66 @@ impl AgentService {
                     let keyword_query = format!("Examples of {}", keywords.join(", "));
                     if let Ok(keyword_context) = rag_service.query(&keyword_query).await {
                         retrieved_context.push(format!("Keyword Context ({}):\n{}", keywords.join(", "), keyword_context));
+                        planning_logs.push("Keyword RAG query succeeded".to_string());
                     }
                 }
             }
         } else {
             retrieved_context.push("RAG service not available - proceeding without codebase context".to_string());
+            planning_logs.push("RAG unavailable; proceeding without indexed context".to_string());
         }
 
-        // Step 2: Generate build plan using the inference engine
-        let build_prompt = self.create_build_planning_prompt(goal, &retrieved_context);
+        // Step 2: Generate build plan using the inference engine with guarded retries
+        const MAX_PLAN_ATTEMPTS: usize = 3;
+        let mut last_error = None;
+        let mut raw_plan_text = String::new();
+        let mut plan: Option<BuildPlan> = None;
+        let mut attempt_count = 0;
 
-        println!("Generating build plan...");
+        for attempt in 1..=MAX_PLAN_ATTEMPTS {
+            attempt_count = attempt;
+            let prompt = self.create_build_planning_prompt(goal, &retrieved_context);
+            planning_logs.push(format!("Attempt {}: generating plan", attempt));
 
-        let plan_text = match self.inference_engine.generate(&build_prompt).await {
-            Ok(text) => text,
-            Err(e) => {
-                return Err(anyhow::anyhow!("Failed to generate build plan: {}", e));
+            match self.inference_engine.generate(&prompt).await {
+                Ok(text) => {
+                    raw_plan_text = text;
+                    match self.parse_build_plan(&raw_plan_text, goal) {
+                        Ok(parsed) => {
+                            plan = Some(parsed);
+                            planning_logs.push(format!("Attempt {}: plan parsed successfully", attempt));
+                            break;
+                        }
+                        Err(e) => {
+                            planning_logs.push(format!("Attempt {}: plan parse failed: {}", attempt, e));
+                            last_error = Some(e);
+                        }
+                    }
+                }
+                Err(e) => {
+                    planning_logs.push(format!("Attempt {}: generation failed: {}", attempt, e));
+                    last_error = Some(anyhow::anyhow!(e));
+                }
+            }
+        }
+
+        let build_plan = match plan {
+            Some(p) => p,
+            None => {
+                return Err(anyhow::anyhow!(format!(
+                    "Failed to produce a valid build plan after {} attempts: {}",
+                    MAX_PLAN_ATTEMPTS,
+                    last_error.unwrap_or_else(|| anyhow::anyhow!("Unknown planning error"))
+                )))
             }
         };
-
-        // Step 3: Parse the plan into BuildPlan structure
-        let build_plan = self.parse_build_plan(&plan_text, goal)?;
 
         Ok(BuildPlanOutcome {
             plan: build_plan,
             retrieved_context,
-            raw_plan_text: plan_text,
+            raw_plan_text,
+            planning_attempts: attempt_count,
+            planning_logs,
         })
     }
 
@@ -259,6 +297,7 @@ Create a detailed step-by-step plan for implementing this goal. For each step, s
 
 Return ONLY JSON. For create/update operations, include full updated file contents in the "content" field (no placeholders, no prose). If editing an existing file, include the complete post-edit file text so we can show an accurate diff. Do not leave "content" empty for writes.
 Apply SOLID, DRY, and YAGNI principles; use guard clauses over deep nesting; target concise, maintainable code that will compile/run. If you cannot produce a fully specified, reliable plan, respond with an explicit error instead of a partial plan.
+Use multi-step reasoning to ensure completeness: verify imports, types, and file paths are correct; include only files that exist or will be created. Plans must be runnable and self-consistent.
 
 Format your response as a JSON object with this structure:
 {{

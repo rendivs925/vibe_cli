@@ -61,6 +61,10 @@ pub struct BuildService {
     dry_run: bool,
     /// Confirmation mode
     confirmation_mode: ConfirmationMode,
+    /// Whether to show diffs for operations
+    show_diff: bool,
+    /// Whether to show verbose previews
+    verbose: bool,
 }
 
 impl BuildService {
@@ -70,12 +74,24 @@ impl BuildService {
             workspace_root: workspace_root.as_ref().to_path_buf(),
             dry_run: false,
             confirmation_mode: ConfirmationMode::Interactive,
+            show_diff: false,
+            verbose: false,
         }
     }
 
     /// Enable or disable dry-run mode
     pub fn set_dry_run(&mut self, dry_run: bool) {
         self.dry_run = dry_run;
+    }
+
+    /// Enable or disable diff previews
+    pub fn set_show_diff(&mut self, show_diff: bool) {
+        self.show_diff = show_diff;
+    }
+
+    /// Enable verbose previews
+    pub fn set_verbose(&mut self, verbose: bool) {
+        self.verbose = verbose;
     }
 
     /// Set confirmation mode
@@ -155,18 +171,32 @@ impl BuildService {
 
     /// Preview a build plan with color-coded operations
     pub fn preview_plan(&self, plan: &BuildPlan) -> Result<()> {
-        println!("\nBuild Plan Preview");
-        println!("Goal: {}", plan.goal);
-        println!("Description: {}", plan.description);
-        println!("Estimated Risk: {:?}", plan.estimated_risk);
-        println!("\nPlanned Operations:");
+        println!("\n{}", "Build Plan Preview".bright_cyan().bold());
+        println!("{} {}", "Goal:".bright_green(), plan.goal);
+        println!("{} {}", "Description:".bright_green(), plan.description);
+        println!("{} {:?}", "Estimated Risk:".bright_green(), plan.estimated_risk);
+        println!("\n{}", "Planned Operations:".bright_yellow());
 
         for operation in &plan.operations {
             let risk = self.assess_risk(operation);
             self.display_operation(operation, risk);
+
+            if self.verbose {
+                match operation {
+                    FileOperation::Create { content, .. } => {
+                        let snippet = if content.len() > 200 { &content[..200] } else { content };
+                        println!("    {}", snippet.dimmed());
+                    }
+                    FileOperation::Update { new_content, .. } => {
+                        let snippet = if new_content.len() > 200 { &new_content[..200] } else { new_content };
+                        println!("    {}", snippet.dimmed());
+                    }
+                    _ => {}
+                }
+            }
         }
 
-        println!("\nEnd of Preview\n");
+        println!("\n{}", "End of Preview".bright_cyan());
         Ok(())
     }
 
@@ -189,7 +219,11 @@ impl BuildService {
             }
             FileOperation::Update { path, old_content, new_content } => {
                 println!("\n{}", "Changes:".bright_cyan());
-                self.display_diff(old_content, new_content);
+                if self.show_diff || self.verbose {
+                    self.display_diff(old_content, new_content);
+                } else {
+                    println!("{}", "(use --show-diff for detailed diff)".dimmed());
+                }
             }
             FileOperation::Delete { path } => {
                 if path.exists() {

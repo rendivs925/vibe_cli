@@ -691,12 +691,14 @@ impl CliApp {
             return Ok(());
         }
 
-        println!("Build Mode: Safe code modifications with user confirmation");
-        println!("Goal: {}", goal);
+        println!("{}", "Build Mode: Safe code modifications with user confirmation".bright_cyan().bold());
+        println!("{} {}", "Goal:".bright_green(), goal);
 
         // Configure build service based on flags
         let mut build_service = BuildService::new(std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")));
         build_service.set_dry_run(dry_run);
+        build_service.set_show_diff(show_diff);
+        build_service.set_verbose(verbose);
 
         if verbose {
             build_service.set_confirmation_mode(ConfirmationMode::Interactive);
@@ -706,7 +708,7 @@ impl CliApp {
         let agent_service = application::create_agent_service().await?;
 
         // Generate build plan using agent with RAG context
-        println!("\nAnalyzing requirements and retrieving context...");
+        println!("\n{}", "Analyzing requirements and retrieving context...".bright_cyan());
 
         let (progress_tx, progress_rx) = oneshot::channel();
         let progress_handle = tokio::spawn(async move {
@@ -717,7 +719,7 @@ impl CliApp {
                 tokio::select! {
                     _ = ticker.tick() => {
                         dots = (dots + 1) % 4;
-                        print!("\rPlanning{}", ".".repeat(dots));
+                        print!("\r{}", format!("Planning{}", ".".repeat(dots)).bright_yellow());
                         let _ = std::io::stdout().flush();
                     }
                     _ = &mut progress_rx => {
@@ -725,7 +727,7 @@ impl CliApp {
                     }
                 }
             }
-            println!("\rPlanning complete          ");
+            println!("\r{}", "Planning complete            ".bright_green());
         });
 
         let plan_outcome = match agent_service.plan_build(goal).await {
@@ -740,16 +742,23 @@ impl CliApp {
         let _ = progress_tx.send(());
         let _ = progress_handle.await;
 
-        println!("\nAgent thinking:");
+        println!("\n{}", "Agent thinking (raw plan text):".bright_magenta());
         for line in plan_outcome.raw_plan_text.lines() {
             println!("  {}", line.trim_end());
             let _ = std::io::stdout().flush();
-            time::sleep(Duration::from_millis(40)).await;
+            time::sleep(Duration::from_millis(25)).await;
+        }
+
+        if !plan_outcome.planning_logs.is_empty() {
+            println!("\n{}", "Planning attempts:".bright_yellow());
+            for log in &plan_outcome.planning_logs {
+                println!("  {}", log);
+            }
         }
 
         // Display retrieved context if verbose
         if verbose && !plan_outcome.retrieved_context.is_empty() {
-            println!("\nRetrieved Context:");
+            println!("\n{}", "Retrieved Context:".bright_cyan());
             for context in plan_outcome.retrieved_context {
                 println!("  {}", context);
             }
