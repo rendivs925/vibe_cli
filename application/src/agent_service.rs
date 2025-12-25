@@ -697,29 +697,46 @@ Generate the complete file content now:"#,
     fn create_smart_preview(&self, content: &str, remaining_tokens: usize) -> String {
         let max_lines = self.config.context.max_file_preview_lines;
         let lines: Vec<&str> = content.lines().collect();
+        let allowed_chars = ((remaining_tokens as f32) * self.config.context.token_estimation_ratio) as usize;
 
-        if lines.len() <= max_lines {
+        if remaining_tokens == 0 || allowed_chars == 0 {
+            return String::new();
+        }
+
+        // If within both line and char budget, return full content
+        if lines.len() <= max_lines && content.len() <= allowed_chars {
             return content.to_string();
         }
 
-        // Use head and tail strategy for large files
-        let head_lines = max_lines / 2;
-        let tail_lines = max_lines / 2;
-
+        // Use a trimmed preview respecting char budget
         let mut preview = String::new();
+        let head_lines = std::cmp::max(1, max_lines / 2);
+        let tail_lines = std::cmp::max(1, max_lines / 2);
 
-        // First N lines
         for line in lines.iter().take(head_lines) {
             preview.push_str(line);
             preview.push('\n');
+            if preview.len() >= allowed_chars {
+                return preview;
+            }
         }
 
         preview.push_str("\n    ... (truncated) ...\n\n");
+        if preview.len() >= allowed_chars {
+            preview.truncate(allowed_chars);
+            return preview;
+        }
 
-        // Last N lines
-        for line in lines.iter().skip(lines.len() - tail_lines) {
+        for line in lines.iter().skip(lines.len().saturating_sub(tail_lines)) {
             preview.push_str(line);
             preview.push('\n');
+            if preview.len() >= allowed_chars {
+                break;
+            }
+        }
+
+        if preview.len() > allowed_chars {
+            preview.truncate(allowed_chars);
         }
 
         preview
@@ -1347,6 +1364,7 @@ Generate the command now:"#,
         let mut content_loaded = 0usize;
         let max_content_files = self.config.context.max_files_in_context;
         let content_allowed = self.content_needed(goal);
+        let max_preview_bytes = (self.config.context.max_file_preview_lines as u64) * 200;
 
         // 1. Extract explicitly mentioned files from goal
         let explicit_files = self.extract_file_paths_from_goal(goal)?;
@@ -1399,6 +1417,7 @@ Generate the command now:"#,
                     if content_allowed
                         && content_loaded < max_content_files
                         && metadata.len() <= self.config.context.max_file_size_bytes
+                        && metadata.len() <= max_preview_bytes
                     {
                         if let Ok(content) = tokio::fs::read_to_string(&full_path).await {
                             context.line_count = content.lines().count();
