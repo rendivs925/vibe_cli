@@ -286,16 +286,7 @@ FILE: path/to/file.ext
 ACTION: update|create
 REASON: brief explanation
 
-EXAMPLES:
-Context shows "existing_file.ext: EXISTS (1250 bytes, 42 lines)" →
-FILE: existing_file.ext
-ACTION: update
-REASON: Modify existing content
-
-Context shows "new_file.py: DOES NOT EXIST" →
-FILE: new_file.py
-ACTION: create
-REASON: Create new module"#,
+Do not include examples; return only the operations in the required format."#,
             self.goal, context_summary
         );
 
@@ -1009,19 +1000,6 @@ CRITICAL INSTRUCTIONS:
 4. Consider the current directory: {}
 5. Make the command safe and practical; if the request is ambiguous or lacks paths, respond with 'Cannot determine safe command'
 6. If the request mentions a file/folder, search for it in the current directory first; never invent paths
-
-EXAMPLES:
-Request: "zip rendi folder"
-Context shows: Current directory is /home/user/projects, folder "rendi" exists here
-Output: zip -r rendi.zip rendi
-
-Request: "install python package requests"
-Context shows: Package manager is apt (Debian/Ubuntu)
-Output: sudo apt install python3-requests
-
-Request: "show GPU info"
-Context shows: GPU is NVIDIA
-Output: nvidia-smi
 
 Generate the command now:"#,
             request,
