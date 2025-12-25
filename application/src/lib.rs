@@ -3,6 +3,7 @@ pub mod build_service;
 pub mod explain_service;
 pub mod parallel_agent;
 pub mod rag_service;
+pub mod result_aggregator;
 pub mod safety_service;
 pub mod task_decomposer;
 pub mod transaction;
