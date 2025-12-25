@@ -1405,8 +1405,16 @@ impl CliApp {
 
     async fn handle_agent(&self, task: &str) -> Result<()> {
         let system_context = infrastructure::config::SystemContext::gather();
-        let ls_output = std::process::Command::new("ls")
-            .arg("-la")
+
+        // Get current directory and its contents
+        let current_dir = std::env::current_dir()
+            .ok()
+            .and_then(|p| p.to_str().map(|s| s.to_string()))
+            .unwrap_or_else(|| ".".to_string());
+
+        let ls_output = std::process::Command::new("sh")
+            .arg("-c")
+            .arg("ls -la 2>/dev/null | head -n 30")
             .output()
             .ok()
             .and_then(|o| String::from_utf8(o.stdout).ok())
@@ -1414,23 +1422,50 @@ impl CliApp {
 
         let client = infrastructure::ollama_client::OllamaClient::new()?;
         let prompt = format!(
-            "You are an assistant that turns a user's goal into a sequence of POSIX shell commands that can be run one-by-one with confirmation in between.\n\n\
-SYSTEM CONTEXT:\n\
-{}\n\n\
-CURRENT DIRECTORY FILES:\n\
-{}\n\n\
-Constraints:\n\
-- Respond ONLY with a JSON array of strings. Each element must be a complete shell command ready to run.\n\
-- No prose, no markdown, no comments. If you cannot produce a valid JSON array, respond with [].\n\
-- Use the appropriate package manager for this system: {}\n\
-- Use ACTUAL file/folder names from the current directory listing above\n\
-- Use real paths; avoid placeholders like /path/to.\n\
-- Keep commands minimal and idempotent (check state before changing it).\n\n\
-User request: {}",
-            system_context.to_context_string(),
+            r#"Generate a JSON array of shell commands for the user's request.
+
+REQUEST: {}
+
+CURRENT DIRECTORY: {}
+FILES IN DIRECTORY:
+{}
+
+SYSTEM: {}
+Package Manager: {}
+
+CRITICAL RULES:
+1. Output ONLY a JSON array: ["command1", "command2"]
+2. Look at FILES IN DIRECTORY - use EXACT file names shown above
+3. User is ALREADY in the current directory - do NOT cd there
+4. Do NOT assume files exist that aren't in the listing
+5. Do NOT use placeholder paths like /path/to or ~/username
+6. Do NOT clone repos or create complex build processes unless specifically requested
+7. Keep it SIMPLE - if task is "zip file.py", just use: ["zip file.zip file.py"]
+
+HOW TO SOLVE THIS REQUEST:
+1. Read the request carefully
+2. Check if mentioned files exist in FILES IN DIRECTORY above
+3. Generate the SIMPLEST commands to accomplish the goal
+4. Use actual file names from the listing
+
+EXAMPLES:
+Request: "zip snake.py"
+Files show: snake.py exists
+Output: ["zip snake.zip snake.py"]
+
+Request: "install python"
+Output: ["sudo {} install python3"]
+
+OUTPUT ONLY THE JSON ARRAY:"#,
+            task,
+            current_dir,
             ls_output,
+            system_context.distro,
             system_context.package_manager,
-            task
+            if system_context.package_manager.contains("apt") { "apt" }
+            else if system_context.package_manager.contains("pacman") { "pacman" }
+            else if system_context.package_manager.contains("dnf") { "dnf" }
+            else { "package-manager" }
         );
         let response = client.generate_response(&prompt).await?;
         let commands = parse_agent_plan(&response);
