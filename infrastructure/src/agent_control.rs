@@ -116,6 +116,9 @@ pub struct AgentResult {
     pub tools_executed: u32,
     pub verification_history: Vec<VerificationResult>,
     pub execution_time: Duration,
+    // Optional debugging info; can be empty
+    pub tool_calls: Vec<String>,
+    pub tool_results: Vec<String>,
 }
 
 impl Default for AgentExecutionLimits {
@@ -389,6 +392,8 @@ impl AgentController {
                             .filter_map(|r| r.verification_result.clone())
                             .collect(),
                         execution_time: start_time.elapsed(),
+                        tool_calls: state.execution_history.iter().flat_map(|r| r.tool_calls.clone()).collect(),
+                        tool_results: Vec::new(),
                     });
                 }
                 IterationDecision::Fail(reason) => {
@@ -590,6 +595,8 @@ impl AgentController {
                             .filter_map(|r| r.verification_result.clone())
                             .collect(),
                         execution_time: start_time.elapsed(),
+                        tool_calls: state.execution_history.iter().flat_map(|r| r.tool_calls.clone()).collect(),
+                        tool_results: Vec::new(),
                     });
                 }
                 IterationDecision::Fail(reason) => {

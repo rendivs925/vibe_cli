@@ -26,6 +26,7 @@ pub struct AgentRequest {
 pub struct AgentResponse {
     pub reasoning: Vec<String>,
     pub tool_calls: Vec<ToolCall>,
+    pub tool_results: Vec<ToolResult>,
     pub final_response: String,
     pub confidence: f32,
 }

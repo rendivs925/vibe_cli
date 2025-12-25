@@ -21,6 +21,7 @@ use infrastructure::{
     },
     config::Config,
     candle_inference::CandleInferenceService,
+    tools::{ToolArgs, ToolRegistry},
     sandbox::Sandbox,
     InferenceEngine,
 };
@@ -1152,21 +1153,15 @@ Generate the command now:"#,
         ));
 
         // Execute bounded multi-iteration agent
-        let agent_result = self
+        let (agent_result, tool_calls, tool_results) = self
             .execute_agent(&request.goal, request, Arc::clone(&execution_context))
             .await
             .map_err(|e| AgentError::InternalError(format!("Agent execution failed: {e}")))?;
 
-        // Best effort: tool calls are now actually collected during coordinator execution,
-        // but AgentResult in your infra may not carry them. If you want them here, extend
-        // AgentResult to include tool_calls/tool_results and pass them through.
-        //
-        // For now, keep tool_calls empty unless you add that plumbing.
-        let tool_calls: Vec<ToolCall> = Vec::new();
-
         Ok(AgentResponse {
             reasoning: vec!["Multi-iteration bounded execution completed".to_string()],
             tool_calls,
+            tool_results,
             final_response: agent_result.final_response,
             confidence: agent_result.confidence_score,
         })
@@ -1881,39 +1876,29 @@ Rules: keep it concise and deterministic; only include real files; if context is
             .unwrap_or_else(|| ".".to_string());
 
         let mut pending_calls: Vec<ToolCall> = Vec::new();
-        let mut push_call = |name: &str, params: HashMap<String, serde_json::Value>, why: &str| {
-            if context.available_tools.iter().any(|t| t.name == name) {
-                pending_calls.push(ToolCall {
-                    id: format!("{}-1", name),
-                    name: name.to_string(),
-                    parameters: params,
-                    reasoning: why.to_string(),
-                });
-            }
-        };
 
         if lower_goal.contains("web search") || lower_goal.contains("online") {
             let mut params = HashMap::new();
             params.insert("query".to_string(), serde_json::Value::String(goal.to_string()));
-            push_call("web_search", params, "Need external info");
+            self.maybe_push_call(&context.available_tools, &mut pending_calls, "web_search", params, "Need external info");
         } else if lower_goal.contains("search") || lower_goal.contains("grep") {
             let mut params = HashMap::new();
             params.insert("pattern".to_string(), serde_json::Value::String(goal.to_string()));
             params.insert("path".to_string(), serde_json::Value::String(primary_path.clone()));
-            push_call("grep_search", params, "Search locally for pattern");
+            self.maybe_push_call(&context.available_tools, &mut pending_calls, "grep_search", params, "Search locally for pattern");
         }
 
         if lower_goal.contains("find file") || lower_goal.contains("locate") || lower_goal.contains("list dir") {
             let mut params = HashMap::new();
             params.insert("path".to_string(), serde_json::Value::String(primary_path.clone()));
-            push_call("directory_list", params.clone(), "List directory for context");
-            push_call("find_files", params, "Find files under path");
+            self.maybe_push_call(&context.available_tools, &mut pending_calls, "directory_list", params.clone(), "List directory for context");
+            self.maybe_push_call(&context.available_tools, &mut pending_calls, "find_files", params, "Find files under path");
         }
 
         if lower_goal.contains("read") || lower_goal.contains("open file") || lower_goal.contains("show file") {
             let mut params = HashMap::new();
             params.insert("path".to_string(), serde_json::Value::String(primary_path.clone()));
-            push_call("file_read", params, "Read file content");
+            self.maybe_push_call(&context.available_tools, &mut pending_calls, "file_read", params, "Read file content");
         }
 
         if lower_goal.contains("write") || lower_goal.contains("update") || lower_goal.contains("replace") {
@@ -1923,32 +1908,34 @@ Rules: keep it concise and deterministic; only include real files; if context is
                 "content".to_string(),
                 serde_json::Value::String("Provide updated content here".to_string()),
             );
-            push_call("file_write", params, "Write file safely");
+            self.maybe_push_call(&context.available_tools, &mut pending_calls, "file_write", params, "Write file safely");
         }
 
         if lower_goal.contains("process") || lower_goal.contains("ps ") {
-            push_call("process_list", HashMap::new(), "Inspect running processes");
+            self.maybe_push_call(&context.available_tools, &mut pending_calls, "process_list", HashMap::new(), "Inspect running processes");
         }
 
         if lower_goal.contains("curl") || lower_goal.contains("http") || lower_goal.contains("url") {
             let mut params = HashMap::new();
             params.insert("url".to_string(), serde_json::Value::String(goal.to_string()));
-            push_call("curl_fetch", params, "Fetch remote content");
+            self.maybe_push_call(&context.available_tools, &mut pending_calls, "curl_fetch", params, "Fetch remote content");
         }
 
         if lower_goal.contains("git status") {
-            push_call("git_status", HashMap::new(), "Check repo status");
+            self.maybe_push_call(&context.available_tools, &mut pending_calls, "git_status", HashMap::new(), "Check repo status");
         } else if lower_goal.contains("git diff") || lower_goal.contains("diff") {
-            push_call("git_diff", HashMap::new(), "Inspect changes");
+            self.maybe_push_call(&context.available_tools, &mut pending_calls, "git_diff", HashMap::new(), "Inspect changes");
         } else if lower_goal.contains("git log") || lower_goal.contains("history") {
-            push_call("git_log", HashMap::new(), "Inspect history");
+            self.maybe_push_call(&context.available_tools, &mut pending_calls, "git_log", HashMap::new(), "Inspect history");
         }
 
-        if pending_calls.is_empty() && !context.available_tools.is_empty() {
+        let has_calls = !pending_calls.is_empty();
+
+        if !has_calls && !context.available_tools.is_empty() {
             // Default to directory_list for lightweight discovery
             let mut params = HashMap::new();
             params.insert("path".to_string(), serde_json::Value::String(primary_path));
-            push_call("directory_list", params, "Fallback discovery");
+            self.maybe_push_call(&context.available_tools, &mut pending_calls, "directory_list", params, "Fallback discovery");
         }
 
         calls.extend(pending_calls);
@@ -1957,22 +1944,51 @@ Rules: keep it concise and deterministic; only include real files; if context is
 
     /// Execute tool calls
     pub async fn execute_tool_calls(&self, tool_calls: &[ToolCall], _context: &mut AgentContext, _exec_context: &AgentExecutionContext) -> Result<Vec<ToolResult>> {
-        // Simplified implementation
+        let registry = ToolRegistry::new();
         let mut results = Vec::new();
+
         for tool_call in tool_calls {
-            results.push(ToolResult {
-                tool_call_id: tool_call.id.clone(),
-                success: true,
-                result: serde_json::json!({
-                    "message": "Tool executed successfully",
-                    "tool": tool_call.name,
-                    "stdout": "",
-                    "stderr": "",
-                    "duration_ms": 0
-                }),
-                error: None,
-            });
+            let mut params: HashMap<String, String> = HashMap::new();
+            for (k, v) in &tool_call.parameters {
+                let as_str = match v {
+                    Value::String(s) => s.clone(),
+                    other => other.to_string(),
+                };
+                params.insert(k.clone(), as_str);
+            }
+
+            let args = ToolArgs {
+                parameters: params,
+                timeout: Some(std::time::Duration::from_secs(30)),
+                working_directory: Some(self.system_context.current_dir.clone()),
+            };
+
+            match registry.execute_tool(&tool_call.name, args).await {
+                Ok(output) => {
+                    results.push(ToolResult {
+                        tool_call_id: tool_call.id.clone(),
+                        success: output.success,
+                        result: serde_json::json!({
+                            "tool": tool_call.name,
+                            "stdout": self.truncate_text(&output.stdout, 4000),
+                            "stderr": self.truncate_text(&output.stderr, 2000),
+                            "duration_ms": output.execution_time.as_millis(),
+                            "exit_code": output.exit_code,
+                        }),
+                        error: None,
+                    });
+                }
+                Err(e) => {
+                    results.push(ToolResult {
+                        tool_call_id: tool_call.id.clone(),
+                        success: false,
+                        result: Value::Null,
+                        error: Some(format!("{}: {}", tool_call.name, e)),
+                    });
+                }
+            }
         }
+
         Ok(results)
     }
 
@@ -2031,6 +2047,9 @@ Respond now."#,
         let max_len = 240usize;
 
         for tr in tool_results {
+            if tr.result == Value::Null && tr.error.is_none() {
+                continue;
+            }
             if let Some(err) = &tr.error {
                 facts.push(format!(
                     "tool_call_id={} success=false error={}",
@@ -2071,6 +2090,24 @@ Respond now."#,
         facts
     }
 
+    fn maybe_push_call(
+        &self,
+        available_tools: &[ToolDefinition],
+        pending_calls: &mut Vec<ToolCall>,
+        name: &str,
+        params: HashMap<String, serde_json::Value>,
+        why: &str,
+    ) {
+        if available_tools.iter().any(|t| t.name == name) {
+            pending_calls.push(ToolCall {
+                id: format!("{}-1", name),
+                name: name.to_string(),
+                parameters: params,
+                reasoning: why.to_string(),
+            });
+        }
+    }
+
     /// Calculate confidence score
     pub fn calculate_confidence(&self, reasoning: &[String], tool_results: &[ToolResult]) -> f32 {
         // Simplified implementation
@@ -2087,7 +2124,7 @@ Respond now."#,
     /// - Decide/plan tools (optional)
     /// - Execute tools
     /// - Ask model to produce final answer (or continue)
-    pub async fn execute_agent(&self, goal: &str, request: &AgentRequest, exec_context: Arc<AgentExecutionContext>) -> Result<AgentResult> {
+    pub async fn execute_agent(&self, goal: &str, request: &AgentRequest, exec_context: Arc<AgentExecutionContext>) -> Result<(AgentResult, Vec<ToolCall>, Vec<ToolResult>)> {
         // Build initial agent context with available tools + conversation.
         let mut agent_context = AgentContext {
             available_tools: Self::default_tool_definitions(),
@@ -2198,14 +2235,20 @@ Respond now."#,
 
             // Check convergence - for now, always continue if we have iterations left
             if execution_state.iteration_count >= max_iters {
-                return Ok(infrastructure::agent_control::AgentResult {
-                    final_response: final_text,
-                    confidence_score: self.calculate_confidence(&all_reasoning, &all_tool_results),
-                    iterations_used: execution_state.iteration_count + 1,
-                    tools_executed: execution_state.total_tools_executed,
-                    verification_history: Vec::new(),
-                    execution_time: std::time::Duration::from_secs(0),
-                });
+                return Ok((
+                    infrastructure::agent_control::AgentResult {
+                        final_response: final_text,
+                        confidence_score: self.calculate_confidence(&all_reasoning, &all_tool_results),
+                        iterations_used: execution_state.iteration_count + 1,
+                        tools_executed: execution_state.total_tools_executed,
+                        verification_history: Vec::new(),
+                        execution_time: std::time::Duration::from_secs(0),
+                        tool_calls: all_tool_calls.iter().map(|tc| format!("{:?}", tc)).collect(),
+                        tool_results: all_tool_results.iter().map(|tr| format!("{:?}", tr)).collect(),
+                    },
+                    all_tool_calls,
+                    all_tool_results,
+                ));
             }
 
             // Add assistant message so next iteration can build upon it
@@ -2219,13 +2262,19 @@ Respond now."#,
 
         // Max iteration hit: return best-effort
         let confidence = self.calculate_confidence(&all_reasoning, &all_tool_results);
-        Ok(infrastructure::agent_control::AgentResult {
-            final_response: "Reached max iterations. Returning best available answer.".to_string(),
-            confidence_score: confidence,
-            iterations_used: execution_state.iteration_count,
-            tools_executed: execution_state.total_tools_executed,
-            verification_history: Vec::new(),
-            execution_time: std::time::Duration::from_secs(0),
-        })
+        Ok((
+            infrastructure::agent_control::AgentResult {
+                final_response: "Reached max iterations. Returning best available answer.".to_string(),
+                confidence_score: confidence,
+                iterations_used: execution_state.iteration_count,
+                tools_executed: execution_state.total_tools_executed,
+                verification_history: Vec::new(),
+                execution_time: std::time::Duration::from_secs(0),
+                tool_calls: all_tool_calls.iter().map(|tc| format!("{:?}", tc)).collect(),
+                tool_results: all_tool_results.iter().map(|tr| format!("{:?}", tr)).collect(),
+            },
+            all_tool_calls,
+            all_tool_results,
+        ))
     }
 }
