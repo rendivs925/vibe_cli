@@ -898,6 +898,22 @@ impl AgentService {
         }
     }
 
+    /// Lightweight system context to avoid prompt bloat
+    fn compact_system_context(&self) -> String {
+        format!(
+            "user={}@{}, os={} {}, distro={}, pkg_mgr={}, cwd={}, shell={}, display={}",
+            self.system_context.user,
+            self.system_context.hostname,
+            self.system_context.os_type,
+            self.system_context.kernel,
+            self.system_context.distro_id,
+            self.system_context.package_manager,
+            self.system_context.current_dir,
+            self.system_context.shell,
+            self.system_context.display_server
+        )
+    }
+
     pub fn with_rag_service(inference_engine: infrastructure::InferenceEngine, rag_service: Arc<RagService>) -> Self {
         println!("📊 Gathering system context...");
         let system_context = infrastructure::config::SystemContext::gather();
@@ -945,7 +961,7 @@ Output: nvidia-smi
 
 Generate the command now:"#,
             request,
-            self.system_context.to_context_string(),
+            self.compact_system_context(),
             self.system_context.package_manager,
             self.system_context.current_dir
         );
@@ -1145,21 +1161,8 @@ Generate the command now:"#,
     pub async fn plan_build_incremental(&self, goal: &str) -> Result<IncrementalBuildPlanner> {
         let mut retrieved_context = Vec::new();
 
-        // Add system context first
-        retrieved_context.push(format!("SYSTEM CONTEXT:\n{}", self.system_context.to_context_string()));
-
-        // Add current directory listing
-        let ls_output = std::process::Command::new("sh")
-            .arg("-c")
-            .arg("ls -la 2>/dev/null | head -n 50")
-            .output()
-            .ok()
-            .and_then(|o| String::from_utf8(o.stdout).ok())
-            .unwrap_or_else(|| String::new());
-
-        if !ls_output.is_empty() {
-            retrieved_context.push(format!("CURRENT DIRECTORY CONTENTS:\n{}", ls_output));
-        }
+        // Add compact system context first (avoid bloat)
+        retrieved_context.push(format!("SYSTEM SNAPSHOT: {}", self.compact_system_context()));
 
         // Step 1: Prepare file context by reading existing files
         println!("🔍 Analyzing project structure and existing files...");
@@ -1168,25 +1171,26 @@ Generate the command now:"#,
 
         // Retrieve context using RAG or fast rg search
         let keywords = self.extract_keywords_from_goal(goal);
+        let use_rag = self.should_use_rag(&keywords);
 
-        if let Some(rag_service) = &self.rag_service {
-            println!("Retrieving relevant codebase context...");
+        if use_rag {
+            if let Some(rag_service) = &self.rag_service {
+                println!("Retrieving relevant codebase context...");
 
-            if let Err(e) = rag_service.build_index().await {
-                eprintln!("Warning: Failed to build RAG index: {}", e);
-            }
-
-            let rag_query = format!("Find examples and patterns for: {}. Look for similar implementations, utility functions, or scripts.", goal);
-            match rag_service.query(&rag_query).await {
-                Ok(context) => {
-                    retrieved_context.push(format!("RAG Context:\n{}", context));
+                if let Err(e) = rag_service.build_index().await {
+                    eprintln!("Warning: Failed to build RAG index: {}", e);
                 }
-                Err(e) => {
-                    eprintln!("RAG query failed: {}", e);
-                }
-            }
 
-            if !keywords.is_empty() {
+                let rag_query = format!("Find examples and patterns for: {}. Look for similar implementations, utility functions, or scripts.", goal);
+                match rag_service.query(&rag_query).await {
+                    Ok(context) => {
+                        retrieved_context.push(format!("RAG Context:\n{}", context));
+                    }
+                    Err(e) => {
+                        eprintln!("RAG query failed: {}", e);
+                    }
+                }
+
                 if let Err(e) = rag_service.build_index_for_keywords(&keywords).await {
                     eprintln!("Keyword index failed: {}", e);
                 } else {
@@ -1219,26 +1223,27 @@ Generate the command now:"#,
 
         // Step 1: Retrieve relevant context using RAG or fast rg search
         let keywords = self.extract_keywords_from_goal(goal);
+        let use_rag = self.should_use_rag(&keywords);
 
-        if let Some(rag_service) = &self.rag_service {
-            println!("Retrieving relevant codebase context...");
+        if use_rag {
+            if let Some(rag_service) = &self.rag_service {
+                println!("Retrieving relevant codebase context...");
 
-            if let Err(e) = rag_service.build_index().await {
-                eprintln!("Warning: Failed to build RAG index: {}", e);
-            }
-
-            let rag_query = format!("Find examples and patterns for: {}. Look for similar implementations, utility functions, or scripts.", goal);
-            match rag_service.query(&rag_query).await {
-                Ok(context) => {
-                    retrieved_context.push(format!("RAG Context:\n{}", context));
-                    planning_logs.push("RAG query succeeded".to_string());
+                if let Err(e) = rag_service.build_index().await {
+                    eprintln!("Warning: Failed to build RAG index: {}", e);
                 }
-                Err(e) => {
-                    planning_logs.push(format!("RAG query failed: {}", e));
-                }
-            }
 
-            if !keywords.is_empty() {
+                let rag_query = format!("Find examples and patterns for: {}. Look for similar implementations, utility functions, or scripts.", goal);
+                match rag_service.query(&rag_query).await {
+                    Ok(context) => {
+                        retrieved_context.push(format!("RAG Context:\n{}", context));
+                        planning_logs.push("RAG query succeeded".to_string());
+                    }
+                    Err(e) => {
+                        planning_logs.push(format!("RAG query failed: {}", e));
+                    }
+                }
+
                 if let Err(e) = rag_service.build_index_for_keywords(&keywords).await {
                     planning_logs.push(format!("Keyword index failed: {}", e));
                 } else {
@@ -1338,6 +1343,10 @@ Generate the command now:"#,
     /// Prepare file context by discovering relevant files from project structure and content
     async fn prepare_file_context(&self, goal: &str) -> Result<HashMap<String, FileContext>> {
         let mut file_paths = Vec::new();
+        let mut file_contexts = HashMap::new();
+        let mut content_loaded = 0usize;
+        let max_content_files = self.config.context.max_files_in_context;
+        let content_allowed = self.content_needed(goal);
 
         // 1. Extract explicitly mentioned files from goal
         let explicit_files = self.extract_file_paths_from_goal(goal)?;
@@ -1366,7 +1375,6 @@ Generate the command now:"#,
             .collect();
 
         // 5. Build context for each discovered file
-        let mut file_contexts = HashMap::new();
         for path in deduplicated {
             let full_path = std::path::Path::new(&path);
             let exists = full_path.exists();
@@ -1387,11 +1395,15 @@ Generate the command now:"#,
                     context.size_bytes = metadata.len();
                     context.modified = Some(metadata.modified()?);
 
-                    // Read content with configurable size limit for safety
-                    if metadata.len() <= self.config.context.max_file_size_bytes {
+                    // Read content only when necessary and within limits
+                    if content_allowed
+                        && content_loaded < max_content_files
+                        && metadata.len() <= self.config.context.max_file_size_bytes
+                    {
                         if let Ok(content) = tokio::fs::read_to_string(&full_path).await {
                             context.line_count = content.lines().count();
                             context.content = Some(content);
+                            content_loaded += 1;
                         }
                     }
                 }
@@ -1695,13 +1707,38 @@ Safety: risks/backups/rollback
 Estimate: size/time
 Confidence: percentage
 
-Rules: keep it concise and deterministic; only include real files; if you cannot provide full content, say so and stop; prefer package manager {pkg_mgr}; consider display server {display_srv} for GUI hints."#,
+Rules: keep it concise and deterministic; only include real files; if context is insufficient, reply 'Insufficient context to plan' and stop (do not invent files or behavior); if you cannot provide full content, say so and stop; prefer package manager {pkg_mgr}; consider display server {display_srv} for GUI hints."#,
             goal = goal,
-            system = self.system_context.to_context_string(),
+            system = self.compact_system_context(),
             context = context_str,
             pkg_mgr = self.system_context.package_manager,
             display_srv = self.system_context.display_server
         )
+    }
+
+    fn should_use_rag(&self, keywords: &[String]) -> bool {
+        self.rag_service.is_some() && !keywords.is_empty()
+    }
+
+    fn content_needed(&self, goal: &str) -> bool {
+        let g = goal.to_lowercase();
+        let hints = [
+            "read",
+            "show",
+            "inspect",
+            "view",
+            "debug",
+            "trace",
+            "fix",
+            "bug",
+            "search",
+            "analyze",
+            "understand",
+            "why",
+            "explain",
+            "context",
+        ];
+        hints.iter().any(|h| g.contains(h))
     }
 
     fn parse_build_plan(&self, plan_text: &str, goal: &str) -> Result<BuildPlan> {
@@ -1818,7 +1855,7 @@ Rules: keep it concise and deterministic; only include real files; if you cannot
         let mut calls = Vec::new();
         let lower_goal = goal.to_lowercase();
         let primary_path = self
-            .extract_paths_from_goal(goal)
+            .extract_file_paths_from_goal(goal)
             .unwrap_or_default()
             .into_iter()
             .next()
