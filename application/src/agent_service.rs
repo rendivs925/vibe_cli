@@ -963,6 +963,135 @@ Generate the command now:"#,
         Ok(cleaned)
     }
 
+    /// Built-in safe tool definitions exposed to the agent for selection
+    fn default_tool_definitions() -> Vec<ToolDefinition> {
+        fn param(name: &str, description: &str) -> (String, ParameterProperty) {
+            (
+                name.to_string(),
+                ParameterProperty {
+                    param_type: "string".to_string(),
+                    description: description.to_string(),
+                    enum_values: None,
+                },
+            )
+        }
+
+        fn params(map: Vec<(String, ParameterProperty)>, required: Vec<&str>) -> ToolParameters {
+            ToolParameters {
+                param_type: "object".to_string(),
+                properties: map.into_iter().collect(),
+                required: required.into_iter().map(|s| s.to_string()).collect(),
+            }
+        }
+
+        vec![
+            ToolDefinition {
+                name: "file_read".to_string(),
+                description: "Read file contents safely with validation and size limits".to_string(),
+                parameters: params(vec![param("path", "Absolute or relative path to the file")], vec!["path"]),
+            },
+            ToolDefinition {
+                name: "file_write".to_string(),
+                description: "Write file contents with backup/rollback safeguards".to_string(),
+                parameters: params(
+                    vec![param("path", "File path to write"), param("content", "Full file contents")],
+                    vec!["path", "content"],
+                ),
+            },
+            ToolDefinition {
+                name: "directory_list".to_string(),
+                description: "List directory contents".to_string(),
+                parameters: params(vec![param("path", "Directory path (default .)")], vec![]),
+            },
+            ToolDefinition {
+                name: "process_list".to_string(),
+                description: "List running processes with optional filter".to_string(),
+                parameters: params(vec![param("filter", "Optional substring to match process names")], vec![]),
+            },
+            ToolDefinition {
+                name: "grep_search".to_string(),
+                description: "Search for a regex pattern within files".to_string(),
+                parameters: params(
+                    vec![
+                        param("pattern", "Regex or plain text to search for"),
+                        param("path", "File or directory to search (default .)"),
+                    ],
+                    vec!["pattern"],
+                ),
+            },
+            ToolDefinition {
+                name: "find_files".to_string(),
+                description: "Find files under a path with optional filters".to_string(),
+                parameters: params(
+                    vec![
+                        param("path", "Directory to search"),
+                        param("name", "Optional filename pattern (e.g., *.rs)"),
+                        param("size", "Optional size filter (e.g., +10M)"),
+                    ],
+                    vec!["path"],
+                ),
+            },
+            ToolDefinition {
+                name: "sed_replace".to_string(),
+                description: "Perform safe text replacement in a file".to_string(),
+                parameters: params(
+                    vec![
+                        param("path", "File path"),
+                        param("pattern", "Pattern to replace"),
+                        param("replacement", "Replacement text"),
+                    ],
+                    vec!["path", "pattern", "replacement"],
+                ),
+            },
+            ToolDefinition {
+                name: "awk_extract".to_string(),
+                description: "Extract or transform data from files using awk-like patterns".to_string(),
+                parameters: params(
+                    vec![param("path", "File path"), param("script", "Awk program to run")],
+                    vec!["path", "script"],
+                ),
+            },
+            ToolDefinition {
+                name: "curl_fetch".to_string(),
+                description: "Fetch content from an HTTP URL (read-only)".to_string(),
+                parameters: params(vec![param("url", "HTTP/HTTPS URL to fetch")], vec!["url"]),
+            },
+            ToolDefinition {
+                name: "web_search".to_string(),
+                description: "Search the web for documentation and best practices".to_string(),
+                parameters: params(vec![param("query", "Search query")], vec!["query"]),
+            },
+            ToolDefinition {
+                name: "git_status".to_string(),
+                description: "Show git repository status (read-only)".to_string(),
+                parameters: params(vec![param("path", "Repo path (default .)")], vec![]),
+            },
+            ToolDefinition {
+                name: "git_diff".to_string(),
+                description: "Show git diffs between commits or working tree".to_string(),
+                parameters: params(
+                    vec![
+                        param("path", "Repo path (default .)"),
+                        param("rev", "Optional revision or range"),
+                    ],
+                    vec![],
+                ),
+            },
+            ToolDefinition {
+                name: "git_log".to_string(),
+                description: "Show git commit history with optional filters".to_string(),
+                parameters: params(
+                    vec![
+                        param("path", "Repo path (default .)"),
+                        param("limit", "Optional number of commits"),
+                        param("author", "Optional author filter"),
+                    ],
+                    vec![],
+                ),
+            },
+        ]
+    }
+
 
 
     fn filter_valid_tool_calls(
@@ -1668,24 +1797,114 @@ Rules:
     }
 
     /// Determine if tools are needed for the goal
-    pub fn needs_tools(&self, _goal: &str, _reasoning: &[String]) -> bool {
-        // Simplified - always return true for now
-        true
+    pub fn needs_tools(&self, goal: &str, reasoning: &[String], context: &AgentContext) -> bool {
+        if context.available_tools.is_empty() {
+            return false;
+        }
+        let lower = goal.to_lowercase();
+        let hints = [
+            "read file",
+            "write file",
+            "search",
+            "find",
+            "grep",
+            "process",
+            "list dir",
+            "git",
+            "log",
+            "diff",
+            "status",
+            "http",
+            "url",
+        ];
+        if hints.iter().any(|h| lower.contains(h)) {
+            return true;
+        }
+        reasoning.iter().any(|r| hints.iter().any(|h| r.to_lowercase().contains(h)))
     }
 
     /// Plan tool calls based on reasoning
-    pub fn plan_tool_calls(&self, goal: &str, reasoning: &[String], _context: &AgentContext, _exec_context: &AgentExecutionContext) -> Vec<ToolCall> {
-        // Simplified implementation
-        if goal.contains("search") || goal.contains("find") {
-            vec![ToolCall {
-                id: "search-1".to_string(),
-                name: "web_search".to_string(),
-                parameters: std::collections::HashMap::new(),
-                reasoning: reasoning.join(" "),
-            }]
-        } else {
-            vec![]
+    pub fn plan_tool_calls(&self, goal: &str, reasoning: &[String], context: &AgentContext, _exec_context: &AgentExecutionContext) -> Vec<ToolCall> {
+        let mut calls = Vec::new();
+        let lower_goal = goal.to_lowercase();
+        let primary_path = self
+            .extract_paths_from_goal(goal)
+            .unwrap_or_default()
+            .into_iter()
+            .next()
+            .unwrap_or_else(|| ".".to_string());
+
+        let mut push_call = |name: &str, params: HashMap<String, serde_json::Value>, why: &str| {
+            if context.available_tools.iter().any(|t| t.name == name) {
+                calls.push(ToolCall {
+                    id: format!("{}-1", name),
+                    name: name.to_string(),
+                    parameters: params,
+                    reasoning: why.to_string(),
+                });
+            }
+        };
+
+        if lower_goal.contains("web search") || lower_goal.contains("online") {
+            let mut params = HashMap::new();
+            params.insert("query".to_string(), serde_json::Value::String(goal.to_string()));
+            push_call("web_search", params, "Need external info");
+        } else if lower_goal.contains("search") || lower_goal.contains("grep") {
+            let mut params = HashMap::new();
+            params.insert("pattern".to_string(), serde_json::Value::String(goal.to_string()));
+            params.insert("path".to_string(), serde_json::Value::String(primary_path.clone()));
+            push_call("grep_search", params, "Search locally for pattern");
         }
+
+        if lower_goal.contains("find file") || lower_goal.contains("locate") || lower_goal.contains("list dir") {
+            let mut params = HashMap::new();
+            params.insert("path".to_string(), serde_json::Value::String(primary_path.clone()));
+            push_call("directory_list", params.clone(), "List directory for context");
+            push_call("find_files", params, "Find files under path");
+        }
+
+        if lower_goal.contains("read") || lower_goal.contains("open file") || lower_goal.contains("show file") {
+            let mut params = HashMap::new();
+            params.insert("path".to_string(), serde_json::Value::String(primary_path.clone()));
+            push_call("file_read", params, "Read file content");
+        }
+
+        if lower_goal.contains("write") || lower_goal.contains("update") || lower_goal.contains("replace") {
+            let mut params = HashMap::new();
+            params.insert("path".to_string(), serde_json::Value::String(primary_path.clone()));
+            params.insert(
+                "content".to_string(),
+                serde_json::Value::String("Provide updated content here".to_string()),
+            );
+            push_call("file_write", params, "Write file safely");
+        }
+
+        if lower_goal.contains("process") || lower_goal.contains("ps ") {
+            push_call("process_list", HashMap::new(), "Inspect running processes");
+        }
+
+        if lower_goal.contains("curl") || lower_goal.contains("http") || lower_goal.contains("url") {
+            let mut params = HashMap::new();
+            params.insert("url".to_string(), serde_json::Value::String(goal.to_string()));
+            push_call("curl_fetch", params, "Fetch remote content");
+        }
+
+        if lower_goal.contains("git status") {
+            push_call("git_status", HashMap::new(), "Check repo status");
+        } else if lower_goal.contains("git diff") || lower_goal.contains("diff") {
+            push_call("git_diff", HashMap::new(), "Inspect changes");
+        } else if lower_goal.contains("git log") || lower_goal.contains("history") {
+            push_call("git_log", HashMap::new(), "Inspect history");
+        }
+
+        if calls.is_empty() && !context.available_tools.is_empty() {
+            // Default to directory_list for lightweight discovery
+            let mut params = HashMap::new();
+            params.insert("path".to_string(), serde_json::Value::String(primary_path));
+            push_call("directory_list", params, "Fallback discovery");
+        }
+
+        calls
     }
 
     /// Execute tool calls
@@ -1731,7 +1950,7 @@ Rules:
     pub async fn execute_agent(&self, goal: &str, request: &AgentRequest, exec_context: Arc<AgentExecutionContext>) -> Result<AgentResult> {
         // Build initial agent context with available tools + conversation.
         let mut agent_context = AgentContext {
-            available_tools: vec![], // TODO: Get available tools from config
+            available_tools: Self::default_tool_definitions(),
             conversation_history: Vec::<ConversationMessage>::new(),
             working_memory: std::collections::HashMap::new(),
         };
@@ -1777,7 +1996,7 @@ Rules:
             all_reasoning.extend(reasoning_steps.clone());
 
             // 2) Decide whether tools are needed, then plan tool calls
-            let tool_calls = if self.needs_tools(goal, &reasoning_steps) {
+            let tool_calls = if self.needs_tools(goal, &reasoning_steps, &agent_context) {
                 self.plan_tool_calls(goal, &reasoning_steps, &agent_context, &exec_context)
             } else {
                 Vec::new()
@@ -1800,6 +2019,7 @@ Rules:
                     }]
                 });
 
+            execution_state.total_tools_executed += tool_results.len() as u32;
             all_tool_results.extend(tool_results.clone());
 
             // 4) Determine whether to finalize now.
