@@ -1880,9 +1880,10 @@ Rules: keep it concise and deterministic; only include real files; if context is
             .next()
             .unwrap_or_else(|| ".".to_string());
 
+        let mut pending_calls: Vec<ToolCall> = Vec::new();
         let mut push_call = |name: &str, params: HashMap<String, serde_json::Value>, why: &str| {
             if context.available_tools.iter().any(|t| t.name == name) {
-                calls.push(ToolCall {
+                pending_calls.push(ToolCall {
                     id: format!("{}-1", name),
                     name: name.to_string(),
                     parameters: params,
@@ -1943,13 +1944,14 @@ Rules: keep it concise and deterministic; only include real files; if context is
             push_call("git_log", HashMap::new(), "Inspect history");
         }
 
-        if calls.is_empty() && !context.available_tools.is_empty() {
+        if pending_calls.is_empty() && !context.available_tools.is_empty() {
             // Default to directory_list for lightweight discovery
             let mut params = HashMap::new();
             params.insert("path".to_string(), serde_json::Value::String(primary_path));
             push_call("directory_list", params, "Fallback discovery");
         }
 
+        calls.extend(pending_calls);
         calls
     }
 
