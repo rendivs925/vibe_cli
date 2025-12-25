@@ -2,6 +2,7 @@ use shared::types::Result;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use colored::Colorize;
+use crate::transaction::{Transaction, TransactionGuard};
 
 /// Represents a file operation in the build process
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -214,7 +215,7 @@ impl BuildService {
         }
     }
 
-    /// Execute a build plan
+    /// Execute a build plan with transaction support
     pub async fn execute_plan(&mut self, plan: &BuildPlan) -> Result<BuildResult> {
         let mut result = BuildResult {
             success: true,
@@ -224,11 +225,15 @@ impl BuildService {
             rollback_performed: false,
         };
 
-        // TODO: Implement transaction framework (Phase 1.3)
-        // For now, execute operations sequentially without transaction support
+        // Create transaction for atomic operations
+        let mut transaction = Transaction::new();
+        transaction.begin()?;
 
+        println!("{}", format!("Executing {} operations...", plan.operations.len()).bright_cyan());
+
+        // Execute operations within transaction
         for operation in &plan.operations {
-            match self.execute_operation(operation).await {
+            match self.execute_operation_transactional(operation, &mut transaction).await {
                 Ok(_) => {
                     result.operations_completed += 1;
                 }
@@ -238,14 +243,78 @@ impl BuildService {
                     result.error_messages.push(format!("{:?}: {}", operation, e));
                     eprintln!("{}", format!("Operation failed: {}", e).red());
 
-                    // TODO: Implement rollback (Phase 1.3)
-                    println!("{}", "Transaction rollback not yet implemented (Phase 1.3)".yellow());
+                    // Rollback transaction on failure
+                    println!("{}", "Rolling back all operations...".bright_yellow());
+                    transaction.rollback()?;
+                    result.rollback_performed = true;
                     break;
                 }
             }
         }
 
+        // Commit transaction if all operations succeeded
+        if result.success {
+            transaction.commit()?;
+        }
+
         Ok(result)
+    }
+
+    /// Execute a single file operation within a transaction
+    async fn execute_operation_transactional(
+        &self,
+        operation: &FileOperation,
+        transaction: &mut Transaction,
+    ) -> Result<()> {
+        if self.dry_run {
+            println!("{}", format!("DRY RUN: Would execute {:?}", operation).yellow());
+            return Ok(());
+        }
+
+        match operation {
+            FileOperation::Create { path, content } => {
+                if path.exists() {
+                    return Err(anyhow::anyhow!("File already exists: {}", path.display()));
+                }
+
+                transaction.write_file(path, content.as_bytes())?;
+                println!("{}", format!("Created: {}", path.display()).green());
+                Ok(())
+            }
+            FileOperation::Read { path } => {
+                let _content = std::fs::read_to_string(path)?;
+                println!("{}", format!("Read: {}", path.display()).cyan());
+                Ok(())
+            }
+            FileOperation::Update { path, old_content, new_content } => {
+                if !path.exists() {
+                    return Err(anyhow::anyhow!("File does not exist: {}", path.display()));
+                }
+
+                let current_content = std::fs::read_to_string(path)?;
+
+                // Verify old content matches (safety check)
+                if current_content != *old_content {
+                    return Err(anyhow::anyhow!(
+                        "File content has changed since plan creation: {}",
+                        path.display()
+                    ));
+                }
+
+                transaction.write_file(path, new_content.as_bytes())?;
+                println!("{}", format!("Updated: {}", path.display()).yellow());
+                Ok(())
+            }
+            FileOperation::Delete { path } => {
+                if !path.exists() {
+                    return Err(anyhow::anyhow!("File does not exist: {}", path.display()));
+                }
+
+                transaction.delete_file(path)?;
+                println!("{}", format!("Deleted: {}", path.display()).red());
+                Ok(())
+            }
+        }
     }
 
     /// Create a build plan from a goal description
