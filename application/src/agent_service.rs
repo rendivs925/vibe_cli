@@ -93,6 +93,9 @@ pub struct IncrementalBuildPlanner {
     completed_operations: Vec<FileOperation>,
     complex_operations: Vec<ComplexOperation>,
     file_contexts: HashMap<String, FileContext>,
+    keywords: Vec<String>,
+    os_info: String,
+    cwd: String,
     config: Config,
 }
 
@@ -115,6 +118,11 @@ struct FileSpec {
 
 impl IncrementalBuildPlanner {
     pub fn new(goal: String, context: Vec<String>, config: Config) -> Self {
+        let cwd = std::env::current_dir()
+            .ok()
+            .and_then(|p| p.to_str().map(|s| s.to_string()))
+            .unwrap_or_else(|| ".".to_string());
+
         Self {
             goal,
             context,
@@ -122,6 +130,9 @@ impl IncrementalBuildPlanner {
             completed_operations: Vec::new(),
             complex_operations: Vec::new(),
             file_contexts: HashMap::new(),
+            keywords: Vec::new(),
+            os_info: std::env::consts::OS.to_string(),
+            cwd,
             config,
         }
     }
@@ -887,6 +898,13 @@ Generate the complete file content now:"#,
     pub fn get_completed_operations(&self) -> &[FileOperation] {
         &self.completed_operations
     }
+
+    pub fn context_stats(&self) -> (usize, usize, usize, String, String) {
+        let files_scanned = self.file_contexts.len();
+        let files_analyzed = self.file_contexts.values().filter(|c| c.content.is_some()).count();
+        let keywords_count = self.keywords.len();
+        (files_scanned, files_analyzed, keywords_count, self.os_info.clone(), self.cwd.clone())
+    }
 }
 
 
@@ -1234,7 +1252,7 @@ Generate the command now:"#,
         // Create planner with populated file contexts
         let mut planner = IncrementalBuildPlanner::new(goal.to_string(), retrieved_context, self.config.clone());
         planner.file_contexts = file_contexts;
-
+        planner.keywords = keywords;
         Ok(planner)
     }
 

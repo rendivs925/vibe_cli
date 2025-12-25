@@ -821,7 +821,16 @@ impl CliApp {
 
                     // Show tool usage after context retrieval
                     if step_count == 2 {
-                        let stats = ContextStats::default();
+                        let (scanned, analyzed, keywords, os_info, cwd) = planner.context_stats();
+                        let stats = ContextStats {
+                            files_scanned: scanned,
+                            files_analyzed: analyzed,
+                            keywords_count: keywords,
+                            os_info,
+                            cwd,
+                            total_files: scanned,
+                            relevant_files: scanned,
+                        };
                         Self::display_tool_usage(&stats);
                     }
 
