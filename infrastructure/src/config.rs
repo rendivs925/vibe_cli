@@ -422,7 +422,7 @@ impl Default for ContextConfig {
         Self {
             max_file_size_bytes: 10 * 1024 * 1024, // 10MB per file (increased for long files)
             max_files_in_context: 20, // Increased to handle more context
-            max_context_tokens: 16000, // Increased token budget
+            max_context_tokens: 64000, // Larger token budget for big projects
             max_file_preview_lines: 1000, // Increased to show more content
             token_estimation_ratio: 4.0, // ~4 chars per token for English
             max_plan_attempts: 5, // More attempts for complex tasks
