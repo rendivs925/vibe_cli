@@ -679,8 +679,8 @@ impl CliApp {
     }
 
     async fn handle_build(&mut self, goal: &str, dry_run: bool, verbose: bool, show_diff: bool) -> Result<()> {
-        use application::build_service::{BuildService, ConfirmationMode};
-        use application::agent_service::{IncrementalBuildPlanner, IncrementalPlanStep};
+        use application::build_service::{BuildService, ConfirmationMode, BuildPlan, RiskLevel};
+        use application::agent_service::IncrementalBuildPlanner;
         use infrastructure::config::Config;
 
         if goal.trim().is_empty() {
@@ -708,95 +708,92 @@ impl CliApp {
         // Initialize services
         let agent_service = application::create_agent_service().await?;
 
-        // Generate build plan using agent with RAG context
-        println!("\n{}", "Analyzing requirements and retrieving context...".bright_cyan());
+        // Use true real-time incremental streaming
+        println!("\n{}", "Starting true real-time incremental planning...".bright_cyan());
 
-        let (progress_tx, progress_rx) = oneshot::channel();
-        let progress_handle = tokio::spawn(async move {
-            let mut ticker = time::interval(Duration::from_millis(300));
-            let mut dots = 0usize;
-            tokio::pin!(progress_rx);
-            loop {
-                tokio::select! {
-                    _ = ticker.tick() => {
-                        dots = (dots + 1) % 4;
-                        print!("\r{}", format!("Planning{}", ".".repeat(dots)).bright_yellow());
-                        let _ = std::io::stdout().flush();
-                    }
-                    _ = &mut progress_rx => {
-                        break;
-                    }
-                }
-            }
-            println!("\r{}", "Planning complete            ".bright_green());
-        });
-
-        let plan_outcome = match agent_service.plan_build(goal).await {
-            Ok(result) => result,
+        // Create the incremental planner
+        let mut planner = match agent_service.plan_build_incremental(goal).await {
+            Ok(planner) => planner,
             Err(e) => {
-                let _ = progress_tx.send(());
-                let _ = progress_handle.await;
-                eprintln!("{} {}", "Build planning error:".red(), e);
-                if let Some(raw_text) = e
-                    .to_string()
-                    .split("Last plan text:")
-                    .skip(1)
-                    .next()
-                {
-                    println!("\n{}", "Model output (raw):".bright_magenta());
-                    println!("{}", raw_text.trim());
-                }
+                eprintln!("{} {}", "Build planning initialization error:".red(), e);
                 return Ok(());
             }
         };
-        let _ = progress_tx.send(());
-        let _ = progress_handle.await;
 
-        println!("\n{}", "Streaming incremental planning...".bright_magenta());
+        // Stream planning steps in real-time
+        let mut step_count = 0;
+        let mut all_operations = Vec::new();
 
-        // Simulate incremental streaming by processing the plan text in chunks
-        let plan_lines: Vec<&str> = plan_outcome.raw_plan_text.lines().collect();
-        let mut current_step = 1;
+        loop {
+            match planner.stream_next_step(&agent_service.inference_engine).await {
+                Ok(Some(step)) => {
+                    step_count += 1;
+                    println!("\n{}", format!("Planning Step {}: {}", step.step_number, step.description).bright_yellow().bold());
+                    println!("{}", step.reasoning);
 
-        for (i, line) in plan_lines.iter().enumerate() {
-            if line.contains("Step") || line.contains("Build Plan") || line.contains("Files:") {
-                println!("\n{}", format!("Planning Step {}:", current_step).bright_yellow().bold());
-                current_step += 1;
-            }
+                    if let Some(confidence) = step.confidence {
+                        println!("{} {:.1}%", "Confidence:".bright_green(), confidence * 100.0);
+                    }
 
-            if !line.trim().is_empty() {
-                println!("  {}", line.trim_end());
-                let _ = std::io::stdout().flush();
-                time::sleep(Duration::from_millis(50)).await;
+                    // If this step has code, buffer the operation
+                    if let (Some(code), Some(path), Some(op_type)) = (&step.code_chunk, &step.file_path, &step.operation_type) {
+                        let operation = match op_type.as_str() {
+                            "create" => {
+                                build_service.buffer_operation(application::build_service::FileOperation::Create {
+                                    path: std::path::PathBuf::from(path),
+                                    content: code.clone(),
+                                });
+                                all_operations.push(format!("CREATE {}", path));
+                                println!("\n{}", format!("✅ Buffered CREATE operation for {}", path).bright_blue());
+                            }
+                            "update" => {
+                                println!("\n{}", format!("⚠️  Would buffer UPDATE operation for {} (simplified)", path).bright_yellow());
+                            }
+                            _ => {}
+                        };
+                    }
+
+                    // Add small delay for natural pacing
+                    time::sleep(Duration::from_millis(300)).await;
+                }
+                Ok(None) => {
+                    // No more steps
+                    break;
+                }
+                Err(e) => {
+                    eprintln!("{} {}", "Planning step error:".red(), e);
+                    return Ok(());
+                }
             }
         }
 
-        println!("\n{}", "Planning analysis complete.".bright_green());
+        println!("\n{}", format!("✅ Real-time planning complete - {} steps, {} operations buffered", step_count, build_service.buffered_count()).bright_green());
 
-        if !plan_outcome.planning_logs.is_empty() {
-            println!("\n{}", "Planning attempts:".bright_yellow());
-            for log in &plan_outcome.planning_logs {
-                println!("  {}", log);
-            }
+        // For streaming, we don't have traditional planning logs, but we could show summary
+        if verbose {
+            println!("\n{}", "Streaming Summary:".bright_yellow());
+            println!("  Total planning steps: {}", step_count);
+            println!("  Operations buffered: {}", build_service.buffered_count());
+            println!("  Operations: {}", all_operations.join(", "));
         }
 
-        // Display retrieved context if verbose
-        if verbose && !plan_outcome.retrieved_context.is_empty() {
-            println!("\n{}", "Retrieved Context:".bright_cyan());
-            for context in plan_outcome.retrieved_context {
-                println!("  {}", context);
-            }
-        }
+        // Show plan preview using buffered operations
+        // For now, create a temporary plan from buffered operations for preview
+        let temp_plan = BuildPlan {
+            goal: goal.to_string(),
+            operations: build_service.get_buffered_operations().to_vec(),
+            description: "Streaming-generated operations".to_string(),
+            estimated_risk: RiskLevel::Low,
+        };
 
-        // Show plan preview
-        if let Err(e) = build_service.preview_plan(&plan_outcome.plan) {
+        if let Err(e) = build_service.preview_plan(&temp_plan) {
             eprintln!("{} {}", "Plan preview error:".red(), e);
             return Ok(());
         }
 
-        // Execute the build plan with transaction support (unless dry-run)
+        // Execute the buffered operations (unless dry-run)
         if !dry_run {
-            match build_service.execute_plan(&plan_outcome.plan).await {
+            match build_service.apply_buffered_operations().await {
                 Ok(result) => {
                     if result.success {
                         println!("\nBuild completed successfully.");

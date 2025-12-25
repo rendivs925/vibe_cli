@@ -15,6 +15,8 @@ serde_json.workspace = true
 serde.workspace = true
 colored.workspace = true
 num_cpus.workspace = true
+tokio-stream = "0.1"
+futures = "0.3"
 
 [dev-dependencies]
 criterion.workspace = true

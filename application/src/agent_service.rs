@@ -28,6 +28,9 @@ use serde_json::json;
 use shared::types::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
+use tokio::sync::mpsc;
+use tokio_stream::{Stream, StreamExt};
+use futures::future::BoxFuture;
 use uuid::Uuid;
 use crate::build_service::{BuildPlan, FileOperation, RiskLevel};
 use colored::Colorize;
@@ -65,12 +68,29 @@ pub struct IncrementalPlanStep {
     pub confidence: Option<f32>,
 }
 
-/// Stream-based incremental build planner
+/// Stream-based incremental build planner with true real-time streaming
 pub struct IncrementalBuildPlanner {
     goal: String,
     context: Vec<String>,
-    current_step: usize,
+    planning_state: PlanningState,
     completed_operations: Vec<FileOperation>,
+}
+
+#[derive(Debug, Clone)]
+enum PlanningState {
+    Initial,
+    Analyzing,
+    PlanningOperations,
+    GeneratingCode { files: Vec<FileSpec>, current_index: usize },
+    Finalizing,
+    Complete,
+}
+
+#[derive(Debug, Clone)]
+struct FileSpec {
+    path: String,
+    action: String,
+    reason: String,
 }
 
 impl IncrementalBuildPlanner {
@@ -78,19 +98,54 @@ impl IncrementalBuildPlanner {
         Self {
             goal,
             context,
-            current_step: 0,
+            planning_state: PlanningState::Initial,
             completed_operations: Vec::new(),
         }
     }
 
-    /// Stream the next planning step
+    /// Stream the next planning step with true real-time AI generation
     pub async fn stream_next_step(&mut self, inference_engine: &infrastructure::InferenceEngine) -> Result<Option<IncrementalPlanStep>> {
-        self.current_step += 1;
+        match &self.planning_state {
+            PlanningState::Initial => {
+                self.planning_state = PlanningState::Analyzing;
+                self.stream_analysis_step(inference_engine).await
+            }
+            PlanningState::Analyzing => {
+                self.planning_state = PlanningState::PlanningOperations;
+                self.stream_operation_planning_step(inference_engine).await
+            }
+            PlanningState::PlanningOperations => {
+                let files = self.stream_file_discovery_step(inference_engine).await?;
+                if files.is_empty() {
+                    self.planning_state = PlanningState::Finalizing;
+                    self.stream_finalizing_step().await
+                } else {
+                    self.planning_state = PlanningState::GeneratingCode {
+                        files,
+                        current_index: 0,
+                    };
+                    self.stream_next_code_step(inference_engine).await
+                }
+            }
+            PlanningState::GeneratingCode { files, current_index } => {
+                if *current_index >= files.len() {
+                    self.planning_state = PlanningState::Finalizing;
+                    self.stream_finalizing_step().await
+                } else {
+                    self.stream_next_code_step(inference_engine).await
+                }
+            }
+            PlanningState::Finalizing => {
+                self.planning_state = PlanningState::Complete;
+                self.stream_finalizing_step().await
+            }
+            PlanningState::Complete => Ok(None),
+        }
+    }
 
-        // First step: Analyze project and decide approach
-        if self.current_step == 1 {
-            let prompt = format!(
-                r#"Analyze this goal and determine the best approach for incremental implementation:
+    async fn stream_analysis_step(&self, inference_engine: &infrastructure::InferenceEngine) -> Result<Option<IncrementalPlanStep>> {
+        let prompt = format!(
+            r#"Analyze this goal and determine the best approach for incremental implementation:
 
 GOAL: {}
 
@@ -104,99 +159,220 @@ Think step-by-step about:
 4. What's the risk level (Low/Medium/High)?
 
 Provide a brief analysis (2-3 sentences) of your approach."#,
-                self.goal, self.context.join("\n")
-            );
+            self.goal, self.context.join("\n")
+        );
 
-            let analysis = inference_engine.generate(&prompt).await?;
-            return Ok(Some(IncrementalPlanStep {
-                step_number: 1,
-                description: "Analyzing project structure and determining approach".to_string(),
-                reasoning: analysis.trim().to_string(),
-                code_chunk: None,
-                file_path: None,
-                operation_type: None,
-                confidence: Some(0.9),
-            }));
-        }
+        let analysis = inference_engine.generate(&prompt).await?;
+        let confidence = self.calculate_confidence_from_response(&analysis, "analysis");
 
-        // Step 2: Determine file operations needed
-        if self.current_step == 2 {
-            let prompt = format!(
-                r#"Based on the goal and analysis, what files need to be created or modified?
+        Ok(Some(IncrementalPlanStep {
+            step_number: 1,
+            description: "Analyzing project structure and determining approach".to_string(),
+            reasoning: analysis.trim().to_string(),
+            code_chunk: None,
+            file_path: None,
+            operation_type: None,
+            confidence: Some(confidence),
+        }))
+    }
 
-GOAL: {}
-ANALYSIS: {}
-
-List the specific file operations needed. For each file:
-- Path (relative)
-- Action (create/update)
-- Brief reason
-
-Format as:
-FILE: path/to/file.ext
-ACTION: create
-REASON: explanation"#,
-                self.goal, self.context.join("\n")
-            );
-
-            let file_plan = inference_engine.generate(&prompt).await?;
-            return Ok(Some(IncrementalPlanStep {
-                step_number: 2,
-                description: "Planning file operations".to_string(),
-                reasoning: format!("Determined file operations:\n{}", file_plan.trim()),
-                code_chunk: None,
-                file_path: None,
-                operation_type: None,
-                confidence: Some(0.8),
-            }));
-        }
-
-        // Steps 3+: Generate code chunks for each file
-        let step_offset = 2; // First 2 steps are analysis/planning
-        let file_index = self.current_step - step_offset - 1;
-
-        // This is a simplified implementation - in practice, you'd parse the file plan
-        // and generate code for each file incrementally
-        if file_index == 0 {
-            let prompt = format!(
-                r#"Generate the complete code for the first file needed for this goal.
+    async fn stream_operation_planning_step(&self, inference_engine: &infrastructure::InferenceEngine) -> Result<Option<IncrementalPlanStep>> {
+        let prompt = format!(
+            r#"Based on the goal, what specific file operations are needed?
 
 GOAL: {}
-CONTEXT: {}
 
-Generate clean, working code. Keep it minimal and focused."#,
-                self.goal, self.context.join("\n")
-            );
+List each file operation with:
+- FILE: relative/path.ext
+- ACTION: create|update|delete
+- REASON: brief explanation
 
-            let code = inference_engine.generate(&prompt).await?;
-            return Ok(Some(IncrementalPlanStep {
-                step_number: self.current_step,
-                description: "Generating code for primary file".to_string(),
-                reasoning: "Creating the main implementation file".to_string(),
-                code_chunk: Some(code.trim().to_string()),
-                file_path: Some("index.html".to_string()), // Simplified assumption
-                operation_type: Some("create".to_string()),
-                confidence: Some(0.85),
-            }));
+Format exactly as shown above."#,
+            self.goal
+        );
+
+        let plan_text = inference_engine.generate(&prompt).await?;
+        let confidence = self.calculate_confidence_from_response(&plan_text, "planning");
+
+        Ok(Some(IncrementalPlanStep {
+            step_number: 2,
+            description: "Planning file operations".to_string(),
+            reasoning: format!("Determined file operations:\n{}", plan_text.trim()),
+            code_chunk: None,
+            file_path: None,
+            operation_type: None,
+            confidence: Some(confidence),
+        }))
+    }
+
+    async fn stream_file_discovery_step(&mut self, inference_engine: &infrastructure::InferenceEngine) -> Result<Vec<FileSpec>> {
+        let prompt = format!(
+            r#"Extract the file operations from the previous planning step.
+
+For each file mentioned, provide:
+FILE: path
+ACTION: create|update|delete
+REASON: explanation
+
+List them one per line."#
+        );
+
+        let response = inference_engine.generate(&prompt).await?;
+        let files = self.parse_file_specs(&response);
+        Ok(files)
+    }
+
+    async fn stream_next_code_step(&mut self, inference_engine: &infrastructure::InferenceEngine) -> Result<Option<IncrementalPlanStep>> {
+        let (files, current_index) = match &mut self.planning_state {
+            PlanningState::GeneratingCode { files, current_index } => (files.clone(), *current_index),
+            _ => return Ok(None),
+        };
+
+        if current_index >= files.len() {
+            return Ok(None);
         }
 
-        // Final step: Summary
-        if file_index == 1 {
-            return Ok(Some(IncrementalPlanStep {
-                step_number: self.current_step,
-                description: "Finalizing build plan".to_string(),
-                reasoning: "All code chunks generated. Ready for execution.".to_string(),
-                code_chunk: None,
-                file_path: None,
-                operation_type: None,
-                confidence: Some(0.95),
-            }));
+        let file_spec = &files[current_index];
+        let step_number = 3 + current_index;
+
+        let prompt = format!(
+            r#"Generate complete, working code for this file operation:
+
+GOAL: {}
+FILE: {}
+ACTION: {}
+REASON: {}
+
+Generate clean, functional code. Include all necessary imports and structure.
+Keep it minimal but complete."#,
+            self.goal, file_spec.path, file_spec.action, file_spec.reason
+        );
+
+        let code = inference_engine.generate(&prompt).await?;
+        let confidence = self.calculate_confidence_from_response(&code, "code_generation");
+
+        // Update state for next file
+        if let PlanningState::GeneratingCode { current_index: ref mut idx, .. } = self.planning_state {
+            *idx += 1;
         }
 
-        // No more steps
-        Ok(None)
+        // Buffer the operation
+        if let Ok(operation) = self.create_operation_from_code(&file_spec, &code) {
+            self.completed_operations.push(operation);
+        }
+
+        Ok(Some(IncrementalPlanStep {
+            step_number,
+            description: format!("Generating code for {}", file_spec.path),
+            reasoning: format!("Creating {} with action: {}", file_spec.path, file_spec.action),
+            code_chunk: Some(code.trim().to_string()),
+            file_path: Some(file_spec.path.clone()),
+            operation_type: Some(file_spec.action.clone()),
+            confidence: Some(confidence),
+        }))
+    }
+
+    async fn stream_finalizing_step(&self) -> Result<Option<IncrementalPlanStep>> {
+        let operations_count = self.completed_operations.len();
+        Ok(Some(IncrementalPlanStep {
+            step_number: 999, // Final step
+            description: "Finalizing build plan".to_string(),
+            reasoning: format!("Build plan complete with {} operations ready for execution.", operations_count),
+            code_chunk: None,
+            file_path: None,
+            operation_type: None,
+            confidence: Some(0.95),
+        }))
+    }
+
+    fn parse_file_specs(&self, response: &str) -> Vec<FileSpec> {
+        let mut files = Vec::new();
+        let mut current_file: Option<FileSpec> = None;
+
+        for line in response.lines() {
+            let line = line.trim();
+            if line.starts_with("FILE:") {
+                if let Some(file) = current_file.take() {
+                    files.push(file);
+                }
+                let path = line.strip_prefix("FILE:").unwrap_or("").trim().to_string();
+                current_file = Some(FileSpec {
+                    path,
+                    action: String::new(),
+                    reason: String::new(),
+                });
+            } else if line.starts_with("ACTION:") && current_file.is_some() {
+                let action = line.strip_prefix("ACTION:").unwrap_or("").trim().to_string();
+                if let Some(ref mut file) = current_file {
+                    file.action = action;
+                }
+            } else if line.starts_with("REASON:") && current_file.is_some() {
+                let reason = line.strip_prefix("REASON:").unwrap_or("").trim().to_string();
+                if let Some(ref mut file) = current_file {
+                    file.reason = reason;
+                }
+            }
+        }
+
+        if let Some(file) = current_file {
+            files.push(file);
+        }
+
+        files
+    }
+
+    fn create_operation_from_code(&self, file_spec: &FileSpec, code: &str) -> Result<FileOperation> {
+        match file_spec.action.as_str() {
+            "create" => Ok(FileOperation::Create {
+                path: std::path::PathBuf::from(&file_spec.path),
+                content: code.to_string(),
+            }),
+            "update" => {
+                // For updates, we'd need to read existing content
+                // This is simplified - in practice, we'd merge with existing content
+                Ok(FileOperation::Update {
+                    path: std::path::PathBuf::from(&file_spec.path),
+                    old_content: String::new(), // Would read actual content
+                    new_content: code.to_string(),
+                })
+            },
+            _ => Err(anyhow::anyhow!("Unsupported action: {}", file_spec.action)),
+        }
+    }
+
+    fn calculate_confidence_from_response(&self, response: &str, response_type: &str) -> f32 {
+        // Simple confidence calculation based on response characteristics
+        let base_confidence: f32 = match response_type {
+            "analysis" => 0.8,
+            "planning" => 0.7,
+            "code_generation" => 0.75,
+            _ => 0.5,
+        };
+
+        // Boost confidence based on response quality indicators
+        let mut confidence: f32 = base_confidence;
+
+        if response.contains("error") || response.contains("Error") {
+            confidence -= 0.2;
+        }
+
+        if response.len() > 100 {
+            confidence += 0.1; // Longer responses tend to be more thorough
+        }
+
+        if response.contains("imports") || response.contains("function") || response.contains("class") {
+            confidence += 0.1; // Code-like content indicates better quality
+        }
+
+        confidence.max(0.0).min(1.0)
+    }
+
+    pub fn get_completed_operations(&self) -> &[FileOperation] {
+        &self.completed_operations
     }
 }
+
+
 
 /// Execution context for agent operations with owned data to avoid lifetime issues
 pub struct AgentExecutionContext {
@@ -290,6 +466,52 @@ impl AgentService {
     }
 
 
+
+    /// Create an incremental build planner for streaming planning
+    pub async fn plan_build_incremental(&self, goal: &str) -> Result<IncrementalBuildPlanner> {
+        let mut retrieved_context = Vec::new();
+
+        // Retrieve context using RAG or fast rg search
+        let keywords = self.extract_keywords_from_goal(goal);
+
+        if let Some(rag_service) = &self.rag_service {
+            println!("Retrieving relevant codebase context...");
+
+            if let Err(e) = rag_service.build_index().await {
+                eprintln!("Warning: Failed to build RAG index: {}", e);
+            }
+
+            let rag_query = format!("Find examples and patterns for: {}. Look for similar implementations, utility functions, or scripts.", goal);
+            match rag_service.query(&rag_query).await {
+                Ok(context) => {
+                    retrieved_context.push(format!("RAG Context:\n{}", context));
+                }
+                Err(e) => {
+                    eprintln!("RAG query failed: {}", e);
+                }
+            }
+
+            if !keywords.is_empty() {
+                if let Err(e) = rag_service.build_index_for_keywords(&keywords).await {
+                    eprintln!("Keyword index failed: {}", e);
+                } else {
+                    let keyword_query = format!("Examples of {}", keywords.join(", "));
+                    if let Ok(keyword_context) = rag_service.query(&keyword_query).await {
+                        retrieved_context.push(format!("Keyword Context ({}):\n{}", keywords.join(", "), keyword_context));
+                    }
+                }
+            }
+        } else {
+            let rg_hits = self.fast_rg_context(&keywords)?;
+            if !rg_hits.is_empty() {
+                retrieved_context.push(format!("rg snippets:\n{}", rg_hits.join("\n")));
+            } else {
+                retrieved_context.push("No rg snippets found for goal keywords".to_string());
+            }
+        }
+
+        Ok(IncrementalBuildPlanner::new(goal.to_string(), retrieved_context))
+    }
 
     /// Generate a build plan with RAG context retrieval
     pub async fn plan_build(&self, goal: &str) -> Result<BuildPlanOutcome> {

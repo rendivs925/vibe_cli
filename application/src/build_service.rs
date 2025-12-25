@@ -610,6 +610,11 @@ impl BuildService {
         self.buffered_operations.len()
     }
 
+    /// Get reference to buffered operations
+    pub fn get_buffered_operations(&self) -> &[FileOperation] {
+        &self.buffered_operations
+    }
+
     /// Clear all buffered operations
     pub fn clear_buffer(&mut self) {
         self.buffered_operations.clear();

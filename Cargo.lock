@@ -118,6 +118,7 @@ dependencies = [
  "colored",
  "criterion",
  "domain",
+ "futures",
  "infrastructure",
  "md5",
  "num_cpus",
@@ -125,6 +126,7 @@ dependencies = [
  "serde_json",
  "shared",
  "tokio",
+ "tokio-stream",
  "uuid",
 ]
 
