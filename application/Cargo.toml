@@ -15,3 +15,10 @@ serde_json.workspace = true
 serde.workspace = true
 colored.workspace = true
 num_cpus.workspace = true
+
+[dev-dependencies]
+criterion.workspace = true
+
+[[bench]]
+name = "performance_benchmarks"
+harness = false
