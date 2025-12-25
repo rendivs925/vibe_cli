@@ -248,21 +248,71 @@ Do not include any other text or explanations."#,
     }
 
     async fn stream_file_discovery_step(&mut self, inference_engine: &infrastructure::InferenceEngine) -> Result<Vec<FileSpec>> {
-        // For now, hardcode the expected file operation based on the goal
-        // In a real implementation, this would parse the AI response
-        if self.goal.contains("landing page") && self.goal.contains("html") {
-            Ok(vec![FileSpec {
-                path: "index.html".to_string(),
-                action: "create".to_string(),
-                reason: "Main HTML file for the landing page".to_string(),
-            }])
-        } else {
-            Ok(vec![FileSpec {
-                path: "index.html".to_string(),
-                action: "create".to_string(),
-                reason: "Main HTML file".to_string(),
-            }])
-        }
+        // Query AI to determine required file operations
+        let context_summary = self.build_context_summary();
+
+        let prompt = format!(
+            r#"You are a code modification assistant. Analyze the user's goal and determine what file changes are required.
+
+GOAL: {}
+
+ACTUAL FILE CONTEXT:
+{}
+
+TASK: Determine what files must be created or modified to accomplish this goal.
+Every goal requires some file change - there are no goals that need "NO FILES".
+
+RESPONSE FORMAT: You must respond with file operations in this EXACT format:
+FILE: path/to/file.ext
+ACTION: create|update
+REASON: brief explanation
+
+RULES:
+- Start each file with "FILE:" (capital F)
+- Use "ACTION: update" for existing files that need changes
+- Use "ACTION: create" for new files that don't exist
+- Provide a clear reason for each change
+- You MUST specify at least one file operation
+
+EXAMPLE:
+If the goal is "add logging to main.rs", respond:
+FILE: src/main.rs
+ACTION: update
+REASON: Add logging statements to main function
+
+If the goal is "create a utils file", respond:
+FILE: src/utils.rs
+ACTION: create
+REASON: Create new utility functions file"#,
+            self.goal, context_summary
+        );
+
+        let response = inference_engine.generate(&prompt).await?;
+        let files = self.parse_file_specs(&response);
+
+        // Filter out files that don't exist when action is "update"
+        let filtered_files: Vec<FileSpec> = files.into_iter()
+            .filter(|file_spec| {
+                let should_include = match file_spec.action.as_str() {
+                    "update" => {
+                        // Only allow updates for files that actually exist
+                        self.file_contexts.get(&file_spec.path)
+                            .map(|ctx| ctx.exists)
+                            .unwrap_or(false)
+                    }
+                    "create" => {
+                        // Only allow creates for files that don't exist
+                        !self.file_contexts.get(&file_spec.path)
+                            .map(|ctx| ctx.exists)
+                            .unwrap_or(false)
+                    }
+                    _ => false,
+                };
+                should_include
+            })
+            .collect();
+
+        Ok(filtered_files)
     }
 
     async fn stream_next_code_step(&mut self, inference_engine: &infrastructure::InferenceEngine) -> Result<Option<IncrementalPlanStep>> {
