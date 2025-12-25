@@ -1421,51 +1421,51 @@ impl CliApp {
             .unwrap_or_else(|| String::new());
 
         let client = infrastructure::ollama_client::OllamaClient::new()?;
+        let install_pm = if system_context.package_manager.contains("apt") {
+            "apt"
+        } else if system_context.package_manager.contains("pacman") {
+            "pacman"
+        } else if system_context.package_manager.contains("dnf") {
+            "dnf"
+        } else {
+            "package-manager"
+        };
         let prompt = format!(
-            r#"Generate a JSON array of shell commands for the user's request.
+            r#"You generate a STRICT JSON array of executable shell commands for the user's goal.
 
-REQUEST: {}
+REQUEST: {task}
 
-CURRENT DIRECTORY: {}
-FILES IN DIRECTORY:
-{}
+ENVIRONMENT:
+- Current directory: {cwd}
+- Directory listing (first 30 entries):
+{ls}
 
-SYSTEM: {}
-Package Manager: {}
+SYSTEM:
+- Distro: {distro}
+- Package Manager: {pm}
 
-CRITICAL RULES:
-1. Output ONLY a JSON array: ["command1", "command2"]
-2. Look at FILES IN DIRECTORY - use EXACT file names shown above
-3. User is ALREADY in the current directory - do NOT cd there
-4. Do NOT assume files exist that aren't in the listing
-5. Do NOT use placeholder paths like /path/to or ~/username
-6. Do NOT clone repos or create complex build processes unless specifically requested
-7. Keep it SIMPLE - if task is "zip file.py", just use: ["zip file.zip file.py"]
-
-HOW TO SOLVE THIS REQUEST:
-1. Read the request carefully
-2. Check if mentioned files exist in FILES IN DIRECTORY above
-3. Generate the SIMPLEST commands to accomplish the goal
-4. Use actual file names from the listing
+HARD RULES (no exceptions):
+1) Output ONLY a JSON array of strings, like ["cmd1", "cmd2"]. No prose, code fences, or extra text.
+2) Assume you are already in the current directory—never emit cd/pushd for it.
+3) Use only files and paths that appear in the directory listing; do not invent names.
+4) Every command must be syntactically complete. For zip, the archive name goes first: zip archive.zip file1 file2.
+5) Prefer the simplest minimal set of commands. If one command solves it, return a single-element array.
+6) Use real paths (relative to the current directory) and avoid placeholders like /path/to or ~.
+7) If the task cannot be satisfied with the available files, respond with [].
 
 EXAMPLES:
-Request: "zip snake.py"
-Files show: snake.py exists
-Output: ["zip snake.zip snake.py"]
+- Request: "zip snake_game.py and index.html"
+  Output: ["zip snake_game.zip snake_game.py index.html"]
+- Request: "install python3"
+  Output: ["sudo {install_pm} install -y python3"]
 
-Request: "install python"
-Output: ["sudo {} install python3"]
-
-OUTPUT ONLY THE JSON ARRAY:"#,
-            task,
-            current_dir,
-            ls_output,
-            system_context.distro,
-            system_context.package_manager,
-            if system_context.package_manager.contains("apt") { "apt" }
-            else if system_context.package_manager.contains("pacman") { "pacman" }
-            else if system_context.package_manager.contains("dnf") { "dnf" }
-            else { "package-manager" }
+OUTPUT:"#,
+            task = task,
+            cwd = current_dir,
+            ls = ls_output,
+            distro = system_context.distro,
+            pm = system_context.package_manager,
+            install_pm = install_pm
         );
         let response = client.generate_response(&prompt).await?;
         let commands = parse_agent_plan(&response);
