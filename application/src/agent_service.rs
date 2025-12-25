@@ -394,42 +394,29 @@ REASON: brief explanation"#,
             .and_then(|ctx| ctx.content.as_ref());
 
         let (prompt, is_update) = if file_spec.action == "update" && existing_content.is_some() {
-            // Generate targeted changes for existing files using smart context
             let content = existing_content.unwrap();
             let lines: Vec<&str> = content.lines().collect();
             let line_count = lines.len();
-
-            // Create smart preview of file with line numbers
             let preview = self.create_numbered_preview(content, line_count);
 
             (format!(
-                r#"Task: Generate precise changes to update an existing file based on the goal.
+                r#"Task: Rewrite the entire file to fix issues and satisfy the goal. Return the full updated file content (plain text, no markdown/backticks).
 
 GOAL: {}
 FILE: {}
 SIZE: {} lines
 
-FILE CONTENT (with line numbers):
+CURRENT FILE (numbered):
 {}
 
 INSTRUCTIONS:
-- Analyze the existing content and determine minimal changes needed
-- Generate ONLY the specific changes required - do NOT rewrite the entire file
-- Use exact line numbers from the content above
-- Output changes using this format:
-
-  REPLACE lines X-Y with:
-  <replacement content>
-
-  INSERT after line N:
-  <new content>
-
-  DELETE lines M-N
-
-- If no changes needed: output "NO CHANGES REQUIRED"
-
-Remember: Be precise with line numbers. The file currently has {} lines."#,
-                self.goal, file_spec.path, line_count, preview, line_count
+- Output the full corrected file content only (no fences, no explanations).
+- Preserve intent but fix errors and make it runnable.
+- Remove any markdown/code fences or stray backticks.
+- Include imports/entrypoints needed to run the file as-is.
+- If unsure, prefer a minimal runnable version over partial edits.
+"#,
+                self.goal, file_spec.path, line_count, preview
             ), true)
         } else {
             // Generate complete new file for creation
@@ -451,7 +438,7 @@ Remember: Be precise with line numbers. The file currently has {} lines."#,
             };
 
             (format!(
-                r#"Task: Generate a complete new file to accomplish the goal.
+                r#"Task: Generate a complete new file to accomplish the goal. Return only the file content (plain text, no markdown/backticks).
 
 GOAL: {}
 FILE TO CREATE: {}
@@ -489,21 +476,8 @@ Generate the complete file content now:"#,
                 }
             );
         } else if file_spec.action == "update" {
-            // For updates, apply the diff to existing content to get the new content
             let old_content = existing_content.map_or(String::new(), |s| s.clone());
-            let new_content = if is_update {
-                // Apply diff to existing content
-                match self.apply_diff_to_content(&old_content, code.trim()) {
-                    Ok(applied) => applied,
-                    Err(e) => {
-                        eprintln!("Failed to apply diff: {}", e);
-                        // Fall back to treating the diff as the full content
-                        code.trim().to_string()
-                    }
-                }
-            } else {
-                code.trim().to_string()
-            };
+            let new_content = code.trim().to_string();
 
             self.completed_operations.push(
                 crate::build_service::FileOperation::Update {
