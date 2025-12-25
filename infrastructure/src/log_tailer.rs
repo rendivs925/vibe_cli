@@ -68,14 +68,16 @@ impl LogTailer {
             ("system", PathBuf::from("/var/log/syslog")),
             ("auth", PathBuf::from("/var/log/auth.log")),
             ("kern", PathBuf::from("/var/log/kern.log")),
-            ("journal", PathBuf::from("/var/log/journal")),
+            // Note: /var/log/journal is a directory (systemd journal), not a file
+            // Use journalctl command instead to read systemd logs
             ("app", PathBuf::from("./app.log")),
             ("error", PathBuf::from("./error.log")),
             ("debug", PathBuf::from("./debug.log")),
         ];
 
         for (name, path) in default_logs {
-            if path.exists() {
+            // Only add if path exists AND is a file (not a directory)
+            if path.exists() && path.is_file() {
                 self.add_log_file(name.to_string(), path);
             }
         }
@@ -87,6 +89,12 @@ impl LogTailer {
         path: PathBuf,
         event_tx: Sender<super::background_supervisor::BackgroundEvent>,
     ) -> Result<()> {
+        // Validate that path is a file, not a directory
+        if path.exists() && path.is_dir() {
+            eprintln!("⚠️  Cannot monitor '{}': {} is a directory, not a file", name, path.display());
+            return Ok(()); // Exit gracefully
+        }
+
         println!("    └─ Monitoring {}: {}", name, path.display());
 
         loop {
