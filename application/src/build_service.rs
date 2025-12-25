@@ -53,6 +53,208 @@ pub enum ConfirmationMode {
     None,
 }
 
+/// Represents a complex operation involving multiple files and dependencies
+#[derive(Debug, Clone)]
+pub struct ComplexOperation {
+    pub name: String,
+    pub description: String,
+    pub file_operations: Vec<FileOperation>,
+    pub dependencies: Vec<String>, // Names of other operations this depends on
+    pub estimated_risk: RiskLevel,
+    pub validation_rules: Vec<ValidationRule>,
+}
+
+/// Validation rules for operations
+#[derive(Debug, Clone)]
+pub enum ValidationRule {
+    FileExists(String),
+    FileNotExists(String),
+    DirectoryExists(String),
+    HasDependency(String),
+    ContentContains(String, String), // file_path, pattern
+}
+
+/// Graph for managing operation dependencies and execution order
+#[derive(Debug, Clone)]
+pub struct OperationGraph {
+    operations: Vec<ComplexOperation>,
+    execution_order: Vec<usize>, // Indices in dependency-safe order
+    validated: bool,
+}
+
+impl OperationGraph {
+    pub fn new() -> Self {
+        Self {
+            operations: Vec::new(),
+            execution_order: Vec::new(),
+            validated: false,
+        }
+    }
+
+    pub fn add_operation(&mut self, operation: ComplexOperation) {
+        self.operations.push(operation);
+        self.validated = false; // Invalidate on changes
+    }
+
+    pub fn validate_and_order(&mut self, workspace_root: &Path) -> Result<()> {
+        // Check for circular dependencies
+        self.detect_circular_dependencies()?;
+
+        // Validate all operations
+        for operation in &self.operations {
+            self.validate_operation(operation, workspace_root)?;
+        }
+
+        // Compute execution order using topological sort
+        self.compute_execution_order()?;
+
+        self.validated = true;
+        Ok(())
+    }
+
+    pub fn get_execution_order(&self) -> Result<&[usize]> {
+        if !self.validated {
+            return Err(anyhow::anyhow!("Operation graph must be validated before getting execution order"));
+        }
+        Ok(&self.execution_order)
+    }
+
+    pub fn get_operation(&self, index: usize) -> Option<&ComplexOperation> {
+        self.operations.get(index)
+    }
+
+    fn detect_circular_dependencies(&self) -> Result<()> {
+        // Simple cycle detection using DFS
+        let mut visited = vec![false; self.operations.len()];
+        let mut recursion_stack = vec![false; self.operations.len()];
+
+        for i in 0..self.operations.len() {
+            if self.has_cycle(i, &mut visited, &mut recursion_stack)? {
+                return Err(anyhow::anyhow!("Circular dependency detected in operation graph"));
+            }
+        }
+
+        Ok(())
+    }
+
+    fn has_cycle(&self, node: usize, visited: &mut [bool], recursion_stack: &mut [bool]) -> Result<bool> {
+        if recursion_stack[node] {
+            return Ok(true);
+        }
+
+        if visited[node] {
+            return Ok(false);
+        }
+
+        visited[node] = true;
+        recursion_stack[node] = true;
+
+        // Check dependencies
+        for dep_name in &self.operations[node].dependencies {
+            if let Some(dep_index) = self.find_operation_index(dep_name) {
+                if self.has_cycle(dep_index, visited, recursion_stack)? {
+                    return Ok(true);
+                }
+            }
+        }
+
+        recursion_stack[node] = false;
+        Ok(false)
+    }
+
+    fn find_operation_index(&self, name: &str) -> Option<usize> {
+        self.operations.iter().position(|op| op.name == name)
+    }
+
+    fn validate_operation(&self, operation: &ComplexOperation, workspace_root: &Path) -> Result<()> {
+        for rule in &operation.validation_rules {
+            match rule {
+                ValidationRule::FileExists(path) => {
+                    let full_path = workspace_root.join(path);
+                    if !full_path.exists() {
+                        return Err(anyhow::anyhow!("Validation failed: file {} does not exist", path));
+                    }
+                }
+                ValidationRule::FileNotExists(path) => {
+                    let full_path = workspace_root.join(path);
+                    if full_path.exists() {
+                        return Err(anyhow::anyhow!("Validation failed: file {} already exists", path));
+                    }
+                }
+                ValidationRule::DirectoryExists(path) => {
+                    let full_path = workspace_root.join(path);
+                    if !full_path.is_dir() {
+                        return Err(anyhow::anyhow!("Validation failed: directory {} does not exist", path));
+                    }
+                }
+                ValidationRule::HasDependency(dep_name) => {
+                    if !self.operations.iter().any(|op| op.name == *dep_name) {
+                        return Err(anyhow::anyhow!("Validation failed: dependency {} not found", dep_name));
+                    }
+                }
+                ValidationRule::ContentContains(file_path, pattern) => {
+                    let full_path = workspace_root.join(file_path);
+                    if full_path.exists() {
+                        match std::fs::read_to_string(&full_path) {
+                            Ok(content) => {
+                                if !content.contains(pattern) {
+                                    return Err(anyhow::anyhow!("Validation failed: {} does not contain {}", file_path, pattern));
+                                }
+                            }
+                            Err(_) => return Err(anyhow::anyhow!("Validation failed: cannot read {}", file_path)),
+                        }
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    fn compute_execution_order(&mut self) -> Result<()> {
+        let mut in_degree = vec![0; self.operations.len()];
+        let mut queue = std::collections::VecDeque::new();
+        let mut result = Vec::new();
+
+        // Calculate in-degrees
+        for (i, operation) in self.operations.iter().enumerate() {
+            for dep_name in &operation.dependencies {
+                if let Some(dep_index) = self.find_operation_index(dep_name) {
+                    in_degree[i] += 1;
+                }
+            }
+        }
+
+        // Find operations with no dependencies
+        for (i, &degree) in in_degree.iter().enumerate() {
+            if degree == 0 {
+                queue.push_back(i);
+            }
+        }
+
+        // Topological sort
+        while let Some(node) = queue.pop_front() {
+            result.push(node);
+
+            // For each operation that depends on this one
+            for (i, operation) in self.operations.iter().enumerate() {
+                if operation.dependencies.contains(&self.operations[node].name) {
+                    in_degree[i] -= 1;
+                    if in_degree[i] == 0 {
+                        queue.push_back(i);
+                    }
+                }
+            }
+        }
+
+        if result.len() != self.operations.len() {
+            return Err(anyhow::anyhow!("Cannot resolve operation dependencies - possible cycle"));
+        }
+
+        self.execution_order = result;
+        Ok(())
+    }
+}
+
 /// Service for managing build mode operations
 pub struct BuildService {
     /// Workspace root directory
@@ -67,6 +269,8 @@ pub struct BuildService {
     verbose: bool,
     /// Buffered operations for incremental streaming
     buffered_operations: Vec<FileOperation>,
+    /// Complex operations graph for dependency management
+    operation_graph: OperationGraph,
 }
 
 impl BuildService {
@@ -79,6 +283,7 @@ impl BuildService {
             show_diff: false,
             verbose: false,
             buffered_operations: Vec::new(),
+            operation_graph: OperationGraph::new(),
         }
     }
 
@@ -613,6 +818,154 @@ impl BuildService {
     /// Get reference to buffered operations
     pub fn get_buffered_operations(&self) -> &[FileOperation] {
         &self.buffered_operations
+    }
+
+    /// Add a complex operation to the graph
+    pub fn add_complex_operation(&mut self, operation: ComplexOperation) {
+        self.operation_graph.add_operation(operation);
+    }
+
+    /// Validate and order complex operations
+    pub fn validate_complex_operations(&mut self) -> Result<()> {
+        self.operation_graph.validate_and_order(&self.workspace_root)
+    }
+
+    /// Get complex operations in execution order
+    pub fn get_complex_execution_order(&self) -> Result<Vec<&ComplexOperation>> {
+        let indices = self.operation_graph.get_execution_order()?;
+        let mut operations = Vec::new();
+
+        for &index in indices {
+            if let Some(op) = self.operation_graph.get_operation(index) {
+                operations.push(op);
+            }
+        }
+
+        Ok(operations)
+    }
+
+    /// Execute complex operations in dependency order
+    pub async fn execute_complex_operations(&mut self) -> Result<BuildResult> {
+        let operations = self.get_complex_execution_order()?;
+        let mut result = BuildResult {
+            success: true,
+            operations_completed: 0,
+            operations_failed: 0,
+            error_messages: Vec::new(),
+            rollback_performed: false,
+        };
+
+        // Get plan-level confirmation if needed
+        if !self.confirm_plan_for_complex(&operations)? {
+            println!("{}", "Complex operations cancelled by user.".yellow());
+            return Ok(result);
+        }
+
+        println!("\n{}", format!("Executing {} complex operations in dependency order...", operations.len()).bright_cyan());
+
+        let mut transaction = crate::transaction::Transaction::new();
+        transaction.begin()?;
+
+        for (idx, operation) in operations.iter().enumerate() {
+            println!("\n{}", format!("Executing complex operation {}/{}: {}", idx + 1, operations.len(), operation.name).bright_blue());
+
+            // Get operation-level confirmation in interactive mode
+            if self.confirmation_mode == ConfirmationMode::Interactive {
+                if !self.confirm_complex_operation(operation, idx, operations.len())? {
+                    println!("{}", "Complex operation skipped by user.".yellow());
+                    continue;
+                }
+            }
+
+            match self.execute_complex_operation(operation, &mut transaction).await {
+                Ok(_) => {
+                    result.operations_completed += operation.file_operations.len();
+                }
+                Err(e) => {
+                    result.operations_failed += 1;
+                    result.success = false;
+                    result.error_messages.push(format!("Complex operation '{}': {}", operation.name, e));
+
+                    eprintln!("{}", format!("Complex operation '{}' failed: {}", operation.name, e).red());
+
+                    // Ask if user wants to rollback
+                    let should_rollback = if self.confirmation_mode == ConfirmationMode::Interactive {
+                        shared::confirmation::ask_confirmation("Rollback all complex operations?", true)?
+                    } else {
+                        true // Auto-rollback in non-interactive mode
+                    };
+
+                    if should_rollback {
+                        println!("{}", "Rolling back all complex operations...".bright_yellow());
+                        transaction.rollback()?;
+                        result.rollback_performed = true;
+                    }
+                    break;
+                }
+            }
+        }
+
+        // Commit transaction if all operations succeeded
+        if result.success {
+            transaction.commit()?;
+        }
+
+        Ok(result)
+    }
+
+    /// Confirm plan for complex operations
+    fn confirm_plan_for_complex(&self, operations: &[&ComplexOperation]) -> Result<bool> {
+        match self.confirmation_mode {
+            ConfirmationMode::None => Ok(true),
+            ConfirmationMode::Interactive | ConfirmationMode::ConfirmAll => {
+                println!("\n{}", "Complex Operations Plan Preview".bright_cyan().bold());
+
+                for (i, op) in operations.iter().enumerate() {
+                    println!("\n{}: {}", format!("{}. {}", i + 1, op.name).bright_yellow(), op.description);
+                    println!("  Files: {}", op.file_operations.len());
+                    println!("  Risk: {:?}", op.estimated_risk);
+                    if !op.dependencies.is_empty() {
+                        println!("  Dependencies: {}", op.dependencies.join(", "));
+                    }
+                }
+
+                let total_files = operations.iter().map(|op| op.file_operations.len()).sum::<usize>();
+                let max_risk = operations.iter().map(|op| op.estimated_risk).max().unwrap_or(RiskLevel::Low);
+
+                shared::confirmation::ask_confirmation(
+                    &format!(
+                        "Execute {} complex operations ({} total files, estimated {:?} max risk)?",
+                        operations.len(),
+                        total_files,
+                        max_risk
+                    ),
+                    false,
+                )
+            }
+        }
+    }
+
+    /// Confirm individual complex operation
+    fn confirm_complex_operation(&self, operation: &ComplexOperation, operation_num: usize, total_ops: usize) -> Result<bool> {
+        println!("\n{}", format!("Complex Operation {}/{}", operation_num + 1, total_ops).bright_cyan());
+        println!("Name: {}", operation.name);
+        println!("Description: {}", operation.description);
+        println!("Risk: {:?}", operation.estimated_risk);
+        println!("Files to modify: {}", operation.file_operations.len());
+
+        for (i, file_op) in operation.file_operations.iter().enumerate() {
+            println!("  {}. {:?}", i + 1, file_op);
+        }
+
+        shared::confirmation::ask_confirmation("Proceed with this complex operation?", true)
+    }
+
+    /// Execute a single complex operation
+    async fn execute_complex_operation(&self, operation: &ComplexOperation, transaction: &mut crate::transaction::Transaction) -> Result<()> {
+        for file_operation in &operation.file_operations {
+            self.execute_operation_transactional(file_operation, transaction).await?;
+        }
+        Ok(())
     }
 
     /// Clear all buffered operations

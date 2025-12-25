@@ -32,7 +32,7 @@ use tokio::sync::mpsc;
 use tokio_stream::{Stream, StreamExt};
 use futures::future::BoxFuture;
 use uuid::Uuid;
-use crate::build_service::{BuildPlan, FileOperation, RiskLevel};
+use crate::build_service::{BuildPlan, FileOperation, RiskLevel, ComplexOperation, ValidationRule};
 use colored::Colorize;
 
 // Forward declare for now - actual implementation when both services are integrated
@@ -74,6 +74,7 @@ pub struct IncrementalBuildPlanner {
     context: Vec<String>,
     planning_state: PlanningState,
     completed_operations: Vec<FileOperation>,
+    complex_operations: Vec<ComplexOperation>,
 }
 
 #[derive(Debug, Clone)]
@@ -100,6 +101,7 @@ impl IncrementalBuildPlanner {
             context,
             planning_state: PlanningState::Initial,
             completed_operations: Vec::new(),
+            complex_operations: Vec::new(),
         }
     }
 
@@ -256,7 +258,7 @@ Keep it minimal but complete."#,
             *idx += 1;
         }
 
-        // Buffer the operation
+        // For now, buffer as simple operation - complex operations would be created at a higher level
         if let Ok(operation) = self.create_operation_from_code(&file_spec, &code) {
             self.completed_operations.push(operation);
         }
@@ -338,6 +340,55 @@ Keep it minimal but complete."#,
             },
             _ => Err(anyhow::anyhow!("Unsupported action: {}", file_spec.action)),
         }
+    }
+
+    /// Create a complex operation from multiple file specs
+    pub fn create_complex_operation(&self, name: String, description: String, file_specs: Vec<FileSpec>) -> Result<ComplexOperation> {
+        let mut file_operations = Vec::new();
+        let mut dependencies = Vec::new();
+        let mut validation_rules = Vec::new();
+        let mut max_risk = RiskLevel::Low;
+
+        for spec in file_specs {
+            // Create the file operation
+            let operation = match spec.action.as_str() {
+                "create" => {
+                    validation_rules.push(ValidationRule::FileNotExists(spec.path.clone()));
+                    FileOperation::Create {
+                        path: std::path::PathBuf::from(&spec.path),
+                        content: String::new(), // Content will be filled during generation
+                    }
+                }
+                "update" => {
+                    validation_rules.push(ValidationRule::FileExists(spec.path.clone()));
+                    FileOperation::Update {
+                        path: std::path::PathBuf::from(&spec.path),
+                        old_content: String::new(),
+                        new_content: String::new(),
+                    }
+                }
+                _ => return Err(anyhow::anyhow!("Unsupported action: {}", spec.action)),
+            };
+
+            file_operations.push(operation);
+
+            // Update risk level
+            let risk = match spec.action.as_str() {
+                "create" => RiskLevel::Low,
+                "update" => RiskLevel::Medium,
+                _ => RiskLevel::High,
+            };
+            max_risk = max_risk.max(risk);
+        }
+
+        Ok(ComplexOperation {
+            name,
+            description,
+            file_operations,
+            dependencies,
+            estimated_risk: max_risk,
+            validation_rules,
+        })
     }
 
     fn calculate_confidence_from_response(&self, response: &str, response_type: &str) -> f32 {
