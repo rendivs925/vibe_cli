@@ -53,6 +53,151 @@ pub struct BuildPlanOutcome {
     pub planning_logs: Vec<String>,
 }
 
+/// Represents a single incremental step in build planning
+#[derive(Debug, Clone)]
+pub struct IncrementalPlanStep {
+    pub step_number: usize,
+    pub description: String,
+    pub reasoning: String,
+    pub code_chunk: Option<String>,
+    pub file_path: Option<String>,
+    pub operation_type: Option<String>,
+    pub confidence: Option<f32>,
+}
+
+/// Stream-based incremental build planner
+pub struct IncrementalBuildPlanner {
+    goal: String,
+    context: Vec<String>,
+    current_step: usize,
+    completed_operations: Vec<FileOperation>,
+}
+
+impl IncrementalBuildPlanner {
+    pub fn new(goal: String, context: Vec<String>) -> Self {
+        Self {
+            goal,
+            context,
+            current_step: 0,
+            completed_operations: Vec::new(),
+        }
+    }
+
+    /// Stream the next planning step
+    pub async fn stream_next_step(&mut self, inference_engine: &infrastructure::InferenceEngine) -> Result<Option<IncrementalPlanStep>> {
+        self.current_step += 1;
+
+        // First step: Analyze project and decide approach
+        if self.current_step == 1 {
+            let prompt = format!(
+                r#"Analyze this goal and determine the best approach for incremental implementation:
+
+GOAL: {}
+
+CONTEXT:
+{}
+
+Think step-by-step about:
+1. What kind of project/files are we working with?
+2. What's the simplest, most direct approach?
+3. What are the key files that need to be created/modified?
+4. What's the risk level (Low/Medium/High)?
+
+Provide a brief analysis (2-3 sentences) of your approach."#,
+                self.goal, self.context.join("\n")
+            );
+
+            let analysis = inference_engine.generate(&prompt).await?;
+            return Ok(Some(IncrementalPlanStep {
+                step_number: 1,
+                description: "Analyzing project structure and determining approach".to_string(),
+                reasoning: analysis.trim().to_string(),
+                code_chunk: None,
+                file_path: None,
+                operation_type: None,
+                confidence: Some(0.9),
+            }));
+        }
+
+        // Step 2: Determine file operations needed
+        if self.current_step == 2 {
+            let prompt = format!(
+                r#"Based on the goal and analysis, what files need to be created or modified?
+
+GOAL: {}
+ANALYSIS: {}
+
+List the specific file operations needed. For each file:
+- Path (relative)
+- Action (create/update)
+- Brief reason
+
+Format as:
+FILE: path/to/file.ext
+ACTION: create
+REASON: explanation"#,
+                self.goal, self.context.join("\n")
+            );
+
+            let file_plan = inference_engine.generate(&prompt).await?;
+            return Ok(Some(IncrementalPlanStep {
+                step_number: 2,
+                description: "Planning file operations".to_string(),
+                reasoning: format!("Determined file operations:\n{}", file_plan.trim()),
+                code_chunk: None,
+                file_path: None,
+                operation_type: None,
+                confidence: Some(0.8),
+            }));
+        }
+
+        // Steps 3+: Generate code chunks for each file
+        let step_offset = 2; // First 2 steps are analysis/planning
+        let file_index = self.current_step - step_offset - 1;
+
+        // This is a simplified implementation - in practice, you'd parse the file plan
+        // and generate code for each file incrementally
+        if file_index == 0 {
+            let prompt = format!(
+                r#"Generate the complete code for the first file needed for this goal.
+
+GOAL: {}
+CONTEXT: {}
+
+Generate clean, working code. Keep it minimal and focused."#,
+                self.goal, self.context.join("\n")
+            );
+
+            let code = inference_engine.generate(&prompt).await?;
+            return Ok(Some(IncrementalPlanStep {
+                step_number: self.current_step,
+                description: "Generating code for primary file".to_string(),
+                reasoning: "Creating the main implementation file".to_string(),
+                code_chunk: Some(code.trim().to_string()),
+                file_path: Some("index.html".to_string()), // Simplified assumption
+                operation_type: Some("create".to_string()),
+                confidence: Some(0.85),
+            }));
+        }
+
+        // Final step: Summary
+        if file_index == 1 {
+            return Ok(Some(IncrementalPlanStep {
+                step_number: self.current_step,
+                description: "Finalizing build plan".to_string(),
+                reasoning: "All code chunks generated. Ready for execution.".to_string(),
+                code_chunk: None,
+                file_path: None,
+                operation_type: None,
+                confidence: Some(0.95),
+            }));
+        }
+
+        // No more steps
+        Ok(None)
+    }
+}
+
 /// Execution context for agent operations with owned data to avoid lifetime issues
 pub struct AgentExecutionContext {
     pub inference_engine: infrastructure::InferenceEngine,
@@ -143,6 +288,8 @@ impl AgentService {
             confidence: agent_result.confidence_score,
         })
     }
+
+
 
     /// Generate a build plan with RAG context retrieval
     pub async fn plan_build(&self, goal: &str) -> Result<BuildPlanOutcome> {

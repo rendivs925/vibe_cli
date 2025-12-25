@@ -65,6 +65,8 @@ pub struct BuildService {
     show_diff: bool,
     /// Whether to show verbose previews
     verbose: bool,
+    /// Buffered operations for incremental streaming
+    buffered_operations: Vec<FileOperation>,
 }
 
 impl BuildService {
@@ -76,6 +78,7 @@ impl BuildService {
             confirmation_mode: ConfirmationMode::Interactive,
             show_diff: false,
             verbose: false,
+            buffered_operations: Vec::new(),
         }
     }
 
@@ -177,23 +180,34 @@ impl BuildService {
         println!("{} {:?}", "Estimated Risk:".bright_green(), plan.estimated_risk);
         println!("\n{}", "Planned Operations:".bright_yellow());
 
-        for operation in &plan.operations {
+        for (i, operation) in plan.operations.iter().enumerate() {
+            println!("\n{}", format!("Operation {}/{}:", i + 1, plan.operations.len()).bright_blue());
             let risk = self.assess_risk(operation);
             self.display_operation(operation, risk);
 
             if self.verbose {
                 match operation {
                     FileOperation::Create { content, .. } => {
+                        println!("\n{}", "Content preview:".bright_cyan());
                         let snippet = if content.len() > 200 { &content[..200] } else { content };
                         println!("    {}", snippet.dimmed());
+                        if content.len() > 200 {
+                            println!("    {}... ({} more chars)", "...".dimmed(), content.len() - 200);
+                        }
                     }
                     FileOperation::Update { new_content, .. } => {
+                        println!("\n{}", "Content preview:".bright_cyan());
                         let snippet = if new_content.len() > 200 { &new_content[..200] } else { new_content };
                         println!("    {}", snippet.dimmed());
+                        if new_content.len() > 200 {
+                            println!("    {}... ({} more chars)", "...".dimmed(), new_content.len() - 200);
+                        }
                     }
                     _ => {}
                 }
             }
+
+
         }
 
         println!("\n{}", "End of Preview".bright_cyan());
@@ -528,6 +542,101 @@ impl BuildService {
             description: format!("Build plan for: {}", goal),
             estimated_risk: RiskLevel::Low,
         })
+    }
+
+    /// Buffer an operation for incremental streaming
+    pub fn buffer_operation(&mut self, operation: FileOperation) {
+        self.buffered_operations.push(operation);
+    }
+
+    /// Stream a file operation with syntax-highlighted diff
+    pub fn stream_operation(&self, operation: &FileOperation, step_number: usize, total_steps: usize) -> Result<()> {
+        println!("\n{}", format!("Step {}/{}", step_number, total_steps).bright_cyan().bold());
+
+        let risk = self.assess_risk(operation);
+        let risk_label = format!("[{:?}]", risk);
+
+        match operation {
+            FileOperation::Create { path, content } => {
+                println!("{} Creating: {}", risk_label, path.display());
+                println!("\n{}", "Code preview:".bright_cyan());
+
+                // Show first 20 lines with syntax highlighting simulation
+                let lines: Vec<&str> = content.lines().collect();
+                let preview_lines = lines.iter().take(20);
+
+                for (i, line) in preview_lines.enumerate() {
+                    if line.trim().is_empty() {
+                        println!("{:3} {}", i + 1, line.dimmed());
+                    } else if line.contains("//") || line.contains("#") {
+                        println!("{:3} {}", i + 1, line.bright_black());
+                    } else if line.contains("fn ") || line.contains("function") || line.contains("class") {
+                        println!("{:3} {}", i + 1, line.bright_blue());
+                    } else if line.contains("<") && line.contains(">") {
+                        println!("{:3} {}", i + 1, line.bright_green());
+                    } else {
+                        println!("{:3} {}", i + 1, line);
+                    }
+                }
+
+                if lines.len() > 20 {
+                    println!("{} ... ({} more lines)", "...".dimmed(), lines.len() - 20);
+                }
+            }
+            FileOperation::Update { path, old_content, new_content } => {
+                println!("{} Updating: {}", risk_label, path.display());
+                if self.show_diff {
+                    println!("\n{}", "Changes:".bright_cyan());
+                    self.display_diff(old_content, new_content);
+                }
+            }
+            FileOperation::Read { path } => {
+                println!("{} Reading: {}", risk_label, path.display());
+            }
+            FileOperation::Delete { path } => {
+                println!("{} Deleting: {}", risk_label, path.display());
+                if path.exists() {
+                    let size = std::fs::metadata(path)?.len();
+                    println!("  {}", format!("File size: {} bytes", size).dimmed());
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    /// Get buffered operations count
+    pub fn buffered_count(&self) -> usize {
+        self.buffered_operations.len()
+    }
+
+    /// Clear all buffered operations
+    pub fn clear_buffer(&mut self) {
+        self.buffered_operations.clear();
+    }
+
+    /// Apply all buffered operations atomically
+    pub async fn apply_buffered_operations(&mut self) -> Result<BuildResult> {
+        let operations = std::mem::take(&mut self.buffered_operations);
+        let plan = BuildPlan {
+            goal: "Incremental build".to_string(),
+            operations,
+            description: "Buffered operations from incremental streaming".to_string(),
+            estimated_risk: RiskLevel::Low, // Will be recalculated
+        };
+
+        // Recalculate risk
+        let actual_risk = plan.operations.iter()
+            .map(|op| self.assess_risk(op))
+            .max()
+            .unwrap_or(RiskLevel::Low);
+
+        let plan_with_risk = BuildPlan {
+            estimated_risk: actual_risk,
+            ..plan
+        };
+
+        self.execute_plan(&plan_with_risk).await
     }
 
     /// Validate a build plan before execution

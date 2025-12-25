@@ -680,6 +680,7 @@ impl CliApp {
 
     async fn handle_build(&mut self, goal: &str, dry_run: bool, verbose: bool, show_diff: bool) -> Result<()> {
         use application::build_service::{BuildService, ConfirmationMode};
+        use application::agent_service::{IncrementalBuildPlanner, IncrementalPlanStep};
         use infrastructure::config::Config;
 
         if goal.trim().is_empty() {
@@ -751,12 +752,26 @@ impl CliApp {
         let _ = progress_tx.send(());
         let _ = progress_handle.await;
 
-        println!("\n{}", "Agent thinking (raw plan text):".bright_magenta());
-        for line in plan_outcome.raw_plan_text.lines() {
-            println!("  {}", line.trim_end());
-            let _ = std::io::stdout().flush();
-            time::sleep(Duration::from_millis(25)).await;
+        println!("\n{}", "Streaming incremental planning...".bright_magenta());
+
+        // Simulate incremental streaming by processing the plan text in chunks
+        let plan_lines: Vec<&str> = plan_outcome.raw_plan_text.lines().collect();
+        let mut current_step = 1;
+
+        for (i, line) in plan_lines.iter().enumerate() {
+            if line.contains("Step") || line.contains("Build Plan") || line.contains("Files:") {
+                println!("\n{}", format!("Planning Step {}:", current_step).bright_yellow().bold());
+                current_step += 1;
+            }
+
+            if !line.trim().is_empty() {
+                println!("  {}", line.trim_end());
+                let _ = std::io::stdout().flush();
+                time::sleep(Duration::from_millis(50)).await;
+            }
         }
+
+        println!("\n{}", "Planning analysis complete.".bright_green());
 
         if !plan_outcome.planning_logs.is_empty() {
             println!("\n{}", "Planning attempts:".bright_yellow());
