@@ -33,7 +33,6 @@ use tokio_stream::{Stream, StreamExt};
 use futures::future::BoxFuture;
 use uuid::Uuid;
 use crate::build_service::{BuildPlan, FileOperation, RiskLevel, ComplexOperation, ValidationRule};
-use colored::Colorize;
 
 // Forward declare for now - actual implementation when both services are integrated
 pub type RagService = crate::rag_service::RagService;
@@ -68,6 +67,28 @@ pub struct IncrementalPlanStep {
     pub confidence: Option<f32>,
 }
 
+/// Context information about a file's current state
+#[derive(Debug, Clone)]
+pub struct FileContext {
+    pub path: String,
+    pub exists: bool,
+    pub content: Option<String>,
+    pub size_bytes: u64,
+    pub line_count: usize,
+    pub modified: Option<std::time::SystemTime>,
+    pub operation_type: FileOperationType,
+}
+
+/// Type of operation planned for a file
+#[derive(Debug, Clone, PartialEq)]
+pub enum FileOperationType {
+    Create,     // File doesn't exist, will be created
+    ReadOnly,   // File exists, no changes planned
+    Update,     // File exists, modifications planned
+    Delete,     // File exists, will be removed
+    Unknown,    // Not yet determined
+}
+
 /// Stream-based incremental build planner with true real-time streaming
 pub struct IncrementalBuildPlanner {
     goal: String,
@@ -75,6 +96,7 @@ pub struct IncrementalBuildPlanner {
     planning_state: PlanningState,
     completed_operations: Vec<FileOperation>,
     complex_operations: Vec<ComplexOperation>,
+    file_contexts: HashMap<String, FileContext>,
 }
 
 #[derive(Debug, Clone)]
@@ -102,6 +124,7 @@ impl IncrementalBuildPlanner {
             planning_state: PlanningState::Initial,
             completed_operations: Vec::new(),
             complex_operations: Vec::new(),
+            file_contexts: HashMap::new(),
         }
     }
 
@@ -146,22 +169,29 @@ impl IncrementalBuildPlanner {
     }
 
     async fn stream_analysis_step(&self, inference_engine: &infrastructure::InferenceEngine) -> Result<Option<IncrementalPlanStep>> {
+        // Build context summary from real file states
+        let context_summary = self.build_context_summary();
+
         let prompt = format!(
             r#"Analyze this goal and determine the best approach for incremental implementation:
 
 GOAL: {}
 
+ACTUAL FILE CONTEXT:
+{}
+
 CONTEXT:
 {}
 
 Think step-by-step about:
-1. What kind of project/files are we working with?
-2. What's the simplest, most direct approach?
-3. What are the key files that need to be created/modified?
-4. What's the risk level (Low/Medium/High)?
+1. What kind of project/files are we working with? (Use the ACTUAL FILE CONTEXT above)
+2. What files exist vs need to be created? (Check the file states provided)
+3. What's the simplest, most direct approach given the current project state?
+4. What are the key files that need to be created/modified?
+5. What's the risk level (Low/Medium/High)?
 
 Provide a brief analysis (2-3 sentences) of your approach."#,
-            self.goal, self.context.join("\n")
+            self.goal, context_summary, self.context.join("\n")
         );
 
         let analysis = inference_engine.generate(&prompt).await?;
@@ -179,18 +209,28 @@ Provide a brief analysis (2-3 sentences) of your approach."#,
     }
 
     async fn stream_operation_planning_step(&self, inference_engine: &infrastructure::InferenceEngine) -> Result<Option<IncrementalPlanStep>> {
+        let context_summary = self.build_context_summary();
+
         let prompt = format!(
-            r#"Based on the goal, what specific file operations are needed?
+            r#"Based on the goal and actual file states, what specific file operations are needed?
 
 GOAL: {}
 
+ACTUAL FILE CONTEXT:
+{}
+
 Respond with ONLY the file operations in this exact format:
 FILE: index.html
-ACTION: create
+ACTION: create|update
 REASON: brief explanation
 
+CRITICAL: Use the ACTUAL FILE CONTEXT above to determine if files exist or need to be created.
+- If a file EXISTS, use ACTION: update
+- If a file DOES NOT EXIST, use ACTION: create
+- Do not assume files exist unless shown in the context
+
 Do not include any other text or explanations."#,
-            self.goal
+            self.goal, context_summary
         );
 
         let plan_text = inference_engine.generate(&prompt).await?;
@@ -198,7 +238,7 @@ Do not include any other text or explanations."#,
 
         Ok(Some(IncrementalPlanStep {
             step_number: 2,
-            description: "Planning file operations".to_string(),
+            description: "Planning file operations based on actual file states".to_string(),
             reasoning: format!("Determined file operations:\n{}", plan_text.trim()),
             code_chunk: None,
             file_path: None,
@@ -238,8 +278,38 @@ Do not include any other text or explanations."#,
         let file_spec = &files[current_index];
         let step_number = 3 + current_index;
 
-        let prompt = format!(
-            r#"Generate the complete HTML code for a landing page with Tailwind CSS.
+        // Get existing file content for context-aware generation
+        let existing_content = self.file_contexts.get(&file_spec.path)
+            .and_then(|ctx| ctx.content.as_ref());
+
+        let (prompt, is_update) = if file_spec.action == "update" && existing_content.is_some() {
+            // Generate targeted changes for existing files
+            let content = existing_content.unwrap();
+            (format!(
+                r#"Update the existing file with targeted changes. Do NOT rewrite the entire file.
+
+EXISTING FILE CONTENT:
+{}
+
+GOAL: {}
+FILE: {}
+
+Generate specific changes using this format:
+REPLACE lines X-Y with:
+<new content>
+
+INSERT after line Z:
+<new content>
+
+DELETE lines A-B
+
+Only include the changes needed - do not provide the full file content."#,
+                content, self.goal, file_spec.path
+            ), true)
+        } else {
+            // Generate complete new file for creation
+            (format!(
+                r#"Generate the complete HTML code for a landing page with Tailwind CSS.
 
 Create a beautiful, responsive landing page that includes:
 - Modern gradient background
@@ -252,8 +322,9 @@ Goal: {}
 File: {}
 
 Return ONLY the complete HTML code, no explanations or markdown."#,
-            self.goal, file_spec.path
-        );
+                self.goal, file_spec.path
+            ), false)
+        };
 
         let code = inference_engine.generate(&prompt).await?;
         let confidence = self.calculate_confidence_from_response(&code, "code_generation");
@@ -271,12 +342,22 @@ Return ONLY the complete HTML code, no explanations or markdown."#,
                     content: code.trim().to_string(),
                 }
             );
+        } else if file_spec.action == "update" {
+            // For updates, we need old content to create a proper update operation
+            let old_content = existing_content.map_or(String::new(), |s| s.clone());
+            self.completed_operations.push(
+                crate::build_service::FileOperation::Update {
+                    path: std::path::PathBuf::from(&file_spec.path),
+                    old_content,
+                    new_content: code.trim().to_string(),
+                }
+            );
         }
 
         Ok(Some(IncrementalPlanStep {
             step_number,
-            description: format!("Generating code for {}", file_spec.path),
-            reasoning: format!("Creating {} with action: {}", file_spec.path, file_spec.action),
+            description: format!("{} code for {}", if is_update { "Generating targeted changes for" } else { "Generating complete" }, file_spec.path),
+            reasoning: format!("{}{} with action: {}", if is_update { "Updating existing file " } else { "Creating new file " }, file_spec.path, file_spec.action),
             code_chunk: Some(code.trim().to_string()),
             file_path: Some(file_spec.path.clone()),
             operation_type: Some(file_spec.action.clone()),
@@ -428,6 +509,37 @@ Return ONLY the complete HTML code, no explanations or markdown."#,
         confidence.max(0.0).min(1.0)
     }
 
+    /// Build a human-readable summary of file contexts for AI prompts
+    fn build_context_summary(&self) -> String {
+        if self.file_contexts.is_empty() {
+            return "No specific files identified for this goal.".to_string();
+        }
+
+        let mut summary = String::new();
+        for (path, context) in &self.file_contexts {
+            let status = if context.exists { "EXISTS" } else { "DOES NOT EXIST" };
+            let size_info = if context.exists {
+                format!(" ({} bytes, {} lines)", context.size_bytes, context.line_count)
+            } else {
+                "".to_string()
+            };
+
+            summary.push_str(&format!("- {}: {}{}\n", path, status, size_info));
+
+            // Include a brief content preview for existing files
+            if let Some(content) = &context.content {
+                let preview = if content.len() > 200 {
+                    format!("{}...", &content[..200])
+                } else {
+                    content.clone()
+                };
+                summary.push_str(&format!("  Content preview: {}\n", preview));
+            }
+        }
+
+        summary
+    }
+
     pub fn get_completed_operations(&self) -> &[FileOperation] {
         &self.completed_operations
     }
@@ -532,6 +644,11 @@ impl AgentService {
     pub async fn plan_build_incremental(&self, goal: &str) -> Result<IncrementalBuildPlanner> {
         let mut retrieved_context = Vec::new();
 
+        // Step 1: Prepare file context by reading existing files
+        println!("🔍 Analyzing project structure and existing files...");
+        let file_contexts = self.prepare_file_context(goal).await?;
+        println!("📁 Found {} relevant files in project", file_contexts.len());
+
         // Retrieve context using RAG or fast rg search
         let keywords = self.extract_keywords_from_goal(goal);
 
@@ -571,7 +688,11 @@ impl AgentService {
             }
         }
 
-        Ok(IncrementalBuildPlanner::new(goal.to_string(), retrieved_context))
+        // Create planner with populated file contexts
+        let mut planner = IncrementalBuildPlanner::new(goal.to_string(), retrieved_context);
+        planner.file_contexts = file_contexts;
+
+        Ok(planner)
     }
 
     /// Generate a build plan with RAG context retrieval
@@ -695,6 +816,155 @@ impl AgentService {
         words.into_iter()
             .filter(|w| !stop_words.contains(&w.as_str()))
             .collect()
+    }
+
+    /// Prepare file context by reading existing files mentioned in the goal
+    async fn prepare_file_context(&self, goal: &str) -> Result<HashMap<String, FileContext>> {
+        let file_paths = self.extract_file_paths_from_goal(goal)?;
+        let mut file_contexts = HashMap::new();
+
+        for path in file_paths {
+            let full_path = std::path::Path::new(&path);
+            let exists = full_path.exists();
+
+            let mut context = FileContext {
+                path: path.clone(),
+                exists,
+                content: None,
+                size_bytes: 0,
+                line_count: 0,
+                modified: None,
+                operation_type: if exists { FileOperationType::Update } else { FileOperationType::Create },
+            };
+
+            if exists {
+                // Read file content and metadata
+                if let Ok(metadata) = std::fs::metadata(&full_path) {
+                    context.size_bytes = metadata.len();
+                    context.modified = Some(metadata.modified()?);
+
+                    // Read content with size limit for safety
+                    const MAX_FILE_SIZE: u64 = 1024 * 1024; // 1MB limit
+                    if metadata.len() <= MAX_FILE_SIZE {
+                        if let Ok(content) = tokio::fs::read_to_string(&full_path).await {
+                            context.line_count = content.lines().count();
+                            context.content = Some(content);
+                        }
+                    }
+                }
+            }
+
+            file_contexts.insert(path, context);
+        }
+
+        Ok(file_contexts)
+    }
+
+
+
+    /// Extract file paths mentioned in the goal using dynamic regex-based detection
+    fn extract_file_paths_from_goal(&self, goal: &str) -> Result<Vec<String>> {
+        use regex::Regex;
+        use once_cell::sync::Lazy;
+
+        static FILE_PATH_REGEX: Lazy<Regex> = Lazy::new(|| {
+            Regex::new(r#"(?x)
+                (?:^|\s|[ "'`([])                                   # path start delimiters
+                (                                                   # capture group for full path
+                    (?:\.?/)?                                       # optional ./ or / prefix
+                    (?:[\w\-]+/)*                                   # optional directory segments
+                    [\w\-]+                                         # filename (alphanumeric, underscore, hyphen)
+                    \.                                              # extension dot
+                    [a-zA-Z]{1,4}                                   # extension (1-4 letters)
+                )
+                (?:$|\s|[ "'`)\]]|\.|,|:|;|>)                        # path end delimiters
+            "#).unwrap()
+        });
+
+        static QUOTED_PATH_REGEX: Lazy<Regex> = Lazy::new(|| {
+            Regex::new(r#"(?i)['"`]([^'"`]{1,200}?\.(html|css|js|ts|jsx|tsx|json|md|rs|py|toml|yaml|yml|txt))['"`]"#).unwrap()
+        });
+
+        let mut paths = Vec::new();
+
+        // Phase 1: Extract explicit quoted paths (highest priority)
+        for cap in QUOTED_PATH_REGEX.captures_iter(goal) {
+            if let Some(path_match) = cap.get(1) {
+                let path = path_match.as_str().trim();
+                if self.validate_path_format(path) {
+                    paths.push(path.to_string());
+                }
+            }
+        }
+
+        // Phase 2: Extract unquoted paths with extensions
+        for cap in FILE_PATH_REGEX.captures_iter(goal) {
+            if let Some(path_match) = cap.get(1) {
+                let candidate = path_match.as_str()
+                    .trim_end_matches(|c: char| "!?.),".contains(c));
+                if self.validate_path_format(candidate) &&
+                   self.is_likely_file_path(candidate) {
+                    paths.push(candidate.to_string());
+                }
+            }
+        }
+
+        // Phase 3: Intelligent fallback based on project type and goal intent
+        if paths.is_empty() {
+            let lower_goal = goal.to_lowercase();
+            let implies_modification = lower_goal.contains("update") ||
+                                       lower_goal.contains("modify") ||
+                                       lower_goal.contains("change") ||
+                                       lower_goal.contains("add to") ||
+                                       lower_goal.contains("remove from");
+
+            if implies_modification {
+                if self.detects_web_intent(&lower_goal) {
+                    paths.push("index.html".to_string());
+                }
+            }
+        }
+
+        // Remove duplicates while preserving order
+        let mut seen = std::collections::HashSet::new();
+        let deduplicated = paths.into_iter()
+            .filter(|path| seen.insert(path.clone()))
+            .collect::<Vec<_>>();
+        Ok(deduplicated)
+    }
+
+    fn validate_path_format(&self, path: &str) -> bool {
+        if path.is_empty() || path.len() > 200 {
+            return false;
+        }
+        if !path.contains('.') {
+            return false;
+        }
+        if path.contains("..") || path.contains('|') || path.contains('<') || path.contains('>') {
+            return false;
+        }
+        true
+    }
+
+    fn is_likely_file_path(&self, candidate: &str) -> bool {
+        let common_extensions = ["html", "css", "js", "ts", "jsx", "tsx", "rs", "py", "json", "md", "txt"];
+        let has_valid_extension = common_extensions.iter()
+            .any(|ext| candidate.ends_with(&format!(".{}", ext)));
+
+        let not_common_word = !["the", "and", "for", "are", "but", "not", "you", "all", "can", "her", "was", "one"]
+            .iter().any(|&word| candidate.to_lowercase() == word);
+
+        has_valid_extension && not_common_word
+    }
+
+    fn detects_web_intent(&self, lower_goal: &str) -> bool {
+        lower_goal.contains("page") ||
+        lower_goal.contains("site") ||
+        lower_goal.contains("web") ||
+        lower_goal.contains("landing") ||
+        lower_goal.contains("portfolio") ||
+        lower_goal.contains("website") ||
+        lower_goal.contains("html")
     }
 
     fn fast_rg_context(&self, keywords: &[String]) -> Result<Vec<String>> {

@@ -122,6 +122,8 @@ dependencies = [
  "infrastructure",
  "md5",
  "num_cpus",
+ "once_cell",
+ "regex",
  "serde",
  "serde_json",
  "shared",
