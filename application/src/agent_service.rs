@@ -1666,19 +1666,18 @@ Generate the command now:"#,
         };
 
         format!(
-            r#"You are an expert software engineer tasked with creating a detailed implementation plan.
+            r#"You are an expert engineer producing a compact, actionable build plan.
 
-GOAL: {}
+GOAL:
+{goal}
 
-SYSTEM ENVIRONMENT:
-{}
+SYSTEM:
+{system}
 
-RELEVANT CONTEXT:
-{}
+CONTEXT:
+{context}
 
-INSTRUCTIONS:
-- Create a concise plan with these sections (plain text, no JSON):
-
+OUTPUT (plain text, no JSON):
 Build Plan:
 - Step 1: ...
 - Step 2: ...
@@ -1687,30 +1686,21 @@ Files:
 - path: relative/path.ext
 - action: create|update
 - reason: short note
-- content: placed in a fenced block as shown below
+- content in a fenced block:
+```file:path=relative/path.ext;action=create
+<full post-change content>
+```
 
-Safety: note risk, backups, and rollback
+Safety: risks/backups/rollback
 Estimate: size/time
 Confidence: percentage
 
-For every create/update, include the full post-change file content in fenced code blocks like:
-```file:path=relative/path.ext;action=create
-<full file content here>
-```
-
-Rules:
-- No JSON. Use the exact fence header shown above for each file.
-- Ensure code compiles/runs; apply SOLID/DRY/YAGNI; guard clauses over deep nesting.
-- Include only files that exist or will be created.
-- If you cannot provide full content, say so explicitly and stop.
-- Keep it concise and deterministic.
-- Use package manager commands appropriate for this system: {}
-- Consider the display server when suggesting GUI-related changes: {}"#,
-            goal,
-            self.system_context.to_context_string(),
-            context_str,
-            self.system_context.package_manager,
-            self.system_context.display_server
+Rules: keep it concise and deterministic; only include real files; if you cannot provide full content, say so and stop; prefer package manager {pkg_mgr}; consider display server {display_srv} for GUI hints."#,
+            goal = goal,
+            system = self.system_context.to_context_string(),
+            context = context_str,
+            pkg_mgr = self.system_context.package_manager,
+            display_srv = self.system_context.display_server
         )
     }
 
