@@ -954,7 +954,7 @@ impl SafeTool {
         let security_validator = ToolSecurityValidator::new();
         security_validator.validate_path(path)?;
 
-        let cmd_args_vec = vec!["status", "--porcelain"];
+        let cmd_args_vec = vec!["status", "--porcelain", "--color=always"];
         let cmd_args: Vec<&str> = cmd_args_vec.into_iter().collect();
 
         let limits = ResourceLimits::default();
@@ -992,7 +992,7 @@ impl SafeTool {
         let security_validator = ToolSecurityValidator::new();
         security_validator.validate_path(path)?;
 
-        let mut cmd_args_vec: Vec<String> = vec!["diff".to_string()];
+        let mut cmd_args_vec: Vec<String> = vec!["diff".to_string(), "--color=always".to_string()];
 
         if let Some(commit) = args.parameters.get("commit") {
             cmd_args_vec.push(commit.to_string());
@@ -1039,7 +1039,7 @@ impl SafeTool {
         let security_validator = ToolSecurityValidator::new();
         security_validator.validate_path(path)?;
 
-        let mut cmd_args_vec: Vec<String> = vec!["log".to_string(), "--oneline".to_string()];
+        let mut cmd_args_vec: Vec<String> = vec!["log".to_string(), "--oneline".to_string(), "--color=always".to_string()];
 
         if let Some(limit) = args.parameters.get("limit") {
             if let Ok(n) = limit.parse::<usize>() {
