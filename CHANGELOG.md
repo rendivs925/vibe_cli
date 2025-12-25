@@ -14,10 +14,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/SemVer
 - **Transaction Framework**: Full ACID transaction support with automatic rollback on failure
 - **TransactionGuard**: RAII-style transaction management with auto-commit and cleanup
 - **Interactive Confirmation**: Three modes (Interactive, ConfirmAll, None) with detailed diff preview and risk-based defaults
-- **Advanced Agent Monitoring**: Real-time memory tracking, convergence detection, and resource usage monitoring
+- **Advanced Agent Monitoring**: Real-time memory tracking, convergence detection, and resource usage monitoring (Phase 2 - 100% Complete)
 - **Memory Tracking**: Cross-platform memory usage estimation with peak and current tracking
 - **Convergence Detection**: Smart early termination based on iteration stability, confidence trends, and goal progress
 - **Resource Monitoring**: Complete tracking of CPU time, I/O operations, and network requests
+- **Parallel Agent Orchestrator**: CPU-aware parallel task execution with dependency resolution and load balancing (Phase 6 - Foundation)
 - **System Command Support**: Expanded sandbox to allow essential system monitoring commands (systemctl, ps, df, free, uptime, etc.) while maintaining security
 - **RAG Safety Override**: Users can now override RAG query blocking when sensitive information is detected, proceeding with sanitized (masked) content
 - **Project Isolation**: Complete separation of caches, embeddings, and context between different projects
