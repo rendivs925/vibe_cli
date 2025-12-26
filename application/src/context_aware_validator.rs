@@ -1,13 +1,12 @@
+use anyhow::Result;
+use petgraph::graph::NodeIndex;
+use petgraph::Graph;
+use regex::Regex;
 /// Context-aware validation system with knowledge graphs and dependency analysis
 /// Advanced hallucination prevention using project relationships and patterns
-
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use anyhow::Result;
-use petgraph::Graph;
-use petgraph::graph::NodeIndex;
-use regex::Regex;
 
 /// Knowledge graph representing project structure and relationships
 #[derive(Debug, Clone)]
@@ -113,7 +112,11 @@ impl ContextAwareValidator {
     }
 
     /// Perform context-aware validation of an AI suggestion
-    pub async fn validate_with_context(&self, suggestion: &str, context: &ValidationContext) -> Result<ContextValidationResult> {
+    pub async fn validate_with_context(
+        &self,
+        suggestion: &str,
+        context: &ValidationContext,
+    ) -> Result<ContextValidationResult> {
         let graph = self.knowledge_graph.read().await;
 
         // Extract entities mentioned in suggestion
@@ -132,7 +135,9 @@ impl ContextAwareValidator {
         let pattern_validation = self.validate_patterns(suggestion, &graph).await?;
 
         // Find related entities in knowledge graph
-        let related_entities = self.find_related_entities(&mentioned_entities, &graph).await?;
+        let related_entities = self
+            .find_related_entities(&mentioned_entities, &graph)
+            .await?;
 
         // Calculate overall confidence
         let validation_scores = HashMap::from([
@@ -145,15 +150,12 @@ impl ContextAwareValidator {
         let overall_confidence = self.confidence_calculator.calculate_overall(
             &validation_scores,
             context,
-            &related_entities
+            &related_entities,
         );
 
         // Generate issues and suggestions
-        let (issues, suggestions) = self.generate_feedback(
-            &validation_scores,
-            &related_entities,
-            suggestion
-        );
+        let (issues, suggestions) =
+            self.generate_feedback(&validation_scores, &related_entities, suggestion);
 
         Ok(ContextValidationResult {
             overall_confidence,
@@ -208,7 +210,11 @@ impl ContextAwareValidator {
     }
 
     /// Validate file references in suggestion
-    async fn validate_file_references(&self, suggestion: &str, graph: &KnowledgeGraph) -> Result<f32> {
+    async fn validate_file_references(
+        &self,
+        suggestion: &str,
+        graph: &KnowledgeGraph,
+    ) -> Result<f32> {
         let mut valid_count = 0;
         let mut total_count = 0;
 
@@ -257,7 +263,11 @@ impl ContextAwareValidator {
     }
 
     /// Validate function calls and relationships
-    async fn validate_function_calls(&self, suggestion: &str, graph: &KnowledgeGraph) -> Result<f32> {
+    async fn validate_function_calls(
+        &self,
+        suggestion: &str,
+        graph: &KnowledgeGraph,
+    ) -> Result<f32> {
         // Extract function calls
         let call_regex = Regex::new(r"(\w+)\(")?;
         let mut valid_calls = 0;
@@ -301,7 +311,11 @@ impl ContextAwareValidator {
     }
 
     /// Find related entities in knowledge graph
-    async fn find_related_entities(&self, mentioned: &HashSet<String>, graph: &KnowledgeGraph) -> Result<HashSet<String>> {
+    async fn find_related_entities(
+        &self,
+        mentioned: &HashSet<String>,
+        graph: &KnowledgeGraph,
+    ) -> Result<HashSet<String>> {
         let mut related = HashSet::new();
 
         for entity in mentioned {
@@ -310,11 +324,11 @@ impl ContextAwareValidator {
                 for neighbor in graph.graph.neighbors(node_idx) {
                     if let Some(entity) = graph.graph.node_weight(neighbor) {
                         match entity {
-                            Entity::File(name) |
-                            Entity::Function(name) |
-                            Entity::Struct(name) |
-                            Entity::Module(name) |
-                            Entity::Dependency(name) => {
+                            Entity::File(name)
+                            | Entity::Function(name)
+                            | Entity::Struct(name)
+                            | Entity::Module(name)
+                            | Entity::Dependency(name) => {
                                 related.insert(name.clone());
                             }
                             Entity::ApiEndpoint(name) => {
@@ -330,7 +344,12 @@ impl ContextAwareValidator {
     }
 
     /// Generate feedback based on validation results
-    fn generate_feedback(&self, scores: &HashMap<String, f32>, related: &HashSet<String>, suggestion: &str) -> (Vec<String>, Vec<String>) {
+    fn generate_feedback(
+        &self,
+        scores: &HashMap<String, f32>,
+        related: &HashSet<String>,
+        suggestion: &str,
+    ) -> (Vec<String>, Vec<String>) {
         let mut issues = Vec::new();
         let mut suggestions = Vec::new();
 
@@ -338,7 +357,8 @@ impl ContextAwareValidator {
         if let Some(&file_score) = scores.get("file_references") {
             if file_score < 0.8 {
                 issues.push("Some file references may not exist in the project".to_string());
-                suggestions.push("Check file paths and ensure all referenced files exist".to_string());
+                suggestions
+                    .push("Check file paths and ensure all referenced files exist".to_string());
             }
         }
 
@@ -358,7 +378,15 @@ impl ContextAwareValidator {
 
         // Suggest related entities
         if !related.is_empty() {
-            suggestions.push(format!("Consider these related entities: {}", related.iter().take(5).cloned().collect::<Vec<_>>().join(", ")));
+            suggestions.push(format!(
+                "Consider these related entities: {}",
+                related
+                    .iter()
+                    .take(5)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .join(", ")
+            ));
         }
 
         (issues, suggestions)
@@ -411,11 +439,8 @@ impl KnowledgeGraph {
             Ok(())
         }
 
-        // Use tokio::spawn_blocking for the synchronous file operations
-        let project_root_clone = project_root.to_path_buf();
-        tokio::task::spawn_blocking(move || {
-            scan_dir_sync(&project_root_clone, self)
-        }).await??;
+        // Run the blocking directory walk without moving `self` into a 'static task
+        tokio::task::block_in_place(|| scan_dir_sync(project_root, self))?;
 
         Ok(())
     }
@@ -425,7 +450,9 @@ impl KnowledgeGraph {
         use tokio::fs;
 
         let content = fs::read_to_string(file_path).await?;
-        let file_name = file_path.strip_prefix(self.get_project_root()).unwrap_or(file_path);
+        let file_name = file_path
+            .strip_prefix(self.get_project_root())
+            .unwrap_or(file_path);
         let file_name = file_name.to_string_lossy().to_string();
 
         // Add file entity
@@ -439,14 +466,20 @@ impl KnowledgeGraph {
     }
 
     /// Extract code entities from file content
-    fn extract_code_entities(&mut self, content: &str, file_name: &str, file_node: NodeIndex) -> Result<()> {
+    fn extract_code_entities(
+        &mut self,
+        content: &str,
+        file_name: &str,
+        file_node: NodeIndex,
+    ) -> Result<()> {
         // Extract functions
         let fn_regex = Regex::new(r"fn\s+(\w+)\(")?;
         for capture in fn_regex.captures_iter(content) {
             if let Some(name) = capture.get(1) {
                 let func_name = name.as_str().to_string();
                 let func_node = self.graph.add_node(Entity::Function(func_name.clone()));
-                self.graph.add_edge(file_node, func_node, Relationship::Contains);
+                self.graph
+                    .add_edge(file_node, func_node, Relationship::Contains);
                 self.entity_lookup.insert(func_name, func_node);
             }
         }
@@ -457,7 +490,8 @@ impl KnowledgeGraph {
             if let Some(name) = capture.get(1) {
                 let struct_name = name.as_str().to_string();
                 let struct_node = self.graph.add_node(Entity::Struct(struct_name.clone()));
-                self.graph.add_edge(file_node, struct_node, Relationship::Contains);
+                self.graph
+                    .add_edge(file_node, struct_node, Relationship::Contains);
                 self.entity_lookup.insert(struct_name, struct_node);
             }
         }
@@ -498,7 +532,9 @@ impl KnowledgeGraph {
     /// Process a single Rust file synchronously
     fn process_rust_file_sync(&mut self, file_path: &std::path::Path) -> Result<()> {
         let content = std::fs::read_to_string(file_path)?;
-        let file_name = file_path.strip_prefix(std::path::Path::new(".")).unwrap_or(file_path);
+        let file_name = file_path
+            .strip_prefix(std::path::Path::new("."))
+            .unwrap_or(file_path);
         let file_name = file_name.to_string_lossy().to_string();
 
         // Add file entity
@@ -512,14 +548,20 @@ impl KnowledgeGraph {
     }
 
     /// Extract code entities from file content synchronously
-    fn extract_code_entities_sync(&mut self, content: &str, file_name: &str, file_node: NodeIndex) -> Result<()> {
+    fn extract_code_entities_sync(
+        &mut self,
+        content: &str,
+        file_name: &str,
+        file_node: NodeIndex,
+    ) -> Result<()> {
         // Extract functions
         let fn_regex = Regex::new(r"fn\s+(\w+)\(")?;
         for capture in fn_regex.captures_iter(content) {
             if let Some(name) = capture.get(1) {
                 let func_name = name.as_str().to_string();
                 let func_node = self.graph.add_node(Entity::Function(func_name.clone()));
-                self.graph.add_edge(file_node, func_node, Relationship::Contains);
+                self.graph
+                    .add_edge(file_node, func_node, Relationship::Contains);
                 self.entity_lookup.insert(func_name, func_node);
             }
         }
@@ -530,7 +572,8 @@ impl KnowledgeGraph {
             if let Some(name) = capture.get(1) {
                 let struct_name = name.as_str().to_string();
                 let struct_node = self.graph.add_node(Entity::Struct(struct_name.clone()));
-                self.graph.add_edge(file_node, struct_node, Relationship::Contains);
+                self.graph
+                    .add_edge(file_node, struct_node, Relationship::Contains);
                 self.entity_lookup.insert(struct_name, struct_node);
             }
         }
@@ -545,17 +588,22 @@ impl ConfidenceCalculator {
     }
 
     /// Calculate overall confidence from validation scores
-    pub fn calculate_overall(&self, scores: &HashMap<String, f32>, context: &ValidationContext, related_entities: &HashSet<String>) -> f32 {
+    pub fn calculate_overall(
+        &self,
+        scores: &HashMap<String, f32>,
+        context: &ValidationContext,
+        related_entities: &HashSet<String>,
+    ) -> f32 {
         let file_score = scores.get("file_references").unwrap_or(&1.0);
         let dep_score = scores.get("dependencies").unwrap_or(&1.0);
         let call_score = scores.get("function_calls").unwrap_or(&1.0);
         let pattern_score = scores.get("patterns").unwrap_or(&0.5);
 
         // Weighted calculation
-        let confidence = (self.weights.file_existence * file_score) +
-                         (self.weights.dependency_validity * dep_score) +
-                         (self.weights.call_graph_consistency * call_score) +
-                         (self.weights.pattern_matching * pattern_score);
+        let confidence = (self.weights.file_existence * file_score)
+            + (self.weights.dependency_validity * dep_score)
+            + (self.weights.call_graph_consistency * call_score)
+            + (self.weights.pattern_matching * pattern_score);
 
         // Apply context modifiers
         let mut final_confidence = confidence;

@@ -41,7 +41,7 @@ impl Editor {
     /// Edit content using the user's editor with better error handling and validation
     pub fn edit_content(content: &str, content_type: EditContent) -> Result<String> {
         let editor = Self::detect_editor();
-        let temp_file = Self::create_temp_file(content, content_type)?;
+        let temp_file = Self::create_temp_file(content, &content_type)?;
 
         println!("[EDIT] Opening {} in {}", Self::content_type_name(&content_type), editor);
 
@@ -81,7 +81,7 @@ impl Editor {
     }
 
     /// Create a temporary file with appropriate extension and content
-    fn create_temp_file(content: &str, content_type: EditContent) -> Result<PathBuf> {
+    fn create_temp_file(content: &str, content_type: &EditContent) -> Result<PathBuf> {
         let (prefix, extension) = match content_type {
             EditContent::Plan(_) => ("vibe_plan", "md"),
             EditContent::Diff(_) => ("vibe_diff", "diff"),

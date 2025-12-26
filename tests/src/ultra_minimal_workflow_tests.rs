@@ -10,10 +10,13 @@ use std::thread;
 
 /// Test helper to run CLI commands and capture output
 fn run_vibe_cli(args: &[&str], input: Option<&str>) -> (String, String, i32) {
+    let manifest_dir = Path::new(env!("CARGO_MANIFEST_DIR"));
+    let project_root = manifest_dir.parent().expect("Missing workspace root");
+
     let mut cmd = Command::new("cargo");
     cmd.args(&["run", "--bin", "vibe_cli", "--"])
         .args(args)
-        .current_dir(env!("CARGO_MANIFEST_DIR").parent().unwrap());
+        .current_dir(project_root);
 
     if let Some(input_text) = input {
         cmd.stdin(std::process::Stdio::piped());
