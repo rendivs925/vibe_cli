@@ -30,6 +30,7 @@ pub mod test_watcher;
 pub mod log_tailer;
 pub mod error_analyzer;
 pub mod chatgpt_browser;
+pub mod chatgpt_ocr;
 pub mod smart_router;
 pub mod compilation_watcher;
 pub mod fix_applier;

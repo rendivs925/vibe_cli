@@ -45,6 +45,7 @@ tower-lsp = "0.20"
 flume = "0.11"
 # Browser automation for ChatGPT integration (simplified for now)
 # thirtyfour = "0.32"  # Commented out until full WebDriver implementation
+image = "0.24"
 # Candle ML dependencies (commented out due to upstream issues)
 # candle-core.workspace = true
 # candle-nn.workspace = true
