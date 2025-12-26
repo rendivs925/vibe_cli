@@ -12,7 +12,6 @@ use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::io::{self, Write};
 use std::path::PathBuf;
-use std::sync::Arc;
 use tokio::sync::{oneshot, RwLock};
 use tokio::time::{self, Duration};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -913,28 +912,17 @@ impl CliApp {
                     return Ok(());
                 }
                 Ok(ConfirmationChoice::Edit) => {
-                    println!("[EDIT] Opening plan in editor...");
+                    println!("[EDIT] Opening goal in editor for revision...");
 
-                    // Format plan for editing
-                    let plan_content = Self::format_plan_for_editing(&temp_plan);
-
-                    // Edit the plan
-                    match editor::Editor::edit_content(&plan_content, editor::EditContent::Plan(plan_content.clone())) {
-                        Ok(edited_plan) => {
-                            // Parse back and update plan
-                            match editor::Editor::parse_edited_plan(&edited_plan) {
-                                Ok(steps) => {
-                                    println!("[PLAN] Updated with {} steps", steps.len());
-                                    // For now, just show the updated steps
-                                    for (i, step) in steps.iter().enumerate() {
-                                        println!("  {}. {}", i + 1, step);
-                                    }
-                                    println!("[EDIT] Plan updated - proceeding with execution");
-                                }
-                                Err(e) => {
-                                    println!("[ERROR] Failed to parse edited plan: {} - cancelling", e);
-                                    return Ok(());
-                                }
+                    // Edit the goal for replanning
+                    match editor::Editor::edit_content(&goal, editor::EditContent::Command(goal.to_string())) {
+                        Ok(edited_goal) => {
+                            let edited_goal = edited_goal.trim();
+                            if edited_goal.is_empty() || edited_goal == goal {
+                                println!("[EDIT] Goal unchanged - proceeding with current plan");
+                            } else {
+                                println!("[EDIT] Goal updated: {}", edited_goal);
+                                println!("[NOTE] To replan with new goal, restart with: vibe --build \"{}\"", edited_goal);
                             }
                         }
                         Err(e) => {
@@ -1014,30 +1002,6 @@ impl CliApp {
                                      session.metadata.last_used = chrono::Utc::now();
                                      session.metadata.change_count += result.operations_completed as u32;
                                      session.metadata.goal_summary = goal.to_string();
-
-                                     // Add applied changes to session history
-                                     use infrastructure::session_store::AppliedChange;
-                                     use uuid::Uuid;
-
-                                     let mut files_affected = Vec::new();
-                                     for operation in &plan.operations {
-                                         match operation {
-                                             application::build_service::FileOperation::Create { path, .. } |
-                                             application::build_service::FileOperation::Update { path, .. } |
-                                             application::build_service::FileOperation::Delete { path } => {
-                                                 files_affected.push(path.to_string_lossy().to_string());
-                                             }
-                                             _ => {}
-                                         }
-                                     }
-
-                                     let change = AppliedChange {
-                                         id: Uuid::new_v4().to_string(),
-                                         description: format!("Build operation: {}", goal),
-                                         timestamp: chrono::Utc::now(),
-                                         files_affected,
-                                     };
-                                     session.applied_changes.push(change);
                                 } else {
                                     // Create new session if it doesn't exist
                                     use infrastructure::session_store::{Session, SessionMetadata};
