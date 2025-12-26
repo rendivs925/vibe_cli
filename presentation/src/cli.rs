@@ -1147,14 +1147,16 @@ impl CliApp {
                     break;
                 }
                 "/status" | "/st" => {
-                    println!("[STATUS] Last task completed successfully");
-                    println!("  Goal: {}", goal);
-                    println!("  Operations completed: {}", result.operations_completed);
-                    if result.operations_failed > 0 {
-                        println!("  Operations failed: {}", result.operations_failed);
+                    println!("[STATUS] Session status");
+                    println!("  Current session: {}", self.current_session.as_deref().unwrap_or("default"));
+                    println!("  Last goal: {}", goal);
+                    println!("  Plan steps: {}", temp_plan.operations.len());
+                    if let Some(session_name) = &self.current_session {
+                        if let Ok(Some(session)) = self.session_store.as_ref().unwrap().load_session(session_name) {
+                            println!("  Total changes: {}", session.metadata.change_count);
+                            println!("  Applied changes: {}", session.applied_changes.len());
+                        }
                     }
-                    println!("  Total steps: {}", temp_plan.operations.len());
-                    println!("  Session: {}", self.current_session.as_deref().unwrap_or("default"));
                 }
                 "/undo" | "/u" => {
                     println!("[UNDO] Attempting to undo last changes...");
