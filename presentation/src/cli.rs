@@ -782,7 +782,7 @@ impl CliApp {
 
             let planning_goal = if let Some(ref hints) = plan_hints {
                 format!(
-                    "{}\n\nUSER EDITED PLAN STEPS (prioritize these instructions):\n{}",
+                    "{}\n\nMANDATORY PLAN STEPS (follow exactly; do not omit):\n{}\n\nIf steps mention colors or full implementation, ensure the generated file includes them.",
                     current_goal, hints
                 )
             } else {
@@ -922,6 +922,10 @@ impl CliApp {
                                 Ok(steps) => {
                                     println!("[EDIT] Plan updated with {} steps", steps.len());
                                     plan_hints = Some(steps.join("\n"));
+                                    println!("[PLAN UPDATED]");
+                                    for (idx, step) in steps.iter().enumerate() {
+                                        println!("{}. {}", idx + 1, step);
+                                    }
                                     println!("[REPLAN] Regenerating plan with edited steps using agent...");
                                     continue 'planning;
                                 }
