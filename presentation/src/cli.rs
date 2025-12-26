@@ -840,8 +840,7 @@ impl CliApp {
                         // If no code provided by AI, skip this step (don't use hardcoded fallbacks)
                     }
 
-                    // Pacing delay for natural feel
-                    time::sleep(Duration::from_millis(800)).await;
+                     // No artificial delay for speed
                 }
                 Ok(None) => {
                     // Mark final step complete
