@@ -271,19 +271,60 @@ pub struct BuildService {
     buffered_operations: Vec<FileOperation>,
     /// Complex operations graph for dependency management
     operation_graph: OperationGraph,
+    /// Project root for strict scoping (prevents system file access)
+    project_root: PathBuf,
 }
 
 impl BuildService {
-    /// Create a new BuildService
+    /// Create a new BuildService with project scoping
     pub fn new<P: AsRef<Path>>(workspace_root: P) -> Self {
+        let workspace_path = workspace_root.as_ref().to_path_buf();
+        // Detect project root (git repo or current dir)
+        let project_root = Self::detect_project_root(&workspace_path);
+
         Self {
-            workspace_root: workspace_root.as_ref().to_path_buf(),
+            workspace_root: workspace_path,
             dry_run: false,
             confirmation_mode: ConfirmationMode::Interactive,
             show_diff: false,
             verbose: false,
             buffered_operations: Vec::new(),
             operation_graph: OperationGraph::new(),
+            project_root,
+        }
+    }
+
+    /// Detect project root (nearest .git directory or current directory)
+    fn detect_project_root(workspace_root: &Path) -> PathBuf {
+        let mut current = workspace_root.to_path_buf();
+        loop {
+            // Check for project indicators
+            let project_files = [
+                ".git",
+                "Cargo.toml",
+                "package.json",
+                "requirements.txt",
+                "Pipfile",
+                "pyproject.toml",
+                "setup.py",
+                "Makefile",
+                "CMakeLists.txt",
+                "configure.ac",
+                "go.mod",
+                "Gemfile",
+                "composer.json",
+            ];
+
+            for file in &project_files {
+                if current.join(file).exists() {
+                    return current;
+                }
+            }
+
+            if !current.pop() {
+                // No project root found, use workspace root
+                return workspace_root.to_path_buf();
+            }
         }
     }
 
@@ -322,26 +363,43 @@ impl BuildService {
         self.confirmation_mode = mode;
     }
 
-    /// Assess risk level of a file operation
+    /// Assess risk level of a file operation with project scoping
     pub fn assess_risk(&self, operation: &FileOperation) -> RiskLevel {
+        let path = match operation {
+            FileOperation::Read { path } => path,
+            FileOperation::Create { path, .. } => path,
+            FileOperation::Update { path, .. } => path,
+            FileOperation::Delete { path } => path,
+        };
+
+        // First, validate project scoping - if outside project, critical risk
+        if !self.is_path_in_project(path) {
+            return RiskLevel::Critical;
+        }
+
         match operation {
-            FileOperation::Read { .. } => RiskLevel::Low,
-            FileOperation::Create { path, .. } => {
-                // Check if creating in sensitive directories
+            FileOperation::Read { .. } => {
                 if self.is_critical_path(path) {
                     RiskLevel::High
                 } else {
                     RiskLevel::Low
                 }
             }
-            FileOperation::Update { path, .. } => {
+            FileOperation::Create { .. } => {
+                if self.is_critical_path(path) {
+                    RiskLevel::High
+                } else {
+                    RiskLevel::Low
+                }
+            }
+            FileOperation::Update { .. } => {
                 if self.is_critical_path(path) {
                     RiskLevel::Critical
                 } else {
                     RiskLevel::Medium
                 }
             }
-            FileOperation::Delete { path } => {
+            FileOperation::Delete { .. } => {
                 if self.is_critical_path(path) {
                     RiskLevel::Critical
                 } else {
@@ -349,6 +407,23 @@ impl BuildService {
                 }
             }
         }
+    }
+
+    /// Check if a path is within the project root (strict scoping)
+    fn is_path_in_project(&self, path: &Path) -> bool {
+        path.starts_with(&self.project_root)
+    }
+
+    /// Validate a path against project boundaries - rejects any path outside project
+    fn validate_project_path(&self, path: &Path) -> Result<()> {
+        if !self.is_path_in_project(path) {
+            return Err(anyhow::anyhow!(
+                "REJECTED: Path '{}' is outside project root '{}'. Operation blocked for safety.",
+                path.display(),
+                self.project_root.display()
+            ));
+        }
+        Ok(())
     }
 
     /// Check if a path is critical (system files, config files, etc.)
@@ -560,6 +635,15 @@ impl BuildService {
             println!("{}", format!("DRY RUN: Would execute {:?}", operation).yellow());
             return Ok(());
         }
+
+        // Validate project scoping before any operation
+        let path = match operation {
+            FileOperation::Read { path } => path,
+            FileOperation::Create { path, .. } => path,
+            FileOperation::Update { path, .. } => path,
+            FileOperation::Delete { path } => path,
+        };
+        self.validate_project_path(path)?;
 
         match operation {
             FileOperation::Create { path, content } => {
@@ -784,6 +868,15 @@ impl BuildService {
             println!("{}", format!("DRY RUN: Would execute {:?}", operation).yellow());
             return Ok(());
         }
+
+        // Validate project scoping before any operation
+        let path = match operation {
+            FileOperation::Read { path } => path,
+            FileOperation::Create { path, .. } => path,
+            FileOperation::Update { path, .. } => path,
+            FileOperation::Delete { path } => path,
+        };
+        self.validate_project_path(path)?;
 
         match operation {
             FileOperation::Create { path, content } => {
