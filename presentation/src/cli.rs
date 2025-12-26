@@ -432,9 +432,21 @@ pub struct CliApp {
     session_store: Option<SessionStore>,
     current_session: Option<String>,
     background_supervisor: Option<BackgroundSupervisor>,
+    scripted_inputs: Option<std::collections::VecDeque<String>>,
 }
 
 impl CliApp {
+    fn read_input_line(&mut self) -> Result<String> {
+        if let Some(queue) = &mut self.scripted_inputs {
+            if let Some(next) = queue.pop_front() {
+                return Ok(next);
+            }
+        }
+
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        Ok(input.trim_end().to_string())
+    }
     pub fn new() -> Self {
         let cache_path = Self::default_cache_path();
         let system_info_path = Self::default_system_info_path();
@@ -462,6 +474,7 @@ impl CliApp {
             session_store,
             current_session: None,
             background_supervisor: Some(BackgroundSupervisor::new()),
+            scripted_inputs: None,
         }
     }
 
@@ -898,6 +911,32 @@ impl CliApp {
             continue 'planning;
         }
 
+        if let Some(ref hints) = plan_hints {
+            let missing = Self::missing_plan_hints(hints, &temp_plan.operations);
+            if !missing.is_empty() {
+                println!("[WARN] Plan is missing required steps:");
+                for item in &missing {
+                    println!("  - {}", item);
+                }
+                println!("[PROMPT] Edit plan or goal? [e/g/q]");
+                let input = self.read_input_line()?;
+                match input.trim().to_lowercase().as_str() {
+                    "e" | "edit" => continue 'planning,
+                    "g" | "goal" => {
+                        let edited = editor::Editor::edit_content(&current_goal, editor::EditContent::Command(current_goal.clone()))?;
+                        let edited = edited.trim();
+                        if !edited.is_empty() {
+                            current_goal = edited.to_string();
+                            plan_hints = None;
+                        }
+                        continue 'planning;
+                    }
+                    "q" | "quit" => return Ok(()),
+                    _ => continue 'planning,
+                }
+            }
+        }
+
         if let Err(e) = build_service.preview_plan(&temp_plan) {
             eprintln!("[ERROR] Plan preview error: {}", e);
             return Ok(());
@@ -905,10 +944,9 @@ impl CliApp {
 
         // Offer interactive plan review
         println!("\n[REVIEW] Plan generated. Review/edit before execution?");
-        println!("[PROMPT] Enter 'y' for interactive review, 'e' for full edit, or press Enter to continue");
+        println!("[PROMPT] Enter 'y' to review, 'e' to edit, 'q' to quit, or press Enter to continue");
 
-            let mut input = String::new();
-            std::io::stdin().read_line(&mut input)?;
+            let input = self.read_input_line()?;
             match input.trim().to_lowercase().as_str() {
                 "y" | "yes" | "review" => {
                     self.interactive_plan_review(&mut temp_plan)?;
@@ -946,6 +984,10 @@ impl CliApp {
                             println!("[ERROR] Editor failed: {} - using original plan", e);
                         }
                     }
+                }
+                "q" | "quit" => {
+                    println!("[CANCEL] Plan review cancelled by user.");
+                    return Ok(());
                 }
                 _ => {
                     // Continue with original plan
@@ -1050,86 +1092,41 @@ impl CliApp {
                 break 'planning;
             }
 
-            match build_service.apply_buffered_operations().await {
-                Ok(result) => {
-                    if result.success {
-                        println!("\nBuild completed successfully.");
-                        println!("{} operations completed", result.operations_completed);
+            let mut completed = 0usize;
+            let mut failed = 0usize;
+            let mut errors = Vec::new();
 
-                        // Save session after successful build
-                        if let (Some(store), Some(session_name)) = (&self.session_store, &self.current_session) {
-                            // Update session metadata and save
-                            if let Ok(mut session) = store.load_session(session_name) {
-                                if let Some(ref mut session) = session {
-                                     session.metadata.last_used = chrono::Utc::now();
-                                     session.metadata.change_count += result.operations_completed as u32;
-                                     session.metadata.goal_summary = current_goal.to_string();
-
-                                     // Add applied changes to session history
-                                     use infrastructure::session_store::AppliedChange;
-
-                                     let mut files_affected = Vec::new();
-                                     for operation in &temp_plan.operations {
-                                         match operation {
-                                             application::build_service::FileOperation::Create { path, .. } |
-                                             application::build_service::FileOperation::Update { path, .. } |
-                                             application::build_service::FileOperation::Delete { path } => {
-                                                 files_affected.push(path.to_string_lossy().to_string());
-                                             }
-                                             _ => {}
-                                         }
-                                     }
-
-                                     let change = AppliedChange {
-                                         id: format!("change_{}", chrono::Utc::now().timestamp()),
-                                         description: format!("Build operation: {}", current_goal),
-                                         timestamp: chrono::Utc::now(),
-                                         files_affected,
-                                     };
-                                     session.applied_changes.push(change);
-                                } else {
-                                    // Create new session if it doesn't exist
-                                    use infrastructure::session_store::{Session, SessionMetadata};
-                                    let now = chrono::Utc::now();
-                                    let metadata = SessionMetadata {
-                                        name: session_name.clone(),
-                                        created_at: now,
-                                        last_used: now,
-                                        goal_summary: current_goal.to_string(),
-                                        change_count: result.operations_completed as u32,
-                                        is_active: true,
-                                    };
-                                    session = Some(Session {
-                                        metadata,
-                                        conversation_history: Vec::new(),
-                                        applied_changes: Vec::new(),
-                                        undo_stack: Vec::new(),
-                                        background_state: None,
-                                    });
-                                }
-
-                                if let Some(session) = session {
-                                    if let Err(e) = store.save_session(&session) {
-                                        eprintln!("{} {}", "Warning: Failed to save session:".yellow(), e);
-                                    } else {
-                                        println!("{} Session '{}' updated", "💾".blue(), session_name);
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        println!("\nBuild failed.");
-                        println!("{} operations completed, {} failed", result.operations_completed, result.operations_failed);
-                        for error in &result.error_messages {
-                            eprintln!("  {}", error.red());
-                        }
-                        if result.rollback_performed {
-                            println!("{}", "Changes have been rolled back.".yellow());
-                        }
-                    }
-                }
-                Err(e) => {
+            for (idx, operation) in temp_plan.operations.iter().enumerate() {
+                if let Err(e) = build_service.execute_operation_once(operation).await {
+                    failed += 1;
+                    errors.push(format!("{:?}: {}", operation, e));
                     eprintln!("{} {}", "Build execution error:".red(), e);
+                    break;
+                }
+
+                completed += 1;
+                let commit_msg = format!(
+                    "feat: {} (step {}/{})\n\nOperation:\n- {:?}",
+                    current_goal,
+                    idx + 1,
+                    temp_plan.operations.len(),
+                    operation
+                );
+                if let Err(e) = build_service.commit_message(&commit_msg).await {
+                    eprintln!("{} {}", "Warning: Git commit failed:".yellow(), e);
+                } else {
+                    println!("[COMMIT] {}", commit_msg.lines().next().unwrap_or("Committed"));
+                }
+            }
+
+            if failed == 0 {
+                println!("\nBuild completed successfully.");
+                println!("{} operations completed", completed);
+            } else {
+                println!("\nBuild failed.");
+                println!("{} operations completed, {} failed", completed, failed);
+                for error in &errors {
+                    eprintln!("  {}", error.red());
                 }
             }
         } else {
@@ -1410,13 +1407,19 @@ impl CliApp {
         content.push_str(&format!("# Risk: {:?}\n\n", plan.estimated_risk));
 
         for (i, operation) in plan.operations.iter().enumerate() {
+            let risk = match operation {
+                application::build_service::FileOperation::Create { .. }
+                | application::build_service::FileOperation::Read { .. } => "Low",
+                application::build_service::FileOperation::Update { .. } => "Medium",
+                application::build_service::FileOperation::Delete { .. } => "High",
+            };
             let op_desc = match operation {
                 application::build_service::FileOperation::Create { path, .. } => format!("Create {}", path.display()),
                 application::build_service::FileOperation::Update { path, .. } => format!("Update {}", path.display()),
                 application::build_service::FileOperation::Delete { path } => format!("Delete {}", path.display()),
                 application::build_service::FileOperation::Read { path } => format!("Read {}", path.display()),
             };
-            content.push_str(&format!("{}. {}\n", i + 1, op_desc));
+            content.push_str(&format!("{}. {} ({})\n", i + 1, op_desc, risk));
         }
 
         content.push_str("\n# Add new steps below:\n");
@@ -1524,9 +1527,38 @@ impl CliApp {
         None
     }
 
+    fn missing_plan_hints(hints: &str, operations: &[application::build_service::FileOperation]) -> Vec<String> {
+        let mut missing = Vec::new();
+        let combined = operations.iter().map(Self::describe_operation_with_content).collect::<Vec<_>>().join("\n");
+        let combined_lower = combined.to_lowercase();
+
+        for line in hints.lines() {
+            let trimmed = line.split('#').next().unwrap_or("").trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            let normalized = trimmed.to_lowercase();
+            if !combined_lower.contains(&normalized) {
+                missing.push(trimmed.to_string());
+            }
+        }
+
+        missing
+    }
+
+    fn describe_operation_with_content(op: &application::build_service::FileOperation) -> String {
+        use application::build_service::FileOperation;
+        match op {
+            FileOperation::Create { path, content } => format!("Create {} {}", path.display(), content),
+            FileOperation::Update { path, new_content, .. } => format!("Update {} {}", path.display(), new_content),
+            FileOperation::Delete { path } => format!("Delete {}", path.display()),
+            FileOperation::Read { path } => format!("Read {}", path.display()),
+        }
+    }
+
     /// Review and apply operations one by one with inline editing/viewing
     fn apply_operations_interactively(
-        &self,
+        &mut self,
         plan: &mut BuildPlan,
         build_service: &mut application::build_service::BuildService,
     ) -> Result<bool> {
@@ -1538,11 +1570,10 @@ impl CliApp {
             let op = plan.operations[idx].clone();
 
             println!("\n[STEP {}/{}]", idx + 1, total);
-            Self::display_operation_summary(&op);
-            println!("[PROMPT] Apply? [y/n/e(dit)/v(iew)/r(emove)/q]");
+            build_service.display_operation_detail(&op)?;
+            println!("[PROMPT] Apply? [y/n/e(dit)/v(iew)/r(emove)/q] or /plan /status /undo /suggest");
 
-            let mut input = String::new();
-            std::io::stdin().read_line(&mut input)?;
+            let input = self.read_input_line()?;
             match input.trim().to_lowercase().as_str() {
                 "y" | "yes" => {
                     idx += 1;
@@ -1568,6 +1599,42 @@ impl CliApp {
                     } else {
                         println!("[EDIT] No changes made");
                     }
+                    continue;
+                }
+                "/plan" => {
+                    let plan_content = Self::format_plan_for_editing(plan);
+                    match editor::Editor::edit_content(&plan_content, editor::EditContent::Plan(plan_content.clone())) {
+                        Ok(edited_plan) => {
+                            if let Some(edited_goal) = Self::extract_goal_from_plan(&edited_plan) {
+                                println!("[EDIT] Goal updated: {}", edited_goal);
+                            }
+                            if let Ok(steps) = editor::Editor::parse_edited_plan(&edited_plan) {
+                                let (updated_ops, warnings) = Self::rebuild_operations_from_steps(&steps, &plan.operations);
+                                for warning in warnings {
+                                    println!("[WARN] {}", warning);
+                                }
+                                if !updated_ops.is_empty() {
+                                    plan.operations = updated_ops;
+                                    build_service.set_buffered_operations(plan.operations.clone());
+                                    idx = 0;
+                                    println!("[EDIT] Plan updated; restarting review");
+                                }
+                            }
+                        }
+                        Err(e) => println!("[ERROR] Editor failed: {}", e),
+                    }
+                    continue;
+                }
+                "/status" => {
+                    println!("[STATUS] Steps remaining: {}", plan.operations.len().saturating_sub(idx));
+                    continue;
+                }
+                "/undo" => {
+                    println!("[UNDO] Run: git reset --hard HEAD~1");
+                    continue;
+                }
+                "/suggest" => {
+                    println!("[SUGGEST] Use /suggest after completion for ideas.");
                     continue;
                 }
                 "q" | "quit" => return Ok(false),
@@ -3150,6 +3217,7 @@ mod tests {
     use super::CliApp;
     use application::build_service::FileOperation;
     use std::path::PathBuf;
+    use std::collections::VecDeque;
 
     #[test]
     fn rebuild_operations_reorders_known_steps() {
@@ -3198,5 +3266,36 @@ mod tests {
 
         assert!(matches!(delete, FileOperation::Delete { .. }));
         assert!(matches!(read, FileOperation::Read { .. }));
+    }
+
+    #[tokio::test]
+    async fn apply_operations_with_scripted_input() {
+        let mut app = CliApp::new();
+        app.scripted_inputs = Some(VecDeque::from(vec!["y".to_string()]));
+
+        let temp_dir = std::env::temp_dir().join(format!("vibe_cli_test_{}", std::process::id()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let original_dir = std::env::current_dir().unwrap();
+        std::env::set_current_dir(&temp_dir).unwrap();
+
+        let mut build_service = application::build_service::BuildService::new(&temp_dir);
+        let mut plan = application::build_service::BuildPlan {
+            goal: "create health.sh".to_string(),
+            operations: vec![FileOperation::Create {
+                path: temp_dir.join("health.sh"),
+                content: "#!/bin/bash\necho ok\n".to_string(),
+            }],
+            description: "test plan".to_string(),
+            estimated_risk: application::build_service::RiskLevel::Low,
+        };
+
+        let ok = app.apply_operations_interactively(&mut plan, &mut build_service).unwrap();
+        assert!(ok);
+        build_service.execute_operation_once(&plan.operations[0]).await.unwrap();
+
+        let content = std::fs::read_to_string(temp_dir.join("health.sh")).unwrap();
+        assert!(content.contains("echo ok"));
+
+        std::env::set_current_dir(&original_dir).unwrap();
     }
 }

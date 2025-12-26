@@ -1,4 +1,5 @@
 use shared::types::Result;
+use colored::Colorize;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use crate::transaction::{Transaction, TransactionGuard};
@@ -525,7 +526,7 @@ impl BuildService {
     }
 
     /// Display detailed operation preview with content
-    fn display_operation_detail(&self, operation: &FileOperation) -> Result<()> {
+    pub fn display_operation_detail(&self, operation: &FileOperation) -> Result<()> {
         let risk = self.assess_risk(operation);
 
         println!("\n{}", "─".repeat(60));
@@ -575,17 +576,17 @@ impl BuildService {
             match (old_lines.get(i), new_lines.get(i)) {
                 (Some(old_line), Some(new_line)) => {
                     if old_line != new_line {
-                        println!("- {}", old_line);
-                        println!("+ {}", new_line);
+                        println!("{}", format!("- {}", old_line).red());
+                        println!("{}", format!("+ {}", new_line).green());
                     } else {
-                        println!("  {}", old_line);
+                        println!("{}", format!("  {}", old_line).bright_black());
                     }
                 }
                 (Some(old_line), None) => {
-                    println!("- {}", old_line);
+                    println!("{}", format!("- {}", old_line).red());
                 }
                 (None, Some(new_line)) => {
-                    println!("+ {}", new_line);
+                    println!("{}", format!("+ {}", new_line).green());
                 }
                 (None, None) => break,
             }
@@ -804,22 +805,6 @@ impl BuildService {
             return Ok(()); // Not a git repo, skip
         }
 
-        // Initialize git repo
-        let repo = git2::Repository::open(&repo_path)
-            .map_err(|e| anyhow::anyhow!("Failed to open git repository: {}", e))?;
-
-        // Get current status
-        let mut index = repo.index()
-            .map_err(|e| anyhow::anyhow!("Failed to get git index: {}", e))?;
-
-        // Add all modified files
-        index.add_all(["*"].iter(), git2::IndexAddOption::DEFAULT, None)
-            .map_err(|e| anyhow::anyhow!("Failed to add files to git index: {}", e))?;
-
-        // Write index
-        index.write()
-            .map_err(|e| anyhow::anyhow!("Failed to write git index: {}", e))?;
-
         // Create commit message
         let commit_msg = format!(
             "feat: {}\n\nApplied {} operations via elite agentic CLI\n\nOperations:\n{}",
@@ -831,41 +816,7 @@ impl BuildService {
                 .join("\n")
         );
 
-        // Get signature
-        let sig = git2::Signature::now("Elite Agentic CLI", "agent@cli.local")
-            .map_err(|e| anyhow::anyhow!("Failed to create git signature: {}", e))?;
-
-        // Get head commit for parent
-        let head_commit = match repo.head() {
-            Ok(head) => {
-                let oid = head.target().unwrap();
-                Some(repo.find_commit(oid)
-                    .map_err(|e| anyhow::anyhow!("Failed to find head commit: {}", e))?)
-            }
-            Err(_) => None, // First commit
-        };
-
-        let parents = if let Some(ref commit) = head_commit {
-            vec![commit]
-        } else {
-            vec![]
-        };
-
-        // Create tree from index
-        let tree_oid = index.write_tree()
-            .map_err(|e| anyhow::anyhow!("Failed to write tree: {}", e))?;
-        let tree = repo.find_tree(tree_oid)
-            .map_err(|e| anyhow::anyhow!("Failed to find tree: {}", e))?;
-
-        // Create commit
-        let _commit_oid = repo.commit(
-            Some("HEAD"),
-            &sig,
-            &sig,
-            &commit_msg,
-            &tree,
-            &parents,
-        ).map_err(|e| anyhow::anyhow!("Failed to create commit: {}", e))?;
+        self.commit_message(&commit_msg).await?;
 
         println!("[COMMIT] Changes committed to git");
         Ok(())
@@ -1258,6 +1209,68 @@ impl BuildService {
         }
 
         Ok(warnings)
+    }
+
+    /// Execute a single operation with its own transaction
+    pub async fn execute_operation_once(&self, operation: &FileOperation) -> Result<()> {
+        let mut transaction = Transaction::new();
+        transaction.begin()?;
+        self.execute_operation_transactional(operation, &mut transaction).await?;
+        transaction.commit()?;
+        Ok(())
+    }
+
+    /// Commit current working tree with a custom message
+    pub async fn commit_message(&self, message: &str) -> Result<()> {
+        let repo_path = std::env::current_dir()?;
+        if !repo_path.join(".git").exists() {
+            return Ok(());
+        }
+
+        let repo = git2::Repository::open(&repo_path)
+            .map_err(|e| anyhow::anyhow!("Failed to open git repository: {}", e))?;
+
+        let mut index = repo.index()
+            .map_err(|e| anyhow::anyhow!("Failed to get git index: {}", e))?;
+
+        index.add_all(["*"].iter(), git2::IndexAddOption::DEFAULT, None)
+            .map_err(|e| anyhow::anyhow!("Failed to add files to git index: {}", e))?;
+        index.write()
+            .map_err(|e| anyhow::anyhow!("Failed to write git index: {}", e))?;
+
+        let sig = git2::Signature::now("Elite Agentic CLI", "agent@cli.local")
+            .map_err(|e| anyhow::anyhow!("Failed to create git signature: {}", e))?;
+
+        let head_commit = match repo.head() {
+            Ok(head) => {
+                let oid = head.target().unwrap();
+                Some(repo.find_commit(oid)
+                    .map_err(|e| anyhow::anyhow!("Failed to find head commit: {}", e))?)
+            }
+            Err(_) => None,
+        };
+
+        let parents = if let Some(ref commit) = head_commit {
+            vec![commit]
+        } else {
+            vec![]
+        };
+
+        let tree_oid = index.write_tree()
+            .map_err(|e| anyhow::anyhow!("Failed to write tree: {}", e))?;
+        let tree = repo.find_tree(tree_oid)
+            .map_err(|e| anyhow::anyhow!("Failed to find tree: {}", e))?;
+
+        let _commit_oid = repo.commit(
+            Some("HEAD"),
+            &sig,
+            &sig,
+            message,
+            &tree,
+            &parents,
+        ).map_err(|e| anyhow::anyhow!("Failed to create commit: {}", e))?;
+
+        Ok(())
     }
 }
 
