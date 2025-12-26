@@ -15,6 +15,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{oneshot, RwLock};
 use tokio::time::{self, Duration};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use crate::editor;
 
@@ -1060,8 +1062,12 @@ impl CliApp {
                 }
             }
         } else {
-            println!("\nDry-run mode: No changes were made.");
+            println!("\n[DONE] Dry-run mode: No changes were made.");
         }
+
+        // Final power-user controls
+        println!("\n[COMPLETE] Task finished successfully");
+        println!("[CONTROLS] Next action? [/suggest /new-task /status /undo /q]");
 
         Ok(())
     }
