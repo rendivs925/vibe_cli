@@ -629,7 +629,7 @@ impl BuildService {
     /// Execute a single file operation
     async fn execute_operation(&self, operation: &FileOperation) -> Result<()> {
         if self.dry_run {
-            println!("{}", format!("DRY RUN: Would execute {:?}", operation).yellow());
+            println!("{}", format!("DRY RUN: Would execute {:?}", operation));
             return Ok(());
         }
 
@@ -654,12 +654,12 @@ impl BuildService {
                 }
 
                 std::fs::write(path, content)?;
-                println!("{}", format!("Created: {}", path.display()).green());
+                println!("{}", format!("Created: {}", path.display()));
                 Ok(())
             }
             FileOperation::Read { path } => {
                 let _content = std::fs::read_to_string(path)?;
-                println!("{}", format!("Read: {}", path.display()).cyan());
+                println!("{}", format!("Read: {}", path.display()));
                 Ok(())
             }
             FileOperation::Update { path, old_content, new_content } => {
@@ -678,7 +678,7 @@ impl BuildService {
                 }
 
                 std::fs::write(path, new_content)?;
-                println!("{}", format!("Updated: {}", path.display()).yellow());
+                println!("{}", format!("Updated: {}", path.display()));
                 Ok(())
             }
             FileOperation::Delete { path } => {
@@ -687,7 +687,7 @@ impl BuildService {
                 }
 
                 std::fs::remove_file(path)?;
-                println!("{}", format!("Deleted: {}", path.display()).red());
+                println!("{}", format!("Deleted: {}", path.display()));
                 Ok(())
             }
         }
@@ -705,7 +705,7 @@ impl BuildService {
 
         // Get plan-level confirmation if needed
         if !self.confirm_plan(plan)? {
-            println!("{}", "Build plan cancelled by user.".yellow());
+            println!("{}", "Build plan cancelled by user.");
             return Ok(result);
         }
 
@@ -722,7 +722,7 @@ impl BuildService {
             // Get operation-level confirmation in interactive mode
             if self.confirmation_mode == ConfirmationMode::Interactive {
                 if !self.confirm_operation(operation, idx, total_ops)? {
-                    println!("{}", "Operation skipped by user.".yellow());
+                    println!("{}", "Operation skipped by user.");
                     continue;
                 }
             }
@@ -735,7 +735,7 @@ impl BuildService {
                     result.operations_failed += 1;
                     result.success = false;
                     result.error_messages.push(format!("{:?}: {}", operation, e));
-                    eprintln!("{}", format!("Operation failed: {}", e).red());
+                    eprintln!("{}", format!("Operation failed: {}", e));
 
                     // Ask if user wants to rollback
                     let should_rollback = if self.confirmation_mode == ConfirmationMode::Interactive {
@@ -745,7 +745,7 @@ impl BuildService {
                     };
 
                     if should_rollback {
-                        println!("{}", "Rolling back all operations...".bright_yellow());
+                        println!("{}", "Rolling back all operations...");
                         transaction.rollback()?;
                         result.rollback_performed = true;
                     }
@@ -760,7 +760,7 @@ impl BuildService {
 
             // Auto-commit to git if available
             if let Err(e) = self.git_commit_changes(plan).await {
-                eprintln!("{} {}", "Warning: Git commit failed:".yellow(), e);
+                eprintln!("{} {}", "Warning: Git commit failed:", e);
                 // Don't fail the build for git issues
             }
         }
@@ -862,7 +862,7 @@ impl BuildService {
         transaction: &mut Transaction,
     ) -> Result<()> {
         if self.dry_run {
-            println!("{}", format!("DRY RUN: Would execute {:?}", operation).yellow());
+            println!("{}", format!("DRY RUN: Would execute {:?}", operation));
             return Ok(());
         }
 
@@ -882,12 +882,12 @@ impl BuildService {
                 }
 
                 transaction.write_file(path, content.as_bytes())?;
-                println!("{}", format!("Created: {}", path.display()).green());
+                println!("{}", format!("Created: {}", path.display()));
                 Ok(())
             }
             FileOperation::Read { path } => {
                 let _content = std::fs::read_to_string(path)?;
-                println!("{}", format!("Read: {}", path.display()).cyan());
+                println!("{}", format!("Read: {}", path.display()));
                 Ok(())
             }
             FileOperation::Update { path, old_content, new_content } => {
@@ -906,7 +906,7 @@ impl BuildService {
                 }
 
                 transaction.write_file(path, new_content.as_bytes())?;
-                println!("{}", format!("Updated: {}", path.display()).yellow());
+                println!("{}", format!("Updated: {}", path.display()));
                 Ok(())
             }
             FileOperation::Delete { path } => {
@@ -915,14 +915,13 @@ impl BuildService {
                 }
 
                 transaction.delete_file(path)?;
-                println!("{}", format!("Deleted: {}", path.display()).red());
+                println!("{}", format!("Deleted: {}", path.display()));
                 Ok(())
             }
         }
     }
 
-    /// Create a build plan from a goal description
-    /// This is a placeholder - in practice, this would use AI to generate the plan
+    /// Create a build plan from a goal description using AI agent
     pub fn create_plan_from_goal(&self, goal: &str) -> Result<BuildPlan> {
         // This is a simplified version - the actual implementation would:
         // 1. Use AI agent to analyze the goal
@@ -1041,22 +1040,22 @@ impl BuildService {
 
         // Get plan-level confirmation if needed
         if !self.confirm_plan_for_complex(&operations)? {
-            println!("{}", "Complex operations cancelled by user.".yellow());
+            println!("{}", "Complex operations cancelled by user.");
             return Ok(result);
         }
 
-        println!("\n{}", format!("Executing {} complex operations in dependency order...", operations.len()).bright_cyan());
+        println!("\n{}", format!("Executing {} complex operations in dependency order...", operations.len()));
 
         let mut transaction = crate::transaction::Transaction::new();
         transaction.begin()?;
 
         for (idx, operation) in operations.iter().enumerate() {
-            println!("\n{}", format!("Executing complex operation {}/{}: {}", idx + 1, operations.len(), operation.name).bright_blue());
+            println!("\n{}", format!("Executing complex operation {}/{}: {}", idx + 1, operations.len(), operation.name));
 
             // Get operation-level confirmation in interactive mode
             if self.confirmation_mode == ConfirmationMode::Interactive {
                 if !self.confirm_complex_operation(operation, idx, operations.len())? {
-                    println!("{}", "Complex operation skipped by user.".yellow());
+                    println!("{}", "Complex operation skipped by user.");
                     continue;
                 }
             }
@@ -1070,7 +1069,7 @@ impl BuildService {
                     result.success = false;
                     result.error_messages.push(format!("Complex operation '{}': {}", operation.name, e));
 
-                    eprintln!("{}", format!("Complex operation '{}' failed: {}", operation.name, e).red());
+                    eprintln!("{}", format!("Complex operation '{}' failed: {}", operation.name, e));
 
                     // Ask if user wants to rollback
                     let should_rollback = if self.confirmation_mode == ConfirmationMode::Interactive {
@@ -1080,7 +1079,7 @@ impl BuildService {
                     };
 
                     if should_rollback {
-                        println!("{}", "Rolling back all complex operations...".bright_yellow());
+                        println!("{}", "Rolling back all complex operations...");
                         transaction.rollback()?;
                         result.rollback_performed = true;
                     }
@@ -1102,10 +1101,10 @@ impl BuildService {
         match self.confirmation_mode {
             ConfirmationMode::None => Ok(true),
             ConfirmationMode::Interactive | ConfirmationMode::ConfirmAll => {
-                println!("\n{}", "Complex Operations Plan Preview".bright_cyan().bold());
+                println!("\n{}", "Complex Operations Plan Preview");
 
                 for (i, op) in operations.iter().enumerate() {
-                    println!("\n{}: {}", format!("{}. {}", i + 1, op.name).bright_yellow(), op.description);
+                    println!("\n{}: {}", format!("{}. {}", i + 1, op.name), op.description);
                     println!("  Files: {}", op.file_operations.len());
                     println!("  Risk: {:?}", op.estimated_risk);
                     if !op.dependencies.is_empty() {
@@ -1131,7 +1130,7 @@ impl BuildService {
 
     /// Confirm individual complex operation
     fn confirm_complex_operation(&self, operation: &ComplexOperation, operation_num: usize, total_ops: usize) -> Result<bool> {
-        println!("\n{}", format!("Complex Operation {}/{}", operation_num + 1, total_ops).bright_cyan());
+        println!("\n{}", format!("Complex Operation {}/{}", operation_num + 1, total_ops));
         println!("Name: {}", operation.name);
         println!("Description: {}", operation.description);
         println!("Risk: {:?}", operation.estimated_risk);

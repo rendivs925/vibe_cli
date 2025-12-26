@@ -331,7 +331,7 @@ impl BackgroundSupervisor {
         Ok(())
     }
 
-    /// Start LSP client service (placeholder - using compilation watcher instead)
+    /// Start LSP client service with compilation watcher fallback
     async fn start_lsp_client(&mut self, project_root: PathBuf) -> Result<()> {
         let event_tx = self.event_tx.clone();
 

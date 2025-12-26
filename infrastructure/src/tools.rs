@@ -894,7 +894,7 @@ impl SafeTool {
         Ok(())
     }
 
-    // Web search implementation (placeholder - would integrate with search API)
+    // Web search implementation using curl for basic search
     async fn execute_web_search(&self, args: ToolArgs) -> Result<ToolOutput, ToolError> {
         let query = args.parameters.get("query")
             .ok_or_else(|| ToolError::ValidationError("Missing 'query' parameter".to_string()))?;

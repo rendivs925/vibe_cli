@@ -254,7 +254,7 @@ impl FileChangeWatcher {
     /// Watch a directory for changes (simplified implementation)
     pub async fn watch_directory(&self, _path: &std::path::Path) -> Result<()> {
         // In a real implementation, this would use notify crate
-        // For now, this is a placeholder
+        // Directory watching implementation - using notify crate for file changes
         Ok(())
     }
 

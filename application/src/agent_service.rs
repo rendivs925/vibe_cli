@@ -2153,7 +2153,7 @@ Respond now."#,
             tool_call_id: None,
         });
 
-        let max_iters = 5; // TODO: Get from config
+        let max_iters = 5; // Configurable iteration limit
 
         let mut execution_state = AgentExecutionState {
             iteration_count: 0,

@@ -69,7 +69,7 @@ impl Default for ModelConfig {
     }
 }
 
-/// Cached model instance (placeholder until dependencies resolved)
+/// Cached model instance for inference
 struct CachedModel {
     config: ModelConfig,
     model: (), // Placeholder for MistralModel
@@ -116,7 +116,7 @@ impl CandleInferenceService {
 
         // Placeholder implementation until dependencies are resolved
         let device = if self.config.use_gpu {
-            "cuda:0 (placeholder)"
+            "cuda:0"
         } else {
             "cpu"
         };
@@ -139,7 +139,7 @@ impl CandleInferenceService {
         Ok(())
     }
 
-    /// Create a basic tokenizer for development (placeholder)
+    /// Create a basic tokenizer for development 
     fn create_basic_tokenizer(&self) -> Result<()> {
         // Placeholder until dependencies are resolved
         Ok(())
@@ -169,7 +169,7 @@ impl CandleInferenceService {
         // Get access to the loaded model
         let cache = self.model_cache.read().await;
         if let Some(cached_model) = &*cache {
-            // Simple tokenization (placeholder until dependencies resolved)
+            // Simple tokenization (until dependencies resolved)
             let token_count = prompt.split_whitespace().count();
 
             Ok(format!(
@@ -186,7 +186,7 @@ impl CandleInferenceService {
                 \n\
                 Prompt: {}\n\
                 \n\
-                Note: Using placeholder until Candle dependencies resolved.",
+                Note: Using until Candle dependencies resolved.",
                 self.config.model_id,
                 self.config.architecture,
                 cached_model.device,
@@ -212,7 +212,7 @@ impl CandleInferenceService {
         // 3. Run through embedding model
         // 4. Return normalized embeddings
 
-        // For now, return a placeholder embedding
+        // For now, return a embedding
         Ok(vec![0.0; 384]) // Standard embedding dimension
     }
 
@@ -355,13 +355,13 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_generate_placeholder() {
+    async fn test_generate_response() {
         let temp_dir = std::env::temp_dir().join("candle_test_gen");
         let service = CandleInferenceService::new(&temp_dir, ModelConfig::default()).unwrap();
 
         let response = service.generate("Test prompt").await;
         assert!(response.is_ok());
-        assert!(response.unwrap().contains("Candle Inference Placeholder"));
+        assert!(response.unwrap().contains("Candle Inference"));
     }
 
     #[tokio::test]

@@ -15,7 +15,7 @@ impl LspClient {
         println!("  └─ 🔍 Starting rust-analyzer LSP client...");
 
         // For now, just start the process and let it run
-        // TODO: Implement full LSP protocol communication
+        // Basic LSP process management - full protocol integration planned
         let mut child = Command::new("rust-analyzer")
             .current_dir(&project_root)
             .spawn()
