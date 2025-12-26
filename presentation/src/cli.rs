@@ -8,7 +8,7 @@ use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use shared::confirmation::ask_confirmation;
 use shared::types::Result;
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::io::{self, Write};
 use std::path::PathBuf;
@@ -768,27 +768,32 @@ impl CliApp {
             return Ok(());
         }
 
+        let workspace_root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let mut current_goal = goal.to_string();
+
         println!("{}", "Build Mode: Safe code modifications with user confirmation".bright_cyan().bold());
-        println!("{} {}", "Goal:".bright_green(), goal);
 
-        // Configure build service based on flags
-        let mut build_service = BuildService::new(std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from(".")));
-        build_service.set_dry_run(dry_run);
-        build_service.set_show_diff(show_diff);
-        build_service.set_verbose(verbose);
-
-        if verbose {
-            build_service.set_confirmation_mode(ConfirmationMode::Interactive);
-        }
-
-        // Initialize services
+        // Initialize services outside the planning loop so we can reuse them on replans
         let agent_service = application::create_agent_service().await?;
+
+        'planning: loop {
+            println!("{} {}", "Goal:".bright_green(), current_goal);
+
+            // Configure build service based on flags
+            let mut build_service = BuildService::new(&workspace_root);
+            build_service.set_dry_run(dry_run);
+            build_service.set_show_diff(show_diff);
+            build_service.set_verbose(verbose);
+
+            if verbose {
+                build_service.set_confirmation_mode(ConfirmationMode::Interactive);
+            }
 
         // Use true real-time incremental streaming
         println!("\n[PLAN] Starting incremental planning...");
 
         // Create the incremental planner
-        let mut planner = match agent_service.plan_build_incremental(goal).await {
+        let mut planner = match agent_service.plan_build_incremental(&current_goal).await {
             Ok(planner) => planner,
             Err(e) => {
                 eprintln!("{} {}", "Build planning initialization error:".red(), e);
@@ -869,7 +874,7 @@ impl CliApp {
         build_service.set_buffered_operations(planner.get_completed_operations().to_vec());
 
         let mut temp_plan = BuildPlan {
-            goal: goal.to_string(),
+            goal: current_goal.to_string(),
             operations: build_service.get_buffered_operations().to_vec(),
             description: "Streaming-generated operations".to_string(),
             estimated_risk: RiskLevel::Low,
@@ -884,143 +889,139 @@ impl CliApp {
         println!("\n[REVIEW] Plan generated. Review/edit before execution?");
         println!("[PROMPT] Enter 'y' for interactive review, 'e' for full edit, or press Enter to continue");
 
-        let mut input = String::new();
-        std::io::stdin().read_line(&mut input)?;
-        match input.trim().to_lowercase().as_str() {
-            "y" | "yes" | "review" => {
-                self.interactive_plan_review(&mut temp_plan)?;
+            let mut input = String::new();
+            std::io::stdin().read_line(&mut input)?;
+            match input.trim().to_lowercase().as_str() {
+                "y" | "yes" | "review" => {
+                    self.interactive_plan_review(&mut temp_plan)?;
+                    build_service.set_buffered_operations(temp_plan.operations.clone());
+                }
+                "e" | "edit" => {
+                    let plan_content = Self::format_plan_for_editing(&temp_plan);
+                    match editor::Editor::edit_content(&plan_content, editor::EditContent::Plan(plan_content.clone())) {
+                        Ok(edited_plan) => {
+                            match editor::Editor::parse_edited_plan(&edited_plan) {
+                                Ok(steps) => {
+                                    println!("[EDIT] Plan updated with {} steps", steps.len());
+                                    let (updated_ops, warnings) = Self::rebuild_operations_from_steps(&steps, &temp_plan.operations);
+
+                                    if !warnings.is_empty() {
+                                        for warning in warnings {
+                                            println!("[WARN] {}", warning);
+                                        }
+                                    }
+
+                                    if !updated_ops.is_empty() {
+                                        temp_plan.operations = updated_ops;
+                                        build_service.set_buffered_operations(temp_plan.operations.clone());
+                                        println!("[EDIT] Reordered/filtered operations based on edited plan");
+                                    } else {
+                                        println!("[NOTE] Edits did not map to known operations - keeping original plan");
+                                    }
+                                }
+                                Err(e) => {
+                                    println!("[ERROR] Failed to parse edited plan: {} - using original", e);
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            println!("[ERROR] Editor failed: {} - using original plan", e);
+                        }
+                    }
+                }
+                _ => {
+                    // Continue with original plan
+                }
             }
-            "e" | "edit" => {
-                let plan_content = Self::format_plan_for_editing(&temp_plan);
-                match editor::Editor::edit_content(&plan_content, editor::EditContent::Plan(plan_content.clone())) {
-                    Ok(edited_plan) => {
-                        match editor::Editor::parse_edited_plan(&edited_plan) {
-                            Ok(steps) => {
-                                println!("[EDIT] Plan updated with {} steps", steps.len());
-                                // For now, just show the updated steps - in full implementation, would rebuild operations
-                                temp_plan.operations = vec![]; // Clear and rebuild would be needed
-                                println!("[NOTE] Full plan re-parsing not yet implemented - using original plan");
+
+            // Get user confirmation before execution (unless dry-run)
+            if !dry_run {
+                use shared::confirmation::{ask_enhanced_confirmation, ConfirmationChoice};
+
+                let operation_count = build_service.buffered_count();
+                if operation_count == 0 {
+                    println!("\nNo operations to execute.");
+                    return Ok(());
+                }
+
+                let session_info = if let Some(session) = &self.current_session {
+                    format!(" for session '{}'", session)
+                } else {
+                    "".to_string()
+                };
+
+                let prompt = format!(
+                    "\nProceed with executing {} operation{}{}?",
+                    operation_count,
+                    if operation_count == 1 { "" } else { "s" },
+                    session_info
+                );
+
+                let mut restart_planning = false;
+
+                match ask_enhanced_confirmation(&prompt) {
+                    Ok(ConfirmationChoice::Yes) => {
+                        println!("[EXEC] Proceeding with execution...");
+                    }
+                    Ok(ConfirmationChoice::No) => {
+                        println!("[CANCEL] Operation cancelled by user.");
+                        return Ok(());
+                    }
+                    Ok(ConfirmationChoice::Edit) | Ok(ConfirmationChoice::Revise) => {
+                        println!("[EDIT] Opening goal in editor for revision...");
+
+                        match editor::Editor::edit_content(&current_goal, editor::EditContent::Command(current_goal.clone())) {
+                            Ok(edited_goal) => {
+                                let edited_goal = edited_goal.trim();
+                                if edited_goal.is_empty() || edited_goal == current_goal {
+                                    println!("[EDIT] Goal unchanged - proceeding with current plan");
+                                } else {
+                                    println!("[EDIT] Goal updated: {}", edited_goal);
+                                    current_goal = edited_goal.to_string();
+                                    restart_planning = true;
+                                }
                             }
                             Err(e) => {
-                                println!("[ERROR] Failed to parse edited plan: {} - using original", e);
+                                println!("[ERROR] Editor failed: {} - cancelling", e);
+                                return Ok(());
+                            }
+                        }
+                    }
+                    Ok(ConfirmationChoice::Suggest) => {
+                        println!("[SUGGEST] Generating improvement suggestions...");
+
+                        println!("Suggestions for '{}':", current_goal);
+                        println!("  1. Add error handling for edge cases");
+                        println!("  2. Include logging for debugging");
+                        println!("  3. Add input validation");
+                        println!("  4. Consider performance optimizations");
+                        println!("  5. Add tests for the new functionality");
+
+                        if ask_confirmation("Edit these suggestions?", false).unwrap_or(false) {
+                            let suggestions = "1. Add error handling for edge cases\n2. Include logging for debugging\n3. Add input validation\n4. Consider performance optimizations\n5. Add tests for the new functionality";
+                            match editor::Editor::edit_content(suggestions, editor::EditContent::File(suggestions.to_string())) {
+                                Ok(edited_suggestions) => {
+                                    println!("[SUGGEST] Updated suggestions:");
+                                    println!("{}", edited_suggestions);
+                                }
+                                Err(e) => {
+                                    println!("[ERROR] Editor failed: {}", e);
+                                }
                             }
                         }
                     }
                     Err(e) => {
-                        println!("[ERROR] Editor failed: {} - using original plan", e);
+                        eprintln!("[ERROR] Confirmation error: {}", e);
+                        println!("[WARN] Proceeding with execution (confirmation failed)...");
+                        // Continue with execution despite confirmation error
                     }
                 }
-            }
-            _ => {
-                // Continue with original plan
-            }
-        }
 
-        // Get user confirmation before execution (unless dry-run)
-        if !dry_run {
-            use shared::confirmation::{ask_enhanced_confirmation, ConfirmationChoice};
-
-            let operation_count = build_service.buffered_count();
-            if operation_count == 0 {
-                println!("\nNo operations to execute.");
-                return Ok(());
-            }
-
-            let session_info = if let Some(session) = &self.current_session {
-                format!(" for session '{}'", session)
-            } else {
-                "".to_string()
-            };
-
-            let prompt = format!(
-                "\nProceed with executing {} operation{}{}?",
-                operation_count,
-                if operation_count == 1 { "" } else { "s" },
-                session_info
-            );
-
-            match ask_enhanced_confirmation(&prompt) {
-                Ok(ConfirmationChoice::Yes) => {
-                    println!("[EXEC] Proceeding with execution...");
-                }
-                Ok(ConfirmationChoice::No) => {
-                    println!("[CANCEL] Operation cancelled by user.");
-                    return Ok(());
-                }
-                Ok(ConfirmationChoice::Edit) => {
-                    println!("[EDIT] Opening goal in editor for revision...");
-
-                    // Edit the goal for replanning
-                    match editor::Editor::edit_content(&goal, editor::EditContent::Command(goal.to_string())) {
-                        Ok(edited_goal) => {
-                            let edited_goal = edited_goal.trim();
-                            if edited_goal.is_empty() || edited_goal == goal {
-                                println!("[EDIT] Goal unchanged - proceeding with current plan");
-                            } else {
-                                println!("[EDIT] Goal updated: {}", edited_goal);
-                                println!("[NOTE] To replan with new goal, restart with: vibe --build \"{}\"", edited_goal);
-                            }
-                        }
-                        Err(e) => {
-                            println!("[ERROR] Editor failed: {} - cancelling", e);
-                            return Ok(());
-                        }
-                    }
-                }
-                Ok(ConfirmationChoice::Revise) => {
-                    println!("[REVISE] Opening goal in editor...");
-
-                    // Edit the goal
-                    match editor::Editor::edit_content(&goal, editor::EditContent::Command(goal.to_string())) {
-                        Ok(revised_goal) => {
-                            let revised_goal = revised_goal.trim();
-                            if revised_goal.is_empty() {
-                                println!("[ERROR] Goal cannot be empty - cancelling");
-                                return Ok(());
-                            }
-                            println!("[REVISE] Goal updated: {}", revised_goal);
-                            // For now, just show the new goal - in full implementation, would restart planning
-                            println!("[NOTE] Goal revision complete - proceeding with original plan");
-                            println!("[NOTE] To replan with new goal, restart with: vibe --build \"{}\"", revised_goal);
-                        }
-                        Err(e) => {
-                            println!("[ERROR] Editor failed: {} - cancelling", e);
-                            return Ok(());
-                        }
-                    }
-                }
-                Ok(ConfirmationChoice::Suggest) => {
-                    println!("[SUGGEST] Generating improvement suggestions...");
-
-                    // Show basic suggestions
-                    println!("Suggestions for '{}':", goal);
-                    println!("  1. Add error handling for edge cases");
-                    println!("  2. Include logging for debugging");
-                    println!("  3. Add input validation");
-                    println!("  4. Consider performance optimizations");
-                    println!("  5. Add tests for the new functionality");
-
-                    // Ask if user wants to edit suggestions
-                    if ask_confirmation("Edit these suggestions?", false).unwrap_or(false) {
-                        let suggestions = "1. Add error handling for edge cases\n2. Include logging for debugging\n3. Add input validation\n4. Consider performance optimizations\n5. Add tests for the new functionality";
-                        match editor::Editor::edit_content(suggestions, editor::EditContent::File(suggestions.to_string())) {
-                            Ok(edited_suggestions) => {
-                                println!("[SUGGEST] Updated suggestions:");
-                                println!("{}", edited_suggestions);
-                            }
-                            Err(e) => {
-                                println!("[ERROR] Editor failed: {}", e);
-                            }
-                        }
-                    }
-                }
-                Err(e) => {
-                    eprintln!("[ERROR] Confirmation error: {}", e);
-                    println!("[WARN] Proceeding with execution (confirmation failed)...");
-                    // Continue with execution despite confirmation error
+                if restart_planning {
+                    println!("[REPLAN] Regenerating plan with updated goal...");
+                    continue 'planning;
                 }
             }
-        }
 
         // Execute the buffered operations (unless dry-run)
         if !dry_run {
@@ -1037,7 +1038,7 @@ impl CliApp {
                                 if let Some(ref mut session) = session {
                                      session.metadata.last_used = chrono::Utc::now();
                                      session.metadata.change_count += result.operations_completed as u32;
-                                     session.metadata.goal_summary = goal.to_string();
+                                     session.metadata.goal_summary = current_goal.to_string();
 
                                      // Add applied changes to session history
                                      use infrastructure::session_store::AppliedChange;
@@ -1056,7 +1057,7 @@ impl CliApp {
 
                                      let change = AppliedChange {
                                          id: format!("change_{}", chrono::Utc::now().timestamp()),
-                                         description: format!("Build operation: {}", goal),
+                                         description: format!("Build operation: {}", current_goal),
                                          timestamp: chrono::Utc::now(),
                                          files_affected,
                                      };
@@ -1069,7 +1070,7 @@ impl CliApp {
                                         name: session_name.clone(),
                                         created_at: now,
                                         last_used: now,
-                                        goal_summary: goal.to_string(),
+                                        goal_summary: current_goal.to_string(),
                                         change_count: result.operations_completed as u32,
                                         is_active: true,
                                     };
@@ -1133,7 +1134,7 @@ impl CliApp {
             match command.as_str() {
                 "/suggest" | "/s" => {
                     println!("[SUGGEST] Generating improvement suggestions...");
-                    println!("Suggestions for '{}':", goal);
+                    println!("Suggestions for '{}':", current_goal);
                     println!("  1. Add error handling for edge cases");
                     println!("  2. Include logging for debugging");
                     println!("  3. Add input validation");
@@ -1149,7 +1150,7 @@ impl CliApp {
                 "/status" | "/st" => {
                     println!("[STATUS] Session status");
                     println!("  Current session: {}", self.current_session.as_deref().unwrap_or("default"));
-                    println!("  Last goal: {}", goal);
+                    println!("  Last goal: {}", current_goal);
                     println!("  Plan steps: {}", temp_plan.operations.len());
                     if let Some(session_name) = &self.current_session {
                         if let Ok(Some(session)) = self.session_store.as_ref().unwrap().load_session(session_name) {
@@ -1226,6 +1227,10 @@ impl CliApp {
                     println!("[UNKNOWN] Unknown command '{}'. Type /help for available commands.", command);
                 }
             }
+        }
+
+            // Finished current plan/execution path; exit planning loop unless a replan was requested earlier
+            break 'planning;
         }
 
         Ok(())
@@ -1391,6 +1396,94 @@ impl CliApp {
 
         content.push_str("\n# Add new steps below:\n");
         content
+    }
+
+    /// Rebuild operations list based on edited plan steps (supports reordering/removal of known ops)
+    fn rebuild_operations_from_steps(
+        steps: &[String],
+        original_ops: &[application::build_service::FileOperation],
+    ) -> (Vec<application::build_service::FileOperation>, Vec<String>) {
+        use application::build_service::FileOperation;
+
+        let mut warnings = Vec::new();
+        let mut lookup: HashMap<String, FileOperation> = HashMap::new();
+
+        for op in original_ops {
+            lookup.entry(Self::describe_operation(op)).or_insert_with(|| op.clone());
+        }
+
+        let mut new_ops = Vec::new();
+        for step in steps {
+            let normalized = step.trim();
+            if let Some(op) = lookup.get(normalized) {
+                new_ops.push(op.clone());
+                continue;
+            }
+
+            if let Some(op) = Self::parse_operation_line(normalized, original_ops) {
+                new_ops.push(op);
+            } else {
+                warnings.push(format!("Unrecognized step '{}'; keeping original ordering", normalized));
+            }
+        }
+
+        (new_ops, warnings)
+    }
+
+    /// Describe an operation using the same wording as the editable plan view
+    fn describe_operation(operation: &application::build_service::FileOperation) -> String {
+        match operation {
+            application::build_service::FileOperation::Create { path, .. } => format!("Create {}", path.display()),
+            application::build_service::FileOperation::Update { path, .. } => format!("Update {}", path.display()),
+            application::build_service::FileOperation::Delete { path } => format!("Delete {}", path.display()),
+            application::build_service::FileOperation::Read { path } => format!("Read {}", path.display()),
+        }
+    }
+
+    /// Attempt to parse a user-edited line back into a known operation, reusing original data when possible
+    fn parse_operation_line(
+        line: &str,
+        original_ops: &[application::build_service::FileOperation],
+    ) -> Option<application::build_service::FileOperation> {
+        use application::build_service::FileOperation;
+
+        let lower = line.to_lowercase();
+        let strip_prefix = |prefix: &str| -> Option<String> {
+            lower
+                .strip_prefix(prefix)
+                .map(|rest| rest.trim_matches('"').trim().to_string())
+        };
+
+        if let Some(path_str) = strip_prefix("create ") {
+            if let Some(op) = original_ops.iter().find(|op| matches!(op, FileOperation::Create { path, .. } if path.display().to_string() == path_str)) {
+                return Some(op.clone());
+            }
+            return None;
+        }
+
+        if let Some(path_str) = strip_prefix("update ") {
+            if let Some(op) = original_ops.iter().find(|op| matches!(op, FileOperation::Update { path, .. } if path.display().to_string() == path_str)) {
+                return Some(op.clone());
+            }
+            return None;
+        }
+
+        if let Some(path_str) = strip_prefix("delete ") {
+            if let Some(op) = original_ops.iter().find(|op| matches!(op, FileOperation::Delete { path } if path.display().to_string() == path_str)) {
+                return Some(op.clone());
+            }
+            // Allow creating a simple delete if it wasn't in the original list
+            return Some(FileOperation::Delete { path: std::path::PathBuf::from(path_str) });
+        }
+
+        if let Some(path_str) = strip_prefix("read ") {
+            if let Some(op) = original_ops.iter().find(|op| matches!(op, FileOperation::Read { path } if path.display().to_string() == path_str)) {
+                return Some(op.clone());
+            }
+            return Some(FileOperation::Read { path: std::path::PathBuf::from(path_str) });
+        }
+
+        None
     }
 
     /// Format a single operation for editing
@@ -2830,7 +2923,7 @@ use shared::confirmation::{ask_confirmation, ask_enhanced_confirmation, Confirma
                     // Update session metadata
                     if let Ok(mut session) = store.load_session(session_name) {
                         if let Some(ref mut session) = session {
-                            session.metadata.change_count = session.metadata.change_count.saturating_sub(1);
+                                     session.metadata.change_count = session.metadata.change_count.saturating_sub(1);
                             if let Err(e) = store.save_session(session) {
                                 eprintln!("{} {}", "Warning: Failed to update session:".yellow(), e);
                             }
