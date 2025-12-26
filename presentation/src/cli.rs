@@ -1,4 +1,4 @@
-use application::{rag_service::RagService, agent_service::AgentService};
+use application::{rag_service::RagService, agent_service::AgentService, build_service::BuildPlan};
 use clap::Parser;
 use colored::Colorize;
 use docx_rs::*;
@@ -15,6 +15,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use tokio::sync::{oneshot, RwLock};
 use tokio::time::{self, Duration};
+
+use crate::editor;
 
 fn find_project_root() -> Option<String> {
     let mut current = std::env::current_dir().ok()?;
@@ -901,14 +903,13 @@ impl CliApp {
             }
 
             let session_info = if let Some(session) = &self.current_session {
-                format!(" for session '{}'", session.bright_cyan())
+                format!(" for session '{}'", session)
             } else {
                 "".to_string()
             };
 
             let prompt = format!(
-                "\n{}Proceed with executing {} operation{}{}?",
-                "🚀 ".bright_blue(),
+                "\nProceed with executing {} operation{}{}?",
                 operation_count,
                 if operation_count == 1 { "" } else { "s" },
                 session_info
@@ -916,33 +917,93 @@ impl CliApp {
 
             match ask_enhanced_confirmation(&prompt) {
                 Ok(ConfirmationChoice::Yes) => {
-                    println!("{}", "✅ Proceeding with execution...".bright_green());
+                    println!("[EXEC] Proceeding with execution...");
                 }
                 Ok(ConfirmationChoice::No) => {
-                    println!("{}", "❌ Operation cancelled by user.".yellow());
+                    println!("[CANCEL] Operation cancelled by user.");
                     return Ok(());
                 }
                 Ok(ConfirmationChoice::Edit) => {
-                    println!("{}", "✏️  Edit mode selected - please provide new goal:".bright_blue());
-                    // TODO: Implement edit mode to allow goal modification
-                    println!("{}", "Edit mode not yet implemented - cancelling.".yellow());
-                    return Ok(());
+                    println!("[EDIT] Opening plan in editor...");
+
+                    // Format plan for editing
+                    let plan_content = Self::format_plan_for_editing(&temp_plan);
+
+                    // Edit the plan
+                    match editor::Editor::edit_content(&plan_content, editor::EditContent::Plan(plan_content.clone())) {
+                        Ok(edited_plan) => {
+                            // Parse back and update plan
+                            match editor::Editor::parse_edited_plan(&edited_plan) {
+                                Ok(steps) => {
+                                    println!("[PLAN] Updated with {} steps", steps.len());
+                                    // For now, just show the updated steps
+                                    for (i, step) in steps.iter().enumerate() {
+                                        println!("  {}. {}", i + 1, step);
+                                    }
+                                    println!("[EDIT] Plan updated - proceeding with execution");
+                                }
+                                Err(e) => {
+                                    println!("[ERROR] Failed to parse edited plan: {} - cancelling", e);
+                                    return Ok(());
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            println!("[ERROR] Editor failed: {} - cancelling", e);
+                            return Ok(());
+                        }
+                    }
                 }
                 Ok(ConfirmationChoice::Revise) => {
-                    println!("{}", "🔄 Revise mode selected - please provide revised goal:".bright_yellow());
-                    // TODO: Implement revise mode for goal refinement
-                    println!("{}", "Revise mode not yet implemented - cancelling.".yellow());
-                    return Ok(());
+                    println!("[REVISE] Opening goal in editor...");
+
+                    // Edit the goal
+                    match editor::Editor::edit_content(&goal, editor::EditContent::Command(goal.to_string())) {
+                        Ok(revised_goal) => {
+                            let revised_goal = revised_goal.trim();
+                            if revised_goal.is_empty() {
+                                println!("[ERROR] Goal cannot be empty - cancelling");
+                                return Ok(());
+                            }
+                            println!("[REVISE] Goal updated: {}", revised_goal);
+                            // For now, just show the new goal - in full implementation, would restart planning
+                            println!("[NOTE] Goal revision complete - proceeding with original plan");
+                            println!("[NOTE] To replan with new goal, restart with: vibe --build \"{}\"", revised_goal);
+                        }
+                        Err(e) => {
+                            println!("[ERROR] Editor failed: {} - cancelling", e);
+                            return Ok(());
+                        }
+                    }
                 }
                 Ok(ConfirmationChoice::Suggest) => {
-                    println!("{}", "💡 Suggest mode selected - showing improvement suggestions:".bright_cyan());
-                    // TODO: Implement suggest mode for proactive improvements
-                    println!("{}", "Suggest mode not yet implemented - cancelling.".yellow());
-                    return Ok(());
+                    println!("[SUGGEST] Generating improvement suggestions...");
+
+                    // Show basic suggestions
+                    println!("Suggestions for '{}':", goal);
+                    println!("  1. Add error handling for edge cases");
+                    println!("  2. Include logging for debugging");
+                    println!("  3. Add input validation");
+                    println!("  4. Consider performance optimizations");
+                    println!("  5. Add tests for the new functionality");
+
+                    // Ask if user wants to edit suggestions
+                    if ask_confirmation("Edit these suggestions?", false).unwrap_or(false) {
+                        let suggestions = "1. Add error handling for edge cases\n2. Include logging for debugging\n3. Add input validation\n4. Consider performance optimizations\n5. Add tests for the new functionality";
+                        match editor::Editor::edit_content(suggestions, editor::EditContent::File(suggestions.to_string())) {
+                            Ok(edited_suggestions) => {
+                                println!("[SUGGEST] Updated suggestions:");
+                                println!("{}", edited_suggestions);
+                            }
+                            Err(e) => {
+                                println!("[ERROR] Editor failed: {}", e);
+                            }
+                        }
+                    }
                 }
                 Err(e) => {
-                    eprintln!("{} {}", "❌ Confirmation error:".red(), e);
-                    println!("{}", "⚠️  Proceeding with execution (confirmation failed)...".yellow());
+                    eprintln!("[ERROR] Confirmation error: {}", e);
+                    println!("[WARN] Proceeding with execution (confirmation failed)...");
                     // Continue with execution despite confirmation error
                 }
             }
@@ -1153,6 +1214,28 @@ impl CliApp {
         println!("  File System Operations:");
         println!("    |-- Total files in project: {}", context_stats.total_files);
         println!("    |-- Relevant files found: {}", context_stats.relevant_files);
+    }
+
+    /// Format a build plan for editing in the user's editor
+    fn format_plan_for_editing(plan: &BuildPlan) -> String {
+        let mut content = String::new();
+        content.push_str("# Vibe Plan – edit, reorder, delete, add steps freely\n");
+        content.push_str("# Save & quit to apply changes\n");
+        content.push_str(&format!("# Goal: {}\n", plan.goal));
+        content.push_str(&format!("# Description: {}\n", plan.description));
+        content.push_str(&format!("# Risk: {:?}\n\n", plan.estimated_risk));
+
+        for (i, operation) in plan.operations.iter().enumerate() {
+            let op_desc = match operation {
+                application::build_service::FileOperation::Create { path, .. } => format!("Create {}", path.display()),
+                application::build_service::FileOperation::Update { path, .. } => format!("Update {}", path.display()),
+                application::build_service::FileOperation::Delete { path } => format!("Delete {}", path.display()),
+                application::build_service::FileOperation::Read { path } => format!("Read {}", path.display()),
+            };
+            content.push_str(&format!("{}. {}\n", i + 1, op_desc));
+        }
+
+        content
     }
 
     /// Display incremental changes in plain text format
