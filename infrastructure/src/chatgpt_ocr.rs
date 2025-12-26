@@ -75,13 +75,20 @@ impl ChatGPTOCR {
 
     /// Clean and normalize OCR text
     fn clean_ocr_text(&self, text: &str) -> String {
-        text.lines()
+        let mut cleaned = text.lines()
             .map(|line| line.trim())
             .filter(|line| !line.is_empty())
             .collect::<Vec<_>>()
-            .join("\n")
-            .replace(|c: char| !c.is_alphanumeric() && !c.is_whitespace() && c != '.' && c != ',' && c != '!' && c != '?' && c != ':' && c != ';', "")
-            .split_whitespace()
+            .join("\n");
+
+        // Remove non-alphanumeric characters except specific punctuation
+        cleaned = cleaned.replace(|c: char| !c.is_alphanumeric() && !c.is_whitespace() && !['.', ',', '!', '?', ':', ';'].contains(&c), "");
+
+        // Remove sequences of the same punctuation character (OCR artifacts)
+        cleaned = cleaned.replace("!!!", "!").replace("???", "?").replace("...", ".").replace(";;;", ";").replace(":::", ":");
+
+        // Normalize whitespace
+        cleaned.split_whitespace()
             .collect::<Vec<_>>()
             .join(" ")
     }
@@ -282,11 +289,15 @@ mod tests {
         let dirty_text = "Hello   world!!!\n\nThis  is\ta  test....\n\nWith   extra   spaces.";
         let cleaned = ocr.clean_ocr_text(dirty_text);
 
+        println!("Original: {:?}", dirty_text);
+        println!("Cleaned: {:?}", cleaned);
+        println!("Contains !!! : {}", cleaned.contains("!!!"));
+        println!("Contains .... : {}", cleaned.contains("...."));
+
         assert!(!cleaned.contains("!!!"));
         assert!(!cleaned.contains("...."));
         assert!(!cleaned.contains("\n\n"));
         assert!(!cleaned.contains("\t"));
-        println!("Cleaned text: {}", cleaned);
     }
 
     #[test]
