@@ -38,10 +38,12 @@ impl Editor {
             })
     }
 
-    /// Edit content using the user's editor
+    /// Edit content using the user's editor with better error handling and validation
     pub fn edit_content(content: &str, content_type: EditContent) -> Result<String> {
         let editor = Self::detect_editor();
         let temp_file = Self::create_temp_file(content, content_type)?;
+
+        println!("[EDIT] Opening {} in {}", Self::content_type_name(&content_type), editor);
 
         // Launch editor
         let status = Command::new(&editor)
@@ -50,7 +52,7 @@ impl Editor {
             .map_err(|e| anyhow::anyhow!("Failed to launch editor '{}': {}", editor, e))?;
 
         if !status.success() {
-            return Err(anyhow::anyhow!("Editor '{}' exited with error", editor));
+            return Err(anyhow::anyhow!("Editor '{}' exited with error code {:?}", editor, status.code()));
         }
 
         // Read back the edited content
@@ -60,7 +62,22 @@ impl Editor {
         // Clean up temp file
         let _ = fs::remove_file(&temp_file);
 
-        Ok(edited_content.trim().to_string())
+        let trimmed = edited_content.trim();
+        if trimmed.is_empty() {
+            return Err(anyhow::anyhow!("Edited content cannot be empty"));
+        }
+
+        Ok(trimmed.to_string())
+    }
+
+    /// Get human-readable name for content type
+    fn content_type_name(content_type: &EditContent) -> &'static str {
+        match content_type {
+            EditContent::Plan(_) => "plan",
+            EditContent::Diff(_) => "diff",
+            EditContent::Command(_) => "command",
+            EditContent::File(_) => "file",
+        }
     }
 
     /// Create a temporary file with appropriate extension and content

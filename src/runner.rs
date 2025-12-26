@@ -198,6 +198,7 @@ pub async fn confirm_and_run(cmd: &str, config: &Config) -> Result<()> {
 
     println!("[EXEC] {}", cmd);
     println!("[RUN] Executing command...");
+    std::io::stdout().flush().ok();
 
     // Check if we should use safe tool execution
     if std::env::var("VIBE_USE_SAFE_TOOLS").unwrap_or_default() == "1" {
@@ -314,6 +315,7 @@ pub fn confirm_and_run_multi_step(cmd: &str, config: &Config) -> Result<()> {
 
     println!("[EXEC] {}", cmd);
     println!("[RUN] Executing command...");
+    std::io::stdout().flush().ok();
 
     let status = Command::new("sh").arg("-c").arg(cmd).status()?;
 

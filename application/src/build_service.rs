@@ -272,6 +272,21 @@ pub struct BuildService {
     operation_graph: OperationGraph,
     /// Project root for strict scoping (prevents system file access)
     project_root: PathBuf,
+    /// Cached project scan for performance optimization
+    cached_project_scan: Option<ProjectScanCache>,
+}
+
+/// Cached project scan information for performance
+#[derive(Debug, Clone)]
+struct ProjectScanCache {
+    /// When the scan was performed
+    scanned_at: std::time::SystemTime,
+    /// List of files found
+    files: Vec<PathBuf>,
+    /// Total size in bytes
+    total_size: u64,
+    /// Whether this is a git repository
+    is_git_repo: bool,
 }
 
 impl BuildService {
@@ -290,6 +305,7 @@ impl BuildService {
             buffered_operations: Vec::new(),
             operation_graph: OperationGraph::new(),
             project_root,
+            cached_project_scan: None,
         }
     }
 
