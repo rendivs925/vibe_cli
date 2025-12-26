@@ -7,7 +7,7 @@ edition = "2021"
 domain = { path = "../domain" }
 shared = { path = "../shared" }
 anyhow.workspace = true
-tokio.workspace = true
+tokio = { workspace = true, features = ["process"] }
 reqwest.workspace = true
 rusqlite.workspace = true
 memmap2.workspace = true
@@ -43,6 +43,8 @@ tokio-process = "0.2"
 watchexec = "3.0"
 tower-lsp = "0.20"
 flume = "0.11"
+# Browser automation for ChatGPT integration (simplified for now)
+# thirtyfour = "0.32"  # Commented out until full WebDriver implementation
 # Candle ML dependencies (commented out due to upstream issues)
 # candle-core.workspace = true
 # candle-nn.workspace = true
