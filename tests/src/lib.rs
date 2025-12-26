@@ -1,6 +1,7 @@
 // Integration tests for comprehensive enhancement plan features
 
 pub mod security_tests;
+pub mod ultra_minimal_workflow_tests;
 
 #[cfg(test)]
 mod tests {
