@@ -963,6 +963,31 @@ impl BuildService {
         self.buffered_operations = operations;
     }
 
+    /// Filter operations to enforce project scoping and flag anything outside the workspace
+    pub fn enforce_project_scope(&self, operations: Vec<FileOperation>) -> (Vec<FileOperation>, Vec<String>) {
+        let mut sanitized = Vec::new();
+        let mut warnings = Vec::new();
+
+        for op in operations {
+            let path = match &op {
+                FileOperation::Create { path, .. }
+                | FileOperation::Read { path }
+                | FileOperation::Update { path, .. }
+                | FileOperation::Delete { path } => path,
+            };
+
+            // Reject paths that escape the workspace root
+            if path.is_absolute() && !path.starts_with(&self.workspace_root) {
+                warnings.push(format!("Skipping operation on external path: {}", path.display()));
+                continue;
+            }
+
+            sanitized.push(op);
+        }
+
+        (sanitized, warnings)
+    }
+
     /// Stream a file operation in plain text
     pub fn stream_operation(&self, operation: &FileOperation, step_number: usize, total_steps: usize) -> Result<()> {
         println!("\n[STEP] {}/{}", step_number, total_steps);
