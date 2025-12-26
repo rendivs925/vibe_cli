@@ -784,7 +784,7 @@ impl CliApp {
         let agent_service = application::create_agent_service().await?;
 
         // Use true real-time incremental streaming
-        println!("\n{}", "Starting true real-time incremental planning...".bright_cyan());
+        println!("\n[PLAN] Starting incremental planning...");
 
         // Create the incremental planner
         let mut planner = match agent_service.plan_build_incremental(goal).await {
@@ -797,8 +797,7 @@ impl CliApp {
 
         // Real-time incremental planning with tool transparency
         let total_steps = 5;
-        println!("Planning Progress:");
-        println!("[→] [1/{}] Analyzing project context", total_steps);
+        println!("[PLAN] Analyzing project...");
 
         let mut step_count = 0;
         let mut code_generation_complete = false;
@@ -816,24 +815,15 @@ impl CliApp {
                     // Update progress display
                     self.update_progress_display(step_count, total_steps, &step.description);
 
-                    // Show chain of thought for analysis/planning phases
-                    if step_count <= 3 {
-                        Self::display_chain_of_thought(&step.reasoning);
+                    // Minimal reasoning display
+                    if step_count <= 3 && verbose {
+                        println!("[REASON] {}", step.reasoning.lines().next().unwrap_or(""));
                     }
 
-                    // Show tool usage after context retrieval
-                    if step_count == 2 {
-                        let (scanned, analyzed, keywords, os_info, cwd) = planner.context_stats();
-                        let stats = ContextStats {
-                            files_scanned: scanned,
-                            files_analyzed: analyzed,
-                            keywords_count: keywords,
-                            os_info,
-                            cwd,
-                            total_files: scanned,
-                            relevant_files: scanned,
-                        };
-                        Self::display_tool_usage(&stats);
+                    // Show minimal tool usage
+                    if step_count == 2 && verbose {
+                        let (scanned, analyzed, keywords, _, _) = planner.context_stats();
+                        println!("[CONTEXT] Scanned {} files, {} keywords", scanned, keywords);
                     }
 
                     // Handle incremental code generation (Step 3)
@@ -864,16 +854,14 @@ impl CliApp {
             }
         }
 
-        println!("\n{}", format!("✅ Real-time planning complete - {} steps, {} operations buffered", step_count, build_service.buffered_count()).bright_green());
+        println!("\n[PLAN] Complete - {} steps, {} operations ready", step_count, build_service.buffered_count());
 
         // Show background status updates
         self.display_background_updates();
 
-        // Show streaming summary
+        // Show minimal summary
         if verbose {
-            println!("\n{}", "Streaming Summary:".bright_yellow());
-            println!("  Total planning steps: {}", step_count);
-            println!("  Operations buffered: {}", build_service.buffered_count());
+            println!("\n[SUMMARY] Planning steps: {}, Operations: {}", step_count, build_service.buffered_count());
         }
 
         // Show plan preview using buffered operations
