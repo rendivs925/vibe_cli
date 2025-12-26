@@ -356,6 +356,10 @@ pub struct Cli {
     #[arg(long)]
     pub ai_agent: bool,
 
+    /// Use ultra-minimal mode: plain text output, no colors, no TUI
+    #[arg(long)]
+    pub minimal: bool,
+
     /// Create execution plan without running commands
     #[arg(long)]
     pub plan: bool,
@@ -429,6 +433,8 @@ pub struct CliApp {
     session_store: Option<SessionStore>,
     current_session: Option<String>,
     background_supervisor: Option<BackgroundSupervisor>,
+    /// Ultra-minimal mode: plain text, no colors, no TUI
+    minimal_mode: bool,
 }
 
 impl CliApp {
@@ -459,6 +465,7 @@ impl CliApp {
             session_store,
             current_session: None,
             background_supervisor: Some(BackgroundSupervisor::new()),
+            minimal_mode: false,
         }
     }
 
@@ -1062,6 +1069,9 @@ impl CliApp {
             self.current_session = Some(session_name.clone());
         }
 
+        // Set minimal mode
+        self.minimal_mode = cli.minimal;
+
         if cli.chat {
             if args_str.trim().is_empty() {
                 self.handle_chat().await
@@ -1095,25 +1105,44 @@ impl CliApp {
 
     /// Update progress display with proper indicators and session awareness
     fn update_progress_display(&self, current: usize, total: usize, description: &str) {
-        // Clear previous lines and show updated progress
-        print!("\r\x1B[2K"); // Clear current line
+        if self.minimal_mode {
+            // Plain text output for minimal mode
+            let status = match current {
+                1..=2 => "[✓]",
+                3 => "[→]",
+                4 => "[⚡]",
+                5 => "[✓]",
+                _ => "[○]",
+            };
 
-        let status = match current {
-            1..=2 => "[✓]".bright_green(),
-            3 => "[→]".bright_blue(),
-            4 => "[⚡]".bright_yellow(),
-            5 => "[✓]".bright_green(),
-            _ => "[○]".dimmed(),
-        };
+            let session_prefix = if let Some(session) = &self.current_session {
+                format!("[{}] ", session)
+            } else {
+                "[main] ".to_string()
+            };
 
-        // Include session info if available
-        let session_prefix = if let Some(session) = &self.current_session {
-            format!("[{}] ", session.bright_cyan())
+            println!("{}{} [{}/{}] {}", session_prefix, status, current, total, description);
         } else {
-            "[main] ".dimmed().to_string()
-        };
+            // Clear previous lines and show updated progress
+            print!("\r\x1B[2K"); // Clear current line
 
-        println!("{}{} [{}/{}] {}", session_prefix, status, current, total, description.bright_white());
+            let status = match current {
+                1..=2 => "[✓]".bright_green(),
+                3 => "[→]".bright_blue(),
+                4 => "[⚡]".bright_yellow(),
+                5 => "[✓]".bright_green(),
+                _ => "[○]".dimmed(),
+            };
+
+            // Include session info if available
+            let session_prefix = if let Some(session) = &self.current_session {
+                format!("[{}] ", session.bright_cyan())
+            } else {
+                "[main] ".dimmed().to_string()
+            };
+
+            println!("{}{} [{}/{}] {}", session_prefix, status, current, total, description.bright_white());
+        }
     }
 
     /// Display chain of thought in tree format
@@ -1162,12 +1191,20 @@ impl CliApp {
     /// Display incremental changes in diff format with syntax highlighting and session awareness
     fn display_incremental_changes(&self, code: &str, path: &str, op_type: &str) {
         let session_info = if let Some(session) = &self.current_session {
-            format!(" [{}]", session.bright_cyan())
+            if self.minimal_mode {
+                format!(" [{}]", session)
+            } else {
+                format!(" [{}]", session.bright_cyan())
+            }
         } else {
             "".to_string()
         };
 
-        println!("\n{}Incremental Changes{}:", "⚡ ".bright_yellow(), session_info);
+        if self.minimal_mode {
+            println!("\n[INCREMENTAL_CHANGES]{}:", session_info);
+        } else {
+            println!("\n{}Incremental Changes{}:", "⚡ ".bright_yellow(), session_info);
+        }
 
         let ext = std::path::Path::new(path)
             .extension()
@@ -1254,21 +1291,39 @@ impl CliApp {
         }
 
         // Show summary with operation type awareness and session info
-        println!("\n{}Summary{}:", "📊 ".bright_cyan(), session_info);
-        match op_type {
-            "create" => {
-                println!("  └─ Files: {} {} (new file, {} lines)", "+".bright_green(), path, lines.len());
+        if self.minimal_mode {
+            println!("\n[SUMMARY]{}:", session_info);
+            match op_type {
+                "create" => {
+                    println!("  Files: + {} (new file, {} lines)", path, lines.len());
+                }
+                "update" => {
+                    println!("  Files: ~ {} (modified, {} lines)", path, lines.len());
+                }
+                _ => {
+                    println!("  Files: ? {} ({}, {} lines)", path, op_type, lines.len());
+                }
             }
-            "update" => {
-                println!("  └─ Files: {} {} (modified, {} lines)", "~".bright_yellow(), path, lines.len());
+            println!("  Confidence: High");
+            println!("  Risk: Low");
+            println!("\nTip: Use 'y' to proceed, 'n' to cancel, or 'edit' to modify goal");
+        } else {
+            println!("\n{}Summary{}:", "📊 ".bright_cyan(), session_info);
+            match op_type {
+                "create" => {
+                    println!("  └─ Files: {} {} (new file, {} lines)", "+".bright_green(), path, lines.len());
+                }
+                "update" => {
+                    println!("  └─ Files: {} {} (modified, {} lines)", "~".bright_yellow(), path, lines.len());
+                }
+                _ => {
+                    println!("  └─ Files: {} {} ({}, {} lines)", "?".bright_blue(), path, op_type, lines.len());
+                }
             }
-            _ => {
-                println!("  └─ Files: {} {} ({}, {} lines)", "?".bright_blue(), path, op_type, lines.len());
-            }
+            println!("  └─ Confidence: {}", "High".bright_green());
+            println!("  └─ Risk: {}", "Low".bright_green());
+            println!("\n{}💡 Tip: Use 'y' to proceed, 'n' to cancel, or 'edit' to modify goal", "💭 ".dimmed());
         }
-        println!("  └─ Confidence: {}", "High".bright_green());
-        println!("  └─ Risk: {}", "Low".bright_green());
-        println!("\n{}💡 Tip: Use 'y' to proceed, 'n' to cancel, or 'edit' to modify goal", "💭 ".dimmed());
     }
 
     /// Create logical chunks for displaying large files
