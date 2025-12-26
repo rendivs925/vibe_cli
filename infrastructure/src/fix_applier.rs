@@ -132,15 +132,81 @@ impl FixApplier {
         std::fs::create_dir_all(backup_path.parent().unwrap())?;
         fs::write(&backup_path, &content)?;
 
-        // Apply the change (simplified - in reality this would be more sophisticated)
-        // For now, we'll just append the suggested code
-        let new_content = format!("{}\n// AUTONOMOUS FIX: {}\n{}\n", content, change.new_code, change.new_code);
-        fs::write(&file_path, new_content)?;
+        // Apply the code change using line numbers and old/new code
+        let new_content = self.apply_code_change_to_content(&content, change)?;
+
+        // Write the modified content back to the file
+        fs::write(&file_path, &new_content)
+            .map_err(|e| anyhow::anyhow!("Failed to write file {}: {}", file_path.display(), e))?;
 
         files_modified.push(file_path);
         backup_paths.push(backup_path);
 
         Ok(())
+    }
+
+    /// Apply a code change to file content using line numbers and old/new code
+    fn apply_code_change_to_content(
+        &self,
+        content: &str,
+        change: &super::error_analyzer::CodeChange,
+    ) -> Result<String> {
+        let lines: Vec<&str> = content.lines().collect();
+        let line_start = change.line_start as usize;
+        let line_end = change.line_end as usize;
+
+        // Validate line numbers
+        if line_start == 0 || line_end == 0 || line_start > lines.len() || line_end > lines.len() {
+            return Err(anyhow::anyhow!(
+                "Invalid line numbers: start={}, end={}, total_lines={}",
+                line_start, line_end, lines.len()
+            ));
+        }
+
+        // Convert to 0-based indexing
+        let start_idx = line_start - 1;
+        let end_idx = line_end - 1;
+
+        // Extract the code block to be replaced
+        let current_block: String = lines[start_idx..=end_idx].join("\n");
+
+        // Verify the old code matches (with some flexibility for whitespace)
+        let old_code_normalized = self.normalize_code(&change.old_code);
+        let current_block_normalized = self.normalize_code(&current_block);
+
+        if !current_block_normalized.contains(&old_code_normalized) &&
+           !old_code_normalized.is_empty() {
+            return Err(anyhow::anyhow!(
+                "Old code does not match current content.\nExpected: {}\nFound: {}",
+                change.old_code, current_block
+            ));
+        }
+
+        // Build new content
+        let mut new_lines = Vec::new();
+
+        // Add lines before the change
+        new_lines.extend_from_slice(&lines[..start_idx]);
+
+        // Add the new code
+        let new_code_lines: Vec<&str> = change.new_code.lines().collect();
+        new_lines.extend(new_code_lines);
+
+        // Add lines after the change
+        if end_idx + 1 < lines.len() {
+            new_lines.extend_from_slice(&lines[end_idx + 1..]);
+        }
+
+        Ok(new_lines.join("\n"))
+    }
+
+    /// Normalize code for comparison (handles whitespace differences)
+    fn normalize_code(&self, code: &str) -> String {
+        code.lines()
+            .map(|line| line.trim())
+            .filter(|line| !line.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n")
     }
 
     /// Create a git commit for the applied fix
