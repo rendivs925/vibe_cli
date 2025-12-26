@@ -192,48 +192,46 @@ pub async fn confirm_and_run(cmd: &str, config: &Config) -> Result<()> {
     let proceed = ask_confirmation("Run this command?", false)?;
 
     if !proceed {
-        println!("{}", "Command execution cancelled.".yellow());
+        println!("[CANCEL] Command execution cancelled.");
         return Ok(());
     }
 
-    println!("{}", "Running command...\n".cyan());
+    println!("[EXEC] {}", cmd);
+    println!("[RUN] Executing command...");
 
     // Check if we should use safe tool execution
     if std::env::var("VIBE_USE_SAFE_TOOLS").unwrap_or_default() == "1" {
         // Use new safe tool system
         match interpret_and_execute_safe_command(cmd).await {
-            Ok(result) => {
-                println!("{}", result.stdout);
-                if !result.stderr.is_empty() {
-                    eprintln!("{}", result.stderr);
+                Ok(result) => {
+                    println!("{}", result.stdout);
+                    if !result.stderr.is_empty() {
+                        eprintln!("{}", result.stderr);
+                    }
+                    if result.success {
+                        println!("[DONE] Command completed successfully (exit code: 0)");
+                    } else {
+                        println!(
+                            "[DONE] Command failed (exit code: {:?})",
+                            result.exit_code
+                        );
+                    }
                 }
-                if result.success {
-                    println!("{}", "Command completed successfully.".green());
-                } else {
-                    println!(
-                        "{} (exit status: {:?})",
-                        "Command failed.".red(),
-                        result.exit_code
-                    );
-                }
-            }
             Err(e) => {
                 println!(
-                    "{} {}",
-                    "Safe tool execution failed:".red().bold(),
-                    e.to_string().red()
+                    "[ERROR] Safe tool execution failed: {}",
+                    e.to_string()
                 );
-                println!("{}", "Falling back to legacy execution...".yellow());
+                println!("[FALLBACK] Using legacy execution...");
 
                 // Fallback to legacy shell execution
                 let status = Command::new("sh").arg("-c").arg(cmd).status()?;
 
                 if status.success() {
-                    println!("{}", "Command completed successfully.".green());
+                    println!("[DONE] Command completed successfully");
                 } else {
                     println!(
-                        "{} (exit status: {:?})",
-                        "Command failed.".red(),
+                        "[DONE] Command failed (exit code: {:?})",
                         status.code()
                     );
                 }
@@ -263,7 +261,7 @@ pub fn confirm_and_run_multi_step(cmd: &str, config: &Config) -> Result<()> {
     let accept = ask_confirmation("Accept this command?", true)?;
 
     if !accept {
-        println!("{}", "Command rejected. Skipping this step.".yellow());
+        println!("[SKIP] Command rejected. Skipping this step.");
         return Ok(());
     }
 
@@ -314,16 +312,16 @@ pub fn confirm_and_run_multi_step(cmd: &str, config: &Config) -> Result<()> {
         return Ok(());
     }
 
-    println!("{}", "Running command...\n".cyan());
+    println!("[EXEC] {}", cmd);
+    println!("[RUN] Executing command...");
 
     let status = Command::new("sh").arg("-c").arg(cmd).status()?;
 
     if status.success() {
-        println!("{}", "Command completed successfully.".green());
+        println!("[DONE] Command completed successfully");
     } else {
         println!(
-            "{} (exit status: {:?})",
-            "Command failed.".red(),
+            "[DONE] Command failed (exit code: {:?})",
             status.code()
         );
     }

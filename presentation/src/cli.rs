@@ -1498,10 +1498,15 @@ impl CliApp {
             println!("{}", format!("Command: {}", command).green());
             if ask_confirmation("Run this command?", false)? {
                 let sandbox = Sandbox::new();
-                match sandbox.execute_safe("bash", vec!["-c".to_string(), command.clone()]).await {
-                    Ok(output) => println!("{}", output),
-                    Err(e) => {
-                        eprintln!("{}", format!("Sandbox execution failed: {}", e).red());
+            println!("[EXEC] {}", command);
+            println!("[RUN] Executing command...");
+            match sandbox.execute_safe("bash", vec!["-c".to_string(), command.clone()]).await {
+                Ok(output) => {
+                    println!("{}", output);
+                    println!("[DONE] Command completed");
+                }
+                Err(e) => {
+                    eprintln!("[ERROR] Sandbox execution failed: {}", e);
                         // Offer fallback option for debugging
                         if ask_confirmation("Try running without sandboxing?", false)? {
                             match std::process::Command::new("bash").arg("-c").arg(&command).output() {
@@ -1509,17 +1514,15 @@ impl CliApp {
                                     println!("{}", String::from_utf8_lossy(&output.stdout));
                                     if !output.status.success() {
                                         println!(
-                                            "{}",
-                                            format!(
-                                                "Command failed: {}",
-                                                String::from_utf8_lossy(&output.stderr)
-                                            )
-                                            .red()
+                                            "[DONE] Command failed: {}",
+                                            String::from_utf8_lossy(&output.stderr)
                                         );
+                                    } else {
+                                        println!("[DONE] Command completed");
                                     }
                                 }
                                 Err(e) => {
-                                    eprintln!("{}", format!("Direct execution failed: {}", e).red());
+                                    eprintln!("[ERROR] Direct execution failed: {}", e);
                                 }
                             }
                         }

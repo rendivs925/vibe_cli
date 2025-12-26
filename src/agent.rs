@@ -33,6 +33,7 @@ pub async fn run_agent_mode(config: &Config, prompt_text: &str) -> Result<()> {
             "Step".green().bold(),
             format!("{}:", i + 1).green().bold()
         );
+        println!("[STEP] {}/{}", i + 1, plan.len());
         confirm_and_run_multi_step(cmd, config)?;
     }
 
