@@ -29,11 +29,12 @@ pub mod lsp_client;
 pub mod test_watcher;
 pub mod log_tailer;
 pub mod error_analyzer;
-pub mod chatgpt_browser;
-pub mod chatgpt_ocr;
-pub mod smart_router;
-pub mod compilation_watcher;
-pub mod fix_applier;
+ pub mod chatgpt_browser;
+ pub mod chatgpt_ocr;
+ pub mod smart_router;
+ pub mod privacy_controls;
+ pub mod compilation_watcher;
+ pub mod fix_applier;
 
 /// Common inference enum for different backends (Candle, Ollama, etc.)
 #[derive(Clone)]
