@@ -1,7 +1,6 @@
 use shared::types::Result;
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use colored::Colorize;
 use crate::transaction::{Transaction, TransactionGuard};
 use shared::confirmation::ask_confirmation;
 
@@ -447,7 +446,7 @@ impl BuildService {
         critical_patterns.iter().any(|pattern| path_str.contains(pattern))
     }
 
-    /// Display a file operation with color coding
+    /// Display a file operation in plain text
     pub fn display_operation(&self, operation: &FileOperation, risk: RiskLevel) {
         let risk_label = format!("[{:?}]", risk);
 
@@ -467,47 +466,45 @@ impl BuildService {
         }
     }
 
-    /// Preview a build plan with color-coded operations
+    /// Preview a build plan in plain text
     pub fn preview_plan(&self, plan: &BuildPlan) -> Result<()> {
-        println!("\n{}", "Build Plan Preview".bright_cyan().bold());
-        println!("{} {}", "Goal:".bright_green(), plan.goal);
-        println!("{} {}", "Description:".bright_green(), plan.description);
-        println!("{} {:?}", "Estimated Risk:".bright_green(), plan.estimated_risk);
-        println!("\n{}", "Planned Operations:".bright_yellow());
+        println!("\n[BUILD_PLAN_PREVIEW]");
+        println!("Goal: {}", plan.goal);
+        println!("Description: {}", plan.description);
+        println!("Estimated Risk: {:?}", plan.estimated_risk);
+        println!("\nPlanned Operations:");
 
         for (i, operation) in plan.operations.iter().enumerate() {
-            println!("\n{}", format!("Operation {}/{}:", i + 1, plan.operations.len()).bright_blue());
+            println!("\nOperation {}/{}:", i + 1, plan.operations.len());
             let risk = self.assess_risk(operation);
             self.display_operation(operation, risk);
 
             if self.verbose {
                 match operation {
                     FileOperation::Create { content, .. } => {
-                        println!("\n{}", "Content preview:".bright_cyan());
+                        println!("\nContent preview:");
                         let cleaned = Self::strip_fences_for_preview(content);
                         let snippet = if cleaned.len() > 200 { &cleaned[..200] } else { &cleaned };
-                        println!("    {}", snippet.dimmed());
+                        println!("    {}", snippet);
                         if cleaned.len() > 200 {
-                            println!("    {}... ({} more chars)", "...".dimmed(), cleaned.len() - 200);
+                            println!("    ... ({} more chars)", cleaned.len() - 200);
                         }
                     }
                     FileOperation::Update { new_content, .. } => {
-                        println!("\n{}", "Content preview:".bright_cyan());
+                        println!("\nContent preview:");
                         let cleaned = Self::strip_fences_for_preview(new_content);
                         let snippet = if cleaned.len() > 200 { &cleaned[..200] } else { &cleaned };
-                        println!("    {}", snippet.dimmed());
+                        println!("    {}", snippet);
                         if cleaned.len() > 200 {
-                            println!("    {}... ({} more chars)", "...".dimmed(), cleaned.len() - 200);
+                            println!("    ... ({} more chars)", cleaned.len() - 200);
                         }
                     }
                     _ => {}
                 }
             }
-
-
         }
 
-        println!("\n{}", "End of Preview".bright_cyan());
+        println!("\n[END_PREVIEW]");
         Ok(())
     }
 
@@ -515,32 +512,32 @@ impl BuildService {
     fn display_operation_detail(&self, operation: &FileOperation) -> Result<()> {
         let risk = self.assess_risk(operation);
 
-        println!("\n{}", "─".repeat(60).bright_black());
+        println!("\n{}", "─".repeat(60));
         self.display_operation(operation, risk);
 
         match operation {
             FileOperation::Create { path, content } => {
-                println!("\n{}", "Content to be created:".bright_cyan());
+                println!("\nContent to be created:");
                 let cleaned = Self::strip_fences_for_preview(content);
                 let preview = if cleaned.len() > 500 {
                     format!("{}... ({} bytes total)", &cleaned[..500], cleaned.len())
                 } else {
                     cleaned
                 };
-                println!("{}", preview.dimmed());
+                println!("{}", preview);
             }
             FileOperation::Update { path, old_content, new_content } => {
-                println!("\n{}", "Changes:".bright_cyan());
+                println!("\nChanges:");
                 if self.show_diff || self.verbose {
                     self.display_diff(old_content, new_content);
                 } else {
-                    println!("{}", "(use --show-diff for detailed diff)".dimmed());
+                    println!("{}", "(use --show-diff for detailed diff)");
                 }
             }
             FileOperation::Delete { path } => {
                 if path.exists() {
                     let size = std::fs::metadata(path)?.len();
-                    println!("{}", format!("File size: {} bytes", size).dimmed());
+                    println!("File size: {} bytes", size);
                 }
             }
             FileOperation::Read { .. } => {
@@ -562,24 +559,24 @@ impl BuildService {
             match (old_lines.get(i), new_lines.get(i)) {
                 (Some(old_line), Some(new_line)) => {
                     if old_line != new_line {
-                        println!("{} {}", "-".red(), old_line.red());
-                        println!("{} {}", "+".green(), new_line.green());
+                        println!("- {}", old_line);
+                        println!("+ {}", new_line);
                     } else {
-                        println!("  {}", old_line.dimmed());
+                        println!("  {}", old_line);
                     }
                 }
                 (Some(old_line), None) => {
-                    println!("{} {}", "-".red(), old_line.red());
+                    println!("- {}", old_line);
                 }
                 (None, Some(new_line)) => {
-                    println!("{} {}", "+".green(), new_line.green());
+                    println!("+ {}", new_line);
                 }
                 (None, None) => break,
             }
         }
 
         if old_lines.len() > max_lines || new_lines.len() > max_lines {
-            println!("{}", "... (diff truncated)".dimmed());
+            println!("... (diff truncated)");
         }
     }
 
@@ -716,7 +713,7 @@ impl BuildService {
         let mut transaction = Transaction::new();
         transaction.begin()?;
 
-        println!("\n{}", format!("Executing {} operations...", plan.operations.len()).bright_cyan());
+        println!("\n[EXECUTING] {} operations...", plan.operations.len());
 
         let total_ops = plan.operations.len();
 
@@ -769,15 +766,15 @@ impl BuildService {
         }
 
         // Print summary
-        println!("\n{}", "=== Build Summary ===".bright_cyan().bold());
-        println!("{}: {}", "Operations completed".green(), result.operations_completed);
+        println!("\n[BUILD_SUMMARY]");
+        println!("Operations completed: {}", result.operations_completed);
         if result.operations_failed > 0 {
-            println!("{}: {}", "Operations failed".red(), result.operations_failed);
+            println!("Operations failed: {}", result.operations_failed);
         }
         if result.rollback_performed {
-            println!("{}", "Transaction rolled back".yellow());
+            println!("Transaction rolled back");
         } else if result.success {
-            println!("{}", "All changes committed successfully".green());
+            println!("All changes committed successfully");
         }
 
         Ok(result)
@@ -854,7 +851,7 @@ impl BuildService {
             &parents,
         ).map_err(|e| anyhow::anyhow!("Failed to create commit: {}", e))?;
 
-        println!("{}", "✓ Changes committed to git".bright_green());
+        println!("[COMMIT] Changes committed to git");
         Ok(())
     }
 
@@ -951,9 +948,9 @@ impl BuildService {
         self.buffered_operations = operations;
     }
 
-    /// Stream a file operation with syntax-highlighted diff
+    /// Stream a file operation in plain text
     pub fn stream_operation(&self, operation: &FileOperation, step_number: usize, total_steps: usize) -> Result<()> {
-        println!("\n{}", format!("Step {}/{}", step_number, total_steps).bright_cyan().bold());
+        println!("\n[STEP] {}/{}", step_number, total_steps);
 
         let risk = self.assess_risk(operation);
         let risk_label = format!("[{:?}]", risk);
@@ -961,34 +958,24 @@ impl BuildService {
         match operation {
             FileOperation::Create { path, content } => {
                 println!("{} Creating: {}", risk_label, path.display());
-                println!("\n{}", "Code preview:".bright_cyan());
+                println!("\nCode preview:");
 
-                // Show first 20 lines with syntax highlighting simulation
+                // Show first 20 lines in plain text
                 let lines: Vec<&str> = content.lines().collect();
                 let preview_lines = lines.iter().take(20);
 
                 for (i, line) in preview_lines.enumerate() {
-                    if line.trim().is_empty() {
-                        println!("{:3} {}", i + 1, line.dimmed());
-                    } else if line.contains("//") || line.contains("#") {
-                        println!("{:3} {}", i + 1, line.bright_black());
-                    } else if line.contains("fn ") || line.contains("function") || line.contains("class") {
-                        println!("{:3} {}", i + 1, line.bright_blue());
-                    } else if line.contains("<") && line.contains(">") {
-                        println!("{:3} {}", i + 1, line.bright_green());
-                    } else {
-                        println!("{:3} {}", i + 1, line);
-                    }
+                    println!("{:3} {}", i + 1, line);
                 }
 
                 if lines.len() > 20 {
-                    println!("{} ... ({} more lines)", "...".dimmed(), lines.len() - 20);
+                    println!("... ({} more lines)", lines.len() - 20);
                 }
             }
             FileOperation::Update { path, old_content, new_content } => {
                 println!("{} Updating: {}", risk_label, path.display());
                 if self.show_diff {
-                    println!("\n{}", "Changes:".bright_cyan());
+                    println!("\nChanges:");
                     self.display_diff(old_content, new_content);
                 }
             }
@@ -999,7 +986,7 @@ impl BuildService {
                 println!("{} Deleting: {}", risk_label, path.display());
                 if path.exists() {
                     let size = std::fs::metadata(path)?.len();
-                    println!("  {}", format!("File size: {} bytes", size).dimmed());
+                    println!("  File size: {} bytes", size);
                 }
             }
         }
