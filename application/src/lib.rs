@@ -3,6 +3,7 @@ pub mod agent_service;
 pub mod build_service;
 pub mod dynamic_scaling;
 pub mod explain_service;
+pub mod hallucination_detector;
 pub mod parallel_agent;
 pub mod rag_service;
 pub mod result_aggregator;
