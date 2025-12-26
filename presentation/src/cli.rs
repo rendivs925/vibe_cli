@@ -918,6 +918,14 @@ impl CliApp {
                     let plan_content = Self::format_plan_for_editing(&temp_plan);
                     match editor::Editor::edit_content(&plan_content, editor::EditContent::Plan(plan_content.clone())) {
                         Ok(edited_plan) => {
+                            if let Some(edited_goal) = Self::extract_goal_from_plan(&edited_plan) {
+                                if edited_goal != current_goal {
+                                    println!("[EDIT] Goal updated: {}", edited_goal);
+                                    current_goal = edited_goal;
+                                    plan_hints = None;
+                                }
+                            }
+
                             match editor::Editor::parse_edited_plan(&edited_plan) {
                                 Ok(steps) => {
                                     println!("[EDIT] Plan updated with {} steps", steps.len());
@@ -1500,6 +1508,19 @@ impl CliApp {
             return Some(FileOperation::Read { path: std::path::PathBuf::from(path_str) });
         }
 
+        None
+    }
+
+    fn extract_goal_from_plan(edited_plan: &str) -> Option<String> {
+        for line in edited_plan.lines() {
+            let trimmed = line.trim();
+            if let Some(goal) = trimmed.strip_prefix("# Goal:") {
+                let goal = goal.trim();
+                if !goal.is_empty() {
+                    return Some(goal.to_string());
+                }
+            }
+        }
         None
     }
 
