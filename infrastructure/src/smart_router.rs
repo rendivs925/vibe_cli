@@ -345,7 +345,7 @@ impl SmartRouter {
         let mut score = 0.0;
 
         // Length factor
-        score += (words.len() as f32 / 100.0).min(0.2);
+        score += (words.len() as f32 / 80.0).min(0.25);
 
         // Code factor
         if has_code {
@@ -354,7 +354,7 @@ impl SmartRouter {
 
         // Architecture factor
         if has_architecture {
-            score += 0.2;
+            score += 0.3;
         }
 
         // Research factor
@@ -363,7 +363,7 @@ impl SmartRouter {
         }
 
         // Technical terms factor
-        score += (technical_terms as f32 / 10.0).min(0.2);
+        score += (technical_terms as f32 / 8.0).min(0.25);
 
         QueryComplexity {
             score: score.min(1.0),

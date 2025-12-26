@@ -1032,6 +1032,12 @@ impl CliApp {
 
         // Execute the buffered operations (unless dry-run)
         if !dry_run {
+            // Final per-operation review/edit/apply loop
+            if !self.apply_operations_interactively(&mut temp_plan, &mut build_service)? {
+                println!("[CANCEL] Execution cancelled by user.");
+                break 'planning;
+            }
+
             match build_service.apply_buffered_operations().await {
                 Ok(result) => {
                     if result.success {
@@ -1491,6 +1497,130 @@ impl CliApp {
         }
 
         None
+    }
+
+    /// Review and apply operations one by one with inline editing/viewing
+    fn apply_operations_interactively(
+        &self,
+        plan: &mut BuildPlan,
+        build_service: &mut application::build_service::BuildService,
+    ) -> Result<bool> {
+        use application::build_service::FileOperation;
+
+        let mut idx = 0;
+        while idx < plan.operations.len() {
+            let total = plan.operations.len();
+            let op = plan.operations[idx].clone();
+
+            println!("\n[STEP {}/{}]", idx + 1, total);
+            Self::display_operation_summary(&op);
+            println!("[PROMPT] Apply? [y/n/e(dit)/v(iew)/r(emove)/q]");
+
+            let mut input = String::new();
+            std::io::stdin().read_line(&mut input)?;
+            match input.trim().to_lowercase().as_str() {
+                "y" | "yes" => {
+                    idx += 1;
+                }
+                "n" | "skip" => {
+                    println!("[SKIP] Skipping operation {}", idx + 1);
+                    idx += 1;
+                }
+                "r" | "remove" => {
+                    println!("[REMOVE] Removing step {}", idx + 1);
+                    plan.operations.remove(idx);
+                    continue;
+                }
+                "v" | "view" => {
+                    Self::display_full_operation(&op);
+                    continue;
+                }
+                "e" | "edit" => {
+                    if let Some(edited_op) = Self::edit_operation(op.clone())? {
+                        plan.operations[idx] = edited_op;
+                        build_service.set_buffered_operations(plan.operations.clone());
+                        println!("[EDIT] Updated step {}", idx + 1);
+                    } else {
+                        println!("[EDIT] No changes made");
+                    }
+                    continue;
+                }
+                "q" | "quit" => return Ok(false),
+                _ => {
+                    println!("Enter y/n/e/v/r/q");
+                    continue;
+                }
+            }
+        }
+
+        // Refresh buffered operations after interactive edits/removals
+        build_service.set_buffered_operations(plan.operations.clone());
+        Ok(true)
+    }
+
+    /// Show full content for create/update operations
+    fn display_full_operation(op: &application::build_service::FileOperation) {
+        use application::build_service::FileOperation;
+        match op {
+            FileOperation::Create { path, content } => {
+                println!("Create {}:\n{}", path.display(), content);
+            }
+            FileOperation::Update { path, new_content, .. } => {
+                println!("Update {}:\n{}", path.display(), new_content);
+            }
+            FileOperation::Delete { path } => println!("Delete {}", path.display()),
+            FileOperation::Read { path } => println!("Read {}", path.display()),
+        }
+    }
+
+    fn display_operation_summary(op: &application::build_service::FileOperation) {
+        use application::build_service::FileOperation;
+        match op {
+            FileOperation::Create { path, content } => {
+                println!("Create {}", path.display());
+                let lines: Vec<&str> = content.lines().collect();
+                for line in lines.iter().take(10) {
+                    println!("  {}", line);
+                }
+                if lines.len() > 10 {
+                    println!("  ... (truncated)");
+                }
+            }
+            FileOperation::Update { path, new_content, .. } => {
+                println!("Update {}", path.display());
+                let lines: Vec<&str> = new_content.lines().collect();
+                for line in lines.iter().take(10) {
+                    println!("  {}", line);
+                }
+                if lines.len() > 10 {
+                    println!("  ... (truncated)");
+                }
+            }
+            FileOperation::Delete { path } => println!("Delete {}", path.display()),
+            FileOperation::Read { path } => println!("Read {}", path.display()),
+        }
+    }
+
+    /// Allow editing the file content for create/update operations
+    fn edit_operation(
+        op: application::build_service::FileOperation,
+    ) -> Result<Option<application::build_service::FileOperation>> {
+        use application::build_service::FileOperation;
+
+        match op {
+            FileOperation::Create { path, content } => {
+                let edited = editor::Editor::edit_content(&content, editor::EditContent::File(content.clone()))?;
+                Ok(Some(FileOperation::Create { path, content: edited }))
+            }
+            FileOperation::Update { path, old_content, new_content } => {
+                let edited = editor::Editor::edit_content(&new_content, editor::EditContent::File(new_content.clone()))?;
+                Ok(Some(FileOperation::Update { path, old_content, new_content: edited }))
+            }
+            _ => {
+                println!("[EDIT] Only create/update steps can be edited.");
+                Ok(None)
+            }
+        }
     }
 
     /// Format a single operation for editing
@@ -2987,5 +3117,61 @@ use shared::confirmation::{ask_confirmation, ask_enhanced_confirmation, Confirma
         } else {
             Ok(false) // No parent commit (initial commit)
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::CliApp;
+    use application::build_service::FileOperation;
+    use std::path::PathBuf;
+
+    #[test]
+    fn rebuild_operations_reorders_known_steps() {
+        let ops = vec![
+            FileOperation::Create {
+                path: PathBuf::from("health.sh"),
+                content: "a".to_string(),
+            },
+            FileOperation::Update {
+                path: PathBuf::from("health.sh"),
+                old_content: "a".to_string(),
+                new_content: "b".to_string(),
+            },
+        ];
+
+        let steps = vec![
+            "Update health.sh".to_string(),
+            "Create health.sh".to_string(),
+        ];
+
+        let (reordered, warnings) = CliApp::rebuild_operations_from_steps(&steps, &ops);
+        assert!(warnings.is_empty());
+        assert!(matches!(reordered[0], FileOperation::Update { .. }));
+        assert!(matches!(reordered[1], FileOperation::Create { .. }));
+    }
+
+    #[test]
+    fn rebuild_operations_warns_on_unknown_steps() {
+        let ops = vec![FileOperation::Create {
+            path: PathBuf::from("health.sh"),
+            content: "a".to_string(),
+        }];
+        let steps = vec!["Do something else".to_string()];
+
+        let (reordered, warnings) = CliApp::rebuild_operations_from_steps(&steps, &ops);
+        assert!(reordered.is_empty());
+        assert_eq!(warnings.len(), 1);
+    }
+
+    #[test]
+    fn parse_operation_line_allows_delete_and_read() {
+        let ops = vec![];
+
+        let delete = CliApp::parse_operation_line("Delete logs.txt", &ops).unwrap();
+        let read = CliApp::parse_operation_line("Read docs.txt", &ops).unwrap();
+
+        assert!(matches!(delete, FileOperation::Delete { .. }));
+        assert!(matches!(read, FileOperation::Read { .. }));
     }
 }

@@ -1289,4 +1289,29 @@ mod tests {
         assert!(service.is_critical_path(Path::new("/etc/passwd")));
         assert!(!service.is_critical_path(Path::new("/tmp/test.txt")));
     }
+
+    #[test]
+    fn test_enforce_project_scope_filters_external_paths() {
+        let service = BuildService::new("/tmp/project");
+
+        let ops = vec![
+            FileOperation::Create {
+                path: PathBuf::from("/tmp/project/health.sh"),
+                content: "echo ok".to_string(),
+            },
+            FileOperation::Delete {
+                path: PathBuf::from("/etc/passwd"),
+            },
+            FileOperation::Read {
+                path: PathBuf::from("relative.txt"),
+            },
+        ];
+
+        let (scoped, warnings) = service.enforce_project_scope(ops);
+
+        assert_eq!(scoped.len(), 2);
+        assert_eq!(warnings.len(), 1);
+        assert!(matches!(scoped[0], FileOperation::Create { .. }));
+        assert!(matches!(scoped[1], FileOperation::Read { .. }));
+    }
 }
