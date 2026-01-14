@@ -34,7 +34,7 @@ impl LogTailer {
         
         // Log tailer disabled by default - no automatic monitoring
         // Only start if explicitly requested
-        Ok(())
+        return Ok(());
 
         // Start monitoring each log file
         let mut handles = Vec::new();

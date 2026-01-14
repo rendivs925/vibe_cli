@@ -8,7 +8,10 @@ use tokio::process::Command;
 use tokio::time::{self, Duration};
 
 /// Compilation watcher that monitors cargo check output for real errors
-pub struct CompilationWatcher;
+pub struct CompilationWatcher {
+    project_root: PathBuf,
+    event_tx: Sender<super::background_supervisor::BackgroundEvent>,
+}
 
 impl CompilationWatcher {
     /// Start monitoring compilation errors
@@ -21,16 +24,6 @@ impl CompilationWatcher {
         // Compilation watcher disabled by default - no automatic monitoring
         // Only start if explicitly requested
         Ok(Self { project_root, event_tx })
-
-        // Start monitoring in a separate task
-        tokio::spawn(async move {
-            if let Err(e) = Self::run_compilation_monitor(project_root, event_tx).await {
-                eprintln!("Compilation watcher error: {}", e);
-            }
-        });
-
-        println!("  └─ ✅ Compilation watcher started");
-        Ok(Self)
     }
 
     /// Run the compilation monitoring loop

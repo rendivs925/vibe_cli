@@ -1,10 +1,19 @@
-use application::{rag_service::RagService, agent_service::AgentService, build_service::BuildPlan};
+use application::{agent_service::AgentService, build_service::BuildPlan, rag_service::RagService};
+use chrono::Utc;
 use clap::Parser;
 use colored::Colorize;
 use docx_rs::*;
-use infrastructure::{config::Config, ollama_client::OllamaClient, sandbox::Sandbox, session_store::SessionStore, background_supervisor::{BackgroundSupervisor, BackgroundEvent, FileChangeType, TestStatus, LogLevel, DiagnosticSeverity, GitStatus}};
 use flume::Receiver;
-use chrono::Utc;
+use infrastructure::{
+    background_supervisor::{
+        BackgroundEvent, BackgroundSupervisor, DiagnosticSeverity, FileChangeType, GitStatus,
+        LogLevel, TestStatus,
+    },
+    config::Config,
+    ollama_client::OllamaClient,
+    sandbox::Sandbox,
+    session_store::SessionStore,
+};
 use serde::{Deserialize, Serialize};
 use shared::confirmation::ask_confirmation;
 use shared::types::Result;
@@ -12,10 +21,10 @@ use std::collections::{HashMap, HashSet};
 use std::hash::{Hash, Hasher};
 use std::io::{self, Write};
 use std::path::PathBuf;
-use tokio::sync::{oneshot, RwLock};
-use tokio::time::{self, Duration};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use tokio::sync::{oneshot, RwLock};
+use tokio::time::{self, Duration};
 
 use crate::editor;
 
@@ -24,19 +33,19 @@ fn find_project_root() -> Option<String> {
     loop {
         // Check for various project indicators
         let project_files = [
-            "Cargo.toml",      // Rust
-            "package.json",    // Node.js
+            "Cargo.toml",       // Rust
+            "package.json",     // Node.js
             "requirements.txt", // Python
-            "Pipfile",         // Python
-            "pyproject.toml",  // Python
-            "setup.py",        // Python
-            "Makefile",        // C/C++
-            "CMakeLists.txt",  // C/C++
-            "configure.ac",    // C/C++
-            "go.mod",          // Go
-            "Gemfile",         // Ruby
-            "composer.json",   // PHP
-            ".git",            // Git repo as fallback
+            "Pipfile",          // Python
+            "pyproject.toml",   // Python
+            "setup.py",         // Python
+            "Makefile",         // C/C++
+            "CMakeLists.txt",   // C/C++
+            "configure.ac",     // C/C++
+            "go.mod",           // Go
+            "Gemfile",          // Ruby
+            "composer.json",    // PHP
+            ".git",             // Git repo as fallback
         ];
 
         for file in &project_files {
@@ -380,19 +389,31 @@ pub struct Cli {
     pub stream: bool,
 
     /// Use safe build mode with RAG context and user confirmation
-    #[arg(long, help = "Generate and execute build plans with AI assistance, RAG context retrieval, and transaction safety")]
+    #[arg(
+        long,
+        help = "Generate and execute build plans with AI assistance, RAG context retrieval, and transaction safety"
+    )]
     pub build: bool,
 
     /// Run tests with real-time monitoring
-    #[arg(long, help = "Execute cargo test with real-time result monitoring and background intelligence")]
+    #[arg(
+        long,
+        help = "Execute cargo test with real-time result monitoring and background intelligence"
+    )]
     pub test: bool,
 
     /// Dry-run mode: show plan without executing
-    #[arg(long, help = "Preview build plan and operations without making changes")]
+    #[arg(
+        long,
+        help = "Preview build plan and operations without making changes"
+    )]
     pub dry_run: bool,
 
     /// Verbose output: show detailed information
-    #[arg(long, help = "Display retrieved context and detailed operation information")]
+    #[arg(
+        long,
+        help = "Display retrieved context and detailed operation information"
+    )]
     pub verbose: bool,
 
     /// Show diffs for file operations (reserved for future use)
@@ -400,7 +421,11 @@ pub struct Cli {
     pub show_diff: bool,
 
     /// Specify which session to use for operations
-    #[arg(long, value_name = "NAME", help = "Use named session for operations (creates if doesn't exist)")]
+    #[arg(
+        long,
+        value_name = "NAME",
+        help = "Use named session for operations (creates if doesn't exist)"
+    )]
     pub session: Option<String>,
 
     /// List all sessions for the current project
@@ -408,7 +433,11 @@ pub struct Cli {
     pub list_sessions: bool,
 
     /// Delete a specific session
-    #[arg(long, value_name = "NAME", help = "Permanently delete the specified session")]
+    #[arg(
+        long,
+        value_name = "NAME",
+        help = "Permanently delete the specified session"
+    )]
     pub delete_session: Option<String>,
 
     /// Continue the current or last active session
@@ -424,11 +453,19 @@ pub struct Cli {
     pub args: Vec<String>,
 
     /// Path to power user configuration file (YAML/JSON/TOML)
-    #[arg(long, value_name = "FILE", help = "Load power user configuration from file")]
+    #[arg(
+        long,
+        value_name = "FILE",
+        help = "Load power user configuration from file"
+    )]
     pub config: Option<String>,
 
     /// Generate default configuration file
-    #[arg(long, value_name = "FILE", help = "Generate default configuration file and exit")]
+    #[arg(
+        long,
+        value_name = "FILE",
+        help = "Generate default configuration file and exit"
+    )]
     pub generate_config: Option<String>,
 }
 
@@ -674,14 +711,14 @@ impl CliApp {
         let client = OllamaClient::new()?;
         // Use Ollama by default (now the recommended option)
         let agent_service = application::create_agent_service().await?;
-        
+
         // Create agent request
         let request = AgentRequest {
             goal: goal.to_string(),
             context: Some(format!("System: {}", self.system_info)),
             conversation_id: None,
         };
-        
+
         // Process with enhanced agent
         match agent_service.process_request(&request).await {
             Ok(response) => {
@@ -689,23 +726,26 @@ impl CliApp {
                 for (i, step) in response.reasoning.iter().enumerate() {
                     println!("  {}. {}", i + 1, step);
                 }
-                
+
                 if !response.tool_calls.is_empty() {
                     println!("\n{}", "🔧 Tools Used:".bright_yellow());
                     for tool_call in &response.tool_calls {
                         println!("  • {} ({})", tool_call.name, tool_call.reasoning);
                     }
                 }
-                
+
                 println!("\n{}", "💬 Response:".bright_green());
                 println!("{}", response.final_response);
-                println!("\n{}", format!("⚡ Confidence: {:.1}%", response.confidence * 100.0).bright_magenta());
+                println!(
+                    "\n{}",
+                    format!("⚡ Confidence: {:.1}%", response.confidence * 100.0).bright_magenta()
+                );
             }
             Err(e) => {
                 eprintln!("{} {}", "Agent error:".red(), e);
             }
         }
-        
+
         Ok(())
     }
 
@@ -719,7 +759,10 @@ impl CliApp {
             return Ok(());
         }
 
-        println!("{}", "Planning mode: Create execution plan without running commands".bright_cyan());
+        println!(
+            "{}",
+            "Planning mode: Create execution plan without running commands".bright_cyan()
+        );
         println!("{}", format!("Goal: {}", goal).bright_blue());
 
         let system_context = infrastructure::config::SystemContext::gather();
@@ -744,11 +787,14 @@ impl CliApp {
         );
 
         let request = domain::models::AgentRequest {
-            goal: format!("Create a detailed step-by-step execution plan for: {}", goal),
+            goal: format!(
+                "Create a detailed step-by-step execution plan for: {}",
+                goal
+            ),
             context: Some(context_info),
             conversation_id: None,
         };
-        
+
         // Generate plan using enhanced agent
         match agent_service.process_request(&request).await {
             Ok(response) => {
@@ -756,30 +802,43 @@ impl CliApp {
                 for (i, step) in response.reasoning.iter().enumerate() {
                     println!("  {}. {}", format!("Step {}", i + 1).bright_yellow(), step);
                 }
-                
+
                 if !response.tool_calls.is_empty() {
                     println!("\n{}", "Planned Tools:".bright_yellow());
                     for tool_call in &response.tool_calls {
-                        println!("  • {} - {}", tool_call.name.bright_green(), tool_call.reasoning);
+                        println!(
+                            "  • {} - {}",
+                            tool_call.name.bright_green(),
+                            tool_call.reasoning
+                        );
                     }
                 }
-                
+
                 println!("\n{}", "Execution Plan:".bright_green());
                 println!("{}", response.final_response);
-                
-                println!("\n{}", "Planning complete. Use --agent or --chat to execute the plan.".bright_green());
+
+                println!(
+                    "\n{}",
+                    "Planning complete. Use --agent or --chat to execute the plan.".bright_green()
+                );
             }
             Err(e) => {
                 eprintln!("{} {}", "Planning error:".red(), e);
             }
         }
-        
+
         Ok(())
     }
 
-    async fn handle_build(&mut self, goal: &str, dry_run: bool, verbose: bool, show_diff: bool) -> Result<()> {
-        use application::build_service::{BuildService, ConfirmationMode, BuildPlan, RiskLevel};
+    async fn handle_build(
+        &mut self,
+        goal: &str,
+        dry_run: bool,
+        verbose: bool,
+        show_diff: bool,
+    ) -> Result<()> {
         use application::agent_service::IncrementalBuildPlanner;
+        use application::build_service::{BuildPlan, BuildService, ConfirmationMode, RiskLevel};
         use infrastructure::config::Config;
 
         if goal.trim().is_empty() {
@@ -791,11 +850,17 @@ impl CliApp {
             return Ok(());
         }
 
-        let workspace_root = std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
+        let workspace_root =
+            std::env::current_dir().unwrap_or_else(|_| std::path::PathBuf::from("."));
         let mut current_goal = goal.to_string();
         let mut plan_hints: Option<String> = None;
 
-        println!("{}", "Build Mode: Safe code modifications with user confirmation".bright_cyan().bold());
+        println!(
+            "{}",
+            "Build Mode: Safe code modifications with user confirmation"
+                .bright_cyan()
+                .bold()
+        );
 
         // Initialize services outside the planning loop so we can reuse them on replans
         let agent_service = application::create_agent_service().await?;
@@ -822,139 +887,160 @@ impl CliApp {
                 build_service.set_confirmation_mode(ConfirmationMode::Interactive);
             }
 
-        // Use true real-time incremental streaming
-        println!("\n[PLAN] Starting incremental planning...");
+            // Use true real-time incremental streaming
+            println!("\n[PLAN] Starting incremental planning...");
 
-        // Create the incremental planner
-        let mut planner = match agent_service.plan_build_incremental(&planning_goal).await {
-            Ok(planner) => planner,
-            Err(e) => {
-                eprintln!("{} {}", "Build planning initialization error:".red(), e);
-                return Ok(());
-            }
-        };
-
-        // Real-time incremental planning with tool transparency
-        let total_steps = 5;
-        println!("[PLAN] Analyzing project...");
-
-        let mut step_count = 0;
-        let mut code_generation_complete = false;
-
-        loop {
-            // Stop processing if code generation is complete
-            if code_generation_complete {
-                break;
-            }
-
-            match planner.stream_next_step(&agent_service.inference_engine).await {
-                Ok(Some(step)) => {
-                    step_count += 1;
-
-                    // Update progress display
-                    self.update_progress_display(step_count, total_steps, &step.description);
-
-                    // Minimal reasoning display
-                    if step_count <= 3 && verbose {
-                        println!("[REASON] {}", step.reasoning.lines().next().unwrap_or(""));
-                    }
-
-                    // Show minimal tool usage
-                    if step_count == 2 && verbose {
-                        let (scanned, analyzed, keywords, _, _) = planner.context_stats();
-                        println!("[CONTEXT] Scanned {} files, {} keywords", scanned, keywords);
-                    }
-
-                    // Handle incremental code generation (Step 3)
-                    if step_count == 3 {
-                        if let (Some(code), Some(path), Some(op_type)) = (&step.code_chunk, &step.file_path, &step.operation_type) {
-                            // Display the incremental changes from AI
-                            self.display_incremental_changes(code, path, op_type);
-
-                            // Mark code generation as complete to prevent duplicate steps
-                            code_generation_complete = true;
-                        }
-                        // If no code provided by AI, skip this step (don't use hardcoded fallbacks)
-                    }
-
-                     // No artificial delay for speed
-                }
-                Ok(None) => {
-                    // Mark final step complete
-                    self.update_progress_display(total_steps, total_steps, "Finalizing changes");
-                    break;
-                }
+            // Create the incremental planner
+            let mut planner = match agent_service.plan_build_incremental(&planning_goal).await {
+                Ok(planner) => planner,
                 Err(e) => {
-                    println!("[✗] [{}/{}] Planning failed", step_count, total_steps);
-                    eprintln!("Planning error: {}", e);
+                    eprintln!("{} {}", "Build planning initialization error:".red(), e);
                     return Ok(());
                 }
-            }
-        }
+            };
 
-        println!("\n[PLAN] Complete - {} steps, {} operations ready", step_count, build_service.buffered_count());
+            // Real-time incremental planning with tool transparency
+            let total_steps = 5;
+            println!("[PLAN] Analyzing project...");
 
-        // Show background status updates
-        self.display_background_updates();
+            let mut step_count = 0;
+            let mut code_generation_complete = false;
 
-        // Show minimal summary
-        if verbose {
-            println!("\n[SUMMARY] Planning steps: {}, Operations: {}", step_count, build_service.buffered_count());
-        }
-
-        // Show plan preview using buffered operations, scoped to workspace
-        let (scoped_ops, scope_warnings) = build_service.enforce_project_scope(planner.get_completed_operations().to_vec());
-        for warning in &scope_warnings {
-            println!("[WARN] {}", warning);
-        }
-        build_service.set_buffered_operations(scoped_ops);
-
-        let mut temp_plan = BuildPlan {
-            goal: current_goal.to_string(),
-            operations: build_service.get_buffered_operations().to_vec(),
-            description: "Streaming-generated operations".to_string(),
-            estimated_risk: RiskLevel::Low,
-        };
-
-        if build_service.get_buffered_operations().is_empty() {
-            println!("[ERROR] All planned operations were outside the workspace. Please edit the plan to target paths under {}.", workspace_root.display());
-            continue 'planning;
-        }
-
-        if let Some(ref hints) = plan_hints {
-            let missing = Self::missing_plan_hints(hints, &temp_plan.operations);
-            if !missing.is_empty() {
-                println!("[WARN] Plan is missing required steps:");
-                for item in &missing {
-                    println!("  - {}", item);
+            loop {
+                // Stop processing if code generation is complete
+                if code_generation_complete {
+                    break;
                 }
-                println!("[PROMPT] Edit plan or goal? [e/g/q]");
-                let input = self.read_input_line()?;
-                match input.trim().to_lowercase().as_str() {
-                    "e" | "edit" => continue 'planning,
-                    "g" | "goal" => {
-                        let edited = editor::Editor::edit_content(&current_goal, editor::EditContent::Command(current_goal.clone()))?;
-                        let edited = edited.trim();
-                        if !edited.is_empty() {
-                            current_goal = edited.to_string();
-                            plan_hints = None;
+
+                match planner
+                    .stream_next_step(&agent_service.inference_engine)
+                    .await
+                {
+                    Ok(Some(step)) => {
+                        step_count += 1;
+
+                        // Update progress display
+                        self.update_progress_display(step_count, total_steps, &step.description);
+
+                        // Minimal reasoning display
+                        if step_count <= 3 && verbose {
+                            println!("[REASON] {}", step.reasoning.lines().next().unwrap_or(""));
                         }
-                        continue 'planning;
+
+                        // Show minimal tool usage
+                        if step_count == 2 && verbose {
+                            let (scanned, analyzed, keywords, _, _) = planner.context_stats();
+                            println!("[CONTEXT] Scanned {} files, {} keywords", scanned, keywords);
+                        }
+
+                        // Handle incremental code generation (Step 3)
+                        if step_count == 3 {
+                            if let (Some(code), Some(path), Some(op_type)) =
+                                (&step.code_chunk, &step.file_path, &step.operation_type)
+                            {
+                                // Display the incremental changes from AI
+                                self.display_incremental_changes(code, path, op_type);
+
+                                // Mark code generation as complete to prevent duplicate steps
+                                code_generation_complete = true;
+                            }
+                            // If no code provided by AI, skip this step (don't use hardcoded fallbacks)
+                        }
+
+                        // No artificial delay for speed
                     }
-                    "q" | "quit" => return Ok(()),
-                    _ => continue 'planning,
+                    Ok(None) => {
+                        // Mark final step complete
+                        self.update_progress_display(
+                            total_steps,
+                            total_steps,
+                            "Finalizing changes",
+                        );
+                        break;
+                    }
+                    Err(e) => {
+                        println!("[✗] [{}/{}] Planning failed", step_count, total_steps);
+                        eprintln!("Planning error: {}", e);
+                        return Ok(());
+                    }
                 }
             }
-        }
 
-        if let Err(e) = build_service.preview_plan(&temp_plan) {
-            eprintln!("[ERROR] Plan preview error: {}", e);
-            return Ok(());
-        }
+            println!(
+                "\n[PLAN] Complete - {} steps, {} operations ready",
+                step_count,
+                build_service.buffered_count()
+            );
 
-        // Offer interactive plan review
-        println!("\n[REVIEW] Plan generated. Review/edit before execution?");
-        println!("[PROMPT] Enter 'y' to review, 'e' to edit, 'q' to quit, or press Enter to continue");
+            // Show background status updates
+            self.display_background_updates();
+
+            // Show minimal summary
+            if verbose {
+                println!(
+                    "\n[SUMMARY] Planning steps: {}, Operations: {}",
+                    step_count,
+                    build_service.buffered_count()
+                );
+            }
+
+            // Show plan preview using buffered operations, scoped to workspace
+            let (scoped_ops, scope_warnings) =
+                build_service.enforce_project_scope(planner.get_completed_operations().to_vec());
+            for warning in &scope_warnings {
+                println!("[WARN] {}", warning);
+            }
+            build_service.set_buffered_operations(scoped_ops);
+
+            let mut temp_plan = BuildPlan {
+                goal: current_goal.to_string(),
+                operations: build_service.get_buffered_operations().to_vec(),
+                description: "Streaming-generated operations".to_string(),
+                estimated_risk: RiskLevel::Low,
+            };
+
+            if build_service.get_buffered_operations().is_empty() {
+                println!("[ERROR] All planned operations were outside the workspace. Please edit the plan to target paths under {}.", workspace_root.display());
+                continue 'planning;
+            }
+
+            if let Some(ref hints) = plan_hints {
+                let missing = Self::missing_plan_hints(hints, &temp_plan.operations);
+                if !missing.is_empty() {
+                    println!("[WARN] Plan is missing required steps:");
+                    for item in &missing {
+                        println!("  - {}", item);
+                    }
+                    println!("[PROMPT] Edit plan or goal? [e/g/q]");
+                    let input = self.read_input_line()?;
+                    match input.trim().to_lowercase().as_str() {
+                        "e" | "edit" => continue 'planning,
+                        "g" | "goal" => {
+                            let edited = editor::Editor::edit_content(
+                                &current_goal,
+                                editor::EditContent::Command(current_goal.clone()),
+                            )?;
+                            let edited = edited.trim();
+                            if !edited.is_empty() {
+                                current_goal = edited.to_string();
+                                plan_hints = None;
+                            }
+                            continue 'planning;
+                        }
+                        "q" | "quit" => return Ok(()),
+                        _ => continue 'planning,
+                    }
+                }
+            }
+
+            if let Err(e) = build_service.preview_plan(&temp_plan) {
+                eprintln!("[ERROR] Plan preview error: {}", e);
+                return Ok(());
+            }
+
+            // Offer interactive plan review
+            println!("\n[REVIEW] Plan generated. Review/edit before execution?");
+            println!("[PROMPT] Enter 'y' to review, 'e' to edit, 'q' to quit, or press Enter to continue");
 
             let input = self.read_input_line()?;
             match input.trim().to_lowercase().as_str() {
@@ -964,7 +1050,10 @@ impl CliApp {
                 }
                 "e" | "edit" => {
                     let plan_content = Self::format_plan_for_editing(&temp_plan);
-                    match editor::Editor::edit_content(&plan_content, editor::EditContent::Plan(plan_content.clone())) {
+                    match editor::Editor::edit_content(
+                        &plan_content,
+                        editor::EditContent::Plan(plan_content.clone()),
+                    ) {
                         Ok(edited_plan) => {
                             if let Some(edited_goal) = Self::extract_goal_from_plan(&edited_plan) {
                                 if edited_goal != current_goal {
@@ -986,7 +1075,10 @@ impl CliApp {
                                     continue 'planning;
                                 }
                                 Err(e) => {
-                                    println!("[ERROR] Failed to parse edited plan: {} - using original", e);
+                                    println!(
+                                        "[ERROR] Failed to parse edited plan: {} - using original",
+                                        e
+                                    );
                                 }
                             }
                         }
@@ -1040,11 +1132,16 @@ impl CliApp {
                     Ok(ConfirmationChoice::Edit) | Ok(ConfirmationChoice::Revise) => {
                         println!("[EDIT] Opening goal in editor for revision...");
 
-                        match editor::Editor::edit_content(&current_goal, editor::EditContent::Command(current_goal.clone())) {
+                        match editor::Editor::edit_content(
+                            &current_goal,
+                            editor::EditContent::Command(current_goal.clone()),
+                        ) {
                             Ok(edited_goal) => {
                                 let edited_goal = edited_goal.trim();
                                 if edited_goal.is_empty() || edited_goal == current_goal {
-                                    println!("[EDIT] Goal unchanged - proceeding with current plan");
+                                    println!(
+                                        "[EDIT] Goal unchanged - proceeding with current plan"
+                                    );
                                 } else {
                                     println!("[EDIT] Goal updated: {}", edited_goal);
                                     current_goal = edited_goal.to_string();
@@ -1070,7 +1167,10 @@ impl CliApp {
 
                         if ask_confirmation("Edit these suggestions?", false).unwrap_or(false) {
                             let suggestions = "1. Add error handling for edge cases\n2. Include logging for debugging\n3. Add input validation\n4. Consider performance optimizations\n5. Add tests for the new functionality";
-                            match editor::Editor::edit_content(suggestions, editor::EditContent::File(suggestions.to_string())) {
+                            match editor::Editor::edit_content(
+                                suggestions,
+                                editor::EditContent::File(suggestions.to_string()),
+                            ) {
                                 Ok(edited_suggestions) => {
                                     println!("[SUGGEST] Updated suggestions:");
                                     println!("{}", edited_suggestions);
@@ -1094,207 +1194,241 @@ impl CliApp {
                 }
             }
 
-        // Execute the buffered operations (unless dry-run)
-        if !dry_run {
-            // Final per-operation review/edit/apply loop
-            if !self.apply_operations_interactively(&mut temp_plan, &mut build_service)? {
-                println!("[CANCEL] Execution cancelled by user.");
-                break 'planning;
-            }
-
-            let mut completed = 0usize;
-            let mut failed = 0usize;
-            let mut errors = Vec::new();
-
-            for (idx, operation) in temp_plan.operations.iter().enumerate() {
-                if let Err(e) = build_service.execute_operation_once(operation).await {
-                    failed += 1;
-                    errors.push(format!("{:?}: {}", operation, e));
-                    eprintln!("{} {}", "Build execution error:".red(), e);
-                    break;
+            // Execute the buffered operations (unless dry-run)
+            if !dry_run {
+                // Final per-operation review/edit/apply loop
+                if !self.apply_operations_interactively(&mut temp_plan, &mut build_service)? {
+                    println!("[CANCEL] Execution cancelled by user.");
+                    break 'planning;
                 }
 
-                completed += 1;
-                let commit_msg = format!(
-                    "feat: {} (step {}/{})\n\nOperation:\n- {:?}",
-                    current_goal,
-                    idx + 1,
-                    temp_plan.operations.len(),
-                    operation
-                );
-                if let Err(e) = build_service.commit_message(&commit_msg).await {
-                    eprintln!("{} {}", "Warning: Git commit failed:".yellow(), e);
-                } else {
-                    println!("[COMMIT] {}", commit_msg.lines().next().unwrap_or("Committed"));
-                }
-            }
+                let mut completed = 0usize;
+                let mut failed = 0usize;
+                let mut errors = Vec::new();
 
-            if failed == 0 {
-                println!("\nBuild completed successfully.");
-                println!("{} operations completed", completed);
-            } else {
-                println!("\nBuild failed.");
-                println!("{} operations completed, {} failed", completed, failed);
-                for error in &errors {
-                    eprintln!("  {}", error.red());
-                }
-            }
-        } else {
-            println!("\n[DONE] Dry-run mode: No changes were made.");
-        }
+                for (idx, operation) in temp_plan.operations.iter().enumerate() {
+                    if let Err(e) = build_service.execute_operation_once(operation).await {
+                        failed += 1;
+                        errors.push(format!("{:?}: {}", operation, e));
+                        eprintln!("{} {}", "Build execution error:".red(), e);
+                        break;
+                    }
 
-        // Enhanced final power-user controls with session persistence
-        println!("\n[COMPLETE] Task finished successfully");
-        println!("[CONTROLS] Next action? [/suggest /new-task /status /undo /edit-plan /session /q]");
-        println!("[TIP] Commands can be abbreviated (e.g., /s for /suggest)");
-
-        // Interactive control loop with history
-        let mut command_history = Vec::new();
-        loop {
-            print!("vibe> ");
-            std::io::stdout().flush()?;
-            let mut input = String::new();
-            std::io::stdin().read_line(&mut input)?;
-            let command = input.trim().to_lowercase();
-
-            if command.is_empty() {
-                continue;
-            }
-
-            command_history.push(command.clone());
-
-            match command.as_str() {
-                "/suggest" | "/s" => {
-                    println!("[SUGGEST] Generating improvement suggestions...");
-                    println!("Suggestions for '{}':", current_goal);
-                    println!("  1. Add error handling for edge cases");
-                    println!("  2. Include logging for debugging");
-                    println!("  3. Add input validation");
-                    println!("  4. Consider performance optimizations");
-                    println!("  5. Add tests for the new functionality");
-                    println!("  6. Add monitoring/alerts");
-                    println!("  7. Implement rollback mechanisms");
-                }
-                "/new-task" | "/n" => {
-                    println!("[NEW] Ready for new task. Run: vibe --build \"your goal here\"");
-                    break;
-                }
-                "/status" | "/st" => {
-                    println!("[STATUS] Session status");
-                    println!("  Current session: {}", self.current_session.as_deref().unwrap_or("default"));
-                    println!("  Last goal: {}", current_goal);
-                    println!("  Plan steps: {}", temp_plan.operations.len());
-                    if let Some(session_name) = &self.current_session {
-                        if let Ok(Some(session)) = self.session_store.as_ref().unwrap().load_session(session_name) {
-                            println!("  Total changes: {}", session.metadata.change_count);
-                            println!("  Applied changes: {}", session.applied_changes.len());
-                        }
+                    completed += 1;
+                    let commit_msg = format!(
+                        "feat: {} (step {}/{})\n\nOperation:\n- {:?}",
+                        current_goal,
+                        idx + 1,
+                        temp_plan.operations.len(),
+                        operation
+                    );
+                    if let Err(e) = build_service.commit_message(&commit_msg).await {
+                        eprintln!("{} {}", "Warning: Git commit failed:".yellow(), e);
+                    } else {
+                        println!(
+                            "[COMMIT] {}",
+                            commit_msg.lines().next().unwrap_or("Committed")
+                        );
                     }
                 }
-                "/undo" | "/u" => {
-                    println!("[UNDO] Attempting to undo last changes...");
-                    match std::process::Command::new("git")
-                        .args(&["reset", "--hard", "HEAD~1"])
-                        .output() {
-                        Ok(output) => {
-                            if output.status.success() {
-                                println!("[UNDO] Successfully reverted last commit");
-                                println!("[UNDO] Repository state restored");
-                            } else {
-                                let stderr = String::from_utf8_lossy(&output.stderr);
-                                println!("[UNDO] Git failed: {}", stderr);
+
+                if failed == 0 {
+                    println!("\nBuild completed successfully.");
+                    println!("{} operations completed", completed);
+                } else {
+                    println!("\nBuild failed.");
+                    println!("{} operations completed, {} failed", completed, failed);
+                    for error in &errors {
+                        eprintln!("  {}", error.red());
+                    }
+                }
+            } else {
+                println!("\n[DONE] Dry-run mode: No changes were made.");
+            }
+
+            // Enhanced final power-user controls with session persistence
+            println!("\n[COMPLETE] Task finished successfully");
+            println!(
+                "[CONTROLS] Next action? [/suggest /new-task /status /undo /edit-plan /session /q]"
+            );
+            println!("[TIP] Commands can be abbreviated (e.g., /s for /suggest)");
+
+            // Interactive control loop with history
+            let mut command_history = Vec::new();
+            loop {
+                print!("vibe> ");
+                std::io::stdout().flush()?;
+                let mut input = String::new();
+                std::io::stdin().read_line(&mut input)?;
+                let command = input.trim().to_lowercase();
+
+                if command.is_empty() {
+                    continue;
+                }
+
+                command_history.push(command.clone());
+
+                match command.as_str() {
+                    "/suggest" | "/s" => {
+                        println!("[SUGGEST] Generating improvement suggestions...");
+                        println!("Suggestions for '{}':", current_goal);
+                        println!("  1. Add error handling for edge cases");
+                        println!("  2. Include logging for debugging");
+                        println!("  3. Add input validation");
+                        println!("  4. Consider performance optimizations");
+                        println!("  5. Add tests for the new functionality");
+                        println!("  6. Add monitoring/alerts");
+                        println!("  7. Implement rollback mechanisms");
+                    }
+                    "/new-task" | "/n" => {
+                        println!("[NEW] Ready for new task. Run: vibe --build \"your goal here\"");
+                        break;
+                    }
+                    "/status" | "/st" => {
+                        println!("[STATUS] Session status");
+                        println!(
+                            "  Current session: {}",
+                            self.current_session.as_deref().unwrap_or("default")
+                        );
+                        println!("  Last goal: {}", current_goal);
+                        println!("  Plan steps: {}", temp_plan.operations.len());
+                        if let Some(session_name) = &self.current_session {
+                            if let Ok(Some(session)) = self
+                                .session_store
+                                .as_ref()
+                                .unwrap()
+                                .load_session(session_name)
+                            {
+                                println!("  Total changes: {}", session.metadata.change_count);
+                                println!("  Applied changes: {}", session.applied_changes.len());
+                            }
+                        }
+                    }
+                    "/undo" | "/u" => {
+                        println!("[UNDO] Attempting to undo last changes...");
+                        match std::process::Command::new("git")
+                            .args(&["reset", "--hard", "HEAD~1"])
+                            .output()
+                        {
+                            Ok(output) => {
+                                if output.status.success() {
+                                    println!("[UNDO] Successfully reverted last commit");
+                                    println!("[UNDO] Repository state restored");
+                                } else {
+                                    let stderr = String::from_utf8_lossy(&output.stderr);
+                                    println!("[UNDO] Git failed: {}", stderr);
+                                    println!("[UNDO] Manual undo: git reset --hard HEAD~1");
+                                }
+                            }
+                            Err(e) => {
+                                println!("[UNDO] Failed to run git: {}", e);
                                 println!("[UNDO] Manual undo: git reset --hard HEAD~1");
                             }
                         }
-                        Err(e) => {
-                            println!("[UNDO] Failed to run git: {}", e);
-                            println!("[UNDO] Manual undo: git reset --hard HEAD~1");
+                    }
+                    "/edit-plan" | "/e" => {
+                        println!("[EDIT] Opening last plan for review...");
+                        let plan_content = Self::format_plan_for_editing(&temp_plan);
+                        match editor::Editor::edit_content(
+                            &plan_content,
+                            editor::EditContent::Plan(plan_content.clone()),
+                        ) {
+                            Ok(_) => println!(
+                                "[EDIT] Plan reviewed (changes not applied to completed task)"
+                            ),
+                            Err(e) => println!("[ERROR] Editor failed: {}", e),
                         }
                     }
-                }
-                "/edit-plan" | "/e" => {
-                    println!("[EDIT] Opening last plan for review...");
-                    let plan_content = Self::format_plan_for_editing(&temp_plan);
-                    match editor::Editor::edit_content(&plan_content, editor::EditContent::Plan(plan_content.clone())) {
-                        Ok(_) => println!("[EDIT] Plan reviewed (changes not applied to completed task)"),
-                        Err(e) => println!("[ERROR] Editor failed: {}", e),
-                    }
-                }
-                "/session" | "/ss" => {
-                    if let Some(session_name) = &self.current_session {
-                        println!("[SESSION] Current session: {}", session_name);
-                        if let Ok(Some(session)) = self.session_store.as_ref().unwrap().load_session(session_name) {
-                            println!("  Created: {}", session.metadata.created_at);
-                            println!("  Last used: {}", session.metadata.last_used);
-                            println!("  Total changes: {}", session.metadata.change_count);
-                            println!("  Applied changes: {}", session.applied_changes.len());
+                    "/session" | "/ss" => {
+                        if let Some(session_name) = &self.current_session {
+                            println!("[SESSION] Current session: {}", session_name);
+                            if let Ok(Some(session)) = self
+                                .session_store
+                                .as_ref()
+                                .unwrap()
+                                .load_session(session_name)
+                            {
+                                println!("  Created: {}", session.metadata.created_at);
+                                println!("  Last used: {}", session.metadata.last_used);
+                                println!("  Total changes: {}", session.metadata.change_count);
+                                println!("  Applied changes: {}", session.applied_changes.len());
+                            }
+                        } else {
+                            println!("[SESSION] No active session");
                         }
-                    } else {
-                        println!("[SESSION] No active session");
                     }
-                }
-                "/history" | "/h" => {
-                    println!("[HISTORY] Recent commands in this session:");
-                    for (i, cmd) in command_history.iter().rev().take(10).enumerate() {
-                        println!("  {}. {}", command_history.len() - i, cmd);
+                    "/history" | "/h" => {
+                        println!("[HISTORY] Recent commands in this session:");
+                        for (i, cmd) in command_history.iter().rev().take(10).enumerate() {
+                            println!("  {}. {}", command_history.len() - i, cmd);
+                        }
                     }
-                }
-                "/q" | "q" | "quit" => {
-                    println!("[BYE] Session ended. {} commands executed.", command_history.len());
-                    break;
-                }
-                "/help" | "/?" => {
-                    println!("[HELP] Available commands:");
-                    println!("  /suggest (/s)  - Show improvement suggestions");
-                    println!("  /new-task (/n) - Start new task");
-                    println!("  /status (/st)  - Show completion status");
-                    println!("  /undo (/u)     - Undo last changes");
-                    println!("  /edit-plan (/e)- Review last plan");
-                    println!("  /session (/ss) - Show session info");
-                    println!("  /history (/h)  - Show command history");
-                    println!("  /config (/c)   - Show power user configuration");
-                    println!("  /help (/?)     - Show this help");
-                    println!("  /quit (/q)     - Exit session");
-                }
-                "/config" | "/c" => {
-                    let power_config = self.get_power_config();
-                    println!("[CONFIG] Power User Configuration:");
-                    println!("  Theme: {}", power_config.theme.name);
-                    println!("  Aliases: {}", power_config.aliases.len());
-                    println!("  Shortcuts: {}", power_config.shortcuts.len());
-                    println!("  Plugins: {}", power_config.plugins.enabled.len());
-                    println!("  Performance: parallel_jobs={}, prewarm={}", power_config.performance.parallel_jobs, power_config.performance.prewarm_models);
+                    "/q" | "q" | "quit" => {
+                        println!(
+                            "[BYE] Session ended. {} commands executed.",
+                            command_history.len()
+                        );
+                        break;
+                    }
+                    "/help" | "/?" => {
+                        println!("[HELP] Available commands:");
+                        println!("  /suggest (/s)  - Show improvement suggestions");
+                        println!("  /new-task (/n) - Start new task");
+                        println!("  /status (/st)  - Show completion status");
+                        println!("  /undo (/u)     - Undo last changes");
+                        println!("  /edit-plan (/e)- Review last plan");
+                        println!("  /session (/ss) - Show session info");
+                        println!("  /history (/h)  - Show command history");
+                        println!("  /config (/c)   - Show power user configuration");
+                        println!("  /help (/?)     - Show this help");
+                        println!("  /quit (/q)     - Exit session");
+                    }
+                    "/config" | "/c" => {
+                        let power_config = self.get_power_config();
+                        println!("[CONFIG] Power User Configuration:");
+                        println!("  Theme: {}", power_config.theme.name);
+                        println!("  Aliases: {}", power_config.aliases.len());
+                        println!("  Shortcuts: {}", power_config.shortcuts.len());
+                        println!("  Plugins: {}", power_config.plugins.enabled.len());
+                        println!(
+                            "  Performance: parallel_jobs={}, prewarm={}",
+                            power_config.performance.parallel_jobs,
+                            power_config.performance.prewarm_models
+                        );
 
-                    if !power_config.aliases.is_empty() {
-                        println!("  Available aliases:");
-                        for (alias, expansion) in &power_config.aliases {
-                            println!("    {} -> {}", alias, expansion);
+                        if !power_config.aliases.is_empty() {
+                            println!("  Available aliases:");
+                            for (alias, expansion) in &power_config.aliases {
+                                println!("    {} -> {}", alias, expansion);
+                            }
                         }
-                    }
 
-                    if !power_config.shortcuts.is_empty() {
-                        println!("  Available shortcuts:");
-                        for (shortcut, expansion) in &power_config.shortcuts {
-                            println!("    {} -> {}", shortcut, expansion);
+                        if !power_config.shortcuts.is_empty() {
+                            println!("  Available shortcuts:");
+                            for (shortcut, expansion) in &power_config.shortcuts {
+                                println!("    {} -> {}", shortcut, expansion);
+                            }
                         }
-                    }
 
-                    // Show loaded plugins
-                    if let Some(plugin_manager) = &self.config.plugin_manager {
-                        let manager = plugin_manager.read().await;
-                        let plugins = manager.list_plugins();
-                        if !plugins.is_empty() {
-                            println!("  Loaded plugins: {}", plugins.join(", "));
-                            println!("  Plugin help:");
-                            println!("{}", manager.get_help());
+                        // Show loaded plugins
+                        if let Some(plugin_manager) = &self.config.plugin_manager {
+                            let manager = plugin_manager.read().await;
+                            let plugins = manager.list_plugins();
+                            if !plugins.is_empty() {
+                                println!("  Loaded plugins: {}", plugins.join(", "));
+                                println!("  Plugin help:");
+                                println!("{}", manager.get_help());
+                            }
                         }
                     }
-                }
-                _ => {
-                    println!("[UNKNOWN] Unknown command '{}'. Type /help for available commands.", command);
+                    _ => {
+                        println!(
+                            "[UNKNOWN] Unknown command '{}'. Type /help for available commands.",
+                            command
+                        );
+                    }
                 }
             }
-        }
 
             // Finished current plan/execution path; exit planning loop unless a replan was requested earlier
             break 'planning;
@@ -1332,7 +1466,11 @@ impl CliApp {
                     println!("Loaded power user configuration from: {}", path.display());
                 }
                 Err(e) => {
-                    eprintln!("Warning: Failed to load power user config from {}: {}", path.display(), e);
+                    eprintln!(
+                        "Warning: Failed to load power user config from {}: {}",
+                        path.display(),
+                        e
+                    );
                     eprintln!("Continuing with default configuration.");
                 }
             }
@@ -1351,24 +1489,13 @@ impl CliApp {
             if let Some(mut supervisor) = self.background_supervisor.take() {
                 let project_root_path = std::path::PathBuf::from(project_root);
 
-                // Start background event listener
-                let event_receiver = supervisor.event_receiver();
+                // Background services disabled - no automatic startup
+                // Event receiver available for explicit manual control
+                let event_receiver = supervisor.get_event_receiver();
                 tokio::spawn(async move {
                     Self::handle_background_events(event_receiver).await;
                 });
 
-                // Background services disabled by default - no automatic startup
-        if let Some(project_root) = find_project_root() {
-            if let Some(mut supervisor) = self.background_supervisor.take() {
-                let project_root_path = std::path::PathBuf::from(project_root);
-                
-                // Background services disabled - no automatic startup
-                // Event receiver available for explicit manual control
-                let event_receiver = supervisor.event_receiver();
-                tokio::spawn(async move {
-                    Self::handle_background_events(event_receiver).await;
-                });
-                
                 // Log status update (services disabled)
                 tokio::spawn(async move {
                     if let Err(e) = supervisor.start(&project_root_path).await {
@@ -1407,7 +1534,8 @@ impl CliApp {
         } else if cli.test {
             self.handle_test_run().await
         } else if cli.build {
-            self.handle_build(&args_str, cli.dry_run, cli.verbose, cli.show_diff).await
+            self.handle_build(&args_str, cli.dry_run, cli.verbose, cli.show_diff)
+                .await
         } else if cli.agent {
             self.handle_agent(&args_str).await
         } else if cli.ai_agent {
@@ -1444,7 +1572,10 @@ impl CliApp {
             "[main] ".to_string()
         };
 
-        println!("{}{} [{}/{}] {}", session_prefix, status, current, total, description);
+        println!(
+            "{}{} [{}/{}] {}",
+            session_prefix, status, current, total, description
+        );
     }
 
     /// Display chain of thought in tree format
@@ -1452,7 +1583,8 @@ impl CliApp {
         println!("\nChain of Thought:");
 
         // Parse reasoning into key points
-        let lines: Vec<&str> = reasoning.lines()
+        let lines: Vec<&str> = reasoning
+            .lines()
             .filter(|line| !line.trim().is_empty())
             .take(4) // Limit to 4 key points
             .collect();
@@ -1466,10 +1598,14 @@ impl CliApp {
             };
 
             // Clean up the line for display
-            let clean_line = line.trim()
-                .strip_prefix("### ").unwrap_or(line)
-                .strip_prefix("**").unwrap_or(line)
-                .strip_suffix("**").unwrap_or(line);
+            let clean_line = line
+                .trim()
+                .strip_prefix("### ")
+                .unwrap_or(line)
+                .strip_prefix("**")
+                .unwrap_or(line)
+                .strip_suffix("**")
+                .unwrap_or(line);
 
             println!("{} {}", prefix, clean_line);
         }
@@ -1481,13 +1617,22 @@ impl CliApp {
         println!("  Context Retrieval:");
         println!("    |-- Files scanned: {}", context_stats.files_scanned);
         println!("    |-- Files analyzed: {}", context_stats.files_analyzed);
-        println!("    |-- Keywords extracted: {}", context_stats.keywords_count);
+        println!(
+            "    |-- Keywords extracted: {}",
+            context_stats.keywords_count
+        );
         println!("  System Context:");
         println!("    |-- OS: {}", context_stats.os_info);
         println!("    |-- Working directory: {}", context_stats.cwd);
         println!("  File System Operations:");
-        println!("    |-- Total files in project: {}", context_stats.total_files);
-        println!("    |-- Relevant files found: {}", context_stats.relevant_files);
+        println!(
+            "    |-- Total files in project: {}",
+            context_stats.total_files
+        );
+        println!(
+            "    |-- Relevant files found: {}",
+            context_stats.relevant_files
+        );
     }
 
     /// Format a build plan for editing in the user's editor
@@ -1508,10 +1653,18 @@ impl CliApp {
                 application::build_service::FileOperation::Delete { .. } => "High",
             };
             let op_desc = match operation {
-                application::build_service::FileOperation::Create { path, .. } => format!("Create {}", path.display()),
-                application::build_service::FileOperation::Update { path, .. } => format!("Update {}", path.display()),
-                application::build_service::FileOperation::Delete { path } => format!("Delete {}", path.display()),
-                application::build_service::FileOperation::Read { path } => format!("Read {}", path.display()),
+                application::build_service::FileOperation::Create { path, .. } => {
+                    format!("Create {}", path.display())
+                }
+                application::build_service::FileOperation::Update { path, .. } => {
+                    format!("Update {}", path.display())
+                }
+                application::build_service::FileOperation::Delete { path } => {
+                    format!("Delete {}", path.display())
+                }
+                application::build_service::FileOperation::Read { path } => {
+                    format!("Read {}", path.display())
+                }
             };
             content.push_str(&format!("{}. {} ({})\n", i + 1, op_desc, risk));
         }
@@ -1531,7 +1684,9 @@ impl CliApp {
         let mut lookup: HashMap<String, FileOperation> = HashMap::new();
 
         for op in original_ops {
-            lookup.entry(Self::describe_operation(op)).or_insert_with(|| op.clone());
+            lookup
+                .entry(Self::describe_operation(op))
+                .or_insert_with(|| op.clone());
         }
 
         let mut new_ops = Vec::new();
@@ -1545,7 +1700,10 @@ impl CliApp {
             if let Some(op) = Self::parse_operation_line(normalized, original_ops) {
                 new_ops.push(op);
             } else {
-                warnings.push(format!("Unrecognized step '{}'; keeping original ordering", normalized));
+                warnings.push(format!(
+                    "Unrecognized step '{}'; keeping original ordering",
+                    normalized
+                ));
             }
         }
 
@@ -1555,10 +1713,18 @@ impl CliApp {
     /// Describe an operation using the same wording as the editable plan view
     fn describe_operation(operation: &application::build_service::FileOperation) -> String {
         match operation {
-            application::build_service::FileOperation::Create { path, .. } => format!("Create {}", path.display()),
-            application::build_service::FileOperation::Update { path, .. } => format!("Update {}", path.display()),
-            application::build_service::FileOperation::Delete { path } => format!("Delete {}", path.display()),
-            application::build_service::FileOperation::Read { path } => format!("Read {}", path.display()),
+            application::build_service::FileOperation::Create { path, .. } => {
+                format!("Create {}", path.display())
+            }
+            application::build_service::FileOperation::Update { path, .. } => {
+                format!("Update {}", path.display())
+            }
+            application::build_service::FileOperation::Delete { path } => {
+                format!("Delete {}", path.display())
+            }
+            application::build_service::FileOperation::Read { path } => {
+                format!("Read {}", path.display())
+            }
         }
     }
 
@@ -1595,14 +1761,18 @@ impl CliApp {
                 return Some(op.clone());
             }
             // Allow creating a simple delete if it wasn't in the original list
-            return Some(FileOperation::Delete { path: std::path::PathBuf::from(path_str) });
+            return Some(FileOperation::Delete {
+                path: std::path::PathBuf::from(path_str),
+            });
         }
 
         if let Some(path_str) = strip_prefix("read ") {
             if let Some(op) = original_ops.iter().find(|op| matches!(op, FileOperation::Read { path } if path.display().to_string() == path_str)) {
                 return Some(op.clone());
             }
-            return Some(FileOperation::Read { path: std::path::PathBuf::from(path_str) });
+            return Some(FileOperation::Read {
+                path: std::path::PathBuf::from(path_str),
+            });
         }
 
         None
@@ -1621,9 +1791,16 @@ impl CliApp {
         None
     }
 
-    fn missing_plan_hints(hints: &str, operations: &[application::build_service::FileOperation]) -> Vec<String> {
+    fn missing_plan_hints(
+        hints: &str,
+        operations: &[application::build_service::FileOperation],
+    ) -> Vec<String> {
         let mut missing = Vec::new();
-        let combined = operations.iter().map(Self::describe_operation_with_content).collect::<Vec<_>>().join("\n");
+        let combined = operations
+            .iter()
+            .map(Self::describe_operation_with_content)
+            .collect::<Vec<_>>()
+            .join("\n");
         let combined_lower = combined.to_lowercase();
 
         for line in hints.lines() {
@@ -1643,8 +1820,12 @@ impl CliApp {
     fn describe_operation_with_content(op: &application::build_service::FileOperation) -> String {
         use application::build_service::FileOperation;
         match op {
-            FileOperation::Create { path, content } => format!("Create {} {}", path.display(), content),
-            FileOperation::Update { path, new_content, .. } => format!("Update {} {}", path.display(), new_content),
+            FileOperation::Create { path, content } => {
+                format!("Create {} {}", path.display(), content)
+            }
+            FileOperation::Update {
+                path, new_content, ..
+            } => format!("Update {} {}", path.display(), new_content),
             FileOperation::Delete { path } => format!("Delete {}", path.display()),
             FileOperation::Read { path } => format!("Read {}", path.display()),
         }
@@ -1665,7 +1846,9 @@ impl CliApp {
 
             println!("\n[STEP {}/{}]", idx + 1, total);
             build_service.display_operation_detail(&op)?;
-            println!("[PROMPT] Apply? [y/n/e(dit)/v(iew)/r(emove)/q] or /plan /status /undo /suggest");
+            println!(
+                "[PROMPT] Apply? [y/n/e(dit)/v(iew)/r(emove)/q] or /plan /status /undo /suggest"
+            );
 
             let input = self.read_input_line()?;
             match input.trim().to_lowercase().as_str() {
@@ -1697,13 +1880,17 @@ impl CliApp {
                 }
                 "/plan" => {
                     let plan_content = Self::format_plan_for_editing(plan);
-                    match editor::Editor::edit_content(&plan_content, editor::EditContent::Plan(plan_content.clone())) {
+                    match editor::Editor::edit_content(
+                        &plan_content,
+                        editor::EditContent::Plan(plan_content.clone()),
+                    ) {
                         Ok(edited_plan) => {
                             if let Some(edited_goal) = Self::extract_goal_from_plan(&edited_plan) {
                                 println!("[EDIT] Goal updated: {}", edited_goal);
                             }
                             if let Ok(steps) = editor::Editor::parse_edited_plan(&edited_plan) {
-                                let (updated_ops, warnings) = Self::rebuild_operations_from_steps(&steps, &plan.operations);
+                                let (updated_ops, warnings) =
+                                    Self::rebuild_operations_from_steps(&steps, &plan.operations);
                                 for warning in warnings {
                                     println!("[WARN] {}", warning);
                                 }
@@ -1720,7 +1907,10 @@ impl CliApp {
                     continue;
                 }
                 "/status" => {
-                    println!("[STATUS] Steps remaining: {}", plan.operations.len().saturating_sub(idx));
+                    println!(
+                        "[STATUS] Steps remaining: {}",
+                        plan.operations.len().saturating_sub(idx)
+                    );
                     continue;
                 }
                 "/undo" => {
@@ -1751,7 +1941,9 @@ impl CliApp {
             FileOperation::Create { path, content } => {
                 println!("Create {}:\n{}", path.display(), content);
             }
-            FileOperation::Update { path, new_content, .. } => {
+            FileOperation::Update {
+                path, new_content, ..
+            } => {
                 println!("Update {}:\n{}", path.display(), new_content);
             }
             FileOperation::Delete { path } => println!("Delete {}", path.display()),
@@ -1772,7 +1964,9 @@ impl CliApp {
                     println!("  ... (truncated)");
                 }
             }
-            FileOperation::Update { path, new_content, .. } => {
+            FileOperation::Update {
+                path, new_content, ..
+            } => {
                 println!("Update {}", path.display());
                 let lines: Vec<&str> = new_content.lines().collect();
                 for line in lines.iter().take(10) {
@@ -1795,12 +1989,29 @@ impl CliApp {
 
         match op {
             FileOperation::Create { path, content } => {
-                let edited = editor::Editor::edit_content(&content, editor::EditContent::File(content.clone()))?;
-                Ok(Some(FileOperation::Create { path, content: edited }))
+                let edited = editor::Editor::edit_content(
+                    &content,
+                    editor::EditContent::File(content.clone()),
+                )?;
+                Ok(Some(FileOperation::Create {
+                    path,
+                    content: edited,
+                }))
             }
-            FileOperation::Update { path, old_content, new_content } => {
-                let edited = editor::Editor::edit_content(&new_content, editor::EditContent::File(new_content.clone()))?;
-                Ok(Some(FileOperation::Update { path, old_content, new_content: edited }))
+            FileOperation::Update {
+                path,
+                old_content,
+                new_content,
+            } => {
+                let edited = editor::Editor::edit_content(
+                    &new_content,
+                    editor::EditContent::File(new_content.clone()),
+                )?;
+                Ok(Some(FileOperation::Update {
+                    path,
+                    old_content,
+                    new_content: edited,
+                }))
             }
             _ => {
                 println!("[EDIT] Only create/update steps can be edited.");
@@ -1810,20 +2021,30 @@ impl CliApp {
     }
 
     /// Format a single operation for editing
-    fn format_operation_for_editing(operation: &application::build_service::FileOperation, step_num: usize) -> String {
+    fn format_operation_for_editing(
+        operation: &application::build_service::FileOperation,
+        step_num: usize,
+    ) -> String {
         let mut content = format!("# Editing Step {}\n", step_num);
         content.push_str("# Modify the operation details below\n");
         content.push_str("# Only the final line will be used as the new operation\n\n");
 
         match operation {
-            application::build_service::FileOperation::Create { path, content: op_content } => {
+            application::build_service::FileOperation::Create {
+                path,
+                content: op_content,
+            } => {
                 content.push_str(&format!("# Original: Create {}\n", path.display()));
                 content.push_str("Create ");
                 content.push_str(&path.display().to_string());
                 content.push_str(" with content:\n");
                 content.push_str(op_content);
             }
-            application::build_service::FileOperation::Update { path, old_content, new_content } => {
+            application::build_service::FileOperation::Update {
+                path,
+                old_content,
+                new_content,
+            } => {
                 content.push_str(&format!("# Original: Update {}\n", path.display()));
                 content.push_str("Update ");
                 content.push_str(&path.display().to_string());
@@ -1848,8 +2069,12 @@ impl CliApp {
     }
 
     /// Parse edited operation back into FileOperation
-    fn parse_edited_operation(edited_text: &str, original: &application::build_service::FileOperation) -> Result<application::build_service::FileOperation> {
-        let lines: Vec<&str> = edited_text.lines()
+    fn parse_edited_operation(
+        edited_text: &str,
+        original: &application::build_service::FileOperation,
+    ) -> Result<application::build_service::FileOperation> {
+        let lines: Vec<&str> = edited_text
+            .lines()
             .filter(|line| !line.trim().starts_with('#') && !line.trim().is_empty())
             .collect();
 
@@ -1871,17 +2096,18 @@ impl CliApp {
         let content = Self::format_operation_for_editing(operation, step_index + 1);
 
         match editor::Editor::edit_content(&content, editor::EditContent::File(content.clone())) {
-            Ok(edited) => {
-                match Self::parse_edited_operation(&edited, operation) {
-                    Ok(new_operation) => {
-                        plan.operations[step_index] = new_operation;
-                        println!("[EDIT] Step {} updated successfully", step_index + 1);
-                    }
-                    Err(e) => {
-                        println!("[EDIT] Failed to parse edited operation: {} - keeping original", e);
-                    }
+            Ok(edited) => match Self::parse_edited_operation(&edited, operation) {
+                Ok(new_operation) => {
+                    plan.operations[step_index] = new_operation;
+                    println!("[EDIT] Step {} updated successfully", step_index + 1);
                 }
-            }
+                Err(e) => {
+                    println!(
+                        "[EDIT] Failed to parse edited operation: {} - keeping original",
+                        e
+                    );
+                }
+            },
             Err(e) => {
                 println!("[EDIT] Editor failed: {} - keeping original", e);
             }
@@ -1899,10 +2125,18 @@ impl CliApp {
             println!("\nCurrent plan:");
             for (i, operation) in plan.operations.iter().enumerate() {
                 let op_desc = match operation {
-                    application::build_service::FileOperation::Create { path, .. } => format!("Create {}", path.display()),
-                    application::build_service::FileOperation::Update { path, .. } => format!("Update {}", path.display()),
-                    application::build_service::FileOperation::Delete { path } => format!("Delete {}", path.display()),
-                    application::build_service::FileOperation::Read { path } => format!("Read {}", path.display()),
+                    application::build_service::FileOperation::Create { path, .. } => {
+                        format!("Create {}", path.display())
+                    }
+                    application::build_service::FileOperation::Update { path, .. } => {
+                        format!("Update {}", path.display())
+                    }
+                    application::build_service::FileOperation::Delete { path } => {
+                        format!("Delete {}", path.display())
+                    }
+                    application::build_service::FileOperation::Read { path } => {
+                        format!("Read {}", path.display())
+                    }
                 };
                 println!("  {}. {}", i + 1, op_desc);
             }
@@ -1956,7 +2190,9 @@ impl CliApp {
                         continue;
                     }
                     let desc = parts[1..].join(" ");
-                    println!("Add step functionality not yet implemented. Use full plan edit instead.");
+                    println!(
+                        "Add step functionality not yet implemented. Use full plan edit instead."
+                    );
                 }
                 "q" | "quit" => {
                     break;
@@ -2000,7 +2236,11 @@ impl CliApp {
         match op_type {
             "create" => {
                 // New file creation - show full content in chunks
-                println!("{} Creating new file {}", "📄".bright_green(), path.bright_green());
+                println!(
+                    "{} Creating new file {}",
+                    "📄".bright_green(),
+                    path.bright_green()
+                );
 
                 if lines.len() <= 15 {
                     println!("  └─ [full file - {} lines]", lines.len());
@@ -2009,8 +2249,17 @@ impl CliApp {
                     // Show in logical chunks for large files
                     let chunks = Self::create_file_chunks(&lines);
                     for (i, (start, end, description)) in chunks.iter().enumerate() {
-                        let chunk_marker = if i == chunks.len() - 1 { "└─" } else { "├─" };
-                        println!("  {} Step {}: {}", chunk_marker, char::from(b'a' + i as u8), description.bright_white());
+                        let chunk_marker = if i == chunks.len() - 1 {
+                            "└─"
+                        } else {
+                            "├─"
+                        };
+                        println!(
+                            "  {} Step {}: {}",
+                            chunk_marker,
+                            char::from(b'a' + i as u8),
+                            description.bright_white()
+                        );
                         println!("     [lines {}-{}]", start, end);
 
                         // Safe bounds checking to prevent panic
@@ -2031,12 +2280,23 @@ impl CliApp {
             }
             "update" => {
                 // File update - try to show as diff if possible
-                println!("{} Updating existing file {}", "🔄".bright_yellow(), path.bright_yellow());
+                println!(
+                    "{} Updating existing file {}",
+                    "🔄".bright_yellow(),
+                    path.bright_yellow()
+                );
 
                 // For updates, the AI might generate targeted changes
                 if code.contains("REPLACE") || code.contains("INSERT") || code.contains("DELETE") {
                     // AI generated targeted changes - display as instructions
-                    println!("  └─ [targeted changes - {} operations]", code.lines().filter(|l| l.starts_with("REPLACE") || l.starts_with("INSERT") || l.starts_with("DELETE")).count());
+                    println!(
+                        "  └─ [targeted changes - {} operations]",
+                        code.lines()
+                            .filter(|l| l.starts_with("REPLACE")
+                                || l.starts_with("INSERT")
+                                || l.starts_with("DELETE"))
+                            .count()
+                    );
                     for line in code.lines() {
                         if line.starts_with("REPLACE") {
                             println!("     {} {}", "🔧".bright_red(), line.bright_red());
@@ -2113,7 +2373,9 @@ impl CliApp {
             let chunk3_start = (chunk2_end + 1).min(total_lines);
 
             // Determine labels based on file type
-            let is_html = lines.iter().any(|l| l.contains("<html") || l.contains("DOCTYPE"));
+            let is_html = lines
+                .iter()
+                .any(|l| l.contains("<html") || l.contains("DOCTYPE"));
 
             if chunk3_start <= total_lines {
                 // Three chunks
@@ -2133,8 +2395,24 @@ impl CliApp {
             } else if chunk2_start <= total_lines {
                 // Two chunks (file too small for 3)
                 chunks = vec![
-                    (1, chunk1_end, if is_html { "HTML skeleton and setup" } else { "Beginning of file" }),
-                    (chunk2_start, total_lines, if is_html { "Main content and footer" } else { "Rest of file" }),
+                    (
+                        1,
+                        chunk1_end,
+                        if is_html {
+                            "HTML skeleton and setup"
+                        } else {
+                            "Beginning of file"
+                        },
+                    ),
+                    (
+                        chunk2_start,
+                        total_lines,
+                        if is_html {
+                            "Main content and footer"
+                        } else {
+                            "Rest of file"
+                        },
+                    ),
                 ];
             } else {
                 // Single chunk
@@ -2182,17 +2460,32 @@ impl CliApp {
                         String::new()
                     } else if line.contains("<!DOCTYPE") {
                         line.bright_blue().to_string()
-                    } else if line.contains("<html") || line.contains("<head") || line.contains("<body")
-                        || line.contains("</html>") || line.contains("</head>") || line.contains("</body>")
+                    } else if line.contains("<html")
+                        || line.contains("<head")
+                        || line.contains("<body")
+                        || line.contains("</html>")
+                        || line.contains("</head>")
+                        || line.contains("</body>")
                     {
                         line.bright_blue().to_string()
-                    } else if line.contains("<div") || line.contains("<main") || line.contains("<h1")
-                        || line.contains("<p") || line.contains("<button") || line.contains("<footer")
-                        || line.contains("</div>") || line.contains("</main>") || line.contains("</h1>")
-                        || line.contains("</p>") || line.contains("</button>") || line.contains("</footer>")
+                    } else if line.contains("<div")
+                        || line.contains("<main")
+                        || line.contains("<h1")
+                        || line.contains("<p")
+                        || line.contains("<button")
+                        || line.contains("<footer")
+                        || line.contains("</div>")
+                        || line.contains("</main>")
+                        || line.contains("</h1>")
+                        || line.contains("</p>")
+                        || line.contains("</button>")
+                        || line.contains("</footer>")
                     {
                         line.bright_green().to_string()
-                    } else if line.contains("class=") || line.contains("href=") || line.contains("src=") {
+                    } else if line.contains("class=")
+                        || line.contains("href=")
+                        || line.contains("src=")
+                    {
                         line.bright_yellow().to_string()
                     } else {
                         line.to_string()
@@ -2210,7 +2503,12 @@ impl CliApp {
         let trimmed = code.trim();
         if trimmed.starts_with("```") && trimmed.ends_with("```") {
             let mut lines: Vec<&str> = trimmed.lines().collect();
-            if !lines.is_empty() && lines.first().map(|l| l.trim().starts_with("```")).unwrap_or(false) {
+            if !lines.is_empty()
+                && lines
+                    .first()
+                    .map(|l| l.trim().starts_with("```"))
+                    .unwrap_or(false)
+            {
                 lines.remove(0);
             }
             if !lines.is_empty() && lines.last().map(|l| l.trim() == "```").unwrap_or(false) {
@@ -2226,7 +2524,15 @@ impl CliApp {
 
         let power_config = self.get_power_config();
         println!("Command execution mode. Type 'exit' to quit.");
-        println!("Available shortcuts: {}", power_config.shortcuts.keys().cloned().collect::<Vec<_>>().join(", "));
+        println!(
+            "Available shortcuts: {}",
+            power_config
+                .shortcuts
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ")
+        );
 
         loop {
             let input: String = Input::with_theme(&ColorfulTheme::default())
@@ -2237,14 +2543,18 @@ impl CliApp {
             }
 
             // Check for shortcuts
-            let effective_input = power_config.shortcuts.get(&input)
-                .cloned()
-                .unwrap_or_else(|| {
-                    // Check for aliases too
-                    power_config.get_alias(&input)
-                        .cloned()
-                        .unwrap_or(input.clone())
-                });
+            let effective_input =
+                power_config
+                    .shortcuts
+                    .get(&input)
+                    .cloned()
+                    .unwrap_or_else(|| {
+                        // Check for aliases too
+                        power_config
+                            .get_alias(&input)
+                            .cloned()
+                            .unwrap_or(input.clone())
+                    });
 
             if effective_input != input {
                 println!("Expanded '{}' to: {}", input, effective_input);
@@ -2254,7 +2564,10 @@ impl CliApp {
             let client = infrastructure::ollama_client::OllamaClient::new()?;
             // Check permissions for the expanded command if it's a direct command
             if !power_config.is_command_allowed(&effective_input) {
-                println!("{}", format!("Command blocked by permissions: {}", effective_input).red());
+                println!(
+                    "{}",
+                    format!("Command blocked by permissions: {}", effective_input).red()
+                );
                 continue;
             }
 
@@ -2264,18 +2577,25 @@ impl CliApp {
             println!("{}", format!("Command: {}", command).green());
             if ask_confirmation("Run this command?", false)? {
                 let sandbox = Sandbox::new();
-            println!("[EXEC] {}", command);
-            println!("[RUN] Executing command...");
-            match sandbox.execute_safe("bash", vec!["-c".to_string(), command.clone()]).await {
-                Ok(output) => {
-                    println!("{}", output);
-                    println!("[DONE] Command completed");
-                }
-                Err(e) => {
-                    eprintln!("[ERROR] Sandbox execution failed: {}", e);
+                println!("[EXEC] {}", command);
+                println!("[RUN] Executing command...");
+                match sandbox
+                    .execute_safe("bash", vec!["-c".to_string(), command.clone()])
+                    .await
+                {
+                    Ok(output) => {
+                        println!("{}", output);
+                        println!("[DONE] Command completed");
+                    }
+                    Err(e) => {
+                        eprintln!("[ERROR] Sandbox execution failed: {}", e);
                         // Offer fallback option for debugging
                         if ask_confirmation("Try running without sandboxing?", false)? {
-                            match std::process::Command::new("bash").arg("-c").arg(&command).output() {
+                            match std::process::Command::new("bash")
+                                .arg("-c")
+                                .arg(&command)
+                                .output()
+                            {
                                 Ok(output) => {
                                     println!("{}", String::from_utf8_lossy(&output.stdout));
                                     if !output.status.success() {
@@ -2375,19 +2695,22 @@ OUTPUT:"#,
                 continue;
             }
             let sandbox = Sandbox::new();
-            match sandbox.execute_safe("bash", vec!["-c".to_string(), cmd.clone()]).await {
+            match sandbox
+                .execute_safe("bash", vec!["-c".to_string(), cmd.clone()])
+                .await
+            {
                 Ok(output) => {
                     println!("{}", output);
                     println!("{}", "Command completed successfully.".green());
                 }
                 Err(e) => {
-                    println!(
-                        "{} (sandbox error: {})",
-                        "Command failed.".red(),
-                        e
-                    );
+                    println!("{} (sandbox error: {})", "Command failed.".red(), e);
                     if ask_confirmation("Try running without sandboxing?", false)? {
-                        match std::process::Command::new("bash").arg("-c").arg(cmd).status() {
+                        match std::process::Command::new("bash")
+                            .arg("-c")
+                            .arg(cmd)
+                            .status()
+                        {
                             Ok(status) => {
                                 if status.success() {
                                     println!("{}", "Command completed successfully.".green());
@@ -2516,7 +2839,8 @@ OUTPUT:"#,
             eprintln!("Analyzing query and scanning codebase...");
             let client = OllamaClient::new()?;
             let project_root = find_project_root().unwrap_or_else(|| ".".to_string());
-            self.rag_service = Some(application::create_rag_service(&project_root, &self.config.db_path).await?);
+            self.rag_service =
+                Some(application::create_rag_service(&project_root, &self.config.db_path).await?);
             let keywords = Self::keywords_from_text(question);
             self.rag_service
                 .as_ref()
@@ -2536,7 +2860,10 @@ OUTPUT:"#,
                 .await?;
 
             if response.starts_with("__SECRETS_DETECTED__:") {
-                println!("{}", response.trim_start_matches("__SECRETS_DETECTED__:").trim());
+                println!(
+                    "{}",
+                    response.trim_start_matches("__SECRETS_DETECTED__:").trim()
+                );
                 if ask_confirmation("Continue with sanitized response?", false)? {
                     // Re-run the query but force it to continue with sanitized content
                     let force_response = self
@@ -2579,7 +2906,8 @@ OUTPUT:"#,
         let context_db_path = Self::context_specific_db_path(path);
         context_config.db_path = context_db_path;
 
-        self.rag_service = Some(application::create_rag_service(path, &context_config.db_path.clone()).await?);
+        self.rag_service =
+            Some(application::create_rag_service(path, &context_config.db_path.clone()).await?);
         self.rag_service.as_ref().unwrap().build_index().await?;
         eprintln!("Context loaded from {}", path);
         self.handle_chat().await
@@ -2622,16 +2950,26 @@ OUTPUT:"#,
                 let sandbox = Sandbox::new();
                 // Check permissions before executing cached command
                 if !power_config.is_command_allowed(&cached_command) {
-                    println!("{}", format!("Command blocked by permissions: {}", cached_command).red());
+                    println!(
+                        "{}",
+                        format!("Command blocked by permissions: {}", cached_command).red()
+                    );
                     return Ok(());
                 }
 
-                match sandbox.execute_safe("bash", vec!["-c".to_string(), cached_command.clone()]).await {
+                match sandbox
+                    .execute_safe("bash", vec!["-c".to_string(), cached_command.clone()])
+                    .await
+                {
                     Ok(output) => println!("{}", output),
                     Err(e) => {
                         eprintln!("{}", format!("Sandbox execution failed: {}", e).red());
                         if ask_confirmation("Try running without sandboxing?", false)? {
-                            match std::process::Command::new("bash").arg("-c").arg(&cached_command).output() {
+                            match std::process::Command::new("bash")
+                                .arg("-c")
+                                .arg(&cached_command)
+                                .output()
+                            {
                                 Ok(output) => {
                                     println!("{}", String::from_utf8_lossy(&output.stdout));
                                     if !output.status.success() {
@@ -2646,7 +2984,10 @@ OUTPUT:"#,
                                     }
                                 }
                                 Err(e) => {
-                                    eprintln!("{}", format!("Direct execution failed: {}", e).red());
+                                    eprintln!(
+                                        "{}",
+                                        format!("Direct execution failed: {}", e).red()
+                                    );
                                 }
                             }
                         }
@@ -2669,10 +3010,11 @@ OUTPUT:"#,
             .unwrap_or_else(|| String::new());
 
         // List available services if request is about services
-        let services_output = if query.to_lowercase().contains("service") ||
-                                  query.to_lowercase().contains("status") ||
-                                  query.to_lowercase().contains("ssh") ||
-                                  query.to_lowercase().contains("systemctl") {
+        let services_output = if query.to_lowercase().contains("service")
+            || query.to_lowercase().contains("status")
+            || query.to_lowercase().contains("ssh")
+            || query.to_lowercase().contains("systemctl")
+        {
             std::process::Command::new("sh")
                 .arg("-c")
                 .arg("systemctl list-units --type=service --no-pager 2>/dev/null | grep -E '(running|active)' | awk '{print $1}' | head -n 50 || service --status-all 2>/dev/null | grep '+' | awk '{print $NF}' | head -n 30")
@@ -2721,12 +3063,22 @@ OUTPUT ONLY THE COMMAND:"#,
             system_context.distro,
             system_context.package_manager,
             if !services_output.is_empty() {
-                format!("AVAILABLE SERVICES:\n{}", services_output.lines().take(20).collect::<Vec<_>>().join("\n"))
+                format!(
+                    "AVAILABLE SERVICES:\n{}",
+                    services_output
+                        .lines()
+                        .take(20)
+                        .collect::<Vec<_>>()
+                        .join("\n")
+                )
             } else {
                 String::new()
             },
             if !ls_output.is_empty() {
-                format!("\nCURRENT DIRECTORY:\n{}", ls_output.lines().take(15).collect::<Vec<_>>().join("\n"))
+                format!(
+                    "\nCURRENT DIRECTORY:\n{}",
+                    ls_output.lines().take(15).collect::<Vec<_>>().join("\n")
+                )
             } else {
                 String::new()
             }
@@ -2738,13 +3090,19 @@ OUTPUT ONLY THE COMMAND:"#,
 
         // Check permissions before executing generated command
         if !power_config.is_command_allowed(&command) {
-            println!("{}", format!("Command blocked by permissions: {}", command).red());
+            println!(
+                "{}",
+                format!("Command blocked by permissions: {}", command).red()
+            );
             return Ok(());
         }
 
         if ask_confirmation("Run this command?", false)? {
             let sandbox = Sandbox::new();
-            match sandbox.execute_safe("bash", vec!["-c".to_string(), command.clone()]).await {
+            match sandbox
+                .execute_safe("bash", vec!["-c".to_string(), command.clone()])
+                .await
+            {
                 Ok(output) => {
                     println!("{}", output);
                     let _ = self.save_cached(&effective_query, &command);
@@ -2752,22 +3110,26 @@ OUTPUT ONLY THE COMMAND:"#,
                 Err(e) => {
                     eprintln!("{}", format!("Sandbox execution failed: {}", e).red());
                     if ask_confirmation("Try running without sandboxing?", false)? {
-                        match std::process::Command::new("bash").arg("-c").arg(&command).output() {
-                                 Ok(output) => {
-                                     println!("{}", String::from_utf8_lossy(&output.stdout));
-                                     if !output.status.success() {
-                                         println!(
-                                             "{}",
-                                             format!(
-                                                 "Command failed: {}",
-                                                 String::from_utf8_lossy(&output.stderr)
-                                             )
-                                             .red()
-                                         );
-                                     } else {
-                                         let _ = self.save_cached(&effective_query, &command);
-                                     }
-                                 }
+                        match std::process::Command::new("bash")
+                            .arg("-c")
+                            .arg(&command)
+                            .output()
+                        {
+                            Ok(output) => {
+                                println!("{}", String::from_utf8_lossy(&output.stdout));
+                                if !output.status.success() {
+                                    println!(
+                                        "{}",
+                                        format!(
+                                            "Command failed: {}",
+                                            String::from_utf8_lossy(&output.stderr)
+                                        )
+                                        .red()
+                                    );
+                                } else {
+                                    let _ = self.save_cached(&effective_query, &command);
+                                }
+                            }
                             Err(e) => {
                                 eprintln!("{}", format!("Direct execution failed: {}", e).red());
                             }
@@ -2935,11 +3297,16 @@ OUTPUT ONLY THE COMMAND:"#,
     async fn handle_stream_mode(&mut self, goal: &str) -> Result<()> {
         println!("{}", "🎬 Real-Time Streaming Mode".bright_cyan().bold());
         println!("{}", format!("Goal: {}", goal).bright_blue());
-        println!("{}", "This mode demonstrates live agent execution with streaming output.".bright_yellow());
+        println!(
+            "{}",
+            "This mode demonstrates live agent execution with streaming output.".bright_yellow()
+        );
         println!();
 
         // Create a simple streaming demonstration
-        use application::streaming_agent::{StreamingAgentOrchestrator, StreamingDisplay, DisplayMode, StreamEvent, StatusLevel};
+        use application::streaming_agent::{
+            DisplayMode, StatusLevel, StreamEvent, StreamingAgentOrchestrator, StreamingDisplay,
+        };
 
         let (orchestrator, mut event_rx, _control_tx) =
             StreamingAgentOrchestrator::new(DisplayMode::Rich);
@@ -2951,54 +3318,70 @@ OUTPUT ONLY THE COMMAND:"#,
         let event_tx = orchestrator.event_sender();
         tokio::spawn(async move {
             // Simulate agent reasoning steps
-            let _ = event_tx.send(StreamEvent::ReasoningStart {
-                task_description: goal_clone.clone(),
-            }).await;
+            let _ = event_tx
+                .send(StreamEvent::ReasoningStart {
+                    task_description: goal_clone.clone(),
+                })
+                .await;
 
-            let _ = event_tx.send(StreamEvent::Status {
-                message: "Starting agent execution simulation".to_string(),
-                level: StatusLevel::Info,
-            }).await;
+            let _ = event_tx
+                .send(StreamEvent::Status {
+                    message: "Starting agent execution simulation".to_string(),
+                    level: StatusLevel::Info,
+                })
+                .await;
 
             tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
 
-            let _ = event_tx.send(StreamEvent::ReasoningStep {
-                step_number: 1,
-                content: "Breaking down the request into actionable components".to_string(),
-            }).await;
+            let _ = event_tx
+                .send(StreamEvent::ReasoningStep {
+                    step_number: 1,
+                    content: "Breaking down the request into actionable components".to_string(),
+                })
+                .await;
 
             tokio::time::sleep(tokio::time::Duration::from_millis(800)).await;
 
-            let _ = event_tx.send(StreamEvent::ReasoningStep {
-                step_number: 2,
-                content: "Identifying required tools and resources".to_string(),
-            }).await;
+            let _ = event_tx
+                .send(StreamEvent::ReasoningStep {
+                    step_number: 2,
+                    content: "Identifying required tools and resources".to_string(),
+                })
+                .await;
 
             tokio::time::sleep(tokio::time::Duration::from_millis(600)).await;
 
-            let _ = event_tx.send(StreamEvent::ToolPlanned {
-                tool_name: "analysis_tool".to_string(),
-                description: "Analyze the codebase for relevant information".to_string(),
-            }).await;
+            let _ = event_tx
+                .send(StreamEvent::ToolPlanned {
+                    tool_name: "analysis_tool".to_string(),
+                    description: "Analyze the codebase for relevant information".to_string(),
+                })
+                .await;
 
-            let _ = event_tx.send(StreamEvent::ToolStart {
-                tool_name: "analysis_tool".to_string(),
-                parameters: "{}".to_string(),
-            }).await;
+            let _ = event_tx
+                .send(StreamEvent::ToolStart {
+                    tool_name: "analysis_tool".to_string(),
+                    parameters: "{}".to_string(),
+                })
+                .await;
 
             tokio::time::sleep(tokio::time::Duration::from_millis(1000)).await;
 
-            let _ = event_tx.send(StreamEvent::ToolComplete {
-                tool_name: "analysis_tool".to_string(),
-                success: true,
-                duration_ms: 1000,
-                error: None,
-            }).await;
+            let _ = event_tx
+                .send(StreamEvent::ToolComplete {
+                    tool_name: "analysis_tool".to_string(),
+                    success: true,
+                    duration_ms: 1000,
+                    error: None,
+                })
+                .await;
 
-            let _ = event_tx.send(StreamEvent::Result {
-                content: format!("Streaming analysis complete for: {}", goal_clone),
-                confidence: 0.85,
-            }).await;
+            let _ = event_tx
+                .send(StreamEvent::Result {
+                    content: format!("Streaming analysis complete for: {}", goal_clone),
+                    confidence: 0.85,
+                })
+                .await;
         });
 
         // Display streaming events in real-time
@@ -3016,7 +3399,10 @@ OUTPUT ONLY THE COMMAND:"#,
 
         println!();
         println!("{}", "✅ Streaming demonstration complete!".bright_green());
-        println!("{}", "This showcases real-time agent execution with live feedback.".bright_cyan());
+        println!(
+            "{}",
+            "This showcases real-time agent execution with live feedback.".bright_cyan()
+        );
 
         Ok(())
     }
@@ -3024,7 +3410,10 @@ OUTPUT ONLY THE COMMAND:"#,
     /// Handle listing all sessions
     async fn handle_list_sessions(&mut self) -> Result<()> {
         let Some(store) = &self.session_store else {
-            println!("{}", "No project detected - session management requires a project context.".yellow());
+            println!(
+                "{}",
+                "No project detected - session management requires a project context.".yellow()
+            );
             return Ok(());
         };
 
@@ -3038,7 +3427,9 @@ OUTPUT ONLY THE COMMAND:"#,
         match store.list_sessions() {
             Ok(sessions) if sessions.is_empty() => {
                 println!("{}", "No sessions found.".dimmed());
-                println!("Create your first session with: ai --session \"my-session\" --build \"...\"");
+                println!(
+                    "Create your first session with: ai --session \"my-session\" --build \"...\""
+                );
             }
             Ok(sessions) => {
                 println!("Sessions:");
@@ -3056,12 +3447,14 @@ OUTPUT ONLY THE COMMAND:"#,
                         session.goal_summary.dimmed()
                     };
 
-                    println!("  {} {:<15} Last used: {}  Changes: {}  Goal: {}",
-                            active_marker,
-                            session.name.bright_green(),
-                            last_used,
-                            session.change_count,
-                            goal);
+                    println!(
+                        "  {} {:<15} Last used: {}  Changes: {}  Goal: {}",
+                        active_marker,
+                        session.name.bright_green(),
+                        last_used,
+                        session.change_count,
+                        goal
+                    );
                 }
             }
             Err(e) => {
@@ -3076,21 +3469,37 @@ OUTPUT ONLY THE COMMAND:"#,
     /// Handle deleting a session
     async fn handle_delete_session(&mut self, session_name: &str) -> Result<()> {
         let Some(store) = &self.session_store else {
-            println!("{}", "No project detected - cannot delete sessions.".yellow());
+            println!(
+                "{}",
+                "No project detected - cannot delete sessions.".yellow()
+            );
             return Ok(());
         };
 
         // Confirm deletion
-use shared::confirmation::{ask_confirmation, ask_enhanced_confirmation, ConfirmationChoice};
-        let prompt = format!("Permanently delete session '{}' and all its data?", session_name);
+        use shared::confirmation::{
+            ask_confirmation, ask_enhanced_confirmation, ConfirmationChoice,
+        };
+        let prompt = format!(
+            "Permanently delete session '{}' and all its data?",
+            session_name
+        );
         match ask_confirmation(&prompt, false) {
             Ok(true) => {
                 match store.delete_session(session_name) {
                     Ok(_) => {
-                        println!("{} Session '{}' deleted successfully.", "✓".green(), session_name);
+                        println!(
+                            "{} Session '{}' deleted successfully.",
+                            "✓".green(),
+                            session_name
+                        );
                         // Export backup before deletion
                         if let Ok(backup_path) = store.export_session(session_name) {
-                            println!("{} Session backed up to: {}", "💾".blue(), backup_path.display());
+                            println!(
+                                "{} Session backed up to: {}",
+                                "💾".blue(),
+                                backup_path.display()
+                            );
                         }
                     }
                     Err(e) => {
@@ -3112,7 +3521,10 @@ use shared::confirmation::{ask_confirmation, ask_enhanced_confirmation, Confirma
     /// Handle continuing a session
     async fn handle_continue_session(&mut self) -> Result<()> {
         let Some(store) = &self.session_store else {
-            println!("{}", "No project detected - cannot continue sessions.".yellow());
+            println!(
+                "{}",
+                "No project detected - cannot continue sessions.".yellow()
+            );
             return Ok(());
         };
 
@@ -3122,12 +3534,11 @@ use shared::confirmation::{ask_confirmation, ask_enhanced_confirmation, Confirma
         } else {
             // Find most recently used session
             match store.list_sessions() {
-                Ok(sessions) if !sessions.is_empty() => {
-                    sessions.into_iter()
-                        .max_by_key(|s| s.last_used)
-                        .map(|s| s.name)
-                        .unwrap()
-                }
+                Ok(sessions) if !sessions.is_empty() => sessions
+                    .into_iter()
+                    .max_by_key(|s| s.last_used)
+                    .map(|s| s.name)
+                    .unwrap(),
                 _ => "main".to_string(),
             }
         };
@@ -3135,22 +3546,40 @@ use shared::confirmation::{ask_confirmation, ask_enhanced_confirmation, Confirma
         match store.load_session(&target_session) {
             Ok(Some(session)) => {
                 self.current_session = Some(target_session.clone());
-                println!("{} Continuing session '{}'", "▶".green(), target_session.bright_green());
+                println!(
+                    "{} Continuing session '{}'",
+                    "▶".green(),
+                    target_session.bright_green()
+                );
                 println!("  Goal: {}", session.metadata.goal_summary.dimmed());
                 println!("  Changes: {}", session.metadata.change_count);
-                println!("  Last used: {}", session.metadata.last_used.format("%Y-%m-%d %H:%M"));
+                println!(
+                    "  Last used: {}",
+                    session.metadata.last_used.format("%Y-%m-%d %H:%M")
+                );
 
                 if !session.conversation_history.is_empty() {
-                    println!("  Conversation: {} messages", session.conversation_history.len());
+                    println!(
+                        "  Conversation: {} messages",
+                        session.conversation_history.len()
+                    );
                 }
             }
             Ok(None) => {
                 // Session doesn't exist, create it
-                println!("{} Session '{}' not found, creating new session.", "🆕".blue(), target_session);
+                println!(
+                    "{} Session '{}' not found, creating new session.",
+                    "🆕".blue(),
+                    target_session
+                );
                 match store.get_or_create_session(&target_session) {
                     Ok(session) => {
                         self.current_session = Some(target_session.clone());
-                        println!("{} Created and activated session '{}'", "✓".green(), target_session.bright_green());
+                        println!(
+                            "{} Created and activated session '{}'",
+                            "✓".green(),
+                            target_session.bright_green()
+                        );
                     }
                     Err(e) => {
                         eprintln!("{} Failed to create session: {}", "✗".red(), e);
@@ -3186,16 +3615,29 @@ use shared::confirmation::{ask_confirmation, ask_enhanced_confirmation, Confirma
                     };
                     println!("{} {} {}", change_icon, change_str, path.display());
                 }
-                BackgroundEvent::TestResult { session, status, output } => {
+                BackgroundEvent::TestResult {
+                    session,
+                    status,
+                    output,
+                } => {
                     let (status_icon, status_str) = match status {
                         TestStatus::Started => ("▶️", "started"),
                         TestStatus::Passed => ("✅", "passed"),
                         TestStatus::Failed { .. } => ("❌", "failed"),
                         TestStatus::Completed => ("🏁", "completed"),
                     };
-                    println!("{} Test {}: {}", status_icon, session, output.lines().next().unwrap_or(""));
+                    println!(
+                        "{} Test {}: {}",
+                        status_icon,
+                        session,
+                        output.lines().next().unwrap_or("")
+                    );
                 }
-                BackgroundEvent::LogEntry { source, level, message } => {
+                BackgroundEvent::LogEntry {
+                    source,
+                    level,
+                    message,
+                } => {
                     let (level_icon, level_str) = match level {
                         LogLevel::Debug => ("🐛", "debug"),
                         LogLevel::Info => ("ℹ️", "info"),
@@ -3204,7 +3646,11 @@ use shared::confirmation::{ask_confirmation, ask_enhanced_confirmation, Confirma
                     };
                     println!("{} [{}] {}: {}", level_icon, source, level_str, message);
                 }
-                BackgroundEvent::LspDiagnostic { file, severity, message } => {
+                BackgroundEvent::LspDiagnostic {
+                    file,
+                    severity,
+                    message,
+                } => {
                     let severity_icon = match severity {
                         DiagnosticSeverity::Error => "🚨",
                         DiagnosticSeverity::Warning => "⚠️",
@@ -3213,17 +3659,15 @@ use shared::confirmation::{ask_confirmation, ask_enhanced_confirmation, Confirma
                     };
                     println!("{} {}: {}", severity_icon, file.display(), message);
                 }
-                BackgroundEvent::GitStatus { status } => {
-                    match status {
-                        GitStatus::Clean => println!("{} Repository is clean", "✅".green()),
-                        GitStatus::Dirty { modified_files } => {
-                            println!("{} {} modified files", "📝".yellow(), modified_files.len());
-                        }
-                        GitStatus::Untracked { files } => {
-                            println!("{} {} untracked files", "📄".yellow(), files.len());
-                        }
+                BackgroundEvent::GitStatus { status } => match status {
+                    GitStatus::Clean => println!("{} Repository is clean", "✅".green()),
+                    GitStatus::Dirty { modified_files } => {
+                        println!("{} {} modified files", "📝".yellow(), modified_files.len());
                     }
-                }
+                    GitStatus::Untracked { files } => {
+                        println!("{} {} untracked files", "📄".yellow(), files.len());
+                    }
+                },
             }
         }
     }
@@ -3233,16 +3677,24 @@ use shared::confirmation::{ask_confirmation, ask_enhanced_confirmation, Confirma
         println!("🧪 Running tests with real-time monitoring...");
 
         // Get project root
-        let project_root = find_project_root()
-            .ok_or_else(|| anyhow::anyhow!("Could not find project root. Are you in a Rust project?"))?;
+        let project_root = find_project_root().ok_or_else(|| {
+            anyhow::anyhow!("Could not find project root. Are you in a Rust project?")
+        })?;
 
         // Start test watcher if background supervisor is available
         if let Some(supervisor) = self.background_supervisor.as_mut() {
-            let session_name = self.current_session.clone().unwrap_or_else(|| "test-session".to_string());
-            supervisor.start_test_watcher(std::path::PathBuf::from(project_root), session_name).await?;
+            let session_name = self
+                .current_session
+                .clone()
+                .unwrap_or_else(|| "test-session".to_string());
+            supervisor
+                .start_test_watcher(std::path::PathBuf::from(project_root), session_name)
+                .await?;
         }
 
-        println!("✅ Test monitoring started. Background intelligence will report results in real-time.");
+        println!(
+            "✅ Test monitoring started. Background intelligence will report results in real-time."
+        );
         println!("📊 Test events will appear as they happen...");
 
         Ok(())
@@ -3292,7 +3744,10 @@ use shared::confirmation::{ask_confirmation, ask_enhanced_confirmation, Confirma
     /// Handle undo command
     async fn handle_undo(&mut self) -> Result<()> {
         let Some(session_name) = &self.current_session.clone() else {
-            println!("{}", "No active session. Use --session to specify a session first.".yellow());
+            println!(
+                "{}",
+                "No active session. Use --session to specify a session first.".yellow()
+            );
             return Ok(());
         };
 
@@ -3307,9 +3762,14 @@ use shared::confirmation::{ask_confirmation, ask_enhanced_confirmation, Confirma
                     if let Some(store) = &self.session_store {
                         if let Ok(mut session) = store.load_session(session_name) {
                             if let Some(ref mut session) = session {
-                                         session.metadata.change_count = session.metadata.change_count.saturating_sub(1);
+                                session.metadata.change_count =
+                                    session.metadata.change_count.saturating_sub(1);
                                 if let Err(e) = store.save_session(session) {
-                                    eprintln!("{} {}", "Warning: Failed to update session:".yellow(), e);
+                                    eprintln!(
+                                        "{} {}",
+                                        "Warning: Failed to update session:".yellow(),
+                                        e
+                                    );
                                 }
                             }
                         }
@@ -3327,7 +3787,10 @@ use shared::confirmation::{ask_confirmation, ask_enhanced_confirmation, Confirma
         }
 
         println!("[UNDO] Git undo completed - changes reverted");
-        println!("{}", "Tip: Use 'git reset --hard HEAD~1' for manual git rollback".bright_black());
+        println!(
+            "{}",
+            "Tip: Use 'git reset --hard HEAD~1' for manual git rollback".bright_black()
+        );
         Ok(())
     }
 
@@ -3338,7 +3801,8 @@ use shared::confirmation::{ask_confirmation, ask_enhanced_confirmation, Confirma
             .map_err(|e| anyhow::anyhow!("Failed to open git repository: {}", e))?;
 
         // Check if there are commits to undo
-        let head = repo.head()
+        let head = repo
+            .head()
             .map_err(|e| anyhow::anyhow!("Failed to get HEAD: {}", e))?;
 
         if head.name() != Some("refs/heads/master") && head.name() != Some("refs/heads/main") {
@@ -3346,7 +3810,8 @@ use shared::confirmation::{ask_confirmation, ask_enhanced_confirmation, Confirma
         }
 
         // Get the current commit
-        let head_commit = repo.find_commit(head.target().unwrap())
+        let head_commit = repo
+            .find_commit(head.target().unwrap())
             .map_err(|e| anyhow::anyhow!("Failed to find HEAD commit: {}", e))?;
 
         // Check if this commit was made by the agent
@@ -3369,18 +3834,18 @@ use shared::confirmation::{ask_confirmation, ask_enhanced_confirmation, Confirma
 
     /// Get the effective power user configuration (with override if set)
     fn get_power_config(&self) -> &infrastructure::config::PowerUserConfig {
-        self.power_config_override.as_ref().unwrap_or(&self.config.power_user)
+        self.power_config_override
+            .as_ref()
+            .unwrap_or(&self.config.power_user)
     }
-
-    
 }
 
 #[cfg(test)]
 mod tests {
     use super::CliApp;
     use application::build_service::FileOperation;
-    use std::path::PathBuf;
     use std::collections::VecDeque;
+    use std::path::PathBuf;
 
     #[test]
     fn rebuild_operations_reorders_known_steps() {
@@ -3452,9 +3917,14 @@ mod tests {
             estimated_risk: application::build_service::RiskLevel::Low,
         };
 
-        let ok = app.apply_operations_interactively(&mut plan, &mut build_service).unwrap();
+        let ok = app
+            .apply_operations_interactively(&mut plan, &mut build_service)
+            .unwrap();
         assert!(ok);
-        build_service.execute_operation_once(&plan.operations[0]).await.unwrap();
+        build_service
+            .execute_operation_once(&plan.operations[0])
+            .await
+            .unwrap();
 
         let content = std::fs::read_to_string(temp_dir.join("health.sh")).unwrap();
         assert!(content.contains("echo ok"));

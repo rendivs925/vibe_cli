@@ -149,11 +149,12 @@ impl BackgroundSupervisor {
         // Log tailer disabled by default - no automatic monitoring
         // Autonomous fix analyzer disabled by default - no automatic monitoring
         
-        // Event receiver available for explicit manual control
-        pub fn get_event_receiver(&self) -> Option<Receiver<BackgroundEvent>> {
-            self.event_rx.clone()
-        }
-Ok(())
+        Ok(())
+    }
+
+    /// Event receiver available for explicit manual control
+    pub fn get_event_receiver(&self) -> Option<Receiver<BackgroundEvent>> {
+        Some(self.event_rx.clone())
     }
     /// Start test watcher service (disabled by default)
     pub async fn start_test_watcher(
