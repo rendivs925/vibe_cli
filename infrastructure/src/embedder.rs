@@ -18,7 +18,9 @@ impl Embedder {
     pub fn new(client: OllamaClient) -> Self {
         // For backward compatibility, wrap OllamaClient in InferenceEngine
         // In practice, this should be removed once all usage is migrated to Candle
-        Self { inference_engine: InferenceEngine::Ollama(client) }
+        Self {
+            inference_engine: InferenceEngine::Ollama(client),
+        }
     }
 
     pub fn new_with_inference_engine(inference_engine: InferenceEngine) -> Self {

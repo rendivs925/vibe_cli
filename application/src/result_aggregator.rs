@@ -1,7 +1,6 @@
-use shared::types::Result;
-use serde::{Deserialize, Serialize};
 use crate::parallel_agent::SubTaskResult;
-use std::collections::HashMap;
+use serde::{Deserialize, Serialize};
+use shared::types::Result;
 
 /// Conflict resolution strategy
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -242,7 +241,10 @@ impl ResultAggregator {
         output.push_str("## Successful Tasks\n\n");
         for result in results.iter().filter(|r| r.success) {
             output.push_str(&format!("### {}\n", result.task_id));
-            output.push_str(&format!("Execution time: {}ms\n\n", result.execution_time_ms));
+            output.push_str(&format!(
+                "Execution time: {}ms\n\n",
+                result.execution_time_ms
+            ));
             output.push_str(&format!("{}\n\n", result.output));
         }
 
@@ -320,7 +322,11 @@ impl ResultAggregator {
     }
 
     /// Merge outputs from related tasks
-    pub fn merge_related_outputs(&self, results: Vec<SubTaskResult>, groups: Vec<Vec<String>>) -> Result<Vec<String>> {
+    pub fn merge_related_outputs(
+        &self,
+        results: Vec<SubTaskResult>,
+        groups: Vec<Vec<String>>,
+    ) -> Result<Vec<String>> {
         let mut merged_outputs = Vec::new();
 
         for group in groups {
@@ -399,25 +405,25 @@ mod tests {
             success,
             output: output.to_string(),
             execution_time_ms: 100,
-            error: if success { None } else { Some("Error".to_string()) },
+            error: if success {
+                None
+            } else {
+                Some("Error".to_string())
+            },
         }
     }
 
     #[test]
     fn test_aggregator_creation() {
-        let aggregator = ResultAggregator::new(
-            ConflictResolution::Merge,
-            AggregationStrategy::Structured,
-        );
+        let aggregator =
+            ResultAggregator::new(ConflictResolution::Merge, AggregationStrategy::Structured);
         assert!(aggregator.allow_partial_success);
     }
 
     #[test]
     fn test_concatenate_strategy() {
-        let aggregator = ResultAggregator::new(
-            ConflictResolution::Merge,
-            AggregationStrategy::Concatenate,
-        );
+        let aggregator =
+            ResultAggregator::new(ConflictResolution::Merge, AggregationStrategy::Concatenate);
 
         let results = vec![
             create_test_result("task1", true, "Output 1"),
@@ -433,10 +439,8 @@ mod tests {
 
     #[test]
     fn test_partial_success() {
-        let aggregator = ResultAggregator::new(
-            ConflictResolution::Merge,
-            AggregationStrategy::Summary,
-        );
+        let aggregator =
+            ResultAggregator::new(ConflictResolution::Merge, AggregationStrategy::Summary);
 
         let results = vec![
             create_test_result("task1", true, "Success"),
@@ -450,11 +454,9 @@ mod tests {
 
     #[test]
     fn test_no_partial_success() {
-        let aggregator = ResultAggregator::new(
-            ConflictResolution::Merge,
-            AggregationStrategy::Summary,
-        )
-        .allow_partial_success(false);
+        let aggregator =
+            ResultAggregator::new(ConflictResolution::Merge, AggregationStrategy::Summary)
+                .allow_partial_success(false);
 
         let results = vec![
             create_test_result("task1", true, "Success"),

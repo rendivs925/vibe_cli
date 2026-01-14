@@ -1,17 +1,28 @@
-use shared::types::Result;
+use crate::transaction::Transaction;
 use colored::Colorize;
 use serde::{Deserialize, Serialize};
-use std::path::{Path, PathBuf};
-use crate::transaction::{Transaction, TransactionGuard};
 use shared::confirmation::ask_confirmation;
+use shared::types::Result;
+use std::path::{Path, PathBuf};
 
 /// Represents a file operation in the build process
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum FileOperation {
-    Create { path: PathBuf, content: String },
-    Read { path: PathBuf },
-    Update { path: PathBuf, old_content: String, new_content: String },
-    Delete { path: PathBuf },
+    Create {
+        path: PathBuf,
+        content: String,
+    },
+    Read {
+        path: PathBuf,
+    },
+    Update {
+        path: PathBuf,
+        old_content: String,
+        new_content: String,
+    },
+    Delete {
+        path: PathBuf,
+    },
 }
 
 /// Risk level for file operations
@@ -114,7 +125,9 @@ impl OperationGraph {
 
     pub fn get_execution_order(&self) -> Result<&[usize]> {
         if !self.validated {
-            return Err(anyhow::anyhow!("Operation graph must be validated before getting execution order"));
+            return Err(anyhow::anyhow!(
+                "Operation graph must be validated before getting execution order"
+            ));
         }
         Ok(&self.execution_order)
     }
@@ -130,14 +143,21 @@ impl OperationGraph {
 
         for i in 0..self.operations.len() {
             if self.has_cycle(i, &mut visited, &mut recursion_stack)? {
-                return Err(anyhow::anyhow!("Circular dependency detected in operation graph"));
+                return Err(anyhow::anyhow!(
+                    "Circular dependency detected in operation graph"
+                ));
             }
         }
 
         Ok(())
     }
 
-    fn has_cycle(&self, node: usize, visited: &mut [bool], recursion_stack: &mut [bool]) -> Result<bool> {
+    fn has_cycle(
+        &self,
+        node: usize,
+        visited: &mut [bool],
+        recursion_stack: &mut [bool],
+    ) -> Result<bool> {
         if recursion_stack[node] {
             return Ok(true);
         }
@@ -166,30 +186,46 @@ impl OperationGraph {
         self.operations.iter().position(|op| op.name == name)
     }
 
-    fn validate_operation(&self, operation: &ComplexOperation, workspace_root: &Path) -> Result<()> {
+    fn validate_operation(
+        &self,
+        operation: &ComplexOperation,
+        workspace_root: &Path,
+    ) -> Result<()> {
         for rule in &operation.validation_rules {
             match rule {
                 ValidationRule::FileExists(path) => {
                     let full_path = workspace_root.join(path);
                     if !full_path.exists() {
-                        return Err(anyhow::anyhow!("Validation failed: file {} does not exist", path));
+                        return Err(anyhow::anyhow!(
+                            "Validation failed: file {} does not exist",
+                            path
+                        ));
                     }
                 }
                 ValidationRule::FileNotExists(path) => {
                     let full_path = workspace_root.join(path);
                     if full_path.exists() {
-                        return Err(anyhow::anyhow!("Validation failed: file {} already exists", path));
+                        return Err(anyhow::anyhow!(
+                            "Validation failed: file {} already exists",
+                            path
+                        ));
                     }
                 }
                 ValidationRule::DirectoryExists(path) => {
                     let full_path = workspace_root.join(path);
                     if !full_path.is_dir() {
-                        return Err(anyhow::anyhow!("Validation failed: directory {} does not exist", path));
+                        return Err(anyhow::anyhow!(
+                            "Validation failed: directory {} does not exist",
+                            path
+                        ));
                     }
                 }
                 ValidationRule::HasDependency(dep_name) => {
                     if !self.operations.iter().any(|op| op.name == *dep_name) {
-                        return Err(anyhow::anyhow!("Validation failed: dependency {} not found", dep_name));
+                        return Err(anyhow::anyhow!(
+                            "Validation failed: dependency {} not found",
+                            dep_name
+                        ));
                     }
                 }
                 ValidationRule::ContentContains(file_path, pattern) => {
@@ -198,10 +234,19 @@ impl OperationGraph {
                         match std::fs::read_to_string(&full_path) {
                             Ok(content) => {
                                 if !content.contains(pattern) {
-                                    return Err(anyhow::anyhow!("Validation failed: {} does not contain {}", file_path, pattern));
+                                    return Err(anyhow::anyhow!(
+                                        "Validation failed: {} does not contain {}",
+                                        file_path,
+                                        pattern
+                                    ));
                                 }
                             }
-                            Err(_) => return Err(anyhow::anyhow!("Validation failed: cannot read {}", file_path)),
+                            Err(_) => {
+                                return Err(anyhow::anyhow!(
+                                    "Validation failed: cannot read {}",
+                                    file_path
+                                ))
+                            }
                         }
                     }
                 }
@@ -247,7 +292,9 @@ impl OperationGraph {
         }
 
         if result.len() != self.operations.len() {
-            return Err(anyhow::anyhow!("Cannot resolve operation dependencies - possible cycle"));
+            return Err(anyhow::anyhow!(
+                "Cannot resolve operation dependencies - possible cycle"
+            ));
         }
 
         self.execution_order = result;
@@ -348,7 +395,12 @@ impl BuildService {
         let trimmed = content.trim();
         if trimmed.starts_with("```") && trimmed.ends_with("```") {
             let mut lines: Vec<&str> = trimmed.lines().collect();
-            if !lines.is_empty() && lines.first().map(|l| l.trim().starts_with("```")).unwrap_or(false) {
+            if !lines.is_empty()
+                && lines
+                    .first()
+                    .map(|l| l.trim().starts_with("```"))
+                    .unwrap_or(false)
+            {
                 lines.remove(0);
             }
             if !lines.is_empty() && lines.last().map(|l| l.trim() == "```").unwrap_or(false) {
@@ -460,7 +512,9 @@ impl BuildService {
             "makefile",
         ];
 
-        critical_patterns.iter().any(|pattern| path_str.contains(pattern))
+        critical_patterns
+            .iter()
+            .any(|pattern| path_str.contains(pattern))
     }
 
     /// Display a file operation in plain text
@@ -501,7 +555,11 @@ impl BuildService {
                     FileOperation::Create { content, .. } => {
                         println!("\nContent preview:");
                         let cleaned = Self::strip_fences_for_preview(content);
-                        let snippet = if cleaned.len() > 200 { &cleaned[..200] } else { &cleaned };
+                        let snippet = if cleaned.len() > 200 {
+                            &cleaned[..200]
+                        } else {
+                            &cleaned
+                        };
                         println!("    {}", snippet);
                         if cleaned.len() > 200 {
                             println!("    ... ({} more chars)", cleaned.len() - 200);
@@ -510,7 +568,11 @@ impl BuildService {
                     FileOperation::Update { new_content, .. } => {
                         println!("\nContent preview:");
                         let cleaned = Self::strip_fences_for_preview(new_content);
-                        let snippet = if cleaned.len() > 200 { &cleaned[..200] } else { &cleaned };
+                        let snippet = if cleaned.len() > 200 {
+                            &cleaned[..200]
+                        } else {
+                            &cleaned
+                        };
                         println!("    {}", snippet);
                         if cleaned.len() > 200 {
                             println!("    ... ({} more chars)", cleaned.len() - 200);
@@ -543,7 +605,11 @@ impl BuildService {
                 };
                 println!("{}", preview);
             }
-            FileOperation::Update { path, old_content, new_content } => {
+            FileOperation::Update {
+                path,
+                old_content,
+                new_content,
+            } => {
                 println!("\nChanges:");
                 if self.show_diff || self.verbose {
                     self.display_diff(old_content, new_content);
@@ -598,7 +664,12 @@ impl BuildService {
     }
 
     /// Ask for user confirmation for an operation
-    fn confirm_operation(&self, operation: &FileOperation, operation_num: usize, total_ops: usize) -> Result<bool> {
+    fn confirm_operation(
+        &self,
+        operation: &FileOperation,
+        operation_num: usize,
+        total_ops: usize,
+    ) -> Result<bool> {
         match self.confirmation_mode {
             ConfirmationMode::None => Ok(true),
             ConfirmationMode::ConfirmAll => {
@@ -679,7 +750,11 @@ impl BuildService {
                 println!("{}", format!("Read: {}", path.display()));
                 Ok(())
             }
-            FileOperation::Update { path, old_content, new_content } => {
+            FileOperation::Update {
+                path,
+                old_content,
+                new_content,
+            } => {
                 if !path.exists() {
                     return Err(anyhow::anyhow!("File does not exist: {}", path.display()));
                 }
@@ -744,18 +819,24 @@ impl BuildService {
                 }
             }
 
-            match self.execute_operation_transactional(operation, &mut transaction).await {
+            match self
+                .execute_operation_transactional(operation, &mut transaction)
+                .await
+            {
                 Ok(_) => {
                     result.operations_completed += 1;
                 }
                 Err(e) => {
                     result.operations_failed += 1;
                     result.success = false;
-                    result.error_messages.push(format!("{:?}: {}", operation, e));
+                    result
+                        .error_messages
+                        .push(format!("{:?}: {}", operation, e));
                     eprintln!("{}", format!("Operation failed: {}", e));
 
                     // Ask if user wants to rollback
-                    let should_rollback = if self.confirmation_mode == ConfirmationMode::Interactive {
+                    let should_rollback = if self.confirmation_mode == ConfirmationMode::Interactive
+                    {
                         ask_confirmation("Rollback all changes?", true)?
                     } else {
                         true // Auto-rollback in non-interactive mode
@@ -810,7 +891,8 @@ impl BuildService {
             "feat: {}\n\nApplied {} operations via elite agentic CLI\n\nOperations:\n{}",
             plan.goal,
             plan.operations.len(),
-            plan.operations.iter()
+            plan.operations
+                .iter()
                 .map(|op| format!("- {:?}", op))
                 .collect::<Vec<_>>()
                 .join("\n")
@@ -857,7 +939,11 @@ impl BuildService {
                 println!("{}", format!("Read: {}", path.display()));
                 Ok(())
             }
-            FileOperation::Update { path, old_content, new_content } => {
+            FileOperation::Update {
+                path,
+                old_content,
+                new_content,
+            } => {
                 if !path.exists() {
                     return Err(anyhow::anyhow!("File does not exist: {}", path.display()));
                 }
@@ -915,7 +1001,10 @@ impl BuildService {
     }
 
     /// Filter operations to enforce project scoping and flag anything outside the workspace
-    pub fn enforce_project_scope(&self, operations: Vec<FileOperation>) -> (Vec<FileOperation>, Vec<String>) {
+    pub fn enforce_project_scope(
+        &self,
+        operations: Vec<FileOperation>,
+    ) -> (Vec<FileOperation>, Vec<String>) {
         let mut sanitized = Vec::new();
         let mut warnings = Vec::new();
 
@@ -929,7 +1018,10 @@ impl BuildService {
 
             // Reject paths that escape the workspace root
             if path.is_absolute() && !path.starts_with(&self.workspace_root) {
-                warnings.push(format!("Skipping operation on external path: {}", path.display()));
+                warnings.push(format!(
+                    "Skipping operation on external path: {}",
+                    path.display()
+                ));
                 continue;
             }
 
@@ -940,7 +1032,12 @@ impl BuildService {
     }
 
     /// Stream a file operation in plain text
-    pub fn stream_operation(&self, operation: &FileOperation, step_number: usize, total_steps: usize) -> Result<()> {
+    pub fn stream_operation(
+        &self,
+        operation: &FileOperation,
+        step_number: usize,
+        total_steps: usize,
+    ) -> Result<()> {
         println!("\n[STEP] {}/{}", step_number, total_steps);
 
         let risk = self.assess_risk(operation);
@@ -963,7 +1060,11 @@ impl BuildService {
                     println!("... ({} more lines)", lines.len() - 20);
                 }
             }
-            FileOperation::Update { path, old_content, new_content } => {
+            FileOperation::Update {
+                path,
+                old_content,
+                new_content,
+            } => {
                 println!("{} Updating: {}", risk_label, path.display());
                 if self.show_diff {
                     println!("\nChanges:");
@@ -1002,7 +1103,8 @@ impl BuildService {
 
     /// Validate and order complex operations
     pub fn validate_complex_operations(&mut self) -> Result<()> {
-        self.operation_graph.validate_and_order(&self.workspace_root)
+        self.operation_graph
+            .validate_and_order(&self.workspace_root)
     }
 
     /// Get complex operations in execution order
@@ -1036,13 +1138,27 @@ impl BuildService {
             return Ok(result);
         }
 
-        println!("\n{}", format!("Executing {} complex operations in dependency order...", operations.len()));
+        println!(
+            "\n{}",
+            format!(
+                "Executing {} complex operations in dependency order...",
+                operations.len()
+            )
+        );
 
         let mut transaction = crate::transaction::Transaction::new();
         transaction.begin()?;
 
         for (idx, operation) in operations.iter().enumerate() {
-            println!("\n{}", format!("Executing complex operation {}/{}: {}", idx + 1, operations.len(), operation.name));
+            println!(
+                "\n{}",
+                format!(
+                    "Executing complex operation {}/{}: {}",
+                    idx + 1,
+                    operations.len(),
+                    operation.name
+                )
+            );
 
             // Get operation-level confirmation in interactive mode
             if self.confirmation_mode == ConfirmationMode::Interactive {
@@ -1052,20 +1168,32 @@ impl BuildService {
                 }
             }
 
-            match self.execute_complex_operation(operation, &mut transaction).await {
+            match self
+                .execute_complex_operation(operation, &mut transaction)
+                .await
+            {
                 Ok(_) => {
                     result.operations_completed += operation.file_operations.len();
                 }
                 Err(e) => {
                     result.operations_failed += 1;
                     result.success = false;
-                    result.error_messages.push(format!("Complex operation '{}': {}", operation.name, e));
+                    result
+                        .error_messages
+                        .push(format!("Complex operation '{}': {}", operation.name, e));
 
-                    eprintln!("{}", format!("Complex operation '{}' failed: {}", operation.name, e));
+                    eprintln!(
+                        "{}",
+                        format!("Complex operation '{}' failed: {}", operation.name, e)
+                    );
 
                     // Ask if user wants to rollback
-                    let should_rollback = if self.confirmation_mode == ConfirmationMode::Interactive {
-                        shared::confirmation::ask_confirmation("Rollback all complex operations?", true)?
+                    let should_rollback = if self.confirmation_mode == ConfirmationMode::Interactive
+                    {
+                        shared::confirmation::ask_confirmation(
+                            "Rollback all complex operations?",
+                            true,
+                        )?
                     } else {
                         true // Auto-rollback in non-interactive mode
                     };
@@ -1096,7 +1224,11 @@ impl BuildService {
                 println!("\n{}", "Complex Operations Plan Preview");
 
                 for (i, op) in operations.iter().enumerate() {
-                    println!("\n{}: {}", format!("{}. {}", i + 1, op.name), op.description);
+                    println!(
+                        "\n{}: {}",
+                        format!("{}. {}", i + 1, op.name),
+                        op.description
+                    );
                     println!("  Files: {}", op.file_operations.len());
                     println!("  Risk: {:?}", op.estimated_risk);
                     if !op.dependencies.is_empty() {
@@ -1104,8 +1236,15 @@ impl BuildService {
                     }
                 }
 
-                let total_files = operations.iter().map(|op| op.file_operations.len()).sum::<usize>();
-                let max_risk = operations.iter().map(|op| op.estimated_risk).max().unwrap_or(RiskLevel::Low);
+                let total_files = operations
+                    .iter()
+                    .map(|op| op.file_operations.len())
+                    .sum::<usize>();
+                let max_risk = operations
+                    .iter()
+                    .map(|op| op.estimated_risk)
+                    .max()
+                    .unwrap_or(RiskLevel::Low);
 
                 shared::confirmation::ask_confirmation(
                     &format!(
@@ -1121,8 +1260,16 @@ impl BuildService {
     }
 
     /// Confirm individual complex operation
-    fn confirm_complex_operation(&self, operation: &ComplexOperation, operation_num: usize, total_ops: usize) -> Result<bool> {
-        println!("\n{}", format!("Complex Operation {}/{}", operation_num + 1, total_ops));
+    fn confirm_complex_operation(
+        &self,
+        operation: &ComplexOperation,
+        operation_num: usize,
+        total_ops: usize,
+    ) -> Result<bool> {
+        println!(
+            "\n{}",
+            format!("Complex Operation {}/{}", operation_num + 1, total_ops)
+        );
         println!("Name: {}", operation.name);
         println!("Description: {}", operation.description);
         println!("Risk: {:?}", operation.estimated_risk);
@@ -1136,9 +1283,14 @@ impl BuildService {
     }
 
     /// Execute a single complex operation
-    async fn execute_complex_operation(&self, operation: &ComplexOperation, transaction: &mut crate::transaction::Transaction) -> Result<()> {
+    async fn execute_complex_operation(
+        &self,
+        operation: &ComplexOperation,
+        transaction: &mut crate::transaction::Transaction,
+    ) -> Result<()> {
         for file_operation in &operation.file_operations {
-            self.execute_operation_transactional(file_operation, transaction).await?;
+            self.execute_operation_transactional(file_operation, transaction)
+                .await?;
         }
         Ok(())
     }
@@ -1159,7 +1311,9 @@ impl BuildService {
         };
 
         // Recalculate risk
-        let actual_risk = plan.operations.iter()
+        let actual_risk = plan
+            .operations
+            .iter()
             .map(|op| self.assess_risk(op))
             .max()
             .unwrap_or(RiskLevel::Low);
@@ -1215,7 +1369,8 @@ impl BuildService {
     pub async fn execute_operation_once(&self, operation: &FileOperation) -> Result<()> {
         let mut transaction = Transaction::new();
         transaction.begin()?;
-        self.execute_operation_transactional(operation, &mut transaction).await?;
+        self.execute_operation_transactional(operation, &mut transaction)
+            .await?;
         transaction.commit()?;
         Ok(())
     }
@@ -1230,12 +1385,15 @@ impl BuildService {
         let repo = git2::Repository::open(&repo_path)
             .map_err(|e| anyhow::anyhow!("Failed to open git repository: {}", e))?;
 
-        let mut index = repo.index()
+        let mut index = repo
+            .index()
             .map_err(|e| anyhow::anyhow!("Failed to get git index: {}", e))?;
 
-        index.add_all(["*"].iter(), git2::IndexAddOption::DEFAULT, None)
+        index
+            .add_all(["*"].iter(), git2::IndexAddOption::DEFAULT, None)
             .map_err(|e| anyhow::anyhow!("Failed to add files to git index: {}", e))?;
-        index.write()
+        index
+            .write()
             .map_err(|e| anyhow::anyhow!("Failed to write git index: {}", e))?;
 
         let sig = git2::Signature::now("Elite Agentic CLI", "agent@cli.local")
@@ -1244,8 +1402,10 @@ impl BuildService {
         let head_commit = match repo.head() {
             Ok(head) => {
                 let oid = head.target().unwrap();
-                Some(repo.find_commit(oid)
-                    .map_err(|e| anyhow::anyhow!("Failed to find head commit: {}", e))?)
+                Some(
+                    repo.find_commit(oid)
+                        .map_err(|e| anyhow::anyhow!("Failed to find head commit: {}", e))?,
+                )
             }
             Err(_) => None,
         };
@@ -1256,19 +1416,16 @@ impl BuildService {
             vec![]
         };
 
-        let tree_oid = index.write_tree()
+        let tree_oid = index
+            .write_tree()
             .map_err(|e| anyhow::anyhow!("Failed to write tree: {}", e))?;
-        let tree = repo.find_tree(tree_oid)
+        let tree = repo
+            .find_tree(tree_oid)
             .map_err(|e| anyhow::anyhow!("Failed to find tree: {}", e))?;
 
-        let _commit_oid = repo.commit(
-            Some("HEAD"),
-            &sig,
-            &sig,
-            message,
-            &tree,
-            &parents,
-        ).map_err(|e| anyhow::anyhow!("Failed to create commit: {}", e))?;
+        let _commit_oid = repo
+            .commit(Some("HEAD"), &sig, &sig, message, &tree, &parents)
+            .map_err(|e| anyhow::anyhow!("Failed to create commit: {}", e))?;
 
         Ok(())
     }

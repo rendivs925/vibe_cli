@@ -6,14 +6,13 @@
 /// - Adaptive concurrency control
 /// - Task affinity and locality optimization
 /// - Backpressure management
-
 use crate::parallel_agent::SubTask;
 use anyhow::{Context, Result};
-use std::collections::{BinaryHeap, HashMap, VecDeque};
 use std::cmp::Ordering;
+use std::collections::{BinaryHeap, HashMap, VecDeque};
 use std::sync::Arc;
-use tokio::sync::{Mutex, Semaphore};
 use std::time::{Duration, Instant};
+use tokio::sync::{Mutex, Semaphore};
 
 /// Task scheduling strategy
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -110,13 +109,10 @@ pub struct AdvancedScheduler {
 impl AdvancedScheduler {
     /// Create a new scheduler
     pub fn new(num_workers: usize, strategy: SchedulingStrategy) -> Self {
-        let workers: Vec<WorkerNode> = (0..num_workers)
-            .map(|id| WorkerNode::new(id))
-            .collect();
+        let workers: Vec<WorkerNode> = (0..num_workers).map(|id| WorkerNode::new(id)).collect();
 
-        let work_stealing_queues: HashMap<usize, VecDeque<ScheduledTask>> = (0..num_workers)
-            .map(|id| (id, VecDeque::new()))
-            .collect();
+        let work_stealing_queues: HashMap<usize, VecDeque<ScheduledTask>> =
+            (0..num_workers).map(|id| (id, VecDeque::new())).collect();
 
         Self {
             strategy,
@@ -142,7 +138,7 @@ impl AdvancedScheduler {
             let queue = self.task_queue.lock().await;
             if queue.len() >= self.max_queue_size {
                 drop(queue); // Release lock before waiting
-                // Wait a bit for queue to drain
+                             // Wait a bit for queue to drain
                 tokio::time::sleep(Duration::from_millis(10)).await;
             }
         }
@@ -350,7 +346,8 @@ impl AdvancedScheduler {
         let complexity_factor = task.estimated_complexity;
 
         // Select worker based on predictions and current load
-        let best_worker = self.select_optimal_worker(&predictions, workers, load_score, complexity_factor);
+        let best_worker =
+            self.select_optimal_worker(&predictions, workers, load_score, complexity_factor);
 
         Ok(best_worker)
     }
@@ -421,12 +418,13 @@ impl AdvancedScheduler {
         system_metrics: &crate::dynamic_scaling::SystemMetrics,
     ) -> SchedulingStrategy {
         // Analyze task patterns
-        let avg_complexity: f32 = recent_tasks.iter()
+        let avg_complexity: f32 = recent_tasks
+            .iter()
             .map(|t| t.estimated_complexity)
-            .sum::<f32>() / recent_tasks.len() as f32;
+            .sum::<f32>()
+            / recent_tasks.len() as f32;
 
-        let has_dependencies = recent_tasks.iter()
-            .any(|t| !t.dependencies.is_empty());
+        let has_dependencies = recent_tasks.iter().any(|t| !t.dependencies.is_empty());
 
         let queue_pressure = system_metrics.queue_length as f32 / 10.0; // Normalize
 

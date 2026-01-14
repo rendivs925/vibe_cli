@@ -1,3 +1,4 @@
+use anyhow::Result;
 /// Batch processing optimization with parallel execution
 ///
 /// Provides:
@@ -5,10 +6,8 @@
 /// - Chunk-based processing for large datasets
 /// - Memory-efficient streaming operations
 /// - Concurrent I/O operations
-
 use rayon::prelude::*;
 use std::path::Path;
-use anyhow::Result;
 
 /// Batch processor for parallel operations
 pub struct BatchProcessor {
@@ -111,10 +110,7 @@ impl FileBatchProcessor {
     }
 
     /// Read multiple files in parallel
-    pub fn read_files<P: AsRef<Path> + Send + Sync>(
-        &self,
-        paths: Vec<P>,
-    ) -> Vec<Result<String>> {
+    pub fn read_files<P: AsRef<Path> + Send + Sync>(&self, paths: Vec<P>) -> Vec<Result<String>> {
         paths
             .par_iter()
             .map(|path| std::fs::read_to_string(path.as_ref()).map_err(Into::into))
@@ -122,11 +118,7 @@ impl FileBatchProcessor {
     }
 
     /// Read files and process content in parallel
-    pub fn read_and_process<P, F, R>(
-        &self,
-        paths: Vec<P>,
-        processor: F,
-    ) -> Vec<Result<R>>
+    pub fn read_and_process<P, F, R>(&self, paths: Vec<P>, processor: F) -> Vec<Result<R>>
     where
         P: AsRef<Path> + Send + Sync,
         F: Fn(String) -> Result<R> + Send + Sync,
@@ -343,9 +335,8 @@ mod tests {
         let processor = BatchProcessor::new(10);
 
         let items: Vec<i32> = (0..100).collect();
-        let results = processor.process_chunks(items, |chunk| {
-            chunk.iter().map(|x| x * 2).collect()
-        });
+        let results =
+            processor.process_chunks(items, |chunk| chunk.iter().map(|x| x * 2).collect());
 
         assert_eq!(results.len(), 100);
     }
@@ -355,12 +346,7 @@ mod tests {
         let processor = BatchProcessor::new(10);
 
         let items: Vec<i32> = (1..=100).collect();
-        let sum = processor.map_reduce(
-            items,
-            |x| x,
-            |a, b| a + b,
-            0,
-        );
+        let sum = processor.map_reduce(items, |x| x, |a, b| a + b, 0);
 
         assert_eq!(sum, 5050); // Sum of 1 to 100
     }
@@ -370,11 +356,7 @@ mod tests {
         let processor = BatchProcessor::new(10);
 
         let items: Vec<i32> = (0..100).collect();
-        let results = processor.filter_process(
-            items,
-            |x| x % 2 == 0,
-            |x| x * 2,
-        );
+        let results = processor.filter_process(items, |x| x % 2 == 0, |x| x * 2);
 
         assert_eq!(results.len(), 50);
         assert_eq!(results[0], 0);
@@ -428,9 +410,7 @@ mod tests {
         let items: Vec<i32> = (0..100).collect();
         let processor = StreamProcessor::new(items, 10);
 
-        let results = processor.process_stream(|chunk| {
-            chunk.iter().map(|x| x * 2).collect()
-        });
+        let results = processor.process_stream(|chunk| chunk.iter().map(|x| x * 2).collect());
 
         assert_eq!(results.len(), 100);
     }
@@ -445,11 +425,7 @@ mod tests {
 
     #[test]
     fn test_parallel_sort_by_key() {
-        let items: Vec<(i32, &str)> = vec![
-            (3, "three"),
-            (1, "one"),
-            (2, "two"),
-        ];
+        let items: Vec<(i32, &str)> = vec![(3, "three"), (1, "one"), (2, "two")];
 
         let sorted = ParallelSort::sort_by_key(items, |x| x.0);
 

@@ -1,6 +1,6 @@
 use crate::ollama_client::OllamaClient;
-use shared::types::Result;
 use serde::Deserialize;
+use shared::types::Result;
 
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -27,13 +27,13 @@ pub struct ClassificationResult {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum InputType {
-    Command,        // Shell command request
-    Question,       // Question about code/project
-    Conversation,   // General conversation
-    CodeSnippet,    // Code to analyze/explain
-    FileOperation,  // File operations (read, write, etc.)
-    SystemQuery,    // System information queries
-    Ambiguous,      // Cannot determine with confidence
+    Command,       // Shell command request
+    Question,      // Question about code/project
+    Conversation,  // General conversation
+    CodeSnippet,   // Code to analyze/explain
+    FileOperation, // File operations (read, write, etc.)
+    SystemQuery,   // System information queries
+    Ambiguous,     // Cannot determine with confidence
 }
 
 #[derive(Debug)]
@@ -70,7 +70,10 @@ impl InputClassifier {
                 }
             }
             Err(e) => {
-                eprintln!("LLM classification failed: {}, falling back to heuristics", e);
+                eprintln!(
+                    "LLM classification failed: {}, falling back to heuristics",
+                    e
+                );
             }
         }
 
@@ -110,7 +113,11 @@ Respond with JSON in this format:
     }
 
     /// Parse LLM response into ClassificationResult
-    fn parse_llm_response(&self, response: &str, _original_input: &str) -> Result<ClassificationResult> {
+    fn parse_llm_response(
+        &self,
+        response: &str,
+        _original_input: &str,
+    ) -> Result<ClassificationResult> {
         // Extract JSON from response (LLMs might add extra text)
         let json_start = response.find('{').unwrap_or(0);
         let json_end = response.rfind('}').unwrap_or(response.len());
@@ -155,7 +162,9 @@ Respond with JSON in this format:
         let (input_type, confidence, reasoning) = self.heuristic_classifier.classify(input);
 
         let suggested_action = match input_type {
-            InputType::Command => "Execute the requested shell command with safety checks".to_string(),
+            InputType::Command => {
+                "Execute the requested shell command with safety checks".to_string()
+            }
             InputType::Question => "Search codebase and provide relevant information".to_string(),
             InputType::Conversation => "Engage in conversation and provide assistance".to_string(),
             InputType::CodeSnippet => "Analyze and explain the provided code".to_string(),
@@ -180,9 +189,10 @@ Respond with JSON in this format:
     /// Get cached result if valid
     async fn get_cached_result(&self, input: &str) -> Option<ClassificationResult> {
         let cache = self.cache.read().await;
-        cache.get(input).filter(|result| {
-            result.timestamp.elapsed() < self.cache_ttl
-        }).cloned()
+        cache
+            .get(input)
+            .filter(|result| result.timestamp.elapsed() < self.cache_ttl)
+            .cloned()
     }
 
     /// Cache classification result
@@ -196,9 +206,7 @@ Respond with JSON in this format:
         let mut cache = self.cache.write().await;
         let now = Instant::now();
 
-        cache.retain(|_, result| {
-            now.duration_since(result.timestamp) < self.cache_ttl
-        });
+        cache.retain(|_, result| now.duration_since(result.timestamp) < self.cache_ttl);
     }
 
     /// Get classification statistics
@@ -207,13 +215,18 @@ Respond with JSON in this format:
         let mut stats = HashMap::new();
 
         let total_classifications = cache.len();
-        stats.insert("cached_classifications".to_string(), total_classifications.to_string());
+        stats.insert(
+            "cached_classifications".to_string(),
+            total_classifications.to_string(),
+        );
 
         let mut method_counts = HashMap::new();
         let mut type_counts = HashMap::new();
 
         for result in cache.values() {
-            let method = result.metadata.get("classification_method")
+            let method = result
+                .metadata
+                .get("classification_method")
                 .cloned()
                 .unwrap_or_else(|| "unknown".to_string());
             *method_counts.entry(method).or_insert(0) += 1;
@@ -261,13 +274,13 @@ Respond with JSON in this format:
     /// Get confidence threshold for different input types
     pub fn get_confidence_threshold(&self, input_type: &InputType) -> f32 {
         match input_type {
-            InputType::Command => 0.9,        // High confidence needed for commands
-            InputType::FileOperation => 0.9,  // High confidence for file ops
-            InputType::Question => 0.7,       // Medium confidence for questions
-            InputType::CodeSnippet => 0.8,    // High confidence for code
-            InputType::SystemQuery => 0.8,    // High confidence for system queries
-            InputType::Conversation => 0.6,   // Lower threshold for conversation
-            InputType::Ambiguous => 0.0,      // Always ambiguous
+            InputType::Command => 0.9,       // High confidence needed for commands
+            InputType::FileOperation => 0.9, // High confidence for file ops
+            InputType::Question => 0.7,      // Medium confidence for questions
+            InputType::CodeSnippet => 0.8,   // High confidence for code
+            InputType::SystemQuery => 0.8,   // High confidence for system queries
+            InputType::Conversation => 0.6,  // Lower threshold for conversation
+            InputType::Ambiguous => 0.0,     // Always ambiguous
         }
     }
 
@@ -302,12 +315,18 @@ impl HeuristicClassifier {
             command_keywords: vec![
                 "run", "execute", "start", "stop", "restart", "kill", "ps", "top", "ls", "cd",
                 "mkdir", "rmdir", "cp", "mv", "chmod", "chown", "grep", "find", "cat", "echo",
-                "sudo", "apt", "yum", "brew", "npm", "cargo", "git", "docker", "kubectl"
-            ].into_iter().map(String::from).collect(),
+                "sudo", "apt", "yum", "brew", "npm", "cargo", "git", "docker", "kubectl",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
             question_keywords: vec![
-                "what", "how", "why", "when", "where", "which", "who", "can", "does", "is",
-                "are", "should", "would", "could", "explain", "help", "tell", "show", "find"
-            ].into_iter().map(String::from).collect(),
+                "what", "how", "why", "when", "where", "which", "who", "can", "does", "is", "are",
+                "should", "would", "could", "explain", "help", "tell", "show", "find",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
             code_patterns: vec![
                 r"fn\s+\w+\s*\(".to_string(),
                 r"def\s+\w+\s*\(".to_string(),
@@ -333,7 +352,7 @@ impl HeuristicClassifier {
                 return (
                     InputType::CodeSnippet,
                     0.95,
-                    "Contains code syntax patterns".to_string()
+                    "Contains code syntax patterns".to_string(),
                 );
             }
         }
@@ -343,18 +362,18 @@ impl HeuristicClassifier {
         let question_score = self.calculate_keyword_score(&input_words, &self.question_keywords);
 
         // Check for command-like patterns
-        let has_command_patterns = input.contains('$') ||
-                                   input.contains('|') ||
-                                   input.contains('>') ||
-                                   input.contains('<') ||
-                                   input.starts_with("run ") ||
-                                   input.starts_with("execute ");
+        let has_command_patterns = input.contains('$')
+            || input.contains('|')
+            || input.contains('>')
+            || input.contains('<')
+            || input.starts_with("run ")
+            || input.starts_with("execute ");
 
         if command_score > 0.3 || has_command_patterns {
             return (
                 InputType::Command,
                 (command_score * 0.8 + if has_command_patterns { 0.2 } else { 0.0 }).min(0.9),
-                format!("Command keywords detected (score: {:.2})", command_score)
+                format!("Command keywords detected (score: {:.2})", command_score),
             );
         }
 
@@ -363,33 +382,35 @@ impl HeuristicClassifier {
             return (
                 InputType::Question,
                 (question_score * 0.8 + if input.ends_with('?') { 0.2 } else { 0.0 }).min(0.85),
-                format!("Question patterns detected (score: {:.2})", question_score)
+                format!("Question patterns detected (score: {:.2})", question_score),
             );
         }
 
         // Check for file operations
-        if input_lower.contains("file") ||
-           input_lower.contains("read") ||
-           input_lower.contains("write") ||
-           input_lower.contains("create") ||
-           input_lower.contains("delete") {
+        if input_lower.contains("file")
+            || input_lower.contains("read")
+            || input_lower.contains("write")
+            || input_lower.contains("create")
+            || input_lower.contains("delete")
+        {
             return (
                 InputType::FileOperation,
                 0.7,
-                "File operation keywords detected".to_string()
+                "File operation keywords detected".to_string(),
             );
         }
 
         // Check for system queries
-        if input_lower.contains("status") ||
-           input_lower.contains("info") ||
-           input_lower.contains("version") ||
-           input_lower.contains("memory") ||
-           input_lower.contains("cpu") {
+        if input_lower.contains("status")
+            || input_lower.contains("info")
+            || input_lower.contains("version")
+            || input_lower.contains("memory")
+            || input_lower.contains("cpu")
+        {
             return (
                 InputType::SystemQuery,
                 0.75,
-                "System information query detected".to_string()
+                "System information query detected".to_string(),
             );
         }
 
@@ -397,7 +418,7 @@ impl HeuristicClassifier {
         (
             InputType::Conversation,
             0.6,
-            "General conversational input".to_string()
+            "General conversational input".to_string(),
         )
     }
 
@@ -408,7 +429,10 @@ impl HeuristicClassifier {
 
         for keyword in keywords {
             total_keywords += 1;
-            if input_words.iter().any(|word| word.to_lowercase().contains(&keyword.to_lowercase())) {
+            if input_words
+                .iter()
+                .any(|word| word.to_lowercase().contains(&keyword.to_lowercase()))
+            {
                 matches += 1;
             }
         }

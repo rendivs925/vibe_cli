@@ -422,6 +422,14 @@ pub struct Cli {
     /// The query or file path to process
     #[arg(trailing_var_arg = true)]
     pub args: Vec<String>,
+
+    /// Path to power user configuration file (YAML/JSON/TOML)
+    #[arg(long, value_name = "FILE", help = "Load power user configuration from file")]
+    pub config: Option<String>,
+
+    /// Generate default configuration file
+    #[arg(long, value_name = "FILE", help = "Generate default configuration file and exit")]
+    pub generate_config: Option<String>,
 }
 
 pub struct CliApp {
@@ -433,6 +441,7 @@ pub struct CliApp {
     current_session: Option<String>,
     background_supervisor: Option<BackgroundSupervisor>,
     scripted_inputs: Option<std::collections::VecDeque<String>>,
+    power_config_override: Option<infrastructure::config::PowerUserConfig>,
 }
 
 impl CliApp {
@@ -475,6 +484,7 @@ impl CliApp {
             current_session: None,
             background_supervisor: Some(BackgroundSupervisor::new()),
             scripted_inputs: None,
+            power_config_override: None,
         }
     }
 
@@ -1242,8 +1252,43 @@ impl CliApp {
                     println!("  /edit-plan (/e)- Review last plan");
                     println!("  /session (/ss) - Show session info");
                     println!("  /history (/h)  - Show command history");
+                    println!("  /config (/c)   - Show power user configuration");
                     println!("  /help (/?)     - Show this help");
                     println!("  /quit (/q)     - Exit session");
+                }
+                "/config" | "/c" => {
+                    let power_config = self.get_power_config();
+                    println!("[CONFIG] Power User Configuration:");
+                    println!("  Theme: {}", power_config.theme.name);
+                    println!("  Aliases: {}", power_config.aliases.len());
+                    println!("  Shortcuts: {}", power_config.shortcuts.len());
+                    println!("  Plugins: {}", power_config.plugins.enabled.len());
+                    println!("  Performance: parallel_jobs={}, prewarm={}", power_config.performance.parallel_jobs, power_config.performance.prewarm_models);
+
+                    if !power_config.aliases.is_empty() {
+                        println!("  Available aliases:");
+                        for (alias, expansion) in &power_config.aliases {
+                            println!("    {} -> {}", alias, expansion);
+                        }
+                    }
+
+                    if !power_config.shortcuts.is_empty() {
+                        println!("  Available shortcuts:");
+                        for (shortcut, expansion) in &power_config.shortcuts {
+                            println!("    {} -> {}", shortcut, expansion);
+                        }
+                    }
+
+                    // Show loaded plugins
+                    if let Some(plugin_manager) = &self.config.plugin_manager {
+                        let manager = plugin_manager.read().await;
+                        let plugins = manager.list_plugins();
+                        if !plugins.is_empty() {
+                            println!("  Loaded plugins: {}", plugins.join(", "));
+                            println!("  Plugin help:");
+                            println!("{}", manager.get_help());
+                        }
+                    }
                 }
                 _ => {
                     println!("[UNKNOWN] Unknown command '{}'. Type /help for available commands.", command);
@@ -1260,6 +1305,43 @@ impl CliApp {
 
     pub async fn run(&mut self, cli: Cli) -> Result<()> {
         let args_str = cli.args.join(" ");
+
+        // Handle configuration file generation
+        if let Some(config_path) = &cli.generate_config {
+            let power_config = infrastructure::config::PowerUserConfig::default();
+            let path = PathBuf::from(config_path);
+            match power_config.save_to_file(&path) {
+                Ok(_) => {
+                    println!("Default configuration saved to: {}", path.display());
+                    println!("Edit this file to customize your power user settings.");
+                    return Ok(());
+                }
+                Err(e) => {
+                    eprintln!("Failed to save configuration: {}", e);
+                    return Ok(());
+                }
+            }
+        }
+
+        // Handle custom configuration file loading
+        if let Some(config_path) = &cli.config {
+            let path = PathBuf::from(config_path);
+            match infrastructure::config::PowerUserConfig::load_from_file(&path) {
+                Ok(power_config) => {
+                    self.power_config_override = Some(power_config);
+                    println!("Loaded power user configuration from: {}", path.display());
+                }
+                Err(e) => {
+                    eprintln!("Warning: Failed to load power user config from {}: {}", path.display(), e);
+                    eprintln!("Continuing with default configuration.");
+                }
+            }
+        }
+
+        // Initialize plugins
+        if let Err(e) = self.config.initialize_plugins().await {
+            eprintln!("Warning: Failed to initialize plugins: {}", e);
+        }
 
         // Show initial status
         self.display_background_status();
@@ -2129,7 +2211,11 @@ impl CliApp {
 
     async fn handle_chat(&self) -> Result<()> {
         use dialoguer::{theme::ColorfulTheme, Input};
+
+        let power_config = self.get_power_config();
         println!("Command execution mode. Type 'exit' to quit.");
+        println!("Available shortcuts: {}", power_config.shortcuts.keys().cloned().collect::<Vec<_>>().join(", "));
+
         loop {
             let input: String = Input::with_theme(&ColorfulTheme::default())
                 .with_prompt("Query")
@@ -2137,9 +2223,30 @@ impl CliApp {
             if input.to_lowercase() == "exit" {
                 break;
             }
-            // Use the same logic as handle_query
+
+            // Check for shortcuts
+            let effective_input = power_config.shortcuts.get(&input)
+                .cloned()
+                .unwrap_or_else(|| {
+                    // Check for aliases too
+                    power_config.get_alias(&input)
+                        .cloned()
+                        .unwrap_or(input.clone())
+                });
+
+            if effective_input != input {
+                println!("Expanded '{}' to: {}", input, effective_input);
+            }
+
+            // Use the same logic as handle_query but with effective_input
             let client = infrastructure::ollama_client::OllamaClient::new()?;
-            let prompt = format!("You are on a system with: {}. Generate a bash command to: {}. Respond with only the exact command to run, without any formatting, backticks, quotes, or explanation. Ensure the command is complete, syntactically correct, and uses standard Unix tools. For size comparisons, use appropriate units like -BG for gigabytes in df.", self.system_info, input);
+            // Check permissions for the expanded command if it's a direct command
+            if !power_config.is_command_allowed(&effective_input) {
+                println!("{}", format!("Command blocked by permissions: {}", effective_input).red());
+                continue;
+            }
+
+            let prompt = format!("You are on a system with: {}. Generate a bash command to: {}. Respond with only the exact command to run, without any formatting, backticks, quotes, or explanation. Ensure the command is complete, syntactically correct, and uses standard Unix tools. For size comparisons, use appropriate units like -BG for gigabytes in df.", self.system_info, effective_input);
             let response = client.generate_response(&prompt).await?;
             let command = extract_command_from_response(&response);
             println!("{}", format!("Command: {}", command).green());
@@ -2467,13 +2574,46 @@ OUTPUT:"#,
     }
 
     async fn handle_query(&mut self, query: &str) -> Result<()> {
-        if let Ok(Some(cached_command)) = self.load_cached(query) {
+        let power_config = self.get_power_config();
+
+        // Check for command aliases first
+        let effective_query = if let Some(alias_expansion) = power_config.get_alias(query) {
+            println!("Using alias '{}' -> '{}'", query, alias_expansion);
+            alias_expansion.clone()
+        } else {
+            query.to_string()
+        };
+
+        // Check for plugin commands first
+        if let Some(plugin_manager) = &self.config.plugin_manager {
+            let manager = plugin_manager.read().await;
+            if let Some(result) = manager.execute_command(&effective_query, vec![]).await {
+                match result {
+                    Ok(output) => {
+                        println!("{}", output);
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        eprintln!("Plugin error: {}", e);
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
+        if let Ok(Some(cached_command)) = self.load_cached(&effective_query) {
             println!(
                 "{}",
                 format!("Found cached command: {}", cached_command).green()
             );
             if ask_confirmation("Use cached command?", true)? {
                 let sandbox = Sandbox::new();
+                // Check permissions before executing cached command
+                if !power_config.is_command_allowed(&cached_command) {
+                    println!("{}", format!("Command blocked by permissions: {}", cached_command).red());
+                    return Ok(());
+                }
+
                 match sandbox.execute_safe("bash", vec!["-c".to_string(), cached_command.clone()]).await {
                     Ok(output) => println!("{}", output),
                     Err(e) => {
@@ -2549,9 +2689,9 @@ COMMAND GENERATION RULES:
 3. For files: Use exact names from directory listing
 4. For packages: Use the package manager shown above
 5. Common patterns:
-   - Service status: systemctl status SERVICE_NAME
-   - Install package: sudo PACKAGE_MANAGER install PACKAGE
-   - File operations: Use actual file names from directory
+    - Service status: systemctl status SERVICE_NAME
+    - Install package: sudo PACKAGE_MANAGER install PACKAGE
+    - File operations: Use actual file names from directory
 
 HOW TO FIND THE RIGHT SERVICE NAME:
 - User says "ssh" or "sshd" → Look in AVAILABLE SERVICES for "ssh.service" or "sshd.service"
@@ -2565,7 +2705,7 @@ sudo apt install python3
 zip archive.zip file.txt
 
 OUTPUT ONLY THE COMMAND:"#,
-            query,
+            effective_query,
             system_context.distro,
             system_context.package_manager,
             if !services_output.is_empty() {
@@ -2583,32 +2723,39 @@ OUTPUT ONLY THE COMMAND:"#,
         let response = client.generate_response(&prompt).await?;
         let command = extract_command_from_response(&response);
         println!("{}", format!("Command: {}", command).green());
+
+        // Check permissions before executing generated command
+        if !power_config.is_command_allowed(&command) {
+            println!("{}", format!("Command blocked by permissions: {}", command).red());
+            return Ok(());
+        }
+
         if ask_confirmation("Run this command?", false)? {
             let sandbox = Sandbox::new();
             match sandbox.execute_safe("bash", vec!["-c".to_string(), command.clone()]).await {
                 Ok(output) => {
                     println!("{}", output);
-                    let _ = self.save_cached(query, &command);
+                    let _ = self.save_cached(&effective_query, &command);
                 }
                 Err(e) => {
                     eprintln!("{}", format!("Sandbox execution failed: {}", e).red());
                     if ask_confirmation("Try running without sandboxing?", false)? {
                         match std::process::Command::new("bash").arg("-c").arg(&command).output() {
-                            Ok(output) => {
-                                println!("{}", String::from_utf8_lossy(&output.stdout));
-                                if !output.status.success() {
-                                    println!(
-                                        "{}",
-                                        format!(
-                                            "Command failed: {}",
-                                            String::from_utf8_lossy(&output.stderr)
-                                        )
-                                        .red()
-                                    );
-                                } else {
-                                    let _ = self.save_cached(query, &command);
-                                }
-                            }
+                                 Ok(output) => {
+                                     println!("{}", String::from_utf8_lossy(&output.stdout));
+                                     if !output.status.success() {
+                                         println!(
+                                             "{}",
+                                             format!(
+                                                 "Command failed: {}",
+                                                 String::from_utf8_lossy(&output.stderr)
+                                             )
+                                             .red()
+                                         );
+                                     } else {
+                                         let _ = self.save_cached(&effective_query, &command);
+                                     }
+                                 }
                             Err(e) => {
                                 eprintln!("{}", format!("Direct execution failed: {}", e).red());
                             }
@@ -3137,11 +3284,6 @@ use shared::confirmation::{ask_confirmation, ask_enhanced_confirmation, Confirma
             return Ok(());
         };
 
-        let Some(store) = &self.session_store else {
-            println!("{}", "No project detected - cannot undo operations.".yellow());
-            return Ok(());
-        };
-
         // Try git undo first (preferred)
         let repo_path = std::env::current_dir()?;
         if repo_path.join(".git").exists() {
@@ -3149,12 +3291,14 @@ use shared::confirmation::{ask_confirmation, ask_enhanced_confirmation, Confirma
                 Ok(true) => {
                     println!("{} Undid last commit via git", "✓".green());
 
-                    // Update session metadata
-                    if let Ok(mut session) = store.load_session(session_name) {
-                        if let Some(ref mut session) = session {
-                                     session.metadata.change_count = session.metadata.change_count.saturating_sub(1);
-                            if let Err(e) = store.save_session(session) {
-                                eprintln!("{} {}", "Warning: Failed to update session:".yellow(), e);
+                    // Update session metadata - borrow store separately to avoid conflict
+                    if let Some(store) = &self.session_store {
+                        if let Ok(mut session) = store.load_session(session_name) {
+                            if let Some(ref mut session) = session {
+                                         session.metadata.change_count = session.metadata.change_count.saturating_sub(1);
+                                if let Err(e) = store.save_session(session) {
+                                    eprintln!("{} {}", "Warning: Failed to update session:".yellow(), e);
+                                }
                             }
                         }
                     }
@@ -3176,7 +3320,7 @@ use shared::confirmation::{ask_confirmation, ask_enhanced_confirmation, Confirma
     }
 
     /// Attempt to undo the last git commit
-    async fn git_undo_last_commit(&self) -> Result<bool> {
+    async fn git_undo_last_commit(&mut self) -> Result<bool> {
         let repo_path = std::env::current_dir()?;
         let repo = git2::Repository::open(&repo_path)
             .map_err(|e| anyhow::anyhow!("Failed to open git repository: {}", e))?;
@@ -3210,6 +3354,13 @@ use shared::confirmation::{ask_confirmation, ask_enhanced_confirmation, Confirma
             Ok(false) // No parent commit (initial commit)
         }
     }
+
+    /// Get the effective power user configuration (with override if set)
+    fn get_power_config(&self) -> &infrastructure::config::PowerUserConfig {
+        self.power_config_override.as_ref().unwrap_or(&self.config.power_user)
+    }
+
+    
 }
 
 #[cfg(test)]

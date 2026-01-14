@@ -48,14 +48,19 @@ impl LogTailer {
             let event_tx_clone = event_tx.clone();
             let name_for_monitoring = name.clone();
             let handle = tokio::spawn(async move {
-                if let Err(e) = Self::monitor_log_file(name_for_monitoring, path, event_tx_clone).await {
+                if let Err(e) =
+                    Self::monitor_log_file(name_for_monitoring, path, event_tx_clone).await
+                {
                     eprintln!("Log monitoring error for {}: {}", name, e);
                 }
             });
             handles.push(handle);
         }
 
-        println!("  └─ ✅ Log tailer started (monitoring {} files)", handles.len());
+        println!(
+            "  └─ ✅ Log tailer started (monitoring {} files)",
+            handles.len()
+        );
 
         // Keep the service alive
         futures::future::pending::<()>().await;
@@ -91,7 +96,11 @@ impl LogTailer {
     ) -> Result<()> {
         // Validate that path is a file, not a directory
         if path.exists() && path.is_dir() {
-            eprintln!("⚠️  Cannot monitor '{}': {} is a directory, not a file", name, path.display());
+            eprintln!(
+                "⚠️  Cannot monitor '{}': {} is a directory, not a file",
+                name,
+                path.display()
+            );
             return Ok(()); // Exit gracefully
         }
 
@@ -139,29 +148,73 @@ impl LogTailer {
     }
 
     /// Process a single log line and extract events
-    fn process_log_line(source: &str, line: &str, event_tx: &Sender<super::background_supervisor::BackgroundEvent>) {
+    fn process_log_line(
+        source: &str,
+        line: &str,
+        event_tx: &Sender<super::background_supervisor::BackgroundEvent>,
+    ) {
         // Define regex patterns for different log levels and error types
         let patterns = vec![
             // Panic/unrecoverable errors
-            (r"panic|PANIC", super::background_supervisor::LogLevel::Error, "Application panic detected"),
+            (
+                r"panic|PANIC",
+                super::background_supervisor::LogLevel::Error,
+                "Application panic detected",
+            ),
             // Fatal errors
-            (r"fatal|FATAL|critical|CRITICAL", super::background_supervisor::LogLevel::Error, "Critical error detected"),
+            (
+                r"fatal|FATAL|critical|CRITICAL",
+                super::background_supervisor::LogLevel::Error,
+                "Critical error detected",
+            ),
             // Standard errors
-            (r"error|ERROR|err|ERR", super::background_supervisor::LogLevel::Error, "Error detected"),
+            (
+                r"error|ERROR|err|ERR",
+                super::background_supervisor::LogLevel::Error,
+                "Error detected",
+            ),
             // Warnings
-            (r"warn|WARN|warning|WARNING", super::background_supervisor::LogLevel::Warn, "Warning detected"),
+            (
+                r"warn|WARN|warning|WARNING",
+                super::background_supervisor::LogLevel::Warn,
+                "Warning detected",
+            ),
             // Info messages
-            (r"info|INFO", super::background_supervisor::LogLevel::Info, "Info message"),
+            (
+                r"info|INFO",
+                super::background_supervisor::LogLevel::Info,
+                "Info message",
+            ),
             // Debug messages
-            (r"debug|DEBUG", super::background_supervisor::LogLevel::Debug, "Debug message"),
+            (
+                r"debug|DEBUG",
+                super::background_supervisor::LogLevel::Debug,
+                "Debug message",
+            ),
             // Stack traces
-            (r"at\s+.*\.rs:\d+", super::background_supervisor::LogLevel::Error, "Stack trace detected"),
+            (
+                r"at\s+.*\.rs:\d+",
+                super::background_supervisor::LogLevel::Error,
+                "Stack trace detected",
+            ),
             // Network errors
-            (r"connection.*failed|timeout|TIMEOUT", super::background_supervisor::LogLevel::Error, "Network error detected"),
+            (
+                r"connection.*failed|timeout|TIMEOUT",
+                super::background_supervisor::LogLevel::Error,
+                "Network error detected",
+            ),
             // Database errors
-            (r"sql|SQL.*error|database|DATABASE.*error", super::background_supervisor::LogLevel::Error, "Database error detected"),
+            (
+                r"sql|SQL.*error|database|DATABASE.*error",
+                super::background_supervisor::LogLevel::Error,
+                "Database error detected",
+            ),
             // Authentication failures
-            (r"auth.*failed|login.*failed|unauthorized|UNAUTHORIZED", super::background_supervisor::LogLevel::Warn, "Authentication issue detected"),
+            (
+                r"auth.*failed|login.*failed|unauthorized|UNAUTHORIZED",
+                super::background_supervisor::LogLevel::Warn,
+                "Authentication issue detected",
+            ),
         ];
 
         for (pattern, level, description) in patterns {

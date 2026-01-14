@@ -1,5 +1,4 @@
 use regex::Regex;
-use std::collections::HashSet;
 
 /// Secrets detection and protection system
 pub struct SecretsDetector {
@@ -17,9 +16,9 @@ pub struct SecretPattern {
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SecretSeverity {
-    High,    // API keys, passwords, private keys
-    Medium,  // Tokens, session IDs, database credentials
-    Low,     // Public keys, non-sensitive config
+    High,   // API keys, passwords, private keys
+    Medium, // Tokens, session IDs, database credentials
+    Low,    // Public keys, non-sensitive config
 }
 
 #[derive(Debug, Clone)]
@@ -71,7 +70,6 @@ impl SecretsDetector {
                 severity: SecretSeverity::High,
                 description: "Database connection string detected".to_string(),
             },
-
             // Medium severity patterns
             SecretPattern {
                 name: "GitHub Token".to_string(),
@@ -85,17 +83,19 @@ impl SecretsDetector {
                 severity: SecretSeverity::Medium,
                 description: "Slack bot token detected".to_string(),
             },
-
             // Generic patterns
             SecretPattern {
                 name: "Generic API Key".to_string(),
-                regex: "(?i)(api_key|apikey|secret_key|access_token|auth_token)[=:][A-Za-z0-9_-]{20,}".to_string(),
+                regex:
+                    "(?i)(api_key|apikey|secret_key|access_token|auth_token)[=:][A-Za-z0-9_-]{20,}"
+                        .to_string(),
                 severity: SecretSeverity::Medium,
                 description: "Generic API key or token detected".to_string(),
             },
             SecretPattern {
                 name: "Generic Password".to_string(),
-                regex: "(?i)(password|passwd|pwd|pass)[=:][A-Za-z0-9!@#$%^&*()_+-=]{8,}".to_string(),
+                regex: "(?i)(password|passwd|pwd|pass)[=:][A-Za-z0-9!@#$%^&*()_+-=]{8,}"
+                    .to_string(),
                 severity: SecretSeverity::Medium,
                 description: "Generic password detected".to_string(),
             },
@@ -105,7 +105,6 @@ impl SecretsDetector {
                 severity: SecretSeverity::High,
                 description: "Stripe API key detected".to_string(),
             },
-
             // Low severity patterns (informational)
             SecretPattern {
                 name: "SSH Public Key".to_string(),
@@ -121,7 +120,8 @@ impl SecretsDetector {
             },
         ];
 
-        let compiled_regexes = patterns.iter()
+        let compiled_regexes = patterns
+            .iter()
             .map(|pattern| Regex::new(&pattern.regex).unwrap_or_else(|_| Regex::new("").unwrap()))
             .collect();
 
@@ -227,8 +227,10 @@ impl SecretsDetector {
                 "🚨 CRITICAL: {} high-severity secrets detected. These must be removed immediately!",
                 result.high_severity_count
             ));
-            recommendations.push("   - Rotate any exposed API keys, passwords, or private keys".to_string());
-            recommendations.push("   - Use environment variables or secure credential stores".to_string());
+            recommendations
+                .push("   - Rotate any exposed API keys, passwords, or private keys".to_string());
+            recommendations
+                .push("   - Use environment variables or secure credential stores".to_string());
         }
 
         if result.medium_severity_count > 0 {
@@ -236,7 +238,8 @@ impl SecretsDetector {
                 "⚠️  WARNING: {} medium-severity secrets detected.",
                 result.medium_severity_count
             ));
-            recommendations.push("   - Review tokens and session IDs for exposure risks".to_string());
+            recommendations
+                .push("   - Review tokens and session IDs for exposure risks".to_string());
         }
 
         if result.low_severity_count > 0 {

@@ -1,4 +1,4 @@
-use anyhow::{Context, Result};
+use anyhow::Result;
 use flume::Sender;
 use regex::Regex;
 use std::path::PathBuf;
@@ -54,7 +54,10 @@ impl TestWatcher {
                         super::background_supervisor::TestStatus::Completed
                     } else {
                         super::background_supervisor::TestStatus::Failed {
-                            error: format!("Tests failed with exit code {}", status.code().unwrap_or(-1))
+                            error: format!(
+                                "Tests failed with exit code {}",
+                                status.code().unwrap_or(-1)
+                            ),
                         }
                     };
 
@@ -70,7 +73,7 @@ impl TestWatcher {
                     let event = super::background_supervisor::BackgroundEvent::TestResult {
                         session: session_clone,
                         status: super::background_supervisor::TestStatus::Failed {
-                            error: format!("Test process error: {}", e)
+                            error: format!("Test process error: {}", e),
                         },
                         output: "Test execution failed".to_string(),
                     };
@@ -130,7 +133,7 @@ impl TestWatcher {
                     let event = super::background_supervisor::BackgroundEvent::TestResult {
                         session: session.clone(),
                         status: super::background_supervisor::TestStatus::Failed {
-                            error: format!("❌ {} failed", test_name.as_str())
+                            error: format!("❌ {} failed", test_name.as_str()),
                         },
                         output: format!("Test failure: {}", test_name.as_str()),
                     };
@@ -141,16 +144,20 @@ impl TestWatcher {
             // Send summary information
             if let Some(captures) = summary.captures(&line) {
                 if let (Some(result), Some(passed), Some(failed)) =
-                    (captures.get(1), captures.get(2), captures.get(3)) {
-
-                    let output = format!("{}: {} passed, {} failed",
-                        result.as_str(), passed.as_str(), failed.as_str());
+                    (captures.get(1), captures.get(2), captures.get(3))
+                {
+                    let output = format!(
+                        "{}: {} passed, {} failed",
+                        result.as_str(),
+                        passed.as_str(),
+                        failed.as_str()
+                    );
 
                     let status = if failed.as_str() == "0" {
                         super::background_supervisor::TestStatus::Passed
                     } else {
                         super::background_supervisor::TestStatus::Failed {
-                            error: "Some tests failed".to_string()
+                            error: "Some tests failed".to_string(),
                         }
                     };
 
@@ -165,7 +172,8 @@ impl TestWatcher {
             }
 
             // For stderr or unrecognized output, send as general info
-            if is_stderr || (!line.contains("running") && !line.contains("...") && line.len() > 10) {
+            if is_stderr || (!line.contains("running") && !line.contains("...") && line.len() > 10)
+            {
                 let event = super::background_supervisor::BackgroundEvent::TestResult {
                     session: session.clone(),
                     status: super::background_supervisor::TestStatus::Started,

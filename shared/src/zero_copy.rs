@@ -5,7 +5,6 @@
 /// - String interning for repeated strings
 /// - Borrow vs owned optimization utilities
 /// - Memory-efficient string operations
-
 use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
@@ -339,10 +338,7 @@ mod tests {
     #[test]
     fn test_string_builder() {
         let mut builder = StringBuilder::with_capacity(20);
-        builder
-            .push("Hello")
-            .push_char(' ')
-            .push("World");
+        builder.push("Hello").push_char(' ').push("World");
 
         assert_eq!(builder.as_str(), "Hello World");
         assert_eq!(builder.build(), "Hello World");

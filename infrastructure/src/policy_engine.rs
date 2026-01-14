@@ -26,7 +26,7 @@ pub enum PolicyCondition {
     ToolName(String),
     CommandPattern(String),
     ResourceLimit(String, String), // field, operator (e.g., "memory", "> 100")
-    TimeOfDay(String, String), // start_time, end_time in HH:MM format
+    TimeOfDay(String, String),     // start_time, end_time in HH:MM format
     NetworkAccess(bool),
     FilePath(String),
     ContainsSecrets(bool),
@@ -36,10 +36,10 @@ pub enum PolicyCondition {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum PolicyAction {
     Allow,
-    Deny(String), // Reason for denial
+    Deny(String),            // Reason for denial
     RequireApproval(String), // Approval reason
-    Escalate(String), // Escalation reason
-    LogOnly, // Allow but log
+    Escalate(String),        // Escalation reason
+    LogOnly,                 // Allow but log
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -117,9 +117,7 @@ impl PolicyEngine {
             id: "secrets_deny".to_string(),
             name: "Deny Operations with Secrets".to_string(),
             description: "Block operations that contain sensitive information".to_string(),
-            conditions: vec![
-                PolicyCondition::ContainsSecrets(true),
-            ],
+            conditions: vec![PolicyCondition::ContainsSecrets(true)],
             action: PolicyAction::Deny("Operation contains sensitive information".to_string()),
             priority: 95,
             enabled: true,
@@ -142,9 +140,7 @@ impl PolicyEngine {
             id: "network_restrictions".to_string(),
             name: "Network Access Restrictions".to_string(),
             description: "Restrict network access to approved domains only".to_string(),
-            conditions: vec![
-                PolicyCondition::NetworkAccess(true),
-            ],
+            conditions: vec![PolicyCondition::NetworkAccess(true)],
             action: PolicyAction::LogOnly, // Allow but log for monitoring
             priority: 70,
             enabled: true,
@@ -176,7 +172,10 @@ impl PolicyEngine {
     }
 
     /// Evaluate a policy request and return a decision
-    pub async fn evaluate_request(&self, request: PolicyRequest) -> Result<PolicyDecision, PolicyError> {
+    pub async fn evaluate_request(
+        &self,
+        request: PolicyRequest,
+    ) -> Result<PolicyDecision, PolicyError> {
         let policies = self.policies.read().await;
         let mut applied_policies = Vec::new();
         let mut decision = PolicyDecision {
@@ -194,19 +193,25 @@ impl PolicyEngine {
                 match &policy.action {
                     PolicyAction::Deny(reason) => {
                         decision.action = PolicyAction::Deny(reason.clone());
-                        decision.reason = format!("Policy '{}' denied request: {}", policy.name, reason);
+                        decision.reason =
+                            format!("Policy '{}' denied request: {}", policy.name, reason);
                         break; // Deny takes precedence
                     }
                     PolicyAction::RequireApproval(reason) => {
                         if matches!(decision.action, PolicyAction::Allow) {
                             decision.action = PolicyAction::RequireApproval(reason.clone());
-                            decision.reason = format!("Policy '{}' requires approval: {}", policy.name, reason);
+                            decision.reason =
+                                format!("Policy '{}' requires approval: {}", policy.name, reason);
                         }
                     }
                     PolicyAction::Escalate(reason) => {
-                        if matches!(decision.action, PolicyAction::Allow | PolicyAction::RequireApproval(_)) {
+                        if matches!(
+                            decision.action,
+                            PolicyAction::Allow | PolicyAction::RequireApproval(_)
+                        ) {
                             decision.action = PolicyAction::Escalate(reason.clone());
-                            decision.reason = format!("Policy '{}' escalated request: {}", policy.name, reason);
+                            decision.reason =
+                                format!("Policy '{}' escalated request: {}", policy.name, reason);
                         }
                     }
                     PolicyAction::LogOnly => {
@@ -240,31 +245,24 @@ impl PolicyEngine {
 
     fn condition_matches(&self, request: &PolicyRequest, condition: &PolicyCondition) -> bool {
         match condition {
-            PolicyCondition::UserId(user_id) => {
-                request.user_id.as_ref() == Some(user_id)
-            }
-            PolicyCondition::ToolName(tool_name) => {
-                request.tool_name == *tool_name
-            }
+            PolicyCondition::UserId(user_id) => request.user_id.as_ref() == Some(user_id),
+            PolicyCondition::ToolName(tool_name) => request.tool_name == *tool_name,
             PolicyCondition::CommandPattern(pattern) => {
                 // Check if any parameter contains the pattern
-                request.parameters.values().any(|value| value.contains(pattern))
+                request
+                    .parameters
+                    .values()
+                    .any(|value| value.contains(pattern))
             }
             PolicyCondition::ResourceLimit(field, limit) => {
                 self.check_resource_limit(request, field, limit)
             }
-            PolicyCondition::TimeOfDay(start, end) => {
-                self.check_time_of_day(start, end)
-            }
-            PolicyCondition::NetworkAccess(required) => {
-                request.network_access == *required
-            }
+            PolicyCondition::TimeOfDay(start, end) => self.check_time_of_day(start, end),
+            PolicyCondition::NetworkAccess(required) => request.network_access == *required,
             PolicyCondition::FilePath(path) => {
                 request.file_paths.iter().any(|fp| fp.starts_with(path))
             }
-            PolicyCondition::ContainsSecrets(required) => {
-                request.contains_secrets == *required
-            }
+            PolicyCondition::ContainsSecrets(required) => request.contains_secrets == *required,
             PolicyCondition::RiskLevel(level) => {
                 let request_level = match request.risk_assessment {
                     RiskLevel::Low => "low",
@@ -332,7 +330,11 @@ impl PolicyEngine {
     }
 
     /// Enable/disable a policy
-    pub async fn set_policy_enabled(&self, policy_id: &str, enabled: bool) -> Result<(), PolicyError> {
+    pub async fn set_policy_enabled(
+        &self,
+        policy_id: &str,
+        enabled: bool,
+    ) -> Result<(), PolicyError> {
         let mut policies = self.policies.write().await;
         if let Some(policy) = policies.iter_mut().find(|p| p.id == policy_id) {
             policy.enabled = enabled;
@@ -369,9 +371,13 @@ impl PolicyAuditLogger {
     }
 
     pub fn log_request(&self, request: &PolicyRequest) -> String {
-        let id = format!("audit_{}", std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap_or_default().as_nanos());
+        let id = format!(
+            "audit_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        );
 
         let entry = PolicyAuditEntry {
             id: id.clone(),
@@ -454,7 +460,10 @@ fn assess_risk_level(tool_name: &str, parameters: &HashMap<String, String>) -> R
     match tool_name {
         "file_write" => {
             // Check for system paths
-            if parameters.values().any(|path| path.starts_with("/etc") || path.starts_with("/sys")) {
+            if parameters
+                .values()
+                .any(|path| path.starts_with("/etc") || path.starts_with("/sys"))
+            {
                 RiskLevel::Critical
             } else {
                 RiskLevel::Medium
@@ -478,9 +487,7 @@ mod tests {
         let request = PolicyRequest {
             user_id: None,
             tool_name: "test_tool".to_string(),
-            parameters: HashMap::from([
-                ("command".to_string(), "rm -rf /".to_string()),
-            ]),
+            parameters: HashMap::from([("command".to_string(), "rm -rf /".to_string())]),
             resource_limits: ResourceLimits {
                 max_memory_mb: 100,
                 max_cpu_percent: 50.0,
@@ -528,7 +535,10 @@ mod tests {
             id: "test".to_string(),
             name: "Test".to_string(),
             description: "Test policy".to_string(),
-            conditions: vec![PolicyCondition::ResourceLimit("memory".to_string(), "> 1024".to_string())],
+            conditions: vec![PolicyCondition::ResourceLimit(
+                "memory".to_string(),
+                "> 1024".to_string(),
+            )],
             action: PolicyAction::Deny("Test".to_string()),
             priority: 1,
             enabled: true,

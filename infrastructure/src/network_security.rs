@@ -35,7 +35,7 @@ impl NetworkSecurity {
             allowed_domains,
             blocked_domains,
             allowed_schemes,
-            max_request_size: 1024, // 1KB max request size
+            max_request_size: 1024,             // 1KB max request size
             max_response_size: 5 * 1024 * 1024, // 5MB max response size
             request_timeout: std::time::Duration::from_secs(30),
         }
@@ -48,7 +48,9 @@ impl NetworkSecurity {
 
         // Check scheme
         if !self.allowed_schemes.contains(url.scheme()) {
-            return Err(NetworkSecurityError::ForbiddenScheme(url.scheme().to_string()));
+            return Err(NetworkSecurityError::ForbiddenScheme(
+                url.scheme().to_string(),
+            ));
         }
 
         // Check domain
@@ -72,7 +74,10 @@ impl NetworkSecurity {
     /// Validate request size
     pub fn validate_request_size(&self, size: usize) -> Result<(), NetworkSecurityError> {
         if size > self.max_request_size {
-            return Err(NetworkSecurityError::RequestTooLarge(size, self.max_request_size));
+            return Err(NetworkSecurityError::RequestTooLarge(
+                size,
+                self.max_request_size,
+            ));
         }
         Ok(())
     }
@@ -80,7 +85,10 @@ impl NetworkSecurity {
     /// Validate response size
     pub fn validate_response_size(&self, size: usize) -> Result<(), NetworkSecurityError> {
         if size > self.max_response_size {
-            return Err(NetworkSecurityError::ResponseTooLarge(size, self.max_response_size));
+            return Err(NetworkSecurityError::ResponseTooLarge(
+                size,
+                self.max_response_size,
+            ));
         }
         Ok(())
     }
@@ -122,12 +130,20 @@ impl std::fmt::Display for NetworkSecurityError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             NetworkSecurityError::InvalidUrl(msg) => write!(f, "Invalid URL: {}", msg),
-            NetworkSecurityError::ForbiddenScheme(scheme) => write!(f, "Forbidden URL scheme: {}", scheme),
+            NetworkSecurityError::ForbiddenScheme(scheme) => {
+                write!(f, "Forbidden URL scheme: {}", scheme)
+            }
             NetworkSecurityError::BlockedDomain(domain) => write!(f, "Domain blocked: {}", domain),
-            NetworkSecurityError::DomainNotAllowed(domain) => write!(f, "Domain not in allowlist: {}", domain),
+            NetworkSecurityError::DomainNotAllowed(domain) => {
+                write!(f, "Domain not in allowlist: {}", domain)
+            }
             NetworkSecurityError::NoHostInUrl => write!(f, "URL has no host"),
-            NetworkSecurityError::RequestTooLarge(size, limit) => write!(f, "Request too large: {} > {} bytes", size, limit),
-            NetworkSecurityError::ResponseTooLarge(size, limit) => write!(f, "Response too large: {} > {} bytes", size, limit),
+            NetworkSecurityError::RequestTooLarge(size, limit) => {
+                write!(f, "Request too large: {} > {} bytes", size, limit)
+            }
+            NetworkSecurityError::ResponseTooLarge(size, limit) => {
+                write!(f, "Response too large: {} > {} bytes", size, limit)
+            }
             NetworkSecurityError::RequestTimeout => write!(f, "Request timeout"),
         }
     }
@@ -170,28 +186,30 @@ impl SecureHttpClient {
 
         // Check response size
         if let Some(content_length) = response.content_length() {
-            self.security.validate_response_size(content_length as usize)?;
+            self.security
+                .validate_response_size(content_length as usize)?;
         }
 
         Ok(response)
     }
 
     /// Make a secure POST request
-    pub async fn post(&self, url: &str, body: &str) -> Result<reqwest::Response, Box<dyn std::error::Error>> {
+    pub async fn post(
+        &self,
+        url: &str,
+        body: &str,
+    ) -> Result<reqwest::Response, Box<dyn std::error::Error>> {
         // Security checks
         self.security.is_url_allowed(url)?;
         self.security.validate_request_size(body.len())?;
 
         // Make request
-        let response = self.client
-            .post(url)
-            .body(body.to_string())
-            .send()
-            .await?;
+        let response = self.client.post(url).body(body.to_string()).send().await?;
 
         // Check response size
         if let Some(content_length) = response.content_length() {
-            self.security.validate_response_size(content_length as usize)?;
+            self.security
+                .validate_response_size(content_length as usize)?;
         }
 
         Ok(response)
@@ -212,13 +230,19 @@ mod tests {
         let security = NetworkSecurity::new();
 
         // Should allow docs.rust-lang.org
-        assert!(security.is_url_allowed("https://docs.rust-lang.org/std/").is_ok());
+        assert!(security
+            .is_url_allowed("https://docs.rust-lang.org/std/")
+            .is_ok());
 
         // Should allow crates.io
-        assert!(security.is_url_allowed("https://crates.io/crates/serde").is_ok());
+        assert!(security
+            .is_url_allowed("https://crates.io/crates/serde")
+            .is_ok());
 
         // Should block HTTP
-        assert!(security.is_url_allowed("http://docs.rust-lang.org/std/").is_err());
+        assert!(security
+            .is_url_allowed("http://docs.rust-lang.org/std/")
+            .is_err());
 
         // Should block unlisted domains
         assert!(security.is_url_allowed("https://example.com/").is_err());

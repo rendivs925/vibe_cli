@@ -1,5 +1,4 @@
 use regex::Regex;
-use std::collections::HashSet;
 
 /// Content sanitization for RAG and prompt injection prevention
 pub struct ContentSanitizer {
@@ -18,34 +17,27 @@ impl ContentSanitizer {
             Regex::new(r"(?i)from\s+now\s+on\s*,\s*you\s+are").unwrap(),
             Regex::new(r"(?i)forget\s+(?:your\s+)?previous\s+instructions").unwrap(),
             Regex::new(r"(?i)override\s+(?:your\s+)?instructions").unwrap(),
-
             // Command execution attempts
             Regex::new(r"(?i)execute\s+(?:the\s+following\s+)?command").unwrap(),
-
             Regex::new(r"(?i)shell\s+command").unwrap(),
             Regex::new(r"(?i)bash\s+command").unwrap(),
-
             // Jailbreak attempts
             Regex::new(r"(?i)(?:dan|developer\s+mode|uncensored)").unwrap(),
             Regex::new(r"(?i)(?:unrestricted|unlimited|god\s+mode)").unwrap(),
             Regex::new(r"(?i)break\s+(?:out\s+of|free\s+from)\s+(?:character|role)").unwrap(),
-
             // Code execution patterns
             Regex::new(r"(?i)eval\s*\(").unwrap(),
             Regex::new(r"(?i)exec\s*\(").unwrap(),
             Regex::new(r"(?i)system\s*\(").unwrap(),
             Regex::new(r"(?i)subprocess\.").unwrap(),
-
             // File system manipulation
             Regex::new(r"(?i)rm\s+-rf\s+/").unwrap(),
             Regex::new(r"(?i)format\s+c:").unwrap(),
             Regex::new(r"(?i)del\s+/f\s+/s\s+/q").unwrap(),
-
             // Network attacks
             Regex::new(r"(?i)curl\s+.*?\|\s*bash").unwrap(),
             Regex::new(r"(?i)wget\s+.*?\|\s*sh").unwrap(),
             Regex::new(r"(?i)python\s+-c\s+.*import").unwrap(),
-
             // Separator manipulation
             Regex::new(r"---\s*END\s*---").unwrap(),
             Regex::new(r"##\s*END\s*##").unwrap(),
@@ -56,14 +48,13 @@ impl ContentSanitizer {
             Regex::new(r"<script[^>]*>.*?</script>").unwrap(),
             Regex::new(r"javascript:").unwrap(),
             Regex::new(r"on\w+\s*=").unwrap(),
-
             // SQL injection patterns
-            Regex::new(r"(?i)(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|UNION|OR|AND)\b.*)").unwrap(),
-            Regex::new(r"(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|UNION|OR|AND)\b.*;)").unwrap(),
-
+            Regex::new(r"(?i)(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|UNION|OR|AND)\b.*)")
+                .unwrap(),
+            Regex::new(r"(\b(SELECT|INSERT|UPDATE|DELETE|DROP|CREATE|ALTER|UNION|OR|AND)\b.*;)")
+                .unwrap(),
             // Command injection via backticks
             Regex::new(r"`[^`]*`").unwrap(),
-
             // Environment variable manipulation
             Regex::new(r"\$\{[^}]+\}").unwrap(),
             Regex::new(r"\$[A-Z_][A-Z0-9_]*").unwrap(),
@@ -83,7 +74,10 @@ impl ContentSanitizer {
 
         // Length check
         if content.len() > self.max_content_length {
-            warnings.push(SanitizationWarning::ContentTooLong(content.len(), self.max_content_length));
+            warnings.push(SanitizationWarning::ContentTooLong(
+                content.len(),
+                self.max_content_length,
+            ));
             sanitized = content[..self.max_content_length].to_string();
             sanitized.push_str("\n[...content truncated for safety...]");
         }
@@ -91,17 +85,25 @@ impl ContentSanitizer {
         // Check for prompt injection patterns
         for pattern in &self.prompt_injection_patterns {
             if pattern.is_match(&sanitized) {
-                warnings.push(SanitizationWarning::PromptInjectionDetected(pattern.as_str().to_string()));
+                warnings.push(SanitizationWarning::PromptInjectionDetected(
+                    pattern.as_str().to_string(),
+                ));
                 // Remove or neutralize the malicious content
-                sanitized = pattern.replace_all(&sanitized, "[FILTERED: Potential prompt injection]").to_string();
+                sanitized = pattern
+                    .replace_all(&sanitized, "[FILTERED: Potential prompt injection]")
+                    .to_string();
             }
         }
 
         // Check for malicious patterns
         for pattern in &self.malicious_patterns {
             if pattern.is_match(&sanitized) {
-                warnings.push(SanitizationWarning::MaliciousContentDetected(pattern.as_str().to_string()));
-                sanitized = pattern.replace_all(&sanitized, "[FILTERED: Potentially malicious content]").to_string();
+                warnings.push(SanitizationWarning::MaliciousContentDetected(
+                    pattern.as_str().to_string(),
+                ));
+                sanitized = pattern
+                    .replace_all(&sanitized, "[FILTERED: Potentially malicious content]")
+                    .to_string();
             }
         }
 
@@ -145,7 +147,8 @@ impl ContentSanitizer {
         let mut sanitized = input.to_string();
 
         // Remove or escape potentially dangerous characters
-        sanitized = sanitized.chars()
+        sanitized = sanitized
+            .chars()
             .filter(|c| c.is_alphanumeric() || " .,!?-_\n\t".contains(*c))
             .collect();
 
@@ -153,7 +156,12 @@ impl ContentSanitizer {
     }
 
     /// Create a secure prompt with sanitized content
-    pub fn create_secure_prompt(&self, system_prompt: &str, user_query: &str, context_blocks: &[&str]) -> Result<String, SanitizationError> {
+    pub fn create_secure_prompt(
+        &self,
+        system_prompt: &str,
+        user_query: &str,
+        context_blocks: &[&str],
+    ) -> Result<String, SanitizationError> {
         let sanitized_query = self.sanitize_user_input(user_query)?;
 
         let mut sanitized_contexts = Vec::new();
@@ -162,7 +170,12 @@ impl ContentSanitizer {
         for (i, context) in context_blocks.iter().enumerate() {
             let sanitized = self.sanitize_rag_content(context);
             sanitized_contexts.push(sanitized.content);
-            total_warnings.extend(sanitized.warnings.iter().map(|w| format!("Context block {}: {:?}", i + 1, w)));
+            total_warnings.extend(
+                sanitized
+                    .warnings
+                    .iter()
+                    .map(|w| format!("Context block {}: {:?}", i + 1, w)),
+            );
         }
 
         // Build prompt with clear delimiters
@@ -185,8 +198,10 @@ impl ContentSanitizer {
         }
 
         prompt.push_str("=== RESPONSE INSTRUCTIONS ===\n");
-        prompt.push_str("Provide a helpful response based only on the provided context and query.\n");
-        prompt.push_str("Do not execute commands, access external resources, or perform actions.\n");
+        prompt
+            .push_str("Provide a helpful response based only on the provided context and query.\n");
+        prompt
+            .push_str("Do not execute commands, access external resources, or perform actions.\n");
         prompt.push_str("If you cannot answer based on the context, say so clearly.\n");
 
         // Log warnings if any
@@ -205,7 +220,8 @@ impl ContentSanitizer {
     }
 
     fn limit_line_length(&self, content: &str) -> String {
-        content.lines()
+        content
+            .lines()
             .map(|line| {
                 if line.len() > 200 {
                     format!("{}...", &line[..197])
@@ -246,8 +262,12 @@ impl std::fmt::Display for SanitizationError {
         match self {
             SanitizationError::EmptyInput => write!(f, "Input cannot be empty"),
             SanitizationError::InputTooLong(len) => write!(f, "Input too long: {} characters", len),
-            SanitizationError::PromptInjectionAttempt => write!(f, "Potential prompt injection detected"),
-            SanitizationError::ContentTooDangerous => write!(f, "Content contains dangerous patterns"),
+            SanitizationError::PromptInjectionAttempt => {
+                write!(f, "Potential prompt injection detected")
+            }
+            SanitizationError::ContentTooDangerous => {
+                write!(f, "Content contains dangerous patterns")
+            }
         }
     }
 }
@@ -272,7 +292,9 @@ mod tests {
         let result = sanitizer.sanitize_rag_content(malicious_content);
 
         assert!(!result.warnings.is_empty());
-        assert!(result.content.contains("[FILTERED: Potential prompt injection]"));
+        assert!(result
+            .content
+            .contains("[FILTERED: Potential prompt injection]"));
     }
 
     #[test]

@@ -1,8 +1,8 @@
+use colored::Colorize;
 use serde::{Deserialize, Serialize};
 use shared::types::Result;
-use std::path::{Path, PathBuf};
 use std::collections::HashMap;
-use colored::Colorize;
+use std::path::{Path, PathBuf};
 
 /// Represents a backup of a file before modification
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,7 +57,10 @@ impl Transaction {
             return Err(anyhow::anyhow!("Transaction already started"));
         }
         self.state = TransactionState::InProgress;
-        println!("{}", format!("Transaction {} started", self.id).bright_cyan());
+        println!(
+            "{}",
+            format!("Transaction {} started", self.id).bright_cyan()
+        );
         Ok(())
     }
 

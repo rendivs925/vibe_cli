@@ -24,27 +24,65 @@ impl Sandbox {
         let mut blocked_paths = HashSet::new();
 
         // Safe allowed commands
-        for cmd in &["ls", "cat", "grep", "find", "head", "tail", "wc", "sort", "uniq", "pwd", "echo"] {
+        for cmd in &[
+            "ls", "cat", "grep", "find", "head", "tail", "wc", "sort", "uniq", "pwd", "echo",
+        ] {
             allowed_commands.insert(cmd.to_string());
         }
 
         // Programming/development commands
-        for cmd in &["cargo", "rustc", "npm", "node", "python", "python3", "pip", "pip3", "git", "make", "cmake"] {
+        for cmd in &[
+            "cargo", "rustc", "npm", "node", "python", "python3", "pip", "pip3", "git", "make",
+            "cmake",
+        ] {
             allowed_commands.insert(cmd.to_string());
         }
 
         // System monitoring (read-only)
-        for cmd in &["ps", "top", "htop", "df", "du", "free", "uptime", "whoami", "id", "date", "systemctl", "journalctl", "hostname", "uname", "lsblk", "blkid", "fdisk", "parted", "lscpu", "lspci", "lsusb", "dmidecode", "sensors", "iostat", "vmstat", "sar", "sysctl"] {
+        for cmd in &[
+            "ps",
+            "top",
+            "htop",
+            "df",
+            "du",
+            "free",
+            "uptime",
+            "whoami",
+            "id",
+            "date",
+            "systemctl",
+            "journalctl",
+            "hostname",
+            "uname",
+            "lsblk",
+            "blkid",
+            "fdisk",
+            "parted",
+            "lscpu",
+            "lspci",
+            "lsusb",
+            "dmidecode",
+            "sensors",
+            "iostat",
+            "vmstat",
+            "sar",
+            "sysctl",
+        ] {
             allowed_commands.insert(cmd.to_string());
         }
 
         // Blocked dangerous commands
-        for cmd in &["rm", "rmdir", "del", "deltree", "format", "mkfs", "dd", "fdisk", "mkfs", "mount", "umount"] {
+        for cmd in &[
+            "rm", "rmdir", "del", "deltree", "format", "mkfs", "dd", "fdisk", "mkfs", "mount",
+            "umount",
+        ] {
             blocked_commands.insert(cmd.to_string());
         }
 
         // System manipulation
-        for cmd in &["kill", "killall", "pkill", "killpg", "shutdown", "reboot", "halt", "poweroff"] {
+        for cmd in &[
+            "kill", "killall", "pkill", "killpg", "shutdown", "reboot", "halt", "poweroff",
+        ] {
             blocked_commands.insert(cmd.to_string());
         }
 
@@ -54,12 +92,27 @@ impl Sandbox {
         }
 
         // System paths that are allowed (read-only)
-        for path in &["/usr/bin", "/bin", "/usr/local/bin", "/home", "/tmp", "/var/log"] {
+        for path in &[
+            "/usr/bin",
+            "/bin",
+            "/usr/local/bin",
+            "/home",
+            "/tmp",
+            "/var/log",
+        ] {
             allowed_paths.insert(path.to_string());
         }
 
         // System paths that are blocked
-        for path in &["/etc", "/sys", "/dev", "/proc", "/boot", "/root", "/usr/sbin"] {
+        for path in &[
+            "/etc",
+            "/sys",
+            "/dev",
+            "/proc",
+            "/boot",
+            "/root",
+            "/usr/sbin",
+        ] {
             blocked_paths.insert(path.to_string());
         }
 
@@ -77,25 +130,25 @@ impl Sandbox {
     /// Get dangerous command patterns
     fn get_dangerous_patterns() -> Vec<String> {
         vec![
-            r"rm\s+-rf\s+/".to_string(),                    // rm -rf /
-            r"rm\s+-rf\s+\*".to_string(),                   // rm -rf *
-            r":\(\)\{\s*:\|\:&\s*\};:".to_string(),        // Fork bomb
-            r"os\.fork".to_string(),                             // Python fork calls
-            r">/dev/sd[a-z]".to_string(),                   // Disk overwriting
-            r"dd\s+if=.*of=/dev/".to_string(),              // Disk operations
-            r"mkfs\.".to_string(),                          // Filesystem creation
-            r"chmod\s+777\s+/".to_string(),                 // Dangerous permissions
-            r"chown\s+root".to_string(),                    // Root ownership
-            r"sudo\s+.*rm".to_string(),                     // Sudo remove operations
-            r".*&&.*".to_string(),                          // Command chaining with &&
-            r".*\|\|.*".to_string(),                        // Command chaining with ||
-            r".*\|.*bash".to_string(),                      // Pipe to bash
-            r".*\|.*sh".to_string(),                        // Pipe to shell
-            r"curl.*\|.*bash".to_string(),                  // Pipe to bash
-            r"wget.*\|.*sh".to_string(),                    // Pipe to shell
-            r"eval\s+.*".to_string(),                       // Eval execution
-            r"exec\s+.*".to_string(),                       // Exec execution
-            r"source\s+.*".to_string(),                     // Source execution
+            r"rm\s+-rf\s+/".to_string(),            // rm -rf /
+            r"rm\s+-rf\s+\*".to_string(),           // rm -rf *
+            r":\(\)\{\s*:\|\:&\s*\};:".to_string(), // Fork bomb
+            r"os\.fork".to_string(),                // Python fork calls
+            r">/dev/sd[a-z]".to_string(),           // Disk overwriting
+            r"dd\s+if=.*of=/dev/".to_string(),      // Disk operations
+            r"mkfs\.".to_string(),                  // Filesystem creation
+            r"chmod\s+777\s+/".to_string(),         // Dangerous permissions
+            r"chown\s+root".to_string(),            // Root ownership
+            r"sudo\s+.*rm".to_string(),             // Sudo remove operations
+            r".*&&.*".to_string(),                  // Command chaining with &&
+            r".*\|\|.*".to_string(),                // Command chaining with ||
+            r".*\|.*bash".to_string(),              // Pipe to bash
+            r".*\|.*sh".to_string(),                // Pipe to shell
+            r"curl.*\|.*bash".to_string(),          // Pipe to bash
+            r"wget.*\|.*sh".to_string(),            // Pipe to shell
+            r"eval\s+.*".to_string(),               // Eval execution
+            r"exec\s+.*".to_string(),               // Exec execution
+            r"source\s+.*".to_string(),             // Source execution
         ]
     }
 
@@ -107,16 +160,22 @@ impl Sandbox {
         // Execute with timeout and output limits
         let command = command.to_string();
         let args = args.to_owned();
-        let output = timeout(self.max_execution_time, tokio::task::spawn_blocking(move || {
-            let mut cmd = Command::new(&command);
-            cmd.args(&args);
-            cmd.stdout(Stdio::piped())
-            .stderr(Stdio::piped());
-            cmd.output()
-        })).await???;
+        let output = timeout(
+            self.max_execution_time,
+            tokio::task::spawn_blocking(move || {
+                let mut cmd = Command::new(&command);
+                cmd.args(&args);
+                cmd.stdout(Stdio::piped()).stderr(Stdio::piped());
+                cmd.output()
+            }),
+        )
+        .await???;
 
         if !output.status.success() {
-            return Err(anyhow::anyhow!("Command failed with exit code: {}", output.status));
+            return Err(anyhow::anyhow!(
+                "Command failed with exit code: {}",
+                output.status
+            ));
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -140,19 +199,28 @@ impl Sandbox {
     fn validate_command(&self, command: &str, args: &[String]) -> Result<()> {
         // Check if command is explicitly blocked
         if self.blocked_commands.contains(command) {
-            return Err(anyhow::anyhow!("Command '{}' is blocked for security reasons", command));
+            return Err(anyhow::anyhow!(
+                "Command '{}' is blocked for security reasons",
+                command
+            ));
         }
 
         // Check if command is allowed (if whitelist is enabled)
         if !self.allowed_commands.is_empty() && !self.allowed_commands.contains(command) {
-            return Err(anyhow::anyhow!("Command '{}' is not in the allowed commands list", command));
+            return Err(anyhow::anyhow!(
+                "Command '{}' is not in the allowed commands list",
+                command
+            ));
         }
 
         // Check arguments for dangerous patterns
         let full_command = format!("{} {}", command, args.join(" "));
         for pattern in &self.dangerous_patterns {
             if regex::Regex::new(pattern).unwrap().is_match(&full_command) {
-                return Err(anyhow::anyhow!("Command matches dangerous pattern: {}", pattern));
+                return Err(anyhow::anyhow!(
+                    "Command matches dangerous pattern: {}",
+                    pattern
+                ));
             }
         }
 
@@ -273,13 +341,34 @@ impl Sandbox {
     pub fn get_stats(&self) -> std::collections::HashMap<String, String> {
         let mut stats = std::collections::HashMap::new();
 
-        stats.insert("allowed_commands".to_string(), self.allowed_commands.len().to_string());
-        stats.insert("blocked_commands".to_string(), self.blocked_commands.len().to_string());
-        stats.insert("allowed_paths".to_string(), self.allowed_paths.len().to_string());
-        stats.insert("blocked_paths".to_string(), self.blocked_paths.len().to_string());
-        stats.insert("dangerous_patterns".to_string(), self.dangerous_patterns.len().to_string());
-        stats.insert("max_execution_time_secs".to_string(), self.max_execution_time.as_secs().to_string());
-        stats.insert("max_output_size_kb".to_string(), (self.max_output_size / 1024).to_string());
+        stats.insert(
+            "allowed_commands".to_string(),
+            self.allowed_commands.len().to_string(),
+        );
+        stats.insert(
+            "blocked_commands".to_string(),
+            self.blocked_commands.len().to_string(),
+        );
+        stats.insert(
+            "allowed_paths".to_string(),
+            self.allowed_paths.len().to_string(),
+        );
+        stats.insert(
+            "blocked_paths".to_string(),
+            self.blocked_paths.len().to_string(),
+        );
+        stats.insert(
+            "dangerous_patterns".to_string(),
+            self.dangerous_patterns.len().to_string(),
+        );
+        stats.insert(
+            "max_execution_time_secs".to_string(),
+            self.max_execution_time.as_secs().to_string(),
+        );
+        stats.insert(
+            "max_output_size_kb".to_string(),
+            (self.max_output_size / 1024).to_string(),
+        );
 
         stats
     }
@@ -298,9 +387,22 @@ impl ConfirmationManager {
 
         // Operations that require confirmation
         for op in &[
-            "delete", "remove", "rm", "uninstall", "drop", "destroy",
-            "format", "wipe", "clean", "purge", "truncate",
-            "overwrite", "replace", "modify", "edit", "update"
+            "delete",
+            "remove",
+            "rm",
+            "uninstall",
+            "drop",
+            "destroy",
+            "format",
+            "wipe",
+            "clean",
+            "purge",
+            "truncate",
+            "overwrite",
+            "replace",
+            "modify",
+            "edit",
+            "update",
         ] {
             dangerous_operations.insert(op.to_string());
         }
@@ -321,21 +423,29 @@ impl ConfirmationManager {
         let target_lower = target.to_lowercase();
 
         // Check operation keywords
-        if self.dangerous_operations.iter().any(|op| operation_lower.contains(op)) {
+        if self
+            .dangerous_operations
+            .iter()
+            .any(|op| operation_lower.contains(op))
+        {
             return true;
         }
 
         // Check for system files
-        if target_lower.contains("/etc/") ||
-           target_lower.contains("/sys/") ||
-           target_lower.contains("/dev/") ||
-           target_lower.contains("/proc/") {
+        if target_lower.contains("/etc/")
+            || target_lower.contains("/sys/")
+            || target_lower.contains("/dev/")
+            || target_lower.contains("/proc/")
+        {
             return true;
         }
 
         // Check for important file extensions
         let important_extensions = [".db", ".sql", ".key", ".pem", ".crt", ".conf", ".config"];
-        if important_extensions.iter().any(|ext| target_lower.ends_with(ext)) {
+        if important_extensions
+            .iter()
+            .any(|ext| target_lower.ends_with(ext))
+        {
             return true;
         }
 

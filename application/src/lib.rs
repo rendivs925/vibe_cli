@@ -1,10 +1,10 @@
 pub mod advanced_scheduler;
 pub mod agent_service;
 pub mod build_service;
+pub mod context_aware_validator;
 pub mod dynamic_scaling;
 pub mod explain_service;
 pub mod hallucination_detector;
-pub mod context_aware_validator;
 pub mod parallel_agent;
 pub mod rag_service;
 pub mod result_aggregator;
@@ -14,8 +14,14 @@ pub mod task_decomposer;
 pub mod transaction;
 
 /// Convenience function to create an AgentService with Candle inference (default)
-pub async fn create_agent_service_with_candle() -> shared::types::Result<agent_service::AgentService> {
-    use infrastructure::{candle_inference::{CandleInferenceService, ModelConfig, ModelArchitecture, QuantizationLevel}, InferenceEngine, config::Config};
+pub async fn create_agent_service_with_candle() -> shared::types::Result<agent_service::AgentService>
+{
+    use infrastructure::{
+        candle_inference::{
+            CandleInferenceService, ModelArchitecture, ModelConfig, QuantizationLevel,
+        },
+        InferenceEngine,
+    };
 
     // Create Candle inference service
     let cache_dir = std::env::temp_dir().join("vibe_candle_cache");
@@ -39,16 +45,23 @@ pub async fn create_agent_service_with_candle() -> shared::types::Result<agent_s
     Ok(agent_service)
 }
 
-
-
 /// Default agent service creation - uses Ollama (recommended)
 pub async fn create_agent_service() -> shared::types::Result<agent_service::AgentService> {
     create_agent_service_with_ollama()
 }
 
 /// Convenience function to create a RagService with Candle inference (default)
-pub async fn create_rag_service(root_path: &str, db_path: &str) -> shared::types::Result<rag_service::RagService> {
-    use infrastructure::{candle_inference::{CandleInferenceService, ModelConfig, ModelArchitecture, QuantizationLevel}, InferenceEngine, config::Config};
+pub async fn create_rag_service(
+    root_path: &str,
+    db_path: &str,
+) -> shared::types::Result<rag_service::RagService> {
+    use infrastructure::{
+        candle_inference::{
+            CandleInferenceService, ModelArchitecture, ModelConfig, QuantizationLevel,
+        },
+        config::Config,
+        InferenceEngine,
+    };
 
     // Create default config for RAG
     let config = Config::load();
@@ -70,7 +83,8 @@ pub async fn create_rag_service(root_path: &str, db_path: &str) -> shared::types
     let inference_engine = InferenceEngine::Candle(candle_service);
 
     // Create RAG service with Candle backend
-    let rag_service = rag_service::RagService::new(root_path, db_path, inference_engine, config).await?;
+    let rag_service =
+        rag_service::RagService::new(root_path, db_path, inference_engine, config).await?;
 
     Ok(rag_service)
 }

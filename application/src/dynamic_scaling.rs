@@ -5,11 +5,10 @@
 /// - Load-based scaling decisions
 /// - Resource utilization optimization
 /// - Predictive scaling based on task queue
-
 use anyhow::Result;
 use std::sync::Arc;
+use std::time::Instant;
 use tokio::sync::RwLock;
-use std::time::{Duration, Instant};
 
 /// Scaling policy determines when to scale up/down
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -29,12 +28,12 @@ pub enum ScalingPolicy {
 /// System metrics for scaling decisions
 #[derive(Debug, Clone)]
 pub struct SystemMetrics {
-    pub cpu_utilization: f32,       // 0.0 to 1.0
-    pub memory_utilization: f32,    // 0.0 to 1.0
+    pub cpu_utilization: f32,    // 0.0 to 1.0
+    pub memory_utilization: f32, // 0.0 to 1.0
     pub queue_length: usize,
     pub active_workers: usize,
     pub avg_task_completion_ms: u64,
-    pub task_arrival_rate: f32,     // tasks per second
+    pub task_arrival_rate: f32, // tasks per second
     pub timestamp: Instant,
 }
 
@@ -100,11 +99,11 @@ pub struct ScalingConfig {
     pub policy: ScalingPolicy,
     pub min_workers: usize,
     pub max_workers: usize,
-    pub scale_up_threshold: f32,      // Load score to trigger scale up
-    pub scale_down_threshold: f32,    // Load score to trigger scale down
-    pub cooldown_period_secs: u64,    // Minimum time between scaling operations
-    pub scale_up_increment: usize,    // How many workers to add
-    pub scale_down_increment: usize,  // How many workers to remove
+    pub scale_up_threshold: f32,     // Load score to trigger scale up
+    pub scale_down_threshold: f32,   // Load score to trigger scale down
+    pub cooldown_period_secs: u64,   // Minimum time between scaling operations
+    pub scale_up_increment: usize,   // How many workers to add
+    pub scale_down_increment: usize, // How many workers to remove
 }
 
 impl ScalingConfig {
@@ -154,8 +153,8 @@ impl ScalingConfig {
                 policy,
                 min_workers: num_cpus::get(),
                 max_workers: num_cpus::get(),
-                scale_up_threshold: 1.0,    // Never scale
-                scale_down_threshold: 0.0,  // Never scale
+                scale_up_threshold: 1.0,   // Never scale
+                scale_down_threshold: 0.0, // Never scale
                 cooldown_period_secs: 3600,
                 scale_up_increment: 0,
                 scale_down_increment: 0,
@@ -210,13 +209,17 @@ impl DynamicScalingController {
 
         // Scale up if overloaded
         if load_score >= config.scale_up_threshold && current_workers < config.max_workers {
-            let increment = config.scale_up_increment.min(config.max_workers - current_workers);
+            let increment = config
+                .scale_up_increment
+                .min(config.max_workers - current_workers);
             return Ok(ScalingDecision::ScaleUp(increment));
         }
 
         // Scale down if underutilized
         if load_score <= config.scale_down_threshold && current_workers > config.min_workers {
-            let decrement = config.scale_down_increment.min(current_workers - config.min_workers);
+            let decrement = config
+                .scale_down_increment
+                .min(current_workers - config.min_workers);
             return Ok(ScalingDecision::ScaleDown(decrement));
         }
 
@@ -299,10 +302,10 @@ impl DynamicScalingController {
         let mut config = self.config.write().await;
 
         // Analyze workload patterns
-        let avg_cpu: f32 = history.iter().map(|m| m.cpu_utilization).sum::<f32>()
-            / history.len() as f32;
-        let avg_queue_length: f32 = history.iter().map(|m| m.queue_length as f32).sum::<f32>()
-            / history.len() as f32;
+        let avg_cpu: f32 =
+            history.iter().map(|m| m.cpu_utilization).sum::<f32>() / history.len() as f32;
+        let avg_queue_length: f32 =
+            history.iter().map(|m| m.queue_length as f32).sum::<f32>() / history.len() as f32;
 
         // Adjust thresholds based on patterns
         if avg_cpu > 0.8 {
@@ -350,7 +353,10 @@ impl DynamicScalingController {
         if !history.is_empty() {
             let latest = history.last().unwrap();
             report.push_str("Current Metrics:\n");
-            report.push_str(&format!("  CPU Utilization: {:.1}%\n", latest.cpu_utilization * 100.0));
+            report.push_str(&format!(
+                "  CPU Utilization: {:.1}%\n",
+                latest.cpu_utilization * 100.0
+            ));
             report.push_str(&format!(
                 "  Memory Utilization: {:.1}%\n",
                 latest.memory_utilization * 100.0

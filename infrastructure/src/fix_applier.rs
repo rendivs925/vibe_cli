@@ -1,7 +1,7 @@
 use anyhow::Result;
 use std::collections::HashMap;
 use std::fs;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 use tokio::process::Command;
 
 /// Safe fix application system with transaction rollback
@@ -23,9 +23,9 @@ pub struct AppliedFix {
 
 #[derive(Debug, Clone)]
 pub enum FixConfidence {
-    High,    // Apply automatically
-    Medium,  // Ask user confirmation
-    Low,     // Manual application only
+    High,   // Apply automatically
+    Medium, // Ask user confirmation
+    Low,    // Manual application only
 }
 
 impl FixApplier {
@@ -62,7 +62,9 @@ impl FixApplier {
             }
             FixConfidence::Low => {
                 println!("❌ Low confidence - manual application required");
-                return Err(anyhow::anyhow!("Fix confidence too low for automatic application"));
+                return Err(anyhow::anyhow!(
+                    "Fix confidence too low for automatic application"
+                ));
             }
         }
 
@@ -95,7 +97,13 @@ impl FixApplier {
 
         // Apply each code change
         for change in &fix.changes {
-            self.apply_code_change(change, transaction_id, &mut files_modified, &mut backup_paths).await?;
+            self.apply_code_change(
+                change,
+                transaction_id,
+                &mut files_modified,
+                &mut backup_paths,
+            )
+            .await?;
         }
 
         let applied_fix = AppliedFix {
@@ -107,7 +115,8 @@ impl FixApplier {
             git_commit_hash: None,
         };
 
-        self.applied_fixes.insert(transaction_id.to_string(), applied_fix.clone());
+        self.applied_fixes
+            .insert(transaction_id.to_string(), applied_fix.clone());
 
         Ok(applied_fix)
     }
@@ -159,7 +168,9 @@ impl FixApplier {
         if line_start == 0 || line_end == 0 || line_start > lines.len() || line_end > lines.len() {
             return Err(anyhow::anyhow!(
                 "Invalid line numbers: start={}, end={}, total_lines={}",
-                line_start, line_end, lines.len()
+                line_start,
+                line_end,
+                lines.len()
             ));
         }
 
@@ -174,11 +185,13 @@ impl FixApplier {
         let old_code_normalized = self.normalize_code(&change.old_code);
         let current_block_normalized = self.normalize_code(&current_block);
 
-        if !current_block_normalized.contains(&old_code_normalized) &&
-           !old_code_normalized.is_empty() {
+        if !current_block_normalized.contains(&old_code_normalized)
+            && !old_code_normalized.is_empty()
+        {
             return Err(anyhow::anyhow!(
                 "Old code does not match current content.\nExpected: {}\nFound: {}",
-                change.old_code, current_block
+                change.old_code,
+                current_block
             ));
         }
 
@@ -213,8 +226,7 @@ impl FixApplier {
     async fn create_git_commit(&self, applied_fix: &AppliedFix) -> Result<String> {
         // Stage the modified files
         let mut cmd = Command::new("git");
-        cmd.current_dir(&self.project_root)
-            .arg("add");
+        cmd.current_dir(&self.project_root).arg("add");
 
         for file in &applied_fix.files_modified {
             cmd.arg(file.strip_prefix(&self.project_root).unwrap_or(file));
@@ -245,7 +257,10 @@ impl FixApplier {
     }
 
     /// Ask user for confirmation before applying fix
-    async fn confirm_fix_application(&self, fix: &super::error_analyzer::FixSuggestion) -> Result<bool> {
+    async fn confirm_fix_application(
+        &self,
+        fix: &super::error_analyzer::FixSuggestion,
+    ) -> Result<bool> {
         println!("\n🤔 Apply this fix?");
         println!("Description: {}", fix.description);
         println!("Confidence: {:.1}%", fix.confidence * 100.0);
@@ -265,13 +280,19 @@ impl FixApplier {
 
     /// Rollback an applied fix
     pub async fn rollback_fix(&mut self, fix_id: &str) -> Result<()> {
-        let applied_fix = self.applied_fixes.get(fix_id)
+        let applied_fix = self
+            .applied_fixes
+            .get(fix_id)
             .ok_or_else(|| anyhow::anyhow!("Fix {} not found", fix_id))?;
 
         println!("🔄 Rolling back fix: {}", applied_fix.description);
 
         // Restore backups
-        for (file_path, backup_path) in applied_fix.files_modified.iter().zip(&applied_fix.backup_paths) {
+        for (file_path, backup_path) in applied_fix
+            .files_modified
+            .iter()
+            .zip(&applied_fix.backup_paths)
+        {
             if backup_path.exists() {
                 let backup_content = fs::read_to_string(backup_path)?;
                 fs::write(file_path, backup_content)?;
@@ -309,8 +330,14 @@ impl FixApplier {
 
         // Sort by modification time (newest first)
         fix_dirs.sort_by(|a, b| {
-            b.metadata().and_then(|m| m.modified()).unwrap_or(std::time::SystemTime::UNIX_EPOCH)
-                .cmp(&a.metadata().and_then(|m| m.modified()).unwrap_or(std::time::SystemTime::UNIX_EPOCH))
+            b.metadata()
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+                .cmp(
+                    &a.metadata()
+                        .and_then(|m| m.modified())
+                        .unwrap_or(std::time::SystemTime::UNIX_EPOCH),
+                )
         });
 
         // Keep only the last 10

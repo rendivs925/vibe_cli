@@ -1,4 +1,4 @@
-use crate::tools::{ToolArgs, ToolOutput, ToolError, ToolRegistry};
+use crate::tools::{ToolArgs, ToolError, ToolOutput, ToolRegistry};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -37,15 +37,16 @@ impl SafeCommandInterpreter {
         let tool_registry = ToolRegistry::new();
 
         let mut command_patterns = HashMap::new();
-        
+
         // Define command patterns for file operations
         command_patterns.insert(
             "read_file".to_string(),
             CommandPattern {
                 tool_name: "file_read".to_string(),
-                parameter_mapping: HashMap::from([
-                    ("path".to_string(), ParameterExtractor::PathFromText),
-                ]),
+                parameter_mapping: HashMap::from([(
+                    "path".to_string(),
+                    ParameterExtractor::PathFromText,
+                )]),
                 confidence_score: 0.9,
             },
         );
@@ -66,9 +67,10 @@ impl SafeCommandInterpreter {
             "list_directory".to_string(),
             CommandPattern {
                 tool_name: "directory_list".to_string(),
-                parameter_mapping: HashMap::from([
-                    ("path".to_string(), ParameterExtractor::PathFromText),
-                ]),
+                parameter_mapping: HashMap::from([(
+                    "path".to_string(),
+                    ParameterExtractor::PathFromText,
+                )]),
                 confidence_score: 0.9,
             },
         );
@@ -89,10 +91,13 @@ impl SafeCommandInterpreter {
     }
 
     /// Interpret natural language command into safe tool execution
-    pub async fn interpret_command(&self, user_input: &str) -> Result<InterpretedCommand, InterpretationError> {
+    pub async fn interpret_command(
+        &self,
+        user_input: &str,
+    ) -> Result<InterpretedCommand, InterpretationError> {
         // Clean and normalize input
         let input = user_input.trim().to_lowercase();
-        
+
         // Try to match against known patterns
         for (pattern_name, pattern) in &self.command_patterns {
             if let Some(interpreted) = self.try_match_pattern(&input, pattern_name, pattern)? {
@@ -104,7 +109,12 @@ impl SafeCommandInterpreter {
         self.fallback_interpretation(&input)
     }
 
-    fn try_match_pattern(&self, input: &str, pattern_name: &str, pattern: &CommandPattern) -> Result<Option<InterpretedCommand>, InterpretationError> {
+    fn try_match_pattern(
+        &self,
+        input: &str,
+        pattern_name: &str,
+        pattern: &CommandPattern,
+    ) -> Result<Option<InterpretedCommand>, InterpretationError> {
         // Simple keyword matching for now (can be enhanced with NLP later)
         let keywords = match pattern_name {
             "read_file" => vec!["read", "show", "display", "cat", "view"],
@@ -155,7 +165,10 @@ impl SafeCommandInterpreter {
             working_directory: None,
         };
 
-        let explanation = format!("Interpreted as {} using tool '{}'", pattern_name, pattern.tool_name);
+        let explanation = format!(
+            "Interpreted as {} using tool '{}'",
+            pattern_name, pattern.tool_name
+        );
 
         Ok(Some(InterpretedCommand {
             tool_name: pattern.tool_name.clone(),
@@ -165,7 +178,10 @@ impl SafeCommandInterpreter {
         }))
     }
 
-    fn fallback_interpretation(&self, input: &str) -> Result<InterpretedCommand, InterpretationError> {
+    fn fallback_interpretation(
+        &self,
+        input: &str,
+    ) -> Result<InterpretedCommand, InterpretationError> {
         // Basic fallback - try to extract a file path and assume read operation
         if let Some(path) = self.extract_path_from_text(input) {
             let mut parameters = HashMap::new();
@@ -183,24 +199,31 @@ impl SafeCommandInterpreter {
             });
         }
 
-        Err(InterpretationError::UninterpretableCommand(input.to_string()))
+        Err(InterpretationError::UninterpretableCommand(
+            input.to_string(),
+        ))
     }
 
     fn extract_path_from_text(&self, text: &str) -> Option<String> {
         // Simple path extraction - look for file-like patterns
         let path_patterns = vec![
-            r"/[\w/\.-]+",  // Unix paths
-            r"[a-zA-Z]:[\w\\.-]+",  // Windows paths
-            r"[\w\.-/]+",  // Relative paths
+            r"/[\w/\.-]+",         // Unix paths
+            r"[a-zA-Z]:[\w\\.-]+", // Windows paths
+            r"[\w\.-/]+",          // Relative paths
         ];
 
         for pattern in path_patterns {
-            if let Some(path_match) = regex::Regex::new(pattern).ok()
+            if let Some(path_match) = regex::Regex::new(pattern)
+                .ok()
                 .and_then(|re| re.find(text))
-                .map(|m| m.as_str().to_string()) {
-                
+                .map(|m| m.as_str().to_string())
+            {
                 // Basic validation - should contain file extension or be a directory
-                if path_match.contains('.') || path_match.ends_with('/') || path_match == "." || path_match == ".." {
+                if path_match.contains('.')
+                    || path_match.ends_with('/')
+                    || path_match == "."
+                    || path_match == ".."
+                {
                     return Some(path_match);
                 }
             }
@@ -217,7 +240,8 @@ impl SafeCommandInterpreter {
                 let content_start = pos + keyword.len();
                 if content_start < text.len() {
                     let content = text[content_start..].trim();
-                    if !content.is_empty() && content.len() < 10000 { // Reasonable content limit
+                    if !content.is_empty() && content.len() < 10000 {
+                        // Reasonable content limit
                         return Some(content.to_string());
                     }
                 }
@@ -235,8 +259,13 @@ impl SafeCommandInterpreter {
     }
 
     /// Execute interpreted command safely
-    pub async fn execute_interpreted_command(&self, interpreted: InterpretedCommand) -> Result<ToolOutput, ToolError> {
-        self.tool_registry.execute_tool(&interpreted.tool_name, interpreted.args).await
+    pub async fn execute_interpreted_command(
+        &self,
+        interpreted: InterpretedCommand,
+    ) -> Result<ToolOutput, ToolError> {
+        self.tool_registry
+            .execute_tool(&interpreted.tool_name, interpreted.args)
+            .await
     }
 
     /// Get available tools
@@ -255,12 +284,13 @@ pub enum InterpretationError {
 impl std::fmt::Display for InterpretationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            InterpretationError::UninterpretableCommand(cmd) => 
-                write!(f, "Could not interpret command: {}", cmd),
-            InterpretationError::InvalidParameters(msg) => 
-                write!(f, "Invalid parameters: {}", msg),
-            InterpretationError::ToolNotAvailable(tool) => 
-                write!(f, "Tool not available: {}", tool),
+            InterpretationError::UninterpretableCommand(cmd) => {
+                write!(f, "Could not interpret command: {}", cmd)
+            }
+            InterpretationError::InvalidParameters(msg) => write!(f, "Invalid parameters: {}", msg),
+            InterpretationError::ToolNotAvailable(tool) => {
+                write!(f, "Tool not available: {}", tool)
+            }
         }
     }
 }
@@ -268,17 +298,19 @@ impl std::fmt::Display for InterpretationError {
 impl std::error::Error for InterpretationError {}
 
 /// Integration function for backward compatibility
-pub async fn interpret_and_execute_safe_command(user_input: &str) -> Result<ToolOutput, Box<dyn std::error::Error>> {
+pub async fn interpret_and_execute_safe_command(
+    user_input: &str,
+) -> Result<ToolOutput, Box<dyn std::error::Error>> {
     let interpreter = SafeCommandInterpreter::new();
-    
+
     let interpreted = interpreter.interpret_command(user_input).await?;
-    
+
     // Log interpretation for debugging
     println!("Interpreted command: {}", interpreted.explanation);
     println!("Using tool: {}", interpreted.tool_name);
     println!("Confidence: {:.2}", interpreted.confidence);
-    
+
     let result = interpreter.execute_interpreted_command(interpreted).await?;
-    
+
     Ok(result)
 }

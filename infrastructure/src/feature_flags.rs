@@ -31,7 +31,7 @@ pub enum FeatureCondition {
     UserGroup(String),
     Environment(String),
     TimeRange(String, String), // start, end
-    Custom(String, String), // key, value
+    Custom(String, String),    // key, value
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -171,7 +171,8 @@ impl FeatureFlagManager {
         // Check emergency switch first
         if let Some(emergency) = emergency_switches.get(feature_name) {
             if emergency.triggered {
-                self.audit_logger.log_emergency_disable(feature_name, "Emergency switch triggered");
+                self.audit_logger
+                    .log_emergency_disable(feature_name, "Emergency switch triggered");
                 return false;
             }
         }
@@ -188,7 +189,8 @@ impl FeatureFlagManager {
             // Check user whitelist (whitelist overrides global enabled flag)
             if let Some(user_id) = &context.user_id {
                 if flag.user_whitelist.contains(user_id) {
-                    self.audit_logger.log_feature_access(feature_name, user_id, true, "whitelist");
+                    self.audit_logger
+                        .log_feature_access(feature_name, user_id, true, "whitelist");
                     return true;
                 }
             }
@@ -215,7 +217,10 @@ impl FeatureFlagManager {
                 } else {
                     // No user ID, fall back to random chance
                     use std::time::{SystemTime, UNIX_EPOCH};
-                    let seed = SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_nanos() as u32;
+                    let seed = SystemTime::now()
+                        .duration_since(UNIX_EPOCH)
+                        .unwrap()
+                        .as_nanos() as u32;
                     let hash = self.simple_hash(&seed.to_string()) as f32 / u32::MAX as f32;
                     if hash > flag.rollout_percentage {
                         return false;
@@ -224,7 +229,12 @@ impl FeatureFlagManager {
             }
 
             // Log successful access
-            self.audit_logger.log_feature_access(feature_name, context.user_id.as_deref().unwrap_or("anonymous"), true, "rollout");
+            self.audit_logger.log_feature_access(
+                feature_name,
+                context.user_id.as_deref().unwrap_or("anonymous"),
+                true,
+                "rollout",
+            );
             true
         } else {
             false
@@ -232,7 +242,11 @@ impl FeatureFlagManager {
     }
 
     /// Enable a feature flag
-    pub async fn enable_feature(&self, feature_name: &str, percentage: Option<f32>) -> Result<(), FeatureError> {
+    pub async fn enable_feature(
+        &self,
+        feature_name: &str,
+        percentage: Option<f32>,
+    ) -> Result<(), FeatureError> {
         let mut flags = self.flags.write().await;
         if let Some(flag) = flags.get_mut(feature_name) {
             flag.enabled = true;
@@ -240,7 +254,11 @@ impl FeatureFlagManager {
                 flag.rollout_percentage = pct.min(1.0).max(0.0);
             }
             flag.updated_at = chrono::Utc::now().to_rfc3339();
-            self.audit_logger.log_feature_change(feature_name, "enabled", &format!("percentage: {:?}", percentage));
+            self.audit_logger.log_feature_change(
+                feature_name,
+                "enabled",
+                &format!("percentage: {:?}", percentage),
+            );
             Ok(())
         } else {
             Err(FeatureError::FeatureNotFound(feature_name.to_string()))
@@ -253,7 +271,8 @@ impl FeatureFlagManager {
         if let Some(flag) = flags.get_mut(feature_name) {
             flag.enabled = false;
             flag.updated_at = chrono::Utc::now().to_rfc3339();
-            self.audit_logger.log_feature_change(feature_name, "disabled", "");
+            self.audit_logger
+                .log_feature_change(feature_name, "disabled", "");
             Ok(())
         } else {
             Err(FeatureError::FeatureNotFound(feature_name.to_string()))
@@ -261,7 +280,11 @@ impl FeatureFlagManager {
     }
 
     /// Trigger emergency disable for a feature
-    pub async fn trigger_emergency_disable(&self, feature_name: &str, reason: &str) -> Result<(), FeatureError> {
+    pub async fn trigger_emergency_disable(
+        &self,
+        feature_name: &str,
+        reason: &str,
+    ) -> Result<(), FeatureError> {
         let mut emergency_switches = self.emergency_switches.write().await;
         if let Some(switch) = emergency_switches.get_mut(feature_name) {
             switch.triggered = true;
@@ -271,7 +294,8 @@ impl FeatureFlagManager {
             // Disable the feature flag
             self.disable_feature(feature_name).await?;
 
-            self.audit_logger.log_emergency_disable(feature_name, reason);
+            self.audit_logger
+                .log_emergency_disable(feature_name, reason);
             Ok(())
         } else {
             Err(FeatureError::FeatureNotFound(feature_name.to_string()))
@@ -279,7 +303,10 @@ impl FeatureFlagManager {
     }
 
     /// Create a rollout strategy for gradual deployment
-    pub async fn create_rollout_strategy(&self, strategy: RolloutStrategy) -> Result<(), FeatureError> {
+    pub async fn create_rollout_strategy(
+        &self,
+        strategy: RolloutStrategy,
+    ) -> Result<(), FeatureError> {
         let mut strategies = self.rollout_strategies.write().await;
         strategies.insert(strategy.feature_name.clone(), strategy);
         Ok(())
@@ -289,7 +316,8 @@ impl FeatureFlagManager {
     pub async fn advance_rollout(&self, feature_name: &str) -> Result<f32, FeatureError> {
         let mut strategies = self.rollout_strategies.write().await;
         if let Some(strategy) = strategies.get_mut(feature_name) {
-            let new_percentage = (strategy.current_percentage + strategy.step_size).min(strategy.target_percentage);
+            let new_percentage =
+                (strategy.current_percentage + strategy.step_size).min(strategy.target_percentage);
             strategy.current_percentage = new_percentage;
 
             // Update the feature flag
@@ -299,7 +327,8 @@ impl FeatureFlagManager {
                 flag.updated_at = chrono::Utc::now().to_rfc3339();
             }
 
-            self.audit_logger.log_rollout_advance(feature_name, new_percentage);
+            self.audit_logger
+                .log_rollout_advance(feature_name, new_percentage);
             Ok(new_percentage)
         } else {
             Err(FeatureError::StrategyNotFound(feature_name.to_string()))
@@ -307,13 +336,18 @@ impl FeatureFlagManager {
     }
 
     /// Add user to whitelist
-    pub async fn add_to_whitelist(&self, feature_name: &str, user_id: &str) -> Result<(), FeatureError> {
+    pub async fn add_to_whitelist(
+        &self,
+        feature_name: &str,
+        user_id: &str,
+    ) -> Result<(), FeatureError> {
         let mut flags = self.flags.write().await;
         if let Some(flag) = flags.get_mut(feature_name) {
             if !flag.user_whitelist.contains(&user_id.to_string()) {
                 flag.user_whitelist.push(user_id.to_string());
                 flag.updated_at = chrono::Utc::now().to_rfc3339();
-                self.audit_logger.log_whitelist_change(feature_name, user_id, "added");
+                self.audit_logger
+                    .log_whitelist_change(feature_name, user_id, "added");
             }
             Ok(())
         } else {
@@ -337,7 +371,9 @@ impl FeatureFlagManager {
             FeatureCondition::UserGroup(group) => context.user_groups.contains(group),
             FeatureCondition::Environment(env) => context.environment == *env,
             FeatureCondition::TimeRange(start, end) => self.check_time_range(start, end),
-            FeatureCondition::Custom(key, value) => context.custom_properties.get(key) == Some(value),
+            FeatureCondition::Custom(key, value) => {
+                context.custom_properties.get(key) == Some(value)
+            }
         }
     }
 
@@ -377,27 +413,67 @@ impl FeatureAuditLogger {
         }
     }
 
-    pub fn log_feature_access(&self, feature_name: &str, user_id: &str, enabled: bool, reason: &str) {
-        self.log_entry("feature_access", feature_name, &format!("user: {}, enabled: {}, reason: {}", user_id, enabled, reason), Some(user_id));
+    pub fn log_feature_access(
+        &self,
+        feature_name: &str,
+        user_id: &str,
+        enabled: bool,
+        reason: &str,
+    ) {
+        self.log_entry(
+            "feature_access",
+            feature_name,
+            &format!(
+                "user: {}, enabled: {}, reason: {}",
+                user_id, enabled, reason
+            ),
+            Some(user_id),
+        );
     }
 
     pub fn log_feature_change(&self, feature_name: &str, action: &str, details: &str) {
-        self.log_entry("feature_change", feature_name, &format!("action: {}, details: {}", action, details), None);
+        self.log_entry(
+            "feature_change",
+            feature_name,
+            &format!("action: {}, details: {}", action, details),
+            None,
+        );
     }
 
     pub fn log_emergency_disable(&self, feature_name: &str, reason: &str) {
-        self.log_entry("emergency_disable", feature_name, &format!("reason: {}", reason), None);
+        self.log_entry(
+            "emergency_disable",
+            feature_name,
+            &format!("reason: {}", reason),
+            None,
+        );
     }
 
     pub fn log_rollout_advance(&self, feature_name: &str, new_percentage: f32) {
-        self.log_entry("rollout_advance", feature_name, &format!("percentage: {:.2}", new_percentage), None);
+        self.log_entry(
+            "rollout_advance",
+            feature_name,
+            &format!("percentage: {:.2}", new_percentage),
+            None,
+        );
     }
 
     pub fn log_whitelist_change(&self, feature_name: &str, user_id: &str, action: &str) {
-        self.log_entry("whitelist_change", feature_name, &format!("user: {}, action: {}", user_id, action), Some(user_id));
+        self.log_entry(
+            "whitelist_change",
+            feature_name,
+            &format!("user: {}, action: {}", user_id, action),
+            Some(user_id),
+        );
     }
 
-    fn log_entry(&self, event_type: &str, feature_name: &str, details: &str, user_id: Option<&str>) {
+    fn log_entry(
+        &self,
+        event_type: &str,
+        feature_name: &str,
+        details: &str,
+        user_id: Option<&str>,
+    ) {
         let entry = FeatureAuditEntry {
             timestamp: chrono::Utc::now().to_rfc3339(),
             event_type: event_type.to_string(),
@@ -457,7 +533,9 @@ macro_rules! check_feature {
             environment: "production".to_string(),
             custom_properties: std::collections::HashMap::new(),
         };
-        $crate::infrastructure::feature_flags::FEATURE_MANAGER.is_feature_enabled($feature, &context).await
+        $crate::infrastructure::feature_flags::FEATURE_MANAGER
+            .is_feature_enabled($feature, &context)
+            .await
     }};
 }
 
@@ -502,7 +580,10 @@ mod tests {
         let manager = FeatureFlagManager::new();
 
         // Add user to whitelist for agent_control
-        manager.add_to_whitelist("agent_control", "test_user").await.unwrap();
+        manager
+            .add_to_whitelist("agent_control", "test_user")
+            .await
+            .unwrap();
 
         let context = FeatureContext {
             user_id: Some("test_user".to_string()),
@@ -530,7 +611,10 @@ mod tests {
         assert!(manager.is_feature_enabled("safe_tools", &context).await);
 
         // Trigger emergency disable
-        manager.trigger_emergency_disable("safe_tools", "Test emergency").await.unwrap();
+        manager
+            .trigger_emergency_disable("safe_tools", "Test emergency")
+            .await
+            .unwrap();
 
         // Should now be disabled
         assert!(!manager.is_feature_enabled("safe_tools", &context).await);
@@ -541,7 +625,10 @@ mod tests {
         let manager = FeatureFlagManager::new();
 
         // Enable agent_control with 50% rollout
-        manager.enable_feature("agent_control", Some(0.5)).await.unwrap();
+        manager
+            .enable_feature("agent_control", Some(0.5))
+            .await
+            .unwrap();
 
         let context = FeatureContext {
             user_id: Some("consistent_user".to_string()), // Use consistent user for deterministic test

@@ -1,6 +1,6 @@
-use shared::types::Result;
 use anyhow::anyhow;
 use serde::{Deserialize, Serialize};
+use shared::types::Result;
 use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime};
@@ -96,7 +96,9 @@ impl ShellMonitor {
 
         // Trigger pattern analysis
         if let Some(pattern) = self.analyze_recent_activity().await {
-            self.expert_predictor.record_pattern(pattern.pattern_type).await;
+            self.expert_predictor
+                .record_pattern(pattern.pattern_type)
+                .await;
         }
 
         // Periodic cleanup
@@ -114,7 +116,9 @@ impl ShellMonitor {
             .take(10) // Last 10 activities
             .collect();
 
-        self.pattern_detector.detect_pattern(&recent_activities).await
+        self.pattern_detector
+            .detect_pattern(&recent_activities)
+            .await
     }
 
     /// Get current activity patterns
@@ -159,7 +163,8 @@ impl ShellMonitor {
         let mut experts = Vec::new();
 
         for pattern in patterns {
-            if let Some(pattern_experts) = self.expert_predictor.pattern_expert_map.get(&pattern.0) {
+            if let Some(pattern_experts) = self.expert_predictor.pattern_expert_map.get(&pattern.0)
+            {
                 for expert in pattern_experts {
                     if !experts.contains(expert) {
                         experts.push(expert.clone());
@@ -179,12 +184,14 @@ impl ShellMonitor {
         let total_activities = buffer.len();
         stats.insert("total_activities".to_string(), total_activities.to_string());
 
-        let successful_commands = buffer.iter()
-            .filter(|a| a.exit_code == Some(0))
-            .count();
-        stats.insert("successful_commands".to_string(), successful_commands.to_string());
+        let successful_commands = buffer.iter().filter(|a| a.exit_code == Some(0)).count();
+        stats.insert(
+            "successful_commands".to_string(),
+            successful_commands.to_string(),
+        );
 
-        let failed_commands = buffer.iter()
+        let failed_commands = buffer
+            .iter()
             .filter(|a| a.exit_code.is_some() && a.exit_code != Some(0))
             .count();
         stats.insert("failed_commands".to_string(), failed_commands.to_string());
@@ -196,19 +203,26 @@ impl ShellMonitor {
             *command_counts.entry(cmd_base.to_string()).or_insert(0) += 1;
         }
 
-        let mut top_commands = command_counts.into_iter()
-            .collect::<Vec<_>>();
+        let mut top_commands = command_counts.into_iter().collect::<Vec<_>>();
         top_commands.sort_by(|a, b| b.1.cmp(&a.1));
         top_commands.truncate(5);
 
         for (i, (cmd, count)) in top_commands.into_iter().enumerate() {
-            stats.insert(format!("top_command_{}", i + 1), format!("{}:{}", cmd, count));
+            stats.insert(
+                format!("top_command_{}", i + 1),
+                format!("{}:{}", cmd, count),
+            );
         }
 
         // Time-based stats
         let now = SystemTime::now();
-        let last_hour = buffer.iter()
-            .filter(|a| now.duration_since(a.timestamp).unwrap_or(Duration::from_secs(0)) < Duration::from_secs(3600))
+        let last_hour = buffer
+            .iter()
+            .filter(|a| {
+                now.duration_since(a.timestamp)
+                    .unwrap_or(Duration::from_secs(0))
+                    < Duration::from_secs(3600)
+            })
             .count();
         stats.insert("activities_last_hour".to_string(), last_hour.to_string());
 
@@ -240,7 +254,8 @@ impl ShellMonitor {
         let buffer = self.activity_buffer.read().await;
         let cutoff = SystemTime::now() - Duration::from_secs(hours_back * 3600);
 
-        let activities = buffer.iter()
+        let activities = buffer
+            .iter()
             .filter(|a| a.timestamp > cutoff)
             .cloned()
             .collect();
@@ -252,7 +267,8 @@ impl ShellMonitor {
     pub async fn search_activities(&self, pattern: &str) -> Result<Vec<ShellActivity>> {
         let buffer = self.activity_buffer.read().await;
 
-        let matches = buffer.iter()
+        let matches = buffer
+            .iter()
             .filter(|a| a.command.contains(pattern))
             .cloned()
             .collect();
@@ -268,7 +284,10 @@ impl ShellMonitor {
         for pattern in patterns {
             insights.insert(
                 format!("pattern_{:?}", pattern.pattern_type),
-                format!("{} (confidence: {:.2})", pattern.description, pattern.confidence)
+                format!(
+                    "{} (confidence: {:.2})",
+                    pattern.description, pattern.confidence
+                ),
             );
         }
 
@@ -316,25 +335,64 @@ impl PatternDetector {
     fn new() -> Self {
         Self {
             git_patterns: vec![
-                "git add", "git commit", "git push", "git pull", "git merge",
-                "git branch", "git checkout", "git status", "git log", "git diff"
-            ].into_iter().map(String::from).collect(),
+                "git add",
+                "git commit",
+                "git push",
+                "git pull",
+                "git merge",
+                "git branch",
+                "git checkout",
+                "git status",
+                "git log",
+                "git diff",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
             rust_patterns: vec![
-                "cargo build", "cargo run", "cargo test", "cargo check",
-                "cargo clippy", "rustc", "rustup"
-            ].into_iter().map(String::from).collect(),
+                "cargo build",
+                "cargo run",
+                "cargo test",
+                "cargo check",
+                "cargo clippy",
+                "rustc",
+                "rustup",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
             js_patterns: vec![
-                "npm install", "npm run", "yarn install", "yarn build",
-                "node", "npm test", "webpack", "babel"
-            ].into_iter().map(String::from).collect(),
+                "npm install",
+                "npm run",
+                "yarn install",
+                "yarn build",
+                "node",
+                "npm test",
+                "webpack",
+                "babel",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
             build_patterns: vec![
-                "make", "cmake", "configure", "build", "compile",
-                "gradle", "maven", "ant"
-            ].into_iter().map(String::from).collect(),
+                "make",
+                "cmake",
+                "configure",
+                "build",
+                "compile",
+                "gradle",
+                "maven",
+                "ant",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
             test_patterns: vec![
-                "test", "spec", "pytest", "jest", "mocha", "rspec",
-                "phpunit", "junit", "testng"
-            ].into_iter().map(String::from).collect(),
+                "test", "spec", "pytest", "jest", "mocha", "rspec", "phpunit", "junit", "testng",
+            ]
+            .into_iter()
+            .map(String::from)
+            .collect(),
         }
     }
 
@@ -344,9 +402,7 @@ impl PatternDetector {
             return None;
         }
 
-        let commands: Vec<&str> = activities.iter()
-            .map(|a| a.command.as_str())
-            .collect();
+        let commands: Vec<&str> = activities.iter().map(|a| a.command.as_str()).collect();
 
         // Check for Git workflow
         if self.matches_patterns(&commands, &self.git_patterns, 0.4) {
@@ -449,35 +505,50 @@ impl ExpertPredictor {
     fn new() -> Self {
         let mut pattern_expert_map = HashMap::new();
 
-        pattern_expert_map.insert(PatternType::GitWorkflow, vec![
-            "git".to_string(),
-            "version-control".to_string(),
-            "collaboration".to_string(),
-        ]);
+        pattern_expert_map.insert(
+            PatternType::GitWorkflow,
+            vec![
+                "git".to_string(),
+                "version-control".to_string(),
+                "collaboration".to_string(),
+            ],
+        );
 
-        pattern_expert_map.insert(PatternType::RustDevelopment, vec![
-            "rust".to_string(),
-            "systems-programming".to_string(),
-            "performance".to_string(),
-        ]);
+        pattern_expert_map.insert(
+            PatternType::RustDevelopment,
+            vec![
+                "rust".to_string(),
+                "systems-programming".to_string(),
+                "performance".to_string(),
+            ],
+        );
 
-        pattern_expert_map.insert(PatternType::JavaScriptDevelopment, vec![
-            "javascript".to_string(),
-            "web-development".to_string(),
-            "frontend".to_string(),
-        ]);
+        pattern_expert_map.insert(
+            PatternType::JavaScriptDevelopment,
+            vec![
+                "javascript".to_string(),
+                "web-development".to_string(),
+                "frontend".to_string(),
+            ],
+        );
 
-        pattern_expert_map.insert(PatternType::BuildProcess, vec![
-            "build-systems".to_string(),
-            "compilation".to_string(),
-            "ci-cd".to_string(),
-        ]);
+        pattern_expert_map.insert(
+            PatternType::BuildProcess,
+            vec![
+                "build-systems".to_string(),
+                "compilation".to_string(),
+                "ci-cd".to_string(),
+            ],
+        );
 
-        pattern_expert_map.insert(PatternType::TestExecution, vec![
-            "testing".to_string(),
-            "quality-assurance".to_string(),
-            "tdd".to_string(),
-        ]);
+        pattern_expert_map.insert(
+            PatternType::TestExecution,
+            vec![
+                "testing".to_string(),
+                "quality-assurance".to_string(),
+                "tdd".to_string(),
+            ],
+        );
 
         Self {
             pattern_expert_map,

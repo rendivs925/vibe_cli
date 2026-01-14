@@ -5,7 +5,6 @@
 /// - SmallVec and ArrayVec alternatives
 /// - Buffer pooling for I/O operations
 /// - Reusable allocation patterns
-
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
@@ -112,10 +111,7 @@ pub struct BufferPool {
 impl BufferPool {
     /// Create a new buffer pool with specified buffer size
     pub fn new(buffer_size: usize, max_buffers: usize) -> Self {
-        let pool = ObjectPool::new(
-            move || Vec::with_capacity(buffer_size),
-            max_buffers,
-        );
+        let pool = ObjectPool::new(move || Vec::with_capacity(buffer_size), max_buffers);
 
         Self { pool, buffer_size }
     }
@@ -249,10 +245,7 @@ pub struct StringBuffer {
 impl StringBuffer {
     /// Create a new string buffer pool
     pub fn new(initial_capacity: usize, max_buffers: usize) -> Self {
-        let pool = ObjectPool::new(
-            move || String::with_capacity(initial_capacity),
-            max_buffers,
-        );
+        let pool = ObjectPool::new(move || String::with_capacity(initial_capacity), max_buffers);
 
         Self { pool }
     }
@@ -435,11 +428,7 @@ mod tests {
     fn test_collection_builder() {
         let mut builder = CollectionBuilder::with_capacity(10);
 
-        builder
-            .add(1)
-            .add(2)
-            .add(3)
-            .add_all(vec![4, 5, 6]);
+        builder.add(1).add(2).add(3).add_all(vec![4, 5, 6]);
 
         let vec = builder.build();
         assert_eq!(vec, vec![1, 2, 3, 4, 5, 6]);

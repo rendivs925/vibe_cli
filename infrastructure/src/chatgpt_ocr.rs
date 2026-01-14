@@ -1,9 +1,7 @@
+use anyhow::Result;
 /// OCR and response processing for ChatGPT browser automation
 /// Extracts and processes text responses from ChatGPT screenshots
-
 use std::process::Command;
-use image::{DynamicImage, ImageFormat};
-use anyhow::Result;
 
 /// OCR processor for extracting text from ChatGPT responses
 pub struct ChatGPTOCR {
@@ -17,7 +15,9 @@ impl ChatGPTOCR {
         let ocr_command = if Self::command_exists("tesseract") {
             "tesseract".to_string()
         } else {
-            return Err(anyhow::anyhow!("Tesseract OCR not found. Install with: apt install tesseract-ocr"));
+            return Err(anyhow::anyhow!(
+                "Tesseract OCR not found. Install with: apt install tesseract-ocr"
+            ));
         };
 
         Ok(Self {
@@ -75,22 +75,33 @@ impl ChatGPTOCR {
 
     /// Clean and normalize OCR text
     fn clean_ocr_text(&self, text: &str) -> String {
-        let mut cleaned = text.lines()
+        let mut cleaned = text
+            .lines()
             .map(|line| line.trim())
             .filter(|line| !line.is_empty())
             .collect::<Vec<_>>()
             .join("\n");
 
         // Remove non-alphanumeric characters except specific punctuation
-        cleaned = cleaned.replace(|c: char| !c.is_alphanumeric() && !c.is_whitespace() && !['.', ',', '!', '?', ':', ';'].contains(&c), "");
+        cleaned = cleaned.replace(
+            |c: char| {
+                !c.is_alphanumeric()
+                    && !c.is_whitespace()
+                    && !['.', ',', '!', '?', ':', ';'].contains(&c)
+            },
+            "",
+        );
 
         // Remove sequences of the same punctuation character (OCR artifacts)
-        cleaned = cleaned.replace("!!!", "!").replace("???", "?").replace("...", ".").replace(";;;", ";").replace(":::", ":");
+        cleaned = cleaned
+            .replace("!!!", "!")
+            .replace("???", "?")
+            .replace("...", ".")
+            .replace(";;;", ";")
+            .replace(":::", ":");
 
         // Normalize whitespace
-        cleaned.split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ")
+        cleaned.split_whitespace().collect::<Vec<_>>().join(" ")
     }
 
     /// Estimate OCR confidence (simplified approach)
@@ -117,9 +128,11 @@ impl ChatGPTOCR {
         };
 
         // Penalize text with many single characters
-        let single_char_penalty = text.split_whitespace()
+        let single_char_penalty = text
+            .split_whitespace()
             .filter(|word| word.len() == 1)
-            .count() as f32 / word_count as f32;
+            .count() as f32
+            / word_count as f32;
 
         let base_confidence = 85.0; // Base confidence for well-formed text
         let confidence = base_confidence * length_penalty * (1.0 - single_char_penalty * 2.0);
@@ -329,8 +342,11 @@ mod tests {
 
                 match processor.process_screenshot(&dummy_screenshot).await {
                     Ok(response) => {
-                        println!("Response processed: {} chars, confidence: {:.1}%",
-                               response.text.len(), response.confidence);
+                        println!(
+                            "Response processed: {} chars, confidence: {:.1}%",
+                            response.text.len(),
+                            response.confidence
+                        );
                     }
                     Err(e) => {
                         println!("Processing failed (expected with dummy data): {}", e);

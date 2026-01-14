@@ -1,5 +1,4 @@
-use std::collections::HashMap;
-use std::process::{Command, Stdio};
+use std::process::Stdio;
 use std::time::Duration;
 use tokio::process::Command as TokioCommand;
 use tokio::time::timeout;
@@ -35,9 +34,11 @@ impl ResourceEnforcer {
         working_dir: Option<&str>,
     ) -> Result<CommandResult, ResourceError> {
         if self.enabled {
-            self.execute_with_cgroups(command, args, resource_limits, working_dir).await
+            self.execute_with_cgroups(command, args, resource_limits, working_dir)
+                .await
         } else {
-            self.execute_with_basic_limits(command, args, resource_limits, working_dir).await
+            self.execute_with_basic_limits(command, args, resource_limits, working_dir)
+                .await
         }
     }
 
@@ -63,8 +64,9 @@ impl ResourceEnforcer {
         // Execute command in cgroup
         let result = timeout(
             resource_limits.max_execution_time,
-            self.run_in_cgroup(&cgroup_path, command, args, working_dir)
-        ).await;
+            self.run_in_cgroup(&cgroup_path, command, args, working_dir),
+        )
+        .await;
 
         // Clean up cgroup
         let _ = std::fs::remove_dir_all(&cgroup_path);
@@ -75,18 +77,28 @@ impl ResourceEnforcer {
         }
     }
 
-    fn set_cgroup_limits(&self, cgroup_path: &str, limits: &ResourceLimits) -> Result<(), ResourceError> {
+    fn set_cgroup_limits(
+        &self,
+        cgroup_path: &str,
+        limits: &ResourceLimits,
+    ) -> Result<(), ResourceError> {
         // Set CPU limit (percentage)
         if limits.max_cpu_percent < 100.0 {
             let cpu_quota = (limits.max_cpu_percent * 1000.0) as u64;
-            std::fs::write(format!("{}/cpu/cpu.cfs_quota_us", cgroup_path), cpu_quota.to_string())
-                .map_err(|e| ResourceError::CgroupError(format!("Failed to set CPU limit: {}", e)))?;
+            std::fs::write(
+                format!("{}/cpu/cpu.cfs_quota_us", cgroup_path),
+                cpu_quota.to_string(),
+            )
+            .map_err(|e| ResourceError::CgroupError(format!("Failed to set CPU limit: {}", e)))?;
         }
 
         // Set memory limit
         let memory_limit = limits.max_memory_mb * 1024 * 1024; // Convert MB to bytes
-        std::fs::write(format!("{}/memory/memory.limit_in_bytes", cgroup_path), memory_limit.to_string())
-            .map_err(|e| ResourceError::CgroupError(format!("Failed to set memory limit: {}", e)))?;
+        std::fs::write(
+            format!("{}/memory/memory.limit_in_bytes", cgroup_path),
+            memory_limit.to_string(),
+        )
+        .map_err(|e| ResourceError::CgroupError(format!("Failed to set memory limit: {}", e)))?;
 
         Ok(())
     }
@@ -100,27 +112,28 @@ impl ResourceEnforcer {
     ) -> Result<CommandResult, ResourceError> {
         // Add process to cgroup
         let pid = std::process::id();
-        std::fs::write(format!("{}/cgroup.procs", cgroup_path), pid.to_string())
-            .map_err(|e| ResourceError::CgroupError(format!("Failed to add process to cgroup: {}", e)))?;
+        std::fs::write(format!("{}/cgroup.procs", cgroup_path), pid.to_string()).map_err(|e| {
+            ResourceError::CgroupError(format!("Failed to add process to cgroup: {}", e))
+        })?;
 
         // Execute the command
         let mut cmd = TokioCommand::new(command);
-        cmd.args(args)
-           .stdout(Stdio::piped())
-           .stderr(Stdio::piped());
+        cmd.args(args).stdout(Stdio::piped()).stderr(Stdio::piped());
 
         if let Some(dir) = working_dir {
             cmd.current_dir(dir);
         }
 
-        let output = cmd.output().await
-            .map_err(|e| ResourceError::ExecutionError(format!("Command execution failed: {}", e)))?;
+        let output = cmd.output().await.map_err(|e| {
+            ResourceError::ExecutionError(format!("Command execution failed: {}", e))
+        })?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
 
         // Check output size limits
-        if stdout.len() > 1024 * 1024 { // 1MB limit
+        if stdout.len() > 1024 * 1024 {
+            // 1MB limit
             return Err(ResourceError::OutputTooLarge(stdout.len()));
         }
 
@@ -145,8 +158,9 @@ impl ResourceEnforcer {
 
         let result = timeout(
             resource_limits.max_execution_time,
-            self.run_basic_command(command, args, working_dir)
-        ).await;
+            self.run_basic_command(command, args, working_dir),
+        )
+        .await;
 
         match result {
             Ok(output) => {
@@ -171,16 +185,15 @@ impl ResourceEnforcer {
         working_dir: Option<&str>,
     ) -> Result<CommandResult, ResourceError> {
         let mut cmd = TokioCommand::new(command);
-        cmd.args(args)
-           .stdout(Stdio::piped())
-           .stderr(Stdio::piped());
+        cmd.args(args).stdout(Stdio::piped()).stderr(Stdio::piped());
 
         if let Some(dir) = working_dir {
             cmd.current_dir(dir);
         }
 
-        let output = cmd.output().await
-            .map_err(|e| ResourceError::ExecutionError(format!("Command execution failed: {}", e)))?;
+        let output = cmd.output().await.map_err(|e| {
+            ResourceError::ExecutionError(format!("Command execution failed: {}", e))
+        })?;
 
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -249,7 +262,9 @@ impl std::fmt::Display for ResourceError {
             ResourceError::ExecutionError(msg) => write!(f, "Execution error: {}", msg),
             ResourceError::Timeout => write!(f, "Command execution timed out"),
             ResourceError::OutputTooLarge(size) => write!(f, "Output too large: {} bytes", size),
-            ResourceError::MemoryLimitExceeded(limit) => write!(f, "Memory limit exceeded: {} MB", limit),
+            ResourceError::MemoryLimitExceeded(limit) => {
+                write!(f, "Memory limit exceeded: {} MB", limit)
+            }
             ResourceError::CpuLimitExceeded(limit) => write!(f, "CPU limit exceeded: {}%", limit),
         }
     }
@@ -267,7 +282,9 @@ pub async fn execute_tool_with_resource_limits(
     let enforcer = ResourceEnforcer::new();
     let limits = ResourceEnforcer::get_system_limits();
 
-    enforcer.execute_with_limits(command, args, &limits, working_dir).await
+    enforcer
+        .execute_with_limits(command, args, &limits, working_dir)
+        .await
 }
 
 #[cfg(test)]
@@ -286,7 +303,9 @@ mod tests {
             max_processes: 1,
         };
 
-        let result = enforcer.execute_with_limits("echo", &["hello"], &limits, None).await;
+        let result = enforcer
+            .execute_with_limits("echo", &["hello"], &limits, None)
+            .await;
 
         match result {
             Ok(output) => {
@@ -295,7 +314,9 @@ mod tests {
             }
             Err(ResourceError::CgroupError(_)) => {
                 // Cgroups not available, but execution should still work via fallback
-                let fallback_result = enforcer.execute_with_basic_limits("echo", &["hello"], &limits, None).await;
+                let fallback_result = enforcer
+                    .execute_with_basic_limits("echo", &["hello"], &limits, None)
+                    .await;
                 assert!(fallback_result.is_ok());
             }
             Err(e) => panic!("Unexpected error: {}", e),

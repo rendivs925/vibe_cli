@@ -10,6 +10,7 @@
 //! - Calculates confidence from both reasoning depth and tool success.
 //! - Produces stable, deterministic JSON parsing and avoids panics.
 
+use crate::build_service::{BuildPlan, ComplexOperation, FileOperation, RiskLevel, ValidationRule};
 use domain::models::{
     AgentContext, AgentRequest, AgentResponse, ConversationMessage, ParameterProperty, ToolCall,
     ToolDefinition, ToolParameters, ToolResult,
@@ -17,17 +18,16 @@ use domain::models::{
 use infrastructure::{
     agent_control::{
         AgentController, AgentError, AgentExecutionState, AgentIterationResult, AgentResult,
-        IterationRecord, SafeFailureHandler, VerificationResult,
+        IterationRecord, SafeFailureHandler,
     },
     config::Config,
-    tools::{ToolArgs, ToolRegistry},
     sandbox::Sandbox,
+    tools::{ToolArgs, ToolRegistry},
 };
 use serde_json::{json, Value};
 use shared::types::Result;
 use std::collections::HashMap;
 use std::sync::Arc;
-use crate::build_service::{BuildPlan, FileOperation, RiskLevel, ComplexOperation, ValidationRule};
 
 // Forward declare for now - actual implementation when both services are integrated
 pub type RagService = crate::rag_service::RagService;
@@ -78,11 +78,11 @@ pub struct FileContext {
 /// Type of operation planned for a file
 #[derive(Debug, Clone, PartialEq)]
 pub enum FileOperationType {
-    Create,     // File doesn't exist, will be created
-    ReadOnly,   // File exists, no changes planned
-    Update,     // File exists, modifications planned
-    Delete,     // File exists, will be removed
-    Unknown,    // Not yet determined
+    Create,   // File doesn't exist, will be created
+    ReadOnly, // File exists, no changes planned
+    Update,   // File exists, modifications planned
+    Delete,   // File exists, will be removed
+    Unknown,  // Not yet determined
 }
 
 /// Stream-based incremental build planner with true real-time streaming
@@ -104,7 +104,10 @@ enum PlanningState {
     Initial,
     Analyzing,
     PlanningOperations,
-    GeneratingCode { files: Vec<FileSpec>, current_index: usize },
+    GeneratingCode {
+        files: Vec<FileSpec>,
+        current_index: usize,
+    },
     Finalizing,
     Complete,
 }
@@ -138,7 +141,10 @@ impl IncrementalBuildPlanner {
     }
 
     /// Stream the next planning step with true real-time AI generation
-    pub async fn stream_next_step(&mut self, inference_engine: &infrastructure::InferenceEngine) -> Result<Option<IncrementalPlanStep>> {
+    pub async fn stream_next_step(
+        &mut self,
+        inference_engine: &infrastructure::InferenceEngine,
+    ) -> Result<Option<IncrementalPlanStep>> {
         match &self.planning_state {
             PlanningState::Initial => {
                 self.planning_state = PlanningState::Analyzing;
@@ -160,15 +166,17 @@ impl IncrementalBuildPlanner {
                 } else {
                     // Seed contexts for newly proposed files
                     for spec in &files {
-                        self.file_contexts.entry(spec.path.clone()).or_insert(FileContext {
-                            path: spec.path.clone(),
-                            exists: false,
-                            content: None,
-                            size_bytes: 0,
-                            line_count: 0,
-                            modified: None,
-                            operation_type: FileOperationType::Create,
-                        });
+                        self.file_contexts
+                            .entry(spec.path.clone())
+                            .or_insert(FileContext {
+                                path: spec.path.clone(),
+                                exists: false,
+                                content: None,
+                                size_bytes: 0,
+                                line_count: 0,
+                                modified: None,
+                                operation_type: FileOperationType::Create,
+                            });
                     }
 
                     self.planning_state = PlanningState::GeneratingCode {
@@ -178,7 +186,10 @@ impl IncrementalBuildPlanner {
                     self.stream_next_code_step(inference_engine).await
                 }
             }
-            PlanningState::GeneratingCode { files, current_index } => {
+            PlanningState::GeneratingCode {
+                files,
+                current_index,
+            } => {
                 if *current_index >= files.len() {
                     self.planning_state = PlanningState::Finalizing;
                     self.stream_finalizing_step().await
@@ -194,7 +205,10 @@ impl IncrementalBuildPlanner {
         }
     }
 
-    async fn stream_analysis_step(&self, inference_engine: &infrastructure::InferenceEngine) -> Result<Option<IncrementalPlanStep>> {
+    async fn stream_analysis_step(
+        &self,
+        inference_engine: &infrastructure::InferenceEngine,
+    ) -> Result<Option<IncrementalPlanStep>> {
         // Build context summary from real file states
         let context_summary = self.build_context_summary();
 
@@ -217,7 +231,9 @@ Think step-by-step about:
 5. What's the risk level (Low/Medium/High)?
 
 Provide a brief analysis (2-3 sentences) of your approach."#,
-            self.goal, context_summary, self.context.join("\n")
+            self.goal,
+            context_summary,
+            self.context.join("\n")
         );
 
         let analysis = inference_engine.generate(&prompt).await?;
@@ -234,7 +250,10 @@ Provide a brief analysis (2-3 sentences) of your approach."#,
         }))
     }
 
-    async fn stream_operation_planning_step(&self, inference_engine: &infrastructure::InferenceEngine) -> Result<Option<IncrementalPlanStep>> {
+    async fn stream_operation_planning_step(
+        &self,
+        inference_engine: &infrastructure::InferenceEngine,
+    ) -> Result<Option<IncrementalPlanStep>> {
         let context_summary = self.build_context_summary();
 
         let prompt = format!(
@@ -273,7 +292,10 @@ Do not include any other text or explanations."#,
         }))
     }
 
-    async fn stream_file_discovery_step(&mut self, inference_engine: &infrastructure::InferenceEngine) -> Result<Vec<FileSpec>> {
+    async fn stream_file_discovery_step(
+        &mut self,
+        inference_engine: &infrastructure::InferenceEngine,
+    ) -> Result<Vec<FileSpec>> {
         // Query AI to determine required file operations
         let context_summary = self.build_context_summary();
 
@@ -308,7 +330,9 @@ Do not include examples; return only the operations in the required format."#,
         let mut filtered_files: Vec<FileSpec> = Vec::new();
 
         for file_spec in files {
-            let file_exists = self.file_contexts.get(&file_spec.path)
+            let file_exists = self
+                .file_contexts
+                .get(&file_spec.path)
                 .map(|ctx| ctx.exists)
                 .unwrap_or_else(|| std::path::Path::new(&file_spec.path).exists());
 
@@ -338,7 +362,10 @@ Do not include examples; return only the operations in the required format."#,
                     }
                 }
                 _ => {
-                    eprintln!("⚠️  Skipping invalid action '{}' for file '{}'", file_spec.action, file_spec.path);
+                    eprintln!(
+                        "⚠️  Skipping invalid action '{}' for file '{}'",
+                        file_spec.action, file_spec.path
+                    );
                     false
                 }
             };
@@ -351,7 +378,10 @@ Do not include examples; return only the operations in the required format."#,
         Ok(filtered_files)
     }
 
-    async fn infer_files_from_goal(&self, inference_engine: &infrastructure::InferenceEngine) -> Result<Vec<FileSpec>> {
+    async fn infer_files_from_goal(
+        &self,
+        inference_engine: &infrastructure::InferenceEngine,
+    ) -> Result<Vec<FileSpec>> {
         let prompt = format!(
             r#"The filesystem has no relevant files for this goal. Propose a minimal set of files to create to deliver the goal.
 
@@ -387,9 +417,15 @@ REASON: brief explanation"#,
         Ok(normalized)
     }
 
-    async fn stream_next_code_step(&mut self, inference_engine: &infrastructure::InferenceEngine) -> Result<Option<IncrementalPlanStep>> {
+    async fn stream_next_code_step(
+        &mut self,
+        inference_engine: &infrastructure::InferenceEngine,
+    ) -> Result<Option<IncrementalPlanStep>> {
         let (files, current_index) = match &mut self.planning_state {
-            PlanningState::GeneratingCode { files, current_index } => (files.clone(), *current_index),
+            PlanningState::GeneratingCode {
+                files,
+                current_index,
+            } => (files.clone(), *current_index),
             _ => return Ok(None),
         };
 
@@ -401,7 +437,9 @@ REASON: brief explanation"#,
         let step_number = 3 + current_index;
 
         // Get existing file content for context-aware generation
-        let existing_content = self.file_contexts.get(&file_spec.path)
+        let existing_content = self
+            .file_contexts
+            .get(&file_spec.path)
             .and_then(|ctx| ctx.content.as_ref());
 
         let (prompt, is_update) = if file_spec.action == "update" && existing_content.is_some() {
@@ -410,8 +448,9 @@ REASON: brief explanation"#,
             let line_count = lines.len();
             let preview = self.create_numbered_preview(content, line_count);
 
-            (format!(
-                r#"Task: Rewrite the entire file to fix issues and satisfy the goal. Return the full updated file content (plain text, no markdown/backticks).
+            (
+                format!(
+                    r#"Task: Rewrite the entire file to fix issues and satisfy the goal. Return the full updated file content (plain text, no markdown/backticks).
 
 GOAL: {}
 FILE: {}
@@ -427,8 +466,10 @@ INSTRUCTIONS:
 - Include imports/entrypoints needed to run the file as-is.
 - If unsure, prefer a minimal runnable version over partial edits.
 "#,
-                self.goal, file_spec.path, line_count, preview
-            ), true)
+                    self.goal, file_spec.path, line_count, preview
+                ),
+                true,
+            )
         } else {
             // Generate complete new file for creation
             let file_extension = std::path::Path::new(&file_spec.path)
@@ -445,11 +486,12 @@ INSTRUCTIONS:
                 "css" => "CSS",
                 "go" => "Go",
                 "java" => "Java",
-                _ => "code"
+                _ => "code",
             };
 
-            (format!(
-                r#"Task: Generate a complete new file to accomplish the goal. Return only the file content (plain text, no markdown/backticks).
+            (
+                format!(
+                    r#"Task: Generate a complete new file to accomplish the goal. Return only the file content (plain text, no markdown/backticks).
 
 GOAL: {}
 FILE TO CREATE: {}
@@ -465,44 +507,64 @@ INSTRUCTIONS:
 - Return ONLY the file content (plain text)
 
 Generate the complete file content now:"#,
-                self.goal, file_spec.path, language_hint,
-                language_hint, language_hint
-            ), false)
+                    self.goal, file_spec.path, language_hint, language_hint, language_hint
+                ),
+                false,
+            )
         };
 
         let code = inference_engine.generate(&prompt).await?;
         let confidence = self.calculate_confidence_from_response(&code, "code_generation");
 
         // Update state for next file
-        if let PlanningState::GeneratingCode { current_index: ref mut idx, .. } = self.planning_state {
+        if let PlanningState::GeneratingCode {
+            current_index: ref mut idx,
+            ..
+        } = self.planning_state
+        {
             *idx += 1;
         }
 
         // Buffer the operation for execution
         if file_spec.action == "create" {
-            self.completed_operations.push(
-                crate::build_service::FileOperation::Create {
+            self.completed_operations
+                .push(crate::build_service::FileOperation::Create {
                     path: std::path::PathBuf::from(&file_spec.path),
                     content: code.trim().to_string(),
-                }
-            );
+                });
         } else if file_spec.action == "update" {
             let old_content = existing_content.map_or(String::new(), |s| s.clone());
             let new_content = code.trim().to_string();
 
-            self.completed_operations.push(
-                crate::build_service::FileOperation::Update {
+            self.completed_operations
+                .push(crate::build_service::FileOperation::Update {
                     path: std::path::PathBuf::from(&file_spec.path),
                     old_content,
                     new_content,
-                }
-            );
+                });
         }
 
         Ok(Some(IncrementalPlanStep {
             step_number,
-            description: format!("{} code for {}", if is_update { "Generating targeted changes for" } else { "Generating complete" }, file_spec.path),
-            reasoning: format!("{}{} with action: {}", if is_update { "Updating existing file " } else { "Creating new file " }, file_spec.path, file_spec.action),
+            description: format!(
+                "{} code for {}",
+                if is_update {
+                    "Generating targeted changes for"
+                } else {
+                    "Generating complete"
+                },
+                file_spec.path
+            ),
+            reasoning: format!(
+                "{}{} with action: {}",
+                if is_update {
+                    "Updating existing file "
+                } else {
+                    "Creating new file "
+                },
+                file_spec.path,
+                file_spec.action
+            ),
             code_chunk: Some(code.trim().to_string()),
             file_path: Some(file_spec.path.clone()),
             operation_type: Some(file_spec.action.clone()),
@@ -515,7 +577,10 @@ Generate the complete file content now:"#,
         Ok(Some(IncrementalPlanStep {
             step_number: 999, // Final step
             description: "Finalizing build plan".to_string(),
-            reasoning: format!("Build plan complete with {} operations ready for execution.", operations_count),
+            reasoning: format!(
+                "Build plan complete with {} operations ready for execution.",
+                operations_count
+            ),
             code_chunk: None,
             file_path: None,
             operation_type: None,
@@ -540,12 +605,20 @@ Generate the complete file content now:"#,
                     reason: String::new(),
                 });
             } else if line.starts_with("ACTION:") && current_file.is_some() {
-                let action = line.strip_prefix("ACTION:").unwrap_or("").trim().to_string();
+                let action = line
+                    .strip_prefix("ACTION:")
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
                 if let Some(ref mut file) = current_file {
                     file.action = action;
                 }
             } else if line.starts_with("REASON:") && current_file.is_some() {
-                let reason = line.strip_prefix("REASON:").unwrap_or("").trim().to_string();
+                let reason = line
+                    .strip_prefix("REASON:")
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
                 if let Some(ref mut file) = current_file {
                     file.reason = reason;
                 }
@@ -559,7 +632,11 @@ Generate the complete file content now:"#,
         files
     }
 
-    fn create_operation_from_code(&self, file_spec: &FileSpec, code: &str) -> Result<FileOperation> {
+    fn create_operation_from_code(
+        &self,
+        file_spec: &FileSpec,
+        code: &str,
+    ) -> Result<FileOperation> {
         match file_spec.action.as_str() {
             "create" => Ok(FileOperation::Create {
                 path: std::path::PathBuf::from(&file_spec.path),
@@ -573,15 +650,20 @@ Generate the complete file content now:"#,
                     old_content: String::new(), // Would read actual content
                     new_content: code.to_string(),
                 })
-            },
+            }
             _ => Err(anyhow::anyhow!("Unsupported action: {}", file_spec.action)),
         }
     }
 
     /// Create a complex operation from multiple file specs
-    pub fn create_complex_operation(&self, name: String, description: String, file_specs: Vec<FileSpec>) -> Result<ComplexOperation> {
+    pub fn create_complex_operation(
+        &self,
+        name: String,
+        description: String,
+        file_specs: Vec<FileSpec>,
+    ) -> Result<ComplexOperation> {
         let mut file_operations = Vec::new();
-        let mut dependencies = Vec::new();
+        let dependencies = Vec::new();
         let mut validation_rules = Vec::new();
         let mut max_risk = RiskLevel::Low;
 
@@ -647,7 +729,10 @@ Generate the complete file content now:"#,
             confidence += 0.1; // Longer responses tend to be more thorough
         }
 
-        if response.contains("imports") || response.contains("function") || response.contains("class") {
+        if response.contains("imports")
+            || response.contains("function")
+            || response.contains("class")
+        {
             confidence += 0.1; // Code-like content indicates better quality
         }
 
@@ -675,10 +760,20 @@ Generate the complete file content now:"#,
             }
         });
 
-        for (path, context) in contexts.iter().take(self.config.context.max_files_in_context) {
-            let status = if context.exists { "EXISTS" } else { "DOES NOT EXIST" };
+        for (path, context) in contexts
+            .iter()
+            .take(self.config.context.max_files_in_context)
+        {
+            let status = if context.exists {
+                "EXISTS"
+            } else {
+                "DOES NOT EXIST"
+            };
             let size_info = if context.exists {
-                format!(" ({} bytes, {} lines)", context.size_bytes, context.line_count)
+                format!(
+                    " ({} bytes, {} lines)",
+                    context.size_bytes, context.line_count
+                )
             } else {
                 "".to_string()
             };
@@ -722,7 +817,8 @@ Generate the complete file content now:"#,
     fn create_smart_preview(&self, content: &str, remaining_tokens: usize) -> String {
         let max_lines = self.config.context.max_file_preview_lines;
         let lines: Vec<&str> = content.lines().collect();
-        let allowed_chars = ((remaining_tokens as f32) * self.config.context.token_estimation_ratio) as usize;
+        let allowed_chars =
+            ((remaining_tokens as f32) * self.config.context.token_estimation_ratio) as usize;
 
         if remaining_tokens == 0 || allowed_chars == 0 {
             return String::new();
@@ -774,7 +870,8 @@ Generate the complete file content now:"#,
 
         if total_lines <= max_preview_lines {
             // Show all lines with numbers
-            return lines.iter()
+            return lines
+                .iter()
                 .enumerate()
                 .map(|(i, line)| format!("{:4} | {}", i + 1, line))
                 .collect::<Vec<_>>()
@@ -825,10 +922,12 @@ Generate the complete file content now:"#,
                         // Collect replacement content
                         i += 1;
                         let mut replacement_lines = Vec::new();
-                        while i < diff_lines.len() && !diff_lines[i].trim().is_empty() &&
-                              !diff_lines[i].starts_with("REPLACE") &&
-                              !diff_lines[i].starts_with("INSERT") &&
-                              !diff_lines[i].starts_with("DELETE") {
+                        while i < diff_lines.len()
+                            && !diff_lines[i].trim().is_empty()
+                            && !diff_lines[i].starts_with("REPLACE")
+                            && !diff_lines[i].starts_with("INSERT")
+                            && !diff_lines[i].starts_with("DELETE")
+                        {
                             replacement_lines.push(diff_lines[i].to_string());
                             i += 1;
                         }
@@ -836,7 +935,7 @@ Generate the complete file content now:"#,
 
                         // Apply replacement
                         if start <= end && end <= lines.len() {
-                            lines.splice(start-1..end, replacement_lines);
+                            lines.splice(start - 1..end, replacement_lines);
                         }
                     }
                 }
@@ -849,17 +948,23 @@ Generate the complete file content now:"#,
                         // Collect insertion content
                         i += 1;
                         let mut insertion_lines = Vec::new();
-                        while i < diff_lines.len() && !diff_lines[i].trim().is_empty() &&
-                              !diff_lines[i].starts_with("REPLACE") &&
-                              !diff_lines[i].starts_with("INSERT") &&
-                              !diff_lines[i].starts_with("DELETE") {
+                        while i < diff_lines.len()
+                            && !diff_lines[i].trim().is_empty()
+                            && !diff_lines[i].starts_with("REPLACE")
+                            && !diff_lines[i].starts_with("INSERT")
+                            && !diff_lines[i].starts_with("DELETE")
+                        {
                             insertion_lines.push(diff_lines[i].to_string());
                             i += 1;
                         }
                         i -= 1; // Adjust for the outer loop increment
 
                         // Apply insertion
-                        let insert_pos = if line_num >= lines.len() { lines.len() } else { line_num };
+                        let insert_pos = if line_num >= lines.len() {
+                            lines.len()
+                        } else {
+                            line_num
+                        };
                         for (offset, insert_line) in insertion_lines.into_iter().enumerate() {
                             lines.insert(insert_pos + offset, insert_line);
                         }
@@ -872,7 +977,7 @@ Generate the complete file content now:"#,
                     if let Some((start, end)) = self.parse_line_range(parts[1]) {
                         // Apply deletion
                         if start <= end && end <= lines.len() {
-                            lines.drain(start-1..end);
+                            lines.drain(start - 1..end);
                         }
                     }
                 }
@@ -888,7 +993,10 @@ Generate the complete file content now:"#,
     fn parse_line_range(&self, range_str: &str) -> Option<(usize, usize)> {
         let parts: Vec<&str> = range_str.split('-').collect();
         if parts.len() == 2 {
-            if let (Ok(start), Ok(end)) = (parts[0].trim().parse::<usize>(), parts[1].trim().parse::<usize>()) {
+            if let (Ok(start), Ok(end)) = (
+                parts[0].trim().parse::<usize>(),
+                parts[1].trim().parse::<usize>(),
+            ) {
                 return Some((start, end));
             }
         }
@@ -901,13 +1009,21 @@ Generate the complete file content now:"#,
 
     pub fn context_stats(&self) -> (usize, usize, usize, String, String) {
         let files_scanned = self.file_contexts.len();
-        let files_analyzed = self.file_contexts.values().filter(|c| c.content.is_some()).count();
+        let files_analyzed = self
+            .file_contexts
+            .values()
+            .filter(|c| c.content.is_some())
+            .count();
         let keywords_count = self.keywords.len();
-        (files_scanned, files_analyzed, keywords_count, self.os_info.clone(), self.cwd.clone())
+        (
+            files_scanned,
+            files_analyzed,
+            keywords_count,
+            self.os_info.clone(),
+            self.cwd.clone(),
+        )
     }
 }
-
-
 
 /// Execution context for agent operations with owned data to avoid lifetime issues
 pub struct AgentExecutionContext {
@@ -963,7 +1079,10 @@ impl AgentService {
         )
     }
 
-    pub fn with_rag_service(inference_engine: infrastructure::InferenceEngine, rag_service: Arc<RagService>) -> Self {
+    pub fn with_rag_service(
+        inference_engine: infrastructure::InferenceEngine,
+        rag_service: Arc<RagService>,
+    ) -> Self {
         println!("📊 Gathering system context...");
         let system_context = infrastructure::config::SystemContext::gather();
 
@@ -1007,7 +1126,9 @@ Generate the command now:"#,
         // Clean up the response (remove markdown, explanations, etc.)
         let cleaned = command
             .lines()
-            .find(|line| !line.trim().is_empty() && !line.starts_with("```") && !line.starts_with("#"))
+            .find(|line| {
+                !line.trim().is_empty() && !line.starts_with("```") && !line.starts_with("#")
+            })
             .unwrap_or(&command)
             .trim()
             .to_string();
@@ -1042,14 +1163,21 @@ Generate the command now:"#,
         let base_defs = vec![
             ToolDefinition {
                 name: "file_read".to_string(),
-                description: "Read file contents safely with validation and size limits".to_string(),
-                parameters: params(vec![param("path", "Absolute or relative path to the file")], vec!["path"]),
+                description: "Read file contents safely with validation and size limits"
+                    .to_string(),
+                parameters: params(
+                    vec![param("path", "Absolute or relative path to the file")],
+                    vec!["path"],
+                ),
             },
             ToolDefinition {
                 name: "file_write".to_string(),
                 description: "Write file contents with backup/rollback safeguards".to_string(),
                 parameters: params(
-                    vec![param("path", "File path to write"), param("content", "Full file contents")],
+                    vec![
+                        param("path", "File path to write"),
+                        param("content", "Full file contents"),
+                    ],
                     vec!["path", "content"],
                 ),
             },
@@ -1061,7 +1189,10 @@ Generate the command now:"#,
             ToolDefinition {
                 name: "process_list".to_string(),
                 description: "List running processes with optional filter".to_string(),
-                parameters: params(vec![param("filter", "Optional substring to match process names")], vec![]),
+                parameters: params(
+                    vec![param("filter", "Optional substring to match process names")],
+                    vec![],
+                ),
             },
             ToolDefinition {
                 name: "grep_search".to_string(),
@@ -1100,9 +1231,13 @@ Generate the command now:"#,
             },
             ToolDefinition {
                 name: "awk_extract".to_string(),
-                description: "Extract or transform data from files using awk-like patterns".to_string(),
+                description: "Extract or transform data from files using awk-like patterns"
+                    .to_string(),
                 parameters: params(
-                    vec![param("path", "File path"), param("script", "Awk program to run")],
+                    vec![
+                        param("path", "File path"),
+                        param("script", "Awk program to run"),
+                    ],
                     vec!["path", "script"],
                 ),
             },
@@ -1154,8 +1289,6 @@ Generate the command now:"#,
             .collect()
     }
 
-
-
     fn filter_valid_tool_calls(
         &self,
         agent_context: &AgentContext,
@@ -1195,14 +1328,15 @@ Generate the command now:"#,
         })
     }
 
-
-
     /// Create an incremental build planner for streaming planning
     pub async fn plan_build_incremental(&self, goal: &str) -> Result<IncrementalBuildPlanner> {
         let mut retrieved_context = Vec::new();
 
         // Add compact system context first (avoid bloat)
-        retrieved_context.push(format!("SYSTEM SNAPSHOT: {}", self.compact_system_context()));
+        retrieved_context.push(format!(
+            "SYSTEM SNAPSHOT: {}",
+            self.compact_system_context()
+        ));
 
         // Step 1: Prepare file context by reading existing files
         println!("🔍 Analyzing project structure and existing files...");
@@ -1236,7 +1370,11 @@ Generate the command now:"#,
                 } else {
                     let keyword_query = format!("Examples of {}", keywords.join(", "));
                     if let Ok(keyword_context) = rag_service.query(&keyword_query).await {
-                        retrieved_context.push(format!("Keyword Context ({}):\n{}", keywords.join(", "), keyword_context));
+                        retrieved_context.push(format!(
+                            "Keyword Context ({}):\n{}",
+                            keywords.join(", "),
+                            keyword_context
+                        ));
                     }
                 }
             }
@@ -1250,7 +1388,8 @@ Generate the command now:"#,
         }
 
         // Create planner with populated file contexts
-        let mut planner = IncrementalBuildPlanner::new(goal.to_string(), retrieved_context, self.config.clone());
+        let mut planner =
+            IncrementalBuildPlanner::new(goal.to_string(), retrieved_context, self.config.clone());
         planner.file_contexts = file_contexts;
         planner.keywords = keywords;
         Ok(planner)
@@ -1289,7 +1428,11 @@ Generate the command now:"#,
                 } else {
                     let keyword_query = format!("Examples of {}", keywords.join(", "));
                     if let Ok(keyword_context) = rag_service.query(&keyword_query).await {
-                        retrieved_context.push(format!("Keyword Context ({}):\n{}", keywords.join(", "), keyword_context));
+                        retrieved_context.push(format!(
+                            "Keyword Context ({}):\n{}",
+                            keywords.join(", "),
+                            keyword_context
+                        ));
                         planning_logs.push("Keyword RAG query succeeded".to_string());
                     }
                 }
@@ -1322,11 +1465,13 @@ Generate the command now:"#,
                     match self.parse_build_plan(&raw_plan_text, goal) {
                         Ok(parsed) => {
                             plan = Some(parsed);
-                            planning_logs.push(format!("Attempt {}: plan parsed successfully", attempt));
+                            planning_logs
+                                .push(format!("Attempt {}: plan parsed successfully", attempt));
                             break;
                         }
                         Err(e) => {
-                            planning_logs.push(format!("Attempt {}: plan parse failed: {}", attempt, e));
+                            planning_logs
+                                .push(format!("Attempt {}: plan parse failed: {}", attempt, e));
                             last_error = Some(e);
                         }
                     }
@@ -1352,7 +1497,7 @@ Generate the command now:"#,
                     last_error.unwrap_or_else(|| anyhow::anyhow!("Unknown planning error")),
                     snippet,
                     planning_logs.join("\n")
-                )))
+                )));
             }
         };
 
@@ -1374,8 +1519,22 @@ Generate the command now:"#,
             .collect();
 
         // Filter out common words
-        let stop_words = ["make", "create", "write", "build", "script", "file", "add", "implement", "for", "the", "and", "or"];
-        words.into_iter()
+        let stop_words = [
+            "make",
+            "create",
+            "write",
+            "build",
+            "script",
+            "file",
+            "add",
+            "implement",
+            "for",
+            "the",
+            "and",
+            "or",
+        ];
+        words
+            .into_iter()
             .filter(|w| !stop_words.contains(&w.as_str()))
             .collect()
     }
@@ -1427,7 +1586,11 @@ Generate the command now:"#,
                 size_bytes: 0,
                 line_count: 0,
                 modified: None,
-                operation_type: if exists { FileOperationType::Update } else { FileOperationType::Create },
+                operation_type: if exists {
+                    FileOperationType::Update
+                } else {
+                    FileOperationType::Create
+                },
             };
 
             if exists {
@@ -1464,7 +1627,8 @@ Generate the command now:"#,
         let mut discovered = Vec::new();
 
         // Build grep pattern from keywords (escaped and joined)
-        let pattern = keywords.iter()
+        let pattern = keywords
+            .iter()
             .map(|k| k.replace("'", "\\'"))
             .collect::<Vec<_>>()
             .join("\\|");
@@ -1494,10 +1658,7 @@ Generate the command now:"#,
             max_candidates, pattern, max_results
         );
 
-        let output = Command::new("sh")
-            .arg("-c")
-            .arg(&shell_cmd)
-            .output();
+        let output = Command::new("sh").arg("-c").arg(&shell_cmd).output();
 
         if let Ok(output) = output {
             if output.status.success() {
@@ -1554,10 +1715,7 @@ Generate the command now:"#,
             max_results, max_results
         );
 
-        let output = Command::new("sh")
-            .arg("-c")
-            .arg(shell_cmd)
-            .output();
+        let output = Command::new("sh").arg("-c").arg(shell_cmd).output();
 
         if let Ok(output) = output {
             if output.status.success() {
@@ -1574,12 +1732,10 @@ Generate the command now:"#,
         Ok(entry_files)
     }
 
-
-
     /// Extract file paths mentioned in the goal using dynamic regex-based detection
     fn extract_file_paths_from_goal(&self, goal: &str) -> Result<Vec<String>> {
-        use regex::Regex;
         use once_cell::sync::Lazy;
+        use regex::Regex;
 
         static FILE_PATH_REGEX: Lazy<Regex> = Lazy::new(|| {
             Regex::new(r#"(?x)
@@ -1614,10 +1770,10 @@ Generate the command now:"#,
         // Phase 2: Extract unquoted paths with extensions
         for cap in FILE_PATH_REGEX.captures_iter(goal) {
             if let Some(path_match) = cap.get(1) {
-                let candidate = path_match.as_str()
+                let candidate = path_match
+                    .as_str()
                     .trim_end_matches(|c: char| "!?.),".contains(c));
-                if self.validate_path_format(candidate) &&
-                   self.is_likely_file_path(candidate) {
+                if self.validate_path_format(candidate) && self.is_likely_file_path(candidate) {
                     paths.push(candidate.to_string());
                 }
             }
@@ -1625,7 +1781,8 @@ Generate the command now:"#,
 
         // Remove duplicates while preserving order
         let mut seen = std::collections::HashSet::new();
-        let deduplicated = paths.into_iter()
+        let deduplicated = paths
+            .into_iter()
             .filter(|path| seen.insert(path.clone()))
             .collect::<Vec<_>>();
         Ok(deduplicated)
@@ -1645,24 +1802,30 @@ Generate the command now:"#,
     }
 
     fn is_likely_file_path(&self, candidate: &str) -> bool {
-        let common_extensions = ["html", "css", "js", "ts", "jsx", "tsx", "rs", "py", "json", "md", "txt"];
-        let has_valid_extension = common_extensions.iter()
+        let common_extensions = [
+            "html", "css", "js", "ts", "jsx", "tsx", "rs", "py", "json", "md", "txt",
+        ];
+        let has_valid_extension = common_extensions
+            .iter()
             .any(|ext| candidate.ends_with(&format!(".{}", ext)));
 
-        let not_common_word = !["the", "and", "for", "are", "but", "not", "you", "all", "can", "her", "was", "one"]
-            .iter().any(|&word| candidate.to_lowercase() == word);
+        let not_common_word = ![
+            "the", "and", "for", "are", "but", "not", "you", "all", "can", "her", "was", "one",
+        ]
+        .iter()
+        .any(|&word| candidate.to_lowercase() == word);
 
         has_valid_extension && not_common_word
     }
 
     fn detects_web_intent(&self, lower_goal: &str) -> bool {
-        lower_goal.contains("page") ||
-        lower_goal.contains("site") ||
-        lower_goal.contains("web") ||
-        lower_goal.contains("landing") ||
-        lower_goal.contains("portfolio") ||
-        lower_goal.contains("website") ||
-        lower_goal.contains("html")
+        lower_goal.contains("page")
+            || lower_goal.contains("site")
+            || lower_goal.contains("web")
+            || lower_goal.contains("landing")
+            || lower_goal.contains("portfolio")
+            || lower_goal.contains("website")
+            || lower_goal.contains("html")
     }
 
     fn fast_rg_context(&self, keywords: &[String]) -> Result<Vec<String>> {
@@ -1844,7 +2007,11 @@ Rules: keep it concise and deterministic; only include real files; if context is
     }
 
     /// Generate reasoning steps for a goal
-    pub async fn generate_reasoning(&self, goal: &str, _context: &AgentContext) -> Result<Vec<String>> {
+    pub async fn generate_reasoning(
+        &self,
+        goal: &str,
+        _context: &AgentContext,
+    ) -> Result<Vec<String>> {
         // Simplified implementation - in real code this would call the model
         Ok(vec![format!("Reasoning about: {}", goal)])
     }
@@ -1873,11 +2040,19 @@ Rules: keep it concise and deterministic; only include real files; if context is
         if hints.iter().any(|h| lower.contains(h)) {
             return true;
         }
-        reasoning.iter().any(|r| hints.iter().any(|h| r.to_lowercase().contains(h)))
+        reasoning
+            .iter()
+            .any(|r| hints.iter().any(|h| r.to_lowercase().contains(h)))
     }
 
     /// Plan tool calls based on reasoning
-    pub fn plan_tool_calls(&self, goal: &str, _reasoning: &[String], context: &AgentContext, _exec_context: &AgentExecutionContext) -> Vec<ToolCall> {
+    pub fn plan_tool_calls(
+        &self,
+        goal: &str,
+        _reasoning: &[String],
+        context: &AgentContext,
+        _exec_context: &AgentExecutionContext,
+    ) -> Vec<ToolCall> {
         let mut calls = Vec::new();
         let lower_goal = goal.to_lowercase();
         let primary_path = self
@@ -1891,54 +2066,151 @@ Rules: keep it concise and deterministic; only include real files; if context is
 
         if lower_goal.contains("web search") || lower_goal.contains("online") {
             let mut params = HashMap::new();
-            params.insert("query".to_string(), serde_json::Value::String(goal.to_string()));
-            self.maybe_push_call(&context.available_tools, &mut pending_calls, "web_search", params, "Need external info");
+            params.insert(
+                "query".to_string(),
+                serde_json::Value::String(goal.to_string()),
+            );
+            self.maybe_push_call(
+                &context.available_tools,
+                &mut pending_calls,
+                "web_search",
+                params,
+                "Need external info",
+            );
         } else if lower_goal.contains("search") || lower_goal.contains("grep") {
             let mut params = HashMap::new();
-            params.insert("pattern".to_string(), serde_json::Value::String(goal.to_string()));
-            params.insert("path".to_string(), serde_json::Value::String(primary_path.clone()));
-            self.maybe_push_call(&context.available_tools, &mut pending_calls, "grep_search", params, "Search locally for pattern");
+            params.insert(
+                "pattern".to_string(),
+                serde_json::Value::String(goal.to_string()),
+            );
+            params.insert(
+                "path".to_string(),
+                serde_json::Value::String(primary_path.clone()),
+            );
+            self.maybe_push_call(
+                &context.available_tools,
+                &mut pending_calls,
+                "grep_search",
+                params,
+                "Search locally for pattern",
+            );
         }
 
-        if lower_goal.contains("find file") || lower_goal.contains("locate") || lower_goal.contains("list dir") {
+        if lower_goal.contains("find file")
+            || lower_goal.contains("locate")
+            || lower_goal.contains("list dir")
+        {
             let mut params = HashMap::new();
-            params.insert("path".to_string(), serde_json::Value::String(primary_path.clone()));
-            self.maybe_push_call(&context.available_tools, &mut pending_calls, "directory_list", params.clone(), "List directory for context");
-            self.maybe_push_call(&context.available_tools, &mut pending_calls, "find_files", params, "Find files under path");
+            params.insert(
+                "path".to_string(),
+                serde_json::Value::String(primary_path.clone()),
+            );
+            self.maybe_push_call(
+                &context.available_tools,
+                &mut pending_calls,
+                "directory_list",
+                params.clone(),
+                "List directory for context",
+            );
+            self.maybe_push_call(
+                &context.available_tools,
+                &mut pending_calls,
+                "find_files",
+                params,
+                "Find files under path",
+            );
         }
 
-        if lower_goal.contains("read") || lower_goal.contains("open file") || lower_goal.contains("show file") {
+        if lower_goal.contains("read")
+            || lower_goal.contains("open file")
+            || lower_goal.contains("show file")
+        {
             let mut params = HashMap::new();
-            params.insert("path".to_string(), serde_json::Value::String(primary_path.clone()));
-            self.maybe_push_call(&context.available_tools, &mut pending_calls, "file_read", params, "Read file content");
+            params.insert(
+                "path".to_string(),
+                serde_json::Value::String(primary_path.clone()),
+            );
+            self.maybe_push_call(
+                &context.available_tools,
+                &mut pending_calls,
+                "file_read",
+                params,
+                "Read file content",
+            );
         }
 
-        if lower_goal.contains("write") || lower_goal.contains("update") || lower_goal.contains("replace") {
+        if lower_goal.contains("write")
+            || lower_goal.contains("update")
+            || lower_goal.contains("replace")
+        {
             let mut params = HashMap::new();
-            params.insert("path".to_string(), serde_json::Value::String(primary_path.clone()));
+            params.insert(
+                "path".to_string(),
+                serde_json::Value::String(primary_path.clone()),
+            );
             params.insert(
                 "content".to_string(),
                 serde_json::Value::String("Provide updated content here".to_string()),
             );
-            self.maybe_push_call(&context.available_tools, &mut pending_calls, "file_write", params, "Write file safely");
+            self.maybe_push_call(
+                &context.available_tools,
+                &mut pending_calls,
+                "file_write",
+                params,
+                "Write file safely",
+            );
         }
 
         if lower_goal.contains("process") || lower_goal.contains("ps ") {
-            self.maybe_push_call(&context.available_tools, &mut pending_calls, "process_list", HashMap::new(), "Inspect running processes");
+            self.maybe_push_call(
+                &context.available_tools,
+                &mut pending_calls,
+                "process_list",
+                HashMap::new(),
+                "Inspect running processes",
+            );
         }
 
-        if lower_goal.contains("curl") || lower_goal.contains("http") || lower_goal.contains("url") {
+        if lower_goal.contains("curl") || lower_goal.contains("http") || lower_goal.contains("url")
+        {
             let mut params = HashMap::new();
-            params.insert("url".to_string(), serde_json::Value::String(goal.to_string()));
-            self.maybe_push_call(&context.available_tools, &mut pending_calls, "curl_fetch", params, "Fetch remote content");
+            params.insert(
+                "url".to_string(),
+                serde_json::Value::String(goal.to_string()),
+            );
+            self.maybe_push_call(
+                &context.available_tools,
+                &mut pending_calls,
+                "curl_fetch",
+                params,
+                "Fetch remote content",
+            );
         }
 
         if lower_goal.contains("git status") {
-            self.maybe_push_call(&context.available_tools, &mut pending_calls, "git_status", HashMap::new(), "Check repo status");
+            self.maybe_push_call(
+                &context.available_tools,
+                &mut pending_calls,
+                "git_status",
+                HashMap::new(),
+                "Check repo status",
+            );
         } else if lower_goal.contains("git diff") || lower_goal.contains("diff") {
-            self.maybe_push_call(&context.available_tools, &mut pending_calls, "git_diff", HashMap::new(), "Inspect changes");
+            self.maybe_push_call(
+                &context.available_tools,
+                &mut pending_calls,
+                "git_diff",
+                HashMap::new(),
+                "Inspect changes",
+            );
         } else if lower_goal.contains("git log") || lower_goal.contains("history") {
-            self.maybe_push_call(&context.available_tools, &mut pending_calls, "git_log", HashMap::new(), "Inspect history");
+            self.maybe_push_call(
+                &context.available_tools,
+                &mut pending_calls,
+                "git_log",
+                HashMap::new(),
+                "Inspect history",
+            );
         }
 
         let has_calls = !pending_calls.is_empty();
@@ -1947,7 +2219,13 @@ Rules: keep it concise and deterministic; only include real files; if context is
             // Default to directory_list for lightweight discovery
             let mut params = HashMap::new();
             params.insert("path".to_string(), serde_json::Value::String(primary_path));
-            self.maybe_push_call(&context.available_tools, &mut pending_calls, "directory_list", params, "Fallback discovery");
+            self.maybe_push_call(
+                &context.available_tools,
+                &mut pending_calls,
+                "directory_list",
+                params,
+                "Fallback discovery",
+            );
         }
 
         calls.extend(pending_calls);
@@ -1955,7 +2233,12 @@ Rules: keep it concise and deterministic; only include real files; if context is
     }
 
     /// Execute tool calls
-    pub async fn execute_tool_calls(&self, tool_calls: &[ToolCall], _context: &mut AgentContext, _exec_context: &AgentExecutionContext) -> Result<Vec<ToolResult>> {
+    pub async fn execute_tool_calls(
+        &self,
+        tool_calls: &[ToolCall],
+        _context: &mut AgentContext,
+        _exec_context: &AgentExecutionContext,
+    ) -> Result<Vec<ToolResult>> {
         let registry = ToolRegistry::new();
         let mut results = Vec::new();
 
@@ -2005,7 +2288,12 @@ Rules: keep it concise and deterministic; only include real files; if context is
     }
 
     /// Generate final response
-    pub async fn generate_final_response(&self, goal: &str, reasoning: &[String], tool_results: &[ToolResult]) -> Result<String> {
+    pub async fn generate_final_response(
+        &self,
+        goal: &str,
+        reasoning: &[String],
+        tool_results: &[ToolResult],
+    ) -> Result<String> {
         let facts = self.summarize_tool_results(tool_results);
         if facts.is_empty() {
             return Ok("Insufficient context to answer; gather tool outputs (files/tests/commands) and retry.".to_string());
@@ -2079,19 +2367,28 @@ Respond now."#,
                 if let Some(stdout) = map.get("stdout").and_then(|v| v.as_str()) {
                     let cleaned = stdout.trim();
                     if !cleaned.is_empty() {
-                        fact.push_str(&format!(" stdout=\"{}\"", self.truncate_text(cleaned, max_len)));
+                        fact.push_str(&format!(
+                            " stdout=\"{}\"",
+                            self.truncate_text(cleaned, max_len)
+                        ));
                     }
                 }
                 if let Some(stderr) = map.get("stderr").and_then(|v| v.as_str()) {
                     let cleaned = stderr.trim();
                     if !cleaned.is_empty() {
-                        fact.push_str(&format!(" stderr=\"{}\"", self.truncate_text(cleaned, max_len)));
+                        fact.push_str(&format!(
+                            " stderr=\"{}\"",
+                            self.truncate_text(cleaned, max_len)
+                        ));
                     }
                 }
                 if let Some(msg) = map.get("message").and_then(|v| v.as_str()) {
                     let cleaned = msg.trim();
                     if !cleaned.is_empty() {
-                        fact.push_str(&format!(" note=\"{}\"", self.truncate_text(cleaned, max_len)));
+                        fact.push_str(&format!(
+                            " note=\"{}\"",
+                            self.truncate_text(cleaned, max_len)
+                        ));
                     }
                 }
             }
@@ -2136,7 +2433,12 @@ Respond now."#,
     /// - Decide/plan tools (optional)
     /// - Execute tools
     /// - Ask model to produce final answer (or continue)
-    pub async fn execute_agent(&self, goal: &str, request: &AgentRequest, exec_context: Arc<AgentExecutionContext>) -> Result<(AgentResult, Vec<ToolCall>, Vec<ToolResult>)> {
+    pub async fn execute_agent(
+        &self,
+        goal: &str,
+        request: &AgentRequest,
+        exec_context: Arc<AgentExecutionContext>,
+    ) -> Result<(AgentResult, Vec<ToolCall>, Vec<ToolResult>)> {
         // Build initial agent context with available tools + conversation.
         let mut agent_context = AgentContext {
             available_tools: self.default_tool_definitions(),
@@ -2146,12 +2448,14 @@ Respond now."#,
 
         // Seed conversation with request context if you have it.
         // If `AgentRequest` has history/messages, adapt this block accordingly.
-        agent_context.conversation_history.push(ConversationMessage {
-            role: "user".to_string(),
-            content: goal.to_string(),
-            tool_calls: None,
-            tool_call_id: None,
-        });
+        agent_context
+            .conversation_history
+            .push(ConversationMessage {
+                role: "user".to_string(),
+                content: goal.to_string(),
+                tool_calls: None,
+                tool_call_id: None,
+            });
 
         let max_iters = 5; // Configurable iteration limit
 
@@ -2215,11 +2519,7 @@ Respond now."#,
             // If we used tools, we usually finalize immediately (unless controller says continue).
             // If no tools, we can still finalize immediately.
             let final_text = self
-                .generate_final_response(
-                    goal,
-                    &reasoning_steps,
-                    &tool_results,
-                )
+                .generate_final_response(goal, &reasoning_steps, &tool_results)
                 .await
                 .unwrap_or_else(|e| format!("Failed to generate final response: {e}"));
 
@@ -2250,13 +2550,20 @@ Respond now."#,
                 return Ok((
                     infrastructure::agent_control::AgentResult {
                         final_response: final_text,
-                        confidence_score: self.calculate_confidence(&all_reasoning, &all_tool_results),
+                        confidence_score: self
+                            .calculate_confidence(&all_reasoning, &all_tool_results),
                         iterations_used: execution_state.iteration_count + 1,
                         tools_executed: execution_state.total_tools_executed,
                         verification_history: Vec::new(),
                         execution_time: std::time::Duration::from_secs(0),
-                        tool_calls: all_tool_calls.iter().map(|tc| format!("{:?}", tc)).collect(),
-                        tool_results: all_tool_results.iter().map(|tr| format!("{:?}", tr)).collect(),
+                        tool_calls: all_tool_calls
+                            .iter()
+                            .map(|tc| format!("{:?}", tc))
+                            .collect(),
+                        tool_results: all_tool_results
+                            .iter()
+                            .map(|tr| format!("{:?}", tr))
+                            .collect(),
                     },
                     all_tool_calls,
                     all_tool_results,
@@ -2264,26 +2571,35 @@ Respond now."#,
             }
 
             // Add assistant message so next iteration can build upon it
-            agent_context.conversation_history.push(ConversationMessage {
-                role: "assistant".to_string(),
-                content: final_text,
-                tool_calls: None,
-                tool_call_id: None,
-            });
+            agent_context
+                .conversation_history
+                .push(ConversationMessage {
+                    role: "assistant".to_string(),
+                    content: final_text,
+                    tool_calls: None,
+                    tool_call_id: None,
+                });
         }
 
         // Max iteration hit: return best-effort
         let confidence = self.calculate_confidence(&all_reasoning, &all_tool_results);
         Ok((
             infrastructure::agent_control::AgentResult {
-                final_response: "Reached max iterations. Returning best available answer.".to_string(),
+                final_response: "Reached max iterations. Returning best available answer."
+                    .to_string(),
                 confidence_score: confidence,
                 iterations_used: execution_state.iteration_count,
                 tools_executed: execution_state.total_tools_executed,
                 verification_history: Vec::new(),
                 execution_time: std::time::Duration::from_secs(0),
-                tool_calls: all_tool_calls.iter().map(|tc| format!("{:?}", tc)).collect(),
-                tool_results: all_tool_results.iter().map(|tr| format!("{:?}", tr)).collect(),
+                tool_calls: all_tool_calls
+                    .iter()
+                    .map(|tc| format!("{:?}", tc))
+                    .collect(),
+                tool_results: all_tool_results
+                    .iter()
+                    .map(|tr| format!("{:?}", tr))
+                    .collect(),
             },
             all_tool_calls,
             all_tool_results,

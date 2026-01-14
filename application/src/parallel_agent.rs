@@ -1,15 +1,14 @@
-use shared::types::Result;
-use serde::{Deserialize, Serialize};
-use std::sync::Arc;
-use tokio::task::JoinHandle;
 use colored::Colorize;
+use serde::{Deserialize, Serialize};
+use shared::types::Result;
+use tokio::task::JoinHandle;
 
 /// Represents a sub-task that can be executed in parallel
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SubTask {
     pub id: String,
     pub description: String,
-    pub priority: u8, // 0-10, higher = more important
+    pub priority: u8,              // 0-10, higher = more important
     pub dependencies: Vec<String>, // IDs of tasks that must complete first
     pub estimated_complexity: f32, // 0.0-1.0
 }
@@ -106,7 +105,10 @@ impl ParallelAgentOrchestrator {
 
     /// Break down a complex task into parallel sub-tasks using AI
     pub async fn decompose_task_ai(&self, goal: &str, context: &str) -> Result<Vec<SubTask>> {
-        println!("{}", format!("🤖 AI-powered task decomposition for: {}", goal).bright_yellow());
+        println!(
+            "{}",
+            format!("🤖 AI-powered task decomposition for: {}", goal).bright_yellow()
+        );
 
         // Create a prompt for AI-powered decomposition
         let prompt = format!(
@@ -145,7 +147,11 @@ Focus on creating 3-8 sub-tasks that can run in parallel when dependencies allow
 
         println!(
             "{}",
-            format!("🤖 AI created {} sub-tasks with intelligent dependencies", sub_tasks.len()).bright_green()
+            format!(
+                "🤖 AI created {} sub-tasks with intelligent dependencies",
+                sub_tasks.len()
+            )
+            .bright_green()
         );
 
         // Validate and optimize the decomposition
@@ -153,7 +159,11 @@ Focus on creating 3-8 sub-tasks that can run in parallel when dependencies allow
 
         println!(
             "{}",
-            format!("✅ Optimized to {} tasks with minimal dependencies", optimized_tasks.len()).bright_cyan()
+            format!(
+                "✅ Optimized to {} tasks with minimal dependencies",
+                optimized_tasks.len()
+            )
+            .bright_cyan()
         );
 
         Ok(optimized_tasks)
@@ -212,8 +222,11 @@ Focus on creating 3-8 sub-tasks that can run in parallel when dependencies allow
     "dependencies": ["implement_core", "implement_ui", "write_tests"],
     "estimated_complexity": 0.3
   }
-]"#.to_string()
-        } else if goal.to_lowercase().contains("optimize") || goal.to_lowercase().contains("performance") {
+]"#
+            .to_string()
+        } else if goal.to_lowercase().contains("optimize")
+            || goal.to_lowercase().contains("performance")
+        {
             r#"[
   {
     "id": "performance_analysis",
@@ -250,7 +263,8 @@ Focus on creating 3-8 sub-tasks that can run in parallel when dependencies allow
     "dependencies": ["memory_optimization", "cpu_optimization", "io_optimization"],
     "estimated_complexity": 0.3
   }
-]"#.to_string()
+]"#
+            .to_string()
         } else {
             // Generic decomposition
             r#"[
@@ -282,7 +296,8 @@ Focus on creating 3-8 sub-tasks that can run in parallel when dependencies allow
     "dependencies": ["execute_main"],
     "estimated_complexity": 0.3
   }
-]"#.to_string()
+]"#
+            .to_string()
         }
     }
 
@@ -409,7 +424,10 @@ Focus on creating 3-8 sub-tasks that can run in parallel when dependencies allow
                 let executor_clone = executor.clone();
 
                 let handle = tokio::spawn(async move {
-                    println!("{}", format!("  → Starting: {}", task_clone.description).cyan());
+                    println!(
+                        "{}",
+                        format!("  → Starting: {}", task_clone.description).cyan()
+                    );
                     let start = std::time::Instant::now();
 
                     match executor_clone(task_clone.clone()).await {
@@ -461,7 +479,10 @@ Focus on creating 3-8 sub-tasks that can run in parallel when dependencies allow
         let successful = results.iter().filter(|r| r.success).count();
         let failed = results.iter().filter(|r| !r.success).count();
 
-        println!("\n{}", "=== Parallel Execution Summary ===".bright_cyan().bold());
+        println!(
+            "\n{}",
+            "=== Parallel Execution Summary ===".bright_cyan().bold()
+        );
         println!("{}: {}", "Total tasks".white(), total_tasks);
         println!("{}: {}", "Successful".green(), successful);
         if failed > 0 {
@@ -469,7 +490,11 @@ Focus on creating 3-8 sub-tasks that can run in parallel when dependencies allow
         }
 
         let total_time: u64 = results.iter().map(|r| r.execution_time_ms).sum();
-        let max_time: u64 = results.iter().map(|r| r.execution_time_ms).max().unwrap_or(0);
+        let max_time: u64 = results
+            .iter()
+            .map(|r| r.execution_time_ms)
+            .max()
+            .unwrap_or(0);
 
         println!(
             "{}: {}ms (sequential would be ~{}ms)",
@@ -487,7 +512,11 @@ Focus on creating 3-8 sub-tasks that can run in parallel when dependencies allow
     }
 
     /// Get current execution status
-    pub fn get_status(&self, results: &[SubTaskResult], total_tasks: usize) -> ParallelExecutionStatus {
+    pub fn get_status(
+        &self,
+        results: &[SubTaskResult],
+        total_tasks: usize,
+    ) -> ParallelExecutionStatus {
         ParallelExecutionStatus {
             total_tasks,
             completed_tasks: results.iter().filter(|r| r.success).count(),
@@ -498,7 +527,10 @@ Focus on creating 3-8 sub-tasks that can run in parallel when dependencies allow
     }
 
     /// Intelligent result aggregation with conflict resolution
-    pub fn aggregate_results_intelligent(&self, results: Vec<SubTaskResult>) -> IntelligentAggregationResult {
+    pub fn aggregate_results_intelligent(
+        &self,
+        results: Vec<SubTaskResult>,
+    ) -> IntelligentAggregationResult {
         let mut successful_results = Vec::new();
         let mut failed_results = Vec::new();
         let mut conflicts = Vec::new();
@@ -519,7 +551,8 @@ Focus on creating 3-8 sub-tasks that can run in parallel when dependencies allow
         let merged_output = self.merge_compatible_results(&successful_results);
 
         // Generate intelligent summary
-        let summary = self.generate_execution_summary(&successful_results, &failed_results, &conflicts);
+        let summary =
+            self.generate_execution_summary(&successful_results, &failed_results, &conflicts);
 
         IntelligentAggregationResult {
             successful_tasks: successful_results.len(),
@@ -546,7 +579,8 @@ Focus on creating 3-8 sub-tasks that can run in parallel when dependencies allow
                         task1: result1.task_id.clone(),
                         task2: result2.task_id.clone(),
                         conflict_type: ConflictType::OutputOverlap,
-                        description: "Tasks produced overlapping or conflicting outputs".to_string(),
+                        description: "Tasks produced overlapping or conflicting outputs"
+                            .to_string(),
                         resolution: ConflictResolution::MergeWithPriority,
                     });
                 }
@@ -592,7 +626,8 @@ Focus on creating 3-8 sub-tasks that can run in parallel when dependencies allow
 
         for result in results {
             let category = self.categorize_result(result);
-            categorized_results.entry(category)
+            categorized_results
+                .entry(category)
                 .or_insert_with(Vec::new)
                 .push(result);
         }
@@ -625,7 +660,8 @@ Focus on creating 3-8 sub-tasks that can run in parallel when dependencies allow
         let mut merged = format!("=== {} Results ===\n", category.to_uppercase());
 
         for result in results {
-            merged.push_str(&format!("• Task {}: {}\n",
+            merged.push_str(&format!(
+                "• Task {}: {}\n",
                 result.task_id,
                 if result.output.len() > 100 {
                     format!("{}...", &result.output[..100])
@@ -654,7 +690,9 @@ Focus on creating 3-8 sub-tasks that can run in parallel when dependencies allow
 
         let mut summary = format!(
             "Execution Summary: {}/{} tasks successful ({:.1}%)\n",
-            successful.len(), total_tasks, success_rate
+            successful.len(),
+            total_tasks,
+            success_rate
         );
 
         if !failed.is_empty() {
@@ -665,7 +703,8 @@ Focus on creating 3-8 sub-tasks that can run in parallel when dependencies allow
             summary.push_str(&format!("Conflicts resolved: {}\n", conflicts.len()));
         }
 
-        let total_time: u64 = successful.iter()
+        let total_time: u64 = successful
+            .iter()
             .chain(failed.iter())
             .map(|r| r.execution_time_ms)
             .sum();
@@ -738,7 +777,10 @@ mod tests {
             })
         };
 
-        let results = orchestrator.execute_parallel(tasks, executor).await.unwrap();
+        let results = orchestrator
+            .execute_parallel(tasks, executor)
+            .await
+            .unwrap();
         assert_eq!(results.len(), 2);
         assert!(results.iter().all(|r| r.success));
     }
@@ -774,7 +816,10 @@ mod tests {
             })
         };
 
-        let results = orchestrator.execute_parallel(tasks, executor).await.unwrap();
+        let results = orchestrator
+            .execute_parallel(tasks, executor)
+            .await
+            .unwrap();
         assert_eq!(results.len(), 2);
 
         // Task 1 should complete before task 2

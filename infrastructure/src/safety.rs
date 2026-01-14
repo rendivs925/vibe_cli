@@ -59,8 +59,6 @@ pub struct SystemStats {
     pub last_updated: Instant,
 }
 
-
-
 impl SafetyManager {
     /// Create new safety manager with production settings
     pub fn new() -> Self {
@@ -156,17 +154,17 @@ impl SafetyManager {
     /// Initialize dangerous command patterns
     fn init_dangerous_patterns() -> Vec<String> {
         vec![
-            r"rm\s+-rf\s+/".to_string(),                    // rm -rf /
-            r"rm\s+-rf\s+\*".to_string(),                   // rm -rf *
-            r":\(\)\{\s*:\|\:&\s*\};:".to_string(),        // Fork bomb
-            r">/dev/sd[a-z]".to_string(),                   // Disk overwriting
-            r"dd\s+if=.*of=/dev/".to_string(),              // Disk operations
-            r"mkfs\.".to_string(),                          // Filesystem creation
-            r"chmod\s+777\s+/".to_string(),                 // Dangerous permissions
-            r"chown\s+root".to_string(),                    // Root ownership
-            r"sudo\s+.*rm".to_string(),                     // Sudo remove operations
-            r"curl.*\|.*bash".to_string(),                  // Pipe to bash
-            r"wget.*\|.*sh".to_string(),                    // Pipe to shell
+            r"rm\s+-rf\s+/".to_string(),            // rm -rf /
+            r"rm\s+-rf\s+\*".to_string(),           // rm -rf *
+            r":\(\)\{\s*:\|\:&\s*\};:".to_string(), // Fork bomb
+            r">/dev/sd[a-z]".to_string(),           // Disk overwriting
+            r"dd\s+if=.*of=/dev/".to_string(),      // Disk operations
+            r"mkfs\.".to_string(),                  // Filesystem creation
+            r"chmod\s+777\s+/".to_string(),         // Dangerous permissions
+            r"chown\s+root".to_string(),            // Root ownership
+            r"sudo\s+.*rm".to_string(),             // Sudo remove operations
+            r"curl.*\|.*bash".to_string(),          // Pipe to bash
+            r"wget.*\|.*sh".to_string(),            // Pipe to shell
         ]
     }
 
@@ -195,7 +193,8 @@ impl SafetyManager {
         let execution_time = start_time.elapsed().as_millis() as u64;
 
         // Record command execution
-        self.record_command(&full_command, user, false, None, Some(execution_time)).await;
+        self.record_command(&full_command, user, false, None, Some(execution_time))
+            .await;
 
         // Update system stats
         self.update_system_stats().await;
@@ -204,13 +203,29 @@ impl SafetyManager {
             Ok(output) => {
                 // Check for dangerous output patterns
                 if self.has_dangerous_output(&output) {
-                    self.record_command(&full_command, user, true, Some("Dangerous output detected".to_string()), Some(execution_time)).await;
-                    return Err(anyhow::anyhow!("Command execution blocked: dangerous output detected"));
+                    self.record_command(
+                        &full_command,
+                        user,
+                        true,
+                        Some("Dangerous output detected".to_string()),
+                        Some(execution_time),
+                    )
+                    .await;
+                    return Err(anyhow::anyhow!(
+                        "Command execution blocked: dangerous output detected"
+                    ));
                 }
                 Ok(output)
             }
             Err(e) => {
-                self.record_command(&full_command, user, true, Some(e.to_string()), Some(execution_time)).await;
+                self.record_command(
+                    &full_command,
+                    user,
+                    true,
+                    Some(e.to_string()),
+                    Some(execution_time),
+                )
+                .await;
                 Err(e)
             }
         }
@@ -238,7 +253,10 @@ impl SafetyManager {
         for arg in args {
             for blocked_path in &self.blocked_paths {
                 if arg.contains(blocked_path) {
-                    return Err(anyhow::anyhow!("Access to protected path blocked: {}", blocked_path));
+                    return Err(anyhow::anyhow!(
+                        "Access to protected path blocked: {}",
+                        blocked_path
+                    ));
                 }
             }
         }
@@ -247,8 +265,12 @@ impl SafetyManager {
     }
 
     /// Execute command with resource limits
-    async fn execute_with_limits(&self, command: &str, args: &[String]) -> Result<std::process::Output> {
-        let mut child = Command::new(command)
+    async fn execute_with_limits(
+        &self,
+        command: &str,
+        args: &[String],
+    ) -> Result<std::process::Output> {
+        let child = Command::new(command)
             .args(args)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -264,9 +286,16 @@ impl SafetyManager {
             Err(_) => {
                 // Try to kill the process if it has a PID
                 if let Some(pid) = child_id {
-                    let _ = Command::new("kill").arg("-9").arg(pid.to_string()).status().await;
+                    let _ = Command::new("kill")
+                        .arg("-9")
+                        .arg(pid.to_string())
+                        .status()
+                        .await;
                 }
-                Err(anyhow::anyhow!("Command timed out after {} seconds", timeout_duration.as_secs()))
+                Err(anyhow::anyhow!(
+                    "Command timed out after {} seconds",
+                    timeout_duration.as_secs()
+                ))
             }
         }
     }
@@ -279,9 +308,9 @@ impl SafetyManager {
         let combined = format!("{} {}", stdout, stderr);
 
         // Check for error patterns that might indicate system compromise
-        combined.contains("Permission denied") && combined.contains("root") ||
-        combined.contains("Operation not permitted") ||
-        combined.contains("Device or resource busy")
+        combined.contains("Permission denied") && combined.contains("root")
+            || combined.contains("Operation not permitted")
+            || combined.contains("Device or resource busy")
     }
 
     /// Enforce command rate limiting
@@ -385,14 +414,35 @@ impl SafetyManager {
 
         let mut result = HashMap::new();
 
-        result.insert("total_commands_executed".to_string(), stats.total_commands_executed.to_string());
-        result.insert("total_commands_blocked".to_string(), stats.total_commands_blocked.to_string());
-        result.insert("active_commands".to_string(), stats.active_commands.to_string());
-        result.insert("memory_usage_mb".to_string(), stats.memory_usage_mb.to_string());
-        result.insert("cpu_usage_percent".to_string(), format!("{:.1}", stats.cpu_usage_percent));
+        result.insert(
+            "total_commands_executed".to_string(),
+            stats.total_commands_executed.to_string(),
+        );
+        result.insert(
+            "total_commands_blocked".to_string(),
+            stats.total_commands_blocked.to_string(),
+        );
+        result.insert(
+            "active_commands".to_string(),
+            stats.active_commands.to_string(),
+        );
+        result.insert(
+            "memory_usage_mb".to_string(),
+            stats.memory_usage_mb.to_string(),
+        );
+        result.insert(
+            "cpu_usage_percent".to_string(),
+            format!("{:.1}", stats.cpu_usage_percent),
+        );
         result.insert("history_size".to_string(), history.len().to_string());
-        result.insert("blocked_commands_count".to_string(), self.blocked_commands.len().to_string());
-        result.insert("blocked_paths_count".to_string(), self.blocked_paths.len().to_string());
+        result.insert(
+            "blocked_commands_count".to_string(),
+            self.blocked_commands.len().to_string(),
+        );
+        result.insert(
+            "blocked_paths_count".to_string(),
+            self.blocked_paths.len().to_string(),
+        );
 
         result
     }
@@ -425,7 +475,10 @@ impl SafetyManager {
         for arg in args {
             for blocked_path in &self.blocked_paths {
                 if arg.contains(blocked_path) {
-                    return Err(anyhow::anyhow!("Access to protected path blocked: {}", blocked_path));
+                    return Err(anyhow::anyhow!(
+                        "Access to protected path blocked: {}",
+                        blocked_path
+                    ));
                 }
             }
         }

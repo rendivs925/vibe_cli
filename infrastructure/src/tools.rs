@@ -1,10 +1,10 @@
+use crate::observability::OBSERVABILITY;
+use crate::resource_enforcement::{ResourceEnforcer, ResourceLimits};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
 use std::fs;
 use std::path::Path;
-use crate::resource_enforcement::{ResourceEnforcer, ResourceLimits};
-use crate::observability::OBSERVABILITY;
+use std::time::{Duration, Instant};
 
 /// Tool execution arguments with validation
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -59,13 +59,15 @@ pub struct ValidationError {
 
 impl std::fmt::Display for ValidationError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "Validation error in field '{}': {} (severity: {:?})", self.field, self.message, self.severity)
+        write!(
+            f,
+            "Validation error in field '{}': {} (severity: {:?})",
+            self.field, self.message, self.severity
+        )
     }
 }
 
 impl std::error::Error for ValidationError {}
-
-
 
 /// Resource usage tracking
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -126,17 +128,24 @@ impl ToolSecurityValidator {
         // Check blocked patterns
         for pattern in &self.blocked_patterns {
             if path.starts_with(pattern) {
-                return Err(ToolError::SecurityViolation(format!("Access blocked for path: {}", path)));
+                return Err(ToolError::SecurityViolation(format!(
+                    "Access blocked for path: {}",
+                    path
+                )));
             }
         }
 
         // Check allowed paths
-        let allowed = self.allowed_paths.iter().any(|allowed_path| {
-            path.starts_with(allowed_path)
-        });
+        let allowed = self
+            .allowed_paths
+            .iter()
+            .any(|allowed_path| path.starts_with(allowed_path));
 
         if !allowed {
-            return Err(ToolError::SecurityViolation(format!("Unauthorized path access: {}", path)));
+            return Err(ToolError::SecurityViolation(format!(
+                "Unauthorized path access: {}",
+                path
+            )));
         }
 
         Ok(())
@@ -144,7 +153,10 @@ impl ToolSecurityValidator {
 
     pub fn validate_file_size(&self, size: u64) -> Result<(), ToolError> {
         if size > self.max_file_size {
-            return Err(ToolError::ResourceLimitExceeded(format!("File size {} exceeds limit {}", size, self.max_file_size)));
+            return Err(ToolError::ResourceLimitExceeded(format!(
+                "File size {} exceeds limit {}",
+                size, self.max_file_size
+            )));
         }
         Ok(())
     }
@@ -196,7 +208,9 @@ impl SafeTool {
     pub fn description(&self) -> &str {
         match self {
             SafeTool::FileRead => "Safely read file contents with path validation and size limits",
-            SafeTool::FileWrite => "Safely write file contents with backup and rollback capabilities",
+            SafeTool::FileWrite => {
+                "Safely write file contents with backup and rollback capabilities"
+            }
             SafeTool::DirectoryList => "Safely list directory contents with path validation",
             SafeTool::ProcessList => "Safely list running processes with filtering",
             SafeTool::GrepSearch => "Search for patterns in files using regex with path filtering",
@@ -255,7 +269,9 @@ impl SafeTool {
     async fn execute_file_read(&self, args: ToolArgs) -> Result<ToolOutput, ToolError> {
         let start_time = Instant::now();
 
-        let file_path = args.parameters.get("path")
+        let file_path = args
+            .parameters
+            .get("path")
             .ok_or_else(|| ToolError::ValidationError("Missing 'path' parameter".to_string()))?;
 
         let security_validator = ToolSecurityValidator::new();
@@ -263,11 +279,15 @@ impl SafeTool {
 
         let path = Path::new(file_path);
         if !path.exists() {
-            return Err(ToolError::ExecutionError(format!("File not found: {}", file_path)));
+            return Err(ToolError::ExecutionError(format!(
+                "File not found: {}",
+                file_path
+            )));
         }
 
-        let metadata = fs::metadata(path)
-            .map_err(|e| ToolError::ExecutionError(format!("Failed to read file metadata: {}", e)))?;
+        let metadata = fs::metadata(path).map_err(|e| {
+            ToolError::ExecutionError(format!("Failed to read file metadata: {}", e))
+        })?;
 
         security_validator.validate_file_size(metadata.len())?;
 
@@ -338,10 +358,14 @@ impl SafeTool {
     async fn execute_file_write(&self, args: ToolArgs) -> Result<ToolOutput, ToolError> {
         let start_time = Instant::now();
 
-        let file_path = args.parameters.get("path")
+        let file_path = args
+            .parameters
+            .get("path")
             .ok_or_else(|| ToolError::ValidationError("Missing 'path' parameter".to_string()))?;
 
-        let content = args.parameters.get("content")
+        let content = args
+            .parameters
+            .get("content")
             .ok_or_else(|| ToolError::ValidationError("Missing 'content' parameter".to_string()))?;
 
         let security_validator = ToolSecurityValidator::new();
@@ -357,12 +381,18 @@ impl SafeTool {
 
         let path = Path::new(file_path);
         let backup_created = if path.exists() {
-            let backup_path = format!("{}.backup.{}", file_path,
-                std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH)
-                    .unwrap_or_default().as_secs());
+            let backup_path = format!(
+                "{}.backup.{}",
+                file_path,
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_secs()
+            );
 
-            fs::copy(file_path, &backup_path)
-                .map_err(|e| ToolError::ExecutionError(format!("Failed to create backup: {}", e)))?;
+            fs::copy(file_path, &backup_path).map_err(|e| {
+                ToolError::ExecutionError(format!("Failed to create backup: {}", e))
+            })?;
 
             true
         } else {
@@ -437,7 +467,9 @@ impl SafeTool {
     async fn execute_directory_list(&self, args: ToolArgs) -> Result<ToolOutput, ToolError> {
         let start_time = Instant::now();
 
-        let dir_path = args.parameters.get("path")
+        let dir_path = args
+            .parameters
+            .get("path")
             .map(|s| s.as_str())
             .unwrap_or("."); // Default to current directory
 
@@ -447,11 +479,17 @@ impl SafeTool {
 
         let path = Path::new(dir_path);
         if !path.exists() {
-            return Err(ToolError::ExecutionError(format!("Directory not found: {}", dir_path)));
+            return Err(ToolError::ExecutionError(format!(
+                "Directory not found: {}",
+                dir_path
+            )));
         }
 
         if !path.is_dir() {
-            return Err(ToolError::ExecutionError(format!("Path is not a directory: {}", dir_path)));
+            return Err(ToolError::ExecutionError(format!(
+                "Path is not a directory: {}",
+                dir_path
+            )));
         }
 
         let entries = fs::read_dir(path)
@@ -461,13 +499,17 @@ impl SafeTool {
         let mut file_count = 0;
 
         for entry in entries {
-            let entry = entry.map_err(|e| ToolError::ExecutionError(format!("Failed to read directory entry: {}", e)))?;
-            let file_name = entry.file_name()
+            let entry = entry.map_err(|e| {
+                ToolError::ExecutionError(format!("Failed to read directory entry: {}", e))
+            })?;
+            let file_name = entry
+                .file_name()
                 .into_string()
                 .unwrap_or_else(|_| "Invalid UTF-8".to_string());
 
-            let metadata = entry.metadata()
-                .map_err(|e| ToolError::ExecutionError(format!("Failed to read metadata: {}", e)))?;
+            let metadata = entry.metadata().map_err(|e| {
+                ToolError::ExecutionError(format!("Failed to read metadata: {}", e))
+            })?;
 
             let file_type = if metadata.is_dir() {
                 "DIR"
@@ -535,7 +577,10 @@ impl SafeTool {
         let enforcer = ResourceEnforcer::new();
         let limits = ResourceLimits::default();
 
-        match enforcer.execute_with_limits("ps", &["aux"], &limits, None).await {
+        match enforcer
+            .execute_with_limits("ps", &["aux"], &limits, None)
+            .await
+        {
             Ok(result) => {
                 let resources_used = ResourceUsage {
                     memory_used_mb: 1, // Minimal memory usage
@@ -553,7 +598,10 @@ impl SafeTool {
                     resources_used,
                 })
             }
-            Err(e) => Err(ToolError::ExecutionError(format!("Resource enforcement failed: {}", e))),
+            Err(e) => Err(ToolError::ExecutionError(format!(
+                "Resource enforcement failed: {}",
+                e
+            ))),
         }
     }
 
@@ -564,20 +612,29 @@ impl SafeTool {
 
     // Grep search implementation
     async fn execute_grep_search(&self, args: ToolArgs) -> Result<ToolOutput, ToolError> {
-        let pattern = args.parameters.get("pattern")
+        let pattern = args
+            .parameters
+            .get("pattern")
             .ok_or_else(|| ToolError::ValidationError("Missing 'pattern' parameter".to_string()))?;
 
-        let path = args.parameters.get("path")
+        let path = args
+            .parameters
+            .get("path")
             .ok_or_else(|| ToolError::ValidationError("Missing 'path' parameter".to_string()))?;
 
         let security_validator = ToolSecurityValidator::new();
         security_validator.validate_path(path)?;
 
         // Use ripgrep (rg) for fast searching
-        let mut cmd_args: Vec<String> = vec!["--line-number".to_string(), "--with-filename".to_string()];
+        let mut cmd_args: Vec<String> =
+            vec!["--line-number".to_string(), "--with-filename".to_string()];
 
         // Add case insensitive if requested
-        if args.parameters.get("case_insensitive").map_or(false, |v| v == "true") {
+        if args
+            .parameters
+            .get("case_insensitive")
+            .map_or(false, |v| v == "true")
+        {
             cmd_args.push("--ignore-case".to_string());
         }
 
@@ -595,7 +652,15 @@ impl SafeTool {
         let limits = ResourceLimits::default();
         let enforcer = ResourceEnforcer::new();
 
-        match enforcer.execute_with_limits("rg", &cmd_args_refs, &limits, args.working_directory.as_deref()).await {
+        match enforcer
+            .execute_with_limits(
+                "rg",
+                &cmd_args_refs,
+                &limits,
+                args.working_directory.as_deref(),
+            )
+            .await
+        {
             Ok(result) => {
                 let resources_used = ResourceUsage {
                     memory_used_mb: 2,
@@ -613,7 +678,10 @@ impl SafeTool {
                     resources_used,
                 })
             }
-            Err(e) => Err(ToolError::ExecutionError(format!("Grep search failed: {}", e))),
+            Err(e) => Err(ToolError::ExecutionError(format!(
+                "Grep search failed: {}",
+                e
+            ))),
         }
     }
 
@@ -639,7 +707,9 @@ impl SafeTool {
 
     // Find files implementation
     async fn execute_find_files(&self, args: ToolArgs) -> Result<ToolOutput, ToolError> {
-        let path = args.parameters.get("path")
+        let path = args
+            .parameters
+            .get("path")
             .ok_or_else(|| ToolError::ValidationError("Missing 'path' parameter".to_string()))?;
 
         let security_validator = ToolSecurityValidator::new();
@@ -670,7 +740,15 @@ impl SafeTool {
         let limits = ResourceLimits::default();
         let enforcer = ResourceEnforcer::new();
 
-        match enforcer.execute_with_limits("find", &cmd_args_refs, &limits, args.working_directory.as_deref()).await {
+        match enforcer
+            .execute_with_limits(
+                "find",
+                &cmd_args_refs,
+                &limits,
+                args.working_directory.as_deref(),
+            )
+            .await
+        {
             Ok(result) => {
                 let resources_used = ResourceUsage {
                     memory_used_mb: 1,
@@ -688,7 +766,10 @@ impl SafeTool {
                     resources_used,
                 })
             }
-            Err(e) => Err(ToolError::ExecutionError(format!("Find files failed: {}", e))),
+            Err(e) => Err(ToolError::ExecutionError(format!(
+                "Find files failed: {}",
+                e
+            ))),
         }
     }
 
@@ -706,13 +787,16 @@ impl SafeTool {
 
     // Sed replace implementation
     async fn execute_sed_replace(&self, args: ToolArgs) -> Result<ToolOutput, ToolError> {
-        let file_path = args.parameters.get("path")
+        let file_path = args
+            .parameters
+            .get("path")
             .ok_or_else(|| ToolError::ValidationError("Missing 'path' parameter".to_string()))?;
 
-        let pattern = args.parameters.get("pattern")
+        let pattern = args
+            .parameters
+            .get("pattern")
             .ok_or_else(|| ToolError::ValidationError("Missing 'pattern' parameter".to_string()))?;
-        let replacement = args.parameters.get("replacement")
-            .map_or("", |v| v);
+        let replacement = args.parameters.get("replacement").map_or("", |v| v);
 
         let security_validator = ToolSecurityValidator::new();
         security_validator.validate_path(file_path)?;
@@ -729,7 +813,10 @@ impl SafeTool {
         let limits = ResourceLimits::default();
         let enforcer = ResourceEnforcer::new();
 
-        match enforcer.execute_with_limits("sed", &cmd_args, &limits, args.working_directory.as_deref()).await {
+        match enforcer
+            .execute_with_limits("sed", &cmd_args, &limits, args.working_directory.as_deref())
+            .await
+        {
             Ok(result) => {
                 let resources_used = ResourceUsage {
                     memory_used_mb: 1,
@@ -747,7 +834,10 @@ impl SafeTool {
                     resources_used,
                 })
             }
-            Err(e) => Err(ToolError::ExecutionError(format!("Sed replace failed: {}", e))),
+            Err(e) => Err(ToolError::ExecutionError(format!(
+                "Sed replace failed: {}",
+                e
+            ))),
         }
     }
 
@@ -773,10 +863,14 @@ impl SafeTool {
 
     // Awk extract implementation
     async fn execute_awk_extract(&self, args: ToolArgs) -> Result<ToolOutput, ToolError> {
-        let file_path = args.parameters.get("path")
+        let file_path = args
+            .parameters
+            .get("path")
             .ok_or_else(|| ToolError::ValidationError("Missing 'path' parameter".to_string()))?;
 
-        let script = args.parameters.get("script")
+        let script = args
+            .parameters
+            .get("script")
             .ok_or_else(|| ToolError::ValidationError("Missing 'script' parameter".to_string()))?;
 
         let security_validator = ToolSecurityValidator::new();
@@ -787,7 +881,10 @@ impl SafeTool {
         let limits = ResourceLimits::default();
         let enforcer = ResourceEnforcer::new();
 
-        match enforcer.execute_with_limits("awk", &cmd_args, &limits, args.working_directory.as_deref()).await {
+        match enforcer
+            .execute_with_limits("awk", &cmd_args, &limits, args.working_directory.as_deref())
+            .await
+        {
             Ok(result) => {
                 let resources_used = ResourceUsage {
                     memory_used_mb: 2,
@@ -805,7 +902,10 @@ impl SafeTool {
                     resources_used,
                 })
             }
-            Err(e) => Err(ToolError::ExecutionError(format!("Awk extract failed: {}", e))),
+            Err(e) => Err(ToolError::ExecutionError(format!(
+                "Awk extract failed: {}",
+                e
+            ))),
         }
     }
 
@@ -831,12 +931,16 @@ impl SafeTool {
 
     // Curl fetch implementation
     async fn execute_curl_fetch(&self, args: ToolArgs) -> Result<ToolOutput, ToolError> {
-        let url = args.parameters.get("url")
+        let url = args
+            .parameters
+            .get("url")
             .ok_or_else(|| ToolError::ValidationError("Missing 'url' parameter".to_string()))?;
 
         // Basic URL validation
         if !url.starts_with("http://") && !url.starts_with("https://") {
-            return Err(ToolError::ValidationError("Only HTTP/HTTPS URLs are allowed".to_string()));
+            return Err(ToolError::ValidationError(
+                "Only HTTP/HTTPS URLs are allowed".to_string(),
+            ));
         }
 
         let mut cmd_args_vec: Vec<String> = vec![
@@ -860,7 +964,15 @@ impl SafeTool {
         let limits = ResourceLimits::default();
         let enforcer = ResourceEnforcer::new();
 
-        match enforcer.execute_with_limits("curl", &cmd_args, &limits, args.working_directory.as_deref()).await {
+        match enforcer
+            .execute_with_limits(
+                "curl",
+                &cmd_args,
+                &limits,
+                args.working_directory.as_deref(),
+            )
+            .await
+        {
             Ok(result) => {
                 let resources_used = ResourceUsage {
                     memory_used_mb: 2,
@@ -878,7 +990,10 @@ impl SafeTool {
                     resources_used,
                 })
             }
-            Err(e) => Err(ToolError::ExecutionError(format!("Curl fetch failed: {}", e))),
+            Err(e) => Err(ToolError::ExecutionError(format!(
+                "Curl fetch failed: {}",
+                e
+            ))),
         }
     }
 
@@ -896,12 +1011,17 @@ impl SafeTool {
 
     // Web search implementation using curl for basic search
     async fn execute_web_search(&self, args: ToolArgs) -> Result<ToolOutput, ToolError> {
-        let query = args.parameters.get("query")
+        let query = args
+            .parameters
+            .get("query")
             .ok_or_else(|| ToolError::ValidationError("Missing 'query' parameter".to_string()))?;
 
         // For now, use a simple curl to duckduckgo or similar
         // In production, this would use a proper search API
-        let search_url = format!("https://duckduckgo.com/?q={}&format=json", query.replace(" ", "+"));
+        let search_url = format!(
+            "https://duckduckgo.com/?q={}&format=json",
+            query.replace(" ", "+")
+        );
 
         let cmd_args = vec![
             "--silent",
@@ -914,7 +1034,15 @@ impl SafeTool {
         let limits = ResourceLimits::default();
         let enforcer = ResourceEnforcer::new();
 
-        match enforcer.execute_with_limits("curl", &cmd_args, &limits, args.working_directory.as_deref()).await {
+        match enforcer
+            .execute_with_limits(
+                "curl",
+                &cmd_args,
+                &limits,
+                args.working_directory.as_deref(),
+            )
+            .await
+        {
             Ok(result) => {
                 let resources_used = ResourceUsage {
                     memory_used_mb: 2,
@@ -932,7 +1060,10 @@ impl SafeTool {
                     resources_used,
                 })
             }
-            Err(e) => Err(ToolError::ExecutionError(format!("Web search failed: {}", e))),
+            Err(e) => Err(ToolError::ExecutionError(format!(
+                "Web search failed: {}",
+                e
+            ))),
         }
     }
 
@@ -960,7 +1091,10 @@ impl SafeTool {
         let limits = ResourceLimits::default();
         let enforcer = ResourceEnforcer::new();
 
-        match enforcer.execute_with_limits("git", &cmd_args, &limits, Some(path)).await {
+        match enforcer
+            .execute_with_limits("git", &cmd_args, &limits, Some(path))
+            .await
+        {
             Ok(result) => {
                 let resources_used = ResourceUsage {
                     memory_used_mb: 1,
@@ -978,7 +1112,10 @@ impl SafeTool {
                     resources_used,
                 })
             }
-            Err(e) => Err(ToolError::ExecutionError(format!("Git status failed: {}", e))),
+            Err(e) => Err(ToolError::ExecutionError(format!(
+                "Git status failed: {}",
+                e
+            ))),
         }
     }
 
@@ -1007,7 +1144,10 @@ impl SafeTool {
         let limits = ResourceLimits::default();
         let enforcer = ResourceEnforcer::new();
 
-        match enforcer.execute_with_limits("git", &cmd_args, &limits, Some(path)).await {
+        match enforcer
+            .execute_with_limits("git", &cmd_args, &limits, Some(path))
+            .await
+        {
             Ok(result) => {
                 let resources_used = ResourceUsage {
                     memory_used_mb: 2,
@@ -1039,7 +1179,11 @@ impl SafeTool {
         let security_validator = ToolSecurityValidator::new();
         security_validator.validate_path(path)?;
 
-        let mut cmd_args_vec: Vec<String> = vec!["log".to_string(), "--oneline".to_string(), "--color=always".to_string()];
+        let mut cmd_args_vec: Vec<String> = vec![
+            "log".to_string(),
+            "--oneline".to_string(),
+            "--color=always".to_string(),
+        ];
 
         if let Some(limit) = args.parameters.get("limit") {
             if let Ok(n) = limit.parse::<usize>() {
@@ -1058,7 +1202,10 @@ impl SafeTool {
         let limits = ResourceLimits::default();
         let enforcer = ResourceEnforcer::new();
 
-        match enforcer.execute_with_limits("git", &cmd_args, &limits, Some(path)).await {
+        match enforcer
+            .execute_with_limits("git", &cmd_args, &limits, Some(path))
+            .await
+        {
             Ok(result) => {
                 let resources_used = ResourceUsage {
                     memory_used_mb: 2,
@@ -1114,37 +1261,48 @@ impl ToolRegistry {
         }
     }
 
-    pub async fn execute_tool(&self, tool_name: &str, args: ToolArgs) -> Result<ToolOutput, ToolError> {
+    pub async fn execute_tool(
+        &self,
+        tool_name: &str,
+        args: ToolArgs,
+    ) -> Result<ToolOutput, ToolError> {
         let start_time = std::time::Instant::now();
 
         // Record tool execution attempt
         let _trace = OBSERVABILITY.start_request_trace(&format!("tool_{}", tool_name));
 
         let result = async {
-            let tool = self.tools.get(tool_name)
-                .ok_or_else(|| ToolError::ValidationError(format!("Tool '{}' not found", tool_name)))?;
+            let tool = self.tools.get(tool_name).ok_or_else(|| {
+                ToolError::ValidationError(format!("Tool '{}' not found", tool_name))
+            })?;
 
-            tool.validate_args(&args)
-                .map_err(|e| ToolError::ValidationError(format!("Argument validation failed: {}", e)))?;
+            tool.validate_args(&args).map_err(|e| {
+                ToolError::ValidationError(format!("Argument validation failed: {}", e))
+            })?;
 
             // Policy check before execution
             self.check_policy(tool_name, &args).await?;
 
             tool.execute(args).await
-        }.await;
+        }
+        .await;
 
         let execution_time = start_time.elapsed();
         let success = result.is_ok();
 
         // Record metrics
-        OBSERVABILITY.record_request(&format!("tool_{}", tool_name), execution_time, success).await;
+        OBSERVABILITY
+            .record_request(&format!("tool_{}", tool_name), execution_time, success)
+            .await;
 
         if !success {
             // Record security event for failed tool execution
             let mut details = std::collections::HashMap::new();
             details.insert("tool_name".to_string(), tool_name.to_string());
             details.insert("error".to_string(), format!("{:?}", result.as_ref().err()));
-            OBSERVABILITY.record_security_event("tool_execution_failed", details).await;
+            OBSERVABILITY
+                .record_security_event("tool_execution_failed", details)
+                .await;
         }
 
         result
@@ -1162,15 +1320,21 @@ impl ToolRegistry {
         };
 
         // Check for secrets in parameters (simple check)
-        let contains_secrets = args.parameters.values()
+        let contains_secrets = args
+            .parameters
+            .values()
             .any(|v| v.contains("password") || v.contains("secret") || v.contains("key"));
 
         // Check for network access (simple heuristic)
-        let network_access = args.parameters.values()
+        let network_access = args
+            .parameters
+            .values()
             .any(|v| v.contains("http") || v.contains("https"));
 
         // Extract file paths
-        let file_paths = args.parameters.values()
+        let file_paths = args
+            .parameters
+            .values()
             .filter(|v| v.contains("/") || v.contains("\\"))
             .cloned()
             .collect::<Vec<_>>();
@@ -1182,21 +1346,26 @@ impl ToolRegistry {
             contains_secrets,
             network_access,
             &file_paths,
-        ).await {
+        )
+        .await
+        {
             Ok(decision) => match decision.action {
                 crate::policy_engine::PolicyAction::Allow => Ok(()),
-                crate::policy_engine::PolicyAction::Deny(reason) => {
-                    Err(ToolError::SecurityViolation(format!("Policy denied: {}", reason)))
-                }
-                crate::policy_engine::PolicyAction::RequireApproval(reason) => {
-                    Err(ToolError::SecurityViolation(format!("Approval required: {}", reason)))
-                }
-                crate::policy_engine::PolicyAction::Escalate(reason) => {
-                    Err(ToolError::SecurityViolation(format!("Escalated: {}", reason)))
-                }
+                crate::policy_engine::PolicyAction::Deny(reason) => Err(
+                    ToolError::SecurityViolation(format!("Policy denied: {}", reason)),
+                ),
+                crate::policy_engine::PolicyAction::RequireApproval(reason) => Err(
+                    ToolError::SecurityViolation(format!("Approval required: {}", reason)),
+                ),
+                crate::policy_engine::PolicyAction::Escalate(reason) => Err(
+                    ToolError::SecurityViolation(format!("Escalated: {}", reason)),
+                ),
                 crate::policy_engine::PolicyAction::LogOnly => Ok(()),
             },
-            Err(e) => Err(ToolError::SecurityViolation(format!("Policy evaluation failed: {}", e))),
+            Err(e) => Err(ToolError::SecurityViolation(format!(
+                "Policy evaluation failed: {}",
+                e
+            ))),
         }
     }
 

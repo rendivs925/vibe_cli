@@ -1,12 +1,9 @@
-/// Browser automation for ChatGPT integration - privacy-preserving remote AI access
-/// Leverages existing authenticated ChatGPT sessions to avoid API costs and data transmission
-
-use std::process::Command;
-use std::time::Duration;
-use std::thread;
+use crate::chatgpt_ocr::{ChatGPTOCR, ProcessedResponse};
 use anyhow::Result;
 use regex::Regex;
-use crate::chatgpt_ocr::{ChatGPTOCR, ProcessedResponse};
+/// Browser automation for ChatGPT integration - privacy-preserving remote AI access
+/// Leverages existing authenticated ChatGPT sessions to avoid API costs and data transmission
+use std::process::Command;
 
 /// Browser automation result
 #[derive(Debug)]
@@ -107,9 +104,7 @@ impl ChatGPTBrowser {
         let browser_processes = ["firefox", "chrome", "chromium"];
 
         for process in &browser_processes {
-            let output = Command::new("pgrep")
-                .arg(process)
-                .output()?;
+            let output = Command::new("pgrep").arg(process).output()?;
 
             if output.status.success() {
                 // Try to detect if ChatGPT is open
@@ -147,7 +142,9 @@ impl ChatGPTBrowser {
         // For now, implement a basic approach using thirtyfour WebDriver
         // This is a simplified implementation that would need refinement
 
-        Err(anyhow::anyhow!("Playwright integration requires additional setup. Using simplified approach."))
+        Err(anyhow::anyhow!(
+            "Playwright integration requires additional setup. Using simplified approach."
+        ))
     }
 
     /// Query using basic browser detection with OCR integration
@@ -214,7 +211,9 @@ impl ChatGPTBrowser {
         let screenshot_result = self.take_screenshot(screenshot_path)?;
 
         if !screenshot_result {
-            return Err(anyhow::anyhow!("Failed to capture screenshot - no supported screenshot tool found"));
+            return Err(anyhow::anyhow!(
+                "Failed to capture screenshot - no supported screenshot tool found"
+            ));
         }
 
         // Extract text using OCR
@@ -238,16 +237,15 @@ impl ChatGPTBrowser {
 
         for (tool, args) in tools {
             if Self::command_exists(tool) {
-                let result = Command::new(tool)
-                    .args(&args)
-                    .status();
+                let result = Command::new(tool).args(&args).status();
 
                 match result {
                     Ok(status) if status.success() => {
                         // Verify file was created and has content
                         if std::path::Path::new(output_path).exists() {
                             if let Ok(metadata) = std::fs::metadata(output_path) {
-                                if metadata.len() > 1000 { // Reasonable minimum size for a screenshot
+                                if metadata.len() > 1000 {
+                                    // Reasonable minimum size for a screenshot
                                     return Ok(true);
                                 }
                             }
@@ -268,7 +266,9 @@ impl ChatGPTBrowser {
         // 2. Send keyboard input for prompt
         // 3. Wait and extract response
 
-        Err(anyhow::anyhow!("Direct browser automation not yet implemented"))
+        Err(anyhow::anyhow!(
+            "Direct browser automation not yet implemented"
+        ))
     }
 
     /// Get status information
@@ -276,7 +276,10 @@ impl ChatGPTBrowser {
         let available = self.is_chatgpt_available()?;
 
         if available {
-            Ok(format!("ChatGPT session available via {}", self.browser_command))
+            Ok(format!(
+                "ChatGPT session available via {}",
+                self.browser_command
+            ))
         } else {
             Ok(format!("ChatGPT session not detected. Please open chat.openai.com in your browser and ensure you're logged in."))
         }
@@ -291,20 +294,26 @@ impl ChatGPTBrowser {
         }
 
         // Try a simple test query
-        match self.query("Hello, this is a test query from Vibe CLI. Please respond with 'Test successful'").await {
+        match self
+            .query(
+                "Hello, this is a test query from Vibe CLI. Please respond with 'Test successful'",
+            )
+            .await
+        {
             Ok(result) => {
                 if result.success && result.response.contains("Test successful") {
                     Ok("Browser automation test successful".to_string())
                 } else {
-                    Ok(format!("Test query sent but unexpected response: {}", result.response))
+                    Ok(format!(
+                        "Test query sent but unexpected response: {}",
+                        result.response
+                    ))
                 }
             }
             Err(e) => Ok(format!("Test query failed: {}", e)),
         }
     }
 }
-
-
 
 /// Combined ChatGPT browser + OCR system
 pub struct ChatGPTSystem {
@@ -323,7 +332,11 @@ impl ChatGPTSystem {
             None
         };
 
-        Ok(Self { browser, ocr, response_processor })
+        Ok(Self {
+            browser,
+            ocr,
+            response_processor,
+        })
     }
 
     /// Query ChatGPT with full OCR processing pipeline
@@ -338,7 +351,12 @@ impl ChatGPTSystem {
         if browser_result.success && !browser_result.response.is_empty() {
             // If we got a direct response, process it
             let dummy_screenshot = browser_result.response.as_bytes();
-            return self.response_processor.as_ref().unwrap().process_screenshot(dummy_screenshot).await;
+            return self
+                .response_processor
+                .as_ref()
+                .unwrap()
+                .process_screenshot(dummy_screenshot)
+                .await;
         }
 
         // If direct response failed, try screenshot approach
@@ -346,7 +364,10 @@ impl ChatGPTSystem {
             // Create a dummy screenshot data (in production this would be real screenshot)
             // For now, we'll return a structured response indicating OCR capability
             let processed = ProcessedResponse {
-                text: format!("ChatGPT OCR system ready. Screenshot capture available: {}", self.can_capture_screenshots()),
+                text: format!(
+                    "ChatGPT OCR system ready. Screenshot capture available: {}",
+                    self.can_capture_screenshots()
+                ),
                 confidence: 95.0,
                 needs_manual_review: false,
                 error_message: None,
@@ -382,9 +403,21 @@ impl ChatGPTSystem {
         Ok(format!(
             "Browser: {}\nOCR: {}\nScreenshot Capture: {}\nResponse Processor: {}",
             browser_status,
-            if ocr_available { "Available" } else { "Not available" },
-            if screenshot_available { "Available" } else { "Not available" },
-            if response_processor_available { "Available" } else { "Not available" }
+            if ocr_available {
+                "Available"
+            } else {
+                "Not available"
+            },
+            if screenshot_available {
+                "Available"
+            } else {
+                "Not available"
+            },
+            if response_processor_available {
+                "Available"
+            } else {
+                "Not available"
+            }
         ))
     }
 
@@ -398,7 +431,10 @@ impl ChatGPTSystem {
         let result = self.browser.query(prompt).await?;
 
         if !result.success {
-            return Err(anyhow::anyhow!("Query failed: {}", result.error_message.unwrap_or_default()));
+            return Err(anyhow::anyhow!(
+                "Query failed: {}",
+                result.error_message.unwrap_or_default()
+            ));
         }
 
         Ok(result.response)

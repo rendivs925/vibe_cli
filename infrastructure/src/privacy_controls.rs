@@ -1,15 +1,14 @@
-/// Privacy controls and verification system
-/// Ensures zero external data transmission and maintains user privacy
-/// Implements comprehensive monitoring, validation, and audit trails
-
-use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
-use std::time::{Duration, SystemTime};
+use aes_gcm::aead::{Aead, AeadCore, KeyInit, OsRng};
+use aes_gcm::{Aes256Gcm, Nonce};
 use anyhow::Result;
 use regex::Regex;
 use serde::{Deserialize, Serialize};
-use aes_gcm::{Aes256Gcm, Nonce};
-use aes_gcm::aead::{Aead, AeadCore, KeyInit, OsRng};
+/// Privacy controls and verification system
+/// Ensures zero external data transmission and maintains user privacy
+/// Implements comprehensive monitoring, validation, and audit trails
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+use std::time::{Duration, SystemTime};
 
 /// Privacy verification result
 #[derive(Debug, Clone)]
@@ -228,7 +227,8 @@ impl PrivacyControls {
         let network_activity = self.network_monitor.activity_log.lock().unwrap();
 
         let total_operations = audit_trail.len();
-        let compliant_operations = audit_trail.iter()
+        let compliant_operations = audit_trail
+            .iter()
             .filter(|entry| entry.compliance_status == PrivacyCompliance::Compliant)
             .count();
 
@@ -238,8 +238,15 @@ impl PrivacyControls {
             1.0
         };
 
-        let recent_external_requests = network_activity.iter()
-            .filter(|activity| activity.timestamp.elapsed().unwrap_or(Duration::from_secs(3600)) < Duration::from_secs(3600))
+        let recent_external_requests = network_activity
+            .iter()
+            .filter(|activity| {
+                activity
+                    .timestamp
+                    .elapsed()
+                    .unwrap_or(Duration::from_secs(3600))
+                    < Duration::from_secs(3600)
+            })
             .map(|activity| activity.external_requests)
             .sum::<u32>();
 
@@ -260,14 +267,20 @@ impl PrivacyControls {
 
         // Calculate additional metrics
         let audit_trail = self.audit_trail.lock().unwrap();
-        let violations_last_24h = audit_trail.iter()
+        let violations_last_24h = audit_trail
+            .iter()
             .filter(|entry| {
-                entry.timestamp.elapsed().unwrap_or(Duration::from_secs(86401)) < Duration::from_secs(86400)
-                && entry.compliance_status == PrivacyCompliance::Violation
+                entry
+                    .timestamp
+                    .elapsed()
+                    .unwrap_or(Duration::from_secs(86401))
+                    < Duration::from_secs(86400)
+                    && entry.compliance_status == PrivacyCompliance::Violation
             })
             .count();
 
-        let external_operations = audit_trail.iter()
+        let external_operations = audit_trail
+            .iter()
             .filter(|entry| entry.data_class == "remote")
             .count();
 
@@ -277,7 +290,8 @@ impl PrivacyControls {
             compliance_report,
             violations_last_24h,
             external_operations,
-            uptime: SystemTime::now().duration_since(std::time::UNIX_EPOCH)
+            uptime: SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or(Duration::from_secs(0))
                 .as_secs(),
         })
@@ -310,19 +324,27 @@ impl NetworkMonitor {
 
         // Check for unauthorized external access patterns
         if context.external_access && !context.user_consent {
-            return Ok(Some("External access attempted without user consent".to_string()));
+            return Ok(Some(
+                "External access attempted without user consent".to_string(),
+            ));
         }
 
         // Check for large data operations that should be flagged
-        if context.data_size > 1000000 && !context.external_access { // 1MB threshold
-            return Ok(Some("Large data operation detected without external access flag".to_string()));
+        if context.data_size > 1000000 && !context.external_access {
+            // 1MB threshold
+            return Ok(Some(
+                "Large data operation detected without external access flag".to_string(),
+            ));
         }
 
         // Check against known external patterns if operation involves network
         if context.external_access {
             for pattern in &self.external_patterns {
                 if pattern.is_match(&context.operation) {
-                    return Ok(Some(format!("Operation matches external pattern: {}", pattern.as_str())));
+                    return Ok(Some(format!(
+                        "Operation matches external pattern: {}",
+                        pattern.as_str()
+                    )));
                 }
             }
         }
@@ -346,7 +368,8 @@ impl NetworkMonitor {
     /// Get recent network activity summary
     pub fn get_recent_activity(&self, since: SystemTime) -> Result<Vec<NetworkActivity>> {
         let activities = self.activity_log.lock().unwrap();
-        Ok(activities.iter()
+        Ok(activities
+            .iter()
             .filter(|activity| activity.timestamp >= since)
             .cloned()
             .collect())
@@ -359,7 +382,13 @@ impl NetworkMonitor {
     }
 
     /// Record network activity (would be called by actual monitoring)
-    pub fn record_activity(&self, operation: &str, external_requests: u32, data_transmitted: u64, data_received: u64) -> Result<()> {
+    pub fn record_activity(
+        &self,
+        operation: &str,
+        external_requests: u32,
+        data_transmitted: u64,
+        data_received: u64,
+    ) -> Result<()> {
         let activity = NetworkActivity {
             timestamp: SystemTime::now(),
             operation: operation.to_string(),
@@ -378,27 +407,23 @@ impl<'a> NetworkSession<'a> {
     /// End the monitoring session and return activity summary
     pub fn end_session(self) -> Result<NetworkSessionSummary> {
         let end_time = SystemTime::now();
-        let duration = end_time.duration_since(self.start_time)
+        let duration = end_time
+            .duration_since(self.start_time)
             .unwrap_or(Duration::from_secs(0));
 
         let activities = self.monitor.activity_log.lock().unwrap();
-        let session_activities: Vec<_> = activities.iter()
+        let session_activities: Vec<_> = activities
+            .iter()
             .filter(|a| a.timestamp >= self.start_time)
             .skip(self.initial_activity_count)
             .cloned()
             .collect();
 
-        let total_external_requests = session_activities.iter()
-            .map(|a| a.external_requests)
-            .sum();
+        let total_external_requests = session_activities.iter().map(|a| a.external_requests).sum();
 
-        let total_data_transmitted = session_activities.iter()
-            .map(|a| a.data_transmitted)
-            .sum();
+        let total_data_transmitted = session_activities.iter().map(|a| a.data_transmitted).sum();
 
-        let total_data_received = session_activities.iter()
-            .map(|a| a.data_received)
-            .sum();
+        let total_data_received = session_activities.iter().map(|a| a.data_received).sum();
 
         Ok(NetworkSessionSummary {
             duration,
@@ -410,8 +435,19 @@ impl<'a> NetworkSession<'a> {
     }
 
     /// Record activity during session
-    pub fn record_activity(&self, operation: &str, external_requests: u32, data_transmitted: u64, data_received: u64) -> Result<()> {
-        self.monitor.record_activity(operation, external_requests, data_transmitted, data_received)
+    pub fn record_activity(
+        &self,
+        operation: &str,
+        external_requests: u32,
+        data_transmitted: u64,
+        data_received: u64,
+    ) -> Result<()> {
+        self.monitor.record_activity(
+            operation,
+            external_requests,
+            data_transmitted,
+            data_received,
+        )
     }
 }
 
@@ -431,7 +467,8 @@ impl ComplianceValidator {
         let privacy_rules = vec![
             PrivacyRule {
                 name: "zero_external_transmission".into(),
-                description: "Ensure no data is transmitted externally without explicit consent".into(),
+                description: "Ensure no data is transmitted externally without explicit consent"
+                    .into(),
                 check_function: |context| Ok(!context.external_access || context.user_consent),
                 severity: PrivacyCompliance::Violation,
             },
@@ -449,10 +486,12 @@ impl ComplianceValidator {
             },
             PrivacyRule {
                 name: "temporal_data_restrictions".into(),
-                description: "Sensitive data operations must complete within reasonable time limits".into(),
+                description:
+                    "Sensitive data operations must complete within reasonable time limits".into(),
                 check_function: |context| {
                     // Check if operation timestamp is reasonable (not too old)
-                    let age = SystemTime::now().duration_since(context.timestamp)
+                    let age = SystemTime::now()
+                        .duration_since(context.timestamp)
                         .unwrap_or(Duration::from_secs(3600));
                     Ok(age < Duration::from_secs(300)) // 5 minute limit
                 },
@@ -460,7 +499,8 @@ impl ComplianceValidator {
             },
             PrivacyRule {
                 name: "consent_verification".into(),
-                description: "User consent must be explicitly verified for external operations".into(),
+                description: "User consent must be explicitly verified for external operations"
+                    .into(),
                 check_function: |context| {
                     if context.external_access {
                         Ok(context.user_consent)
@@ -517,10 +557,14 @@ impl ComplianceValidator {
     /// Get detailed compliance report
     pub fn get_compliance_report(&self) -> Result<ComplianceReport> {
         let total_rules = self.privacy_rules.len();
-        let critical_rules = self.privacy_rules.iter()
+        let critical_rules = self
+            .privacy_rules
+            .iter()
             .filter(|r| r.severity == PrivacyCompliance::Violation)
             .count();
-        let warning_rules = self.privacy_rules.iter()
+        let warning_rules = self
+            .privacy_rules
+            .iter()
             .filter(|r| r.severity == PrivacyCompliance::Warning)
             .count();
 
@@ -534,7 +578,13 @@ impl ComplianceValidator {
     }
 
     /// Check if a specific operation would comply with privacy rules
-    pub fn check_operation_compliance(&self, operation: &str, data_size: u64, external_access: bool, user_consent: bool) -> Result<OperationCompliance> {
+    pub fn check_operation_compliance(
+        &self,
+        operation: &str,
+        data_size: u64,
+        external_access: bool,
+        user_consent: bool,
+    ) -> Result<OperationCompliance> {
         let context = PrivacyContext {
             operation: operation.to_string(),
             data_size,
@@ -605,7 +655,8 @@ impl SecureCache {
         let cipher = Aes256Gcm::new(&self.encryption_key.as_ref().unwrap());
         let nonce = Aes256Gcm::generate_nonce(&mut OsRng);
 
-        let ciphertext = cipher.encrypt(&nonce, data)
+        let ciphertext = cipher
+            .encrypt(&nonce, data)
             .map_err(|e| anyhow::anyhow!("Encryption failed: {:?}", e))?;
 
         let encrypted_data = EncryptedData {
@@ -615,7 +666,10 @@ impl SecureCache {
             ttl,
         };
 
-        self.cache_store.lock().unwrap().insert(key.to_string(), encrypted_data);
+        self.cache_store
+            .lock()
+            .unwrap()
+            .insert(key.to_string(), encrypted_data);
         Ok(())
     }
 
@@ -628,14 +682,20 @@ impl SecureCache {
         let store = self.cache_store.lock().unwrap();
         if let Some(encrypted_data) = store.get(key) {
             // Check TTL
-            if encrypted_data.timestamp.elapsed().unwrap_or(Duration::from_secs(0)) > encrypted_data.ttl {
+            if encrypted_data
+                .timestamp
+                .elapsed()
+                .unwrap_or(Duration::from_secs(0))
+                > encrypted_data.ttl
+            {
                 return Ok(None); // Expired
             }
 
             let cipher = Aes256Gcm::new(&self.encryption_key.as_ref().unwrap());
             let nonce = Nonce::from_slice(&encrypted_data.nonce);
 
-            let plaintext = cipher.decrypt(nonce, encrypted_data.ciphertext.as_slice())
+            let plaintext = cipher
+                .decrypt(nonce, encrypted_data.ciphertext.as_slice())
                 .map_err(|e| anyhow::anyhow!("Decryption failed: {:?}", e))?;
 
             Ok(Some(plaintext))
@@ -651,7 +711,11 @@ impl SecureCache {
         let now = SystemTime::now();
 
         store.retain(|_, data| {
-            if now.duration_since(data.timestamp).unwrap_or(Duration::from_secs(0)) > data.ttl {
+            if now
+                .duration_since(data.timestamp)
+                .unwrap_or(Duration::from_secs(0))
+                > data.ttl
+            {
                 removed += 1;
                 false
             } else {

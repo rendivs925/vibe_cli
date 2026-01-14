@@ -1,10 +1,9 @@
+use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 /// Performance profiling and monitoring utilities
 ///
 /// Provides zero-overhead performance measurement tools for production use
-
-use std::time::{Duration, Instant};
-use std::collections::HashMap;
-use serde::{Deserialize, Serialize};
+use std::time::Instant;
 
 /// Performance metrics for a single operation
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,7 +61,7 @@ impl PerformanceProfiler {
             let metric = PerformanceMetrics {
                 operation_name: operation.clone(),
                 duration_ms,
-                memory_delta_bytes: 0, // Would track in production
+                memory_delta_bytes: 0,    // Would track in production
                 cpu_time_ms: duration_ms, // Approximation
                 timestamp: std::time::SystemTime::now(),
             };

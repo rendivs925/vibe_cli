@@ -2,8 +2,6 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 use tokio::time::timeout;
-#[cfg(target_os = "linux")]
-use std::fs;
 
 /// Bounded agent execution with automated verification
 #[derive(Clone)]
@@ -94,9 +92,17 @@ pub struct IterationRecord {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum VerificationResult {
-    Passed { confidence_score: f32, checks_performed: Vec<String> },
-    Failed { reason: String, failed_checks: Vec<String> },
-    Inconclusive { reason: String },
+    Passed {
+        confidence_score: f32,
+        checks_performed: Vec<String>,
+    },
+    Failed {
+        reason: String,
+        failed_checks: Vec<String>,
+    },
+    Inconclusive {
+        reason: String,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -180,7 +186,11 @@ impl AgentController {
     pub fn should_terminate_due_to_resources(&self, state: &AgentExecutionState) -> bool {
         // Check time bounds
         let elapsed = state.start_time.elapsed().unwrap_or_default();
-        if elapsed > state.time_bounds_per_iteration.saturating_mul(state.iteration_count as u32) {
+        if elapsed
+            > state
+                .time_bounds_per_iteration
+                .saturating_mul(state.iteration_count as u32)
+        {
             return true;
         }
 
@@ -248,7 +258,9 @@ impl AgentController {
             state.iteration_count += 1;
 
             // Check total execution time
-            if start_time.elapsed() > Duration::from_secs(self.config.agent_execution.max_execution_time_seconds) {
+            if start_time.elapsed()
+                > Duration::from_secs(self.config.agent_execution.max_execution_time_seconds)
+            {
                 return Err(AgentError::Timeout(format!(
                     "Agent execution exceeded time limit: {} seconds",
                     self.config.agent_execution.max_execution_time_seconds
@@ -259,8 +271,10 @@ impl AgentController {
             let iteration_start = Instant::now();
             let iteration_result = match timeout(
                 Duration::from_secs(60), // 1 minute per iteration
-                agent_executor(&current_goal, &state)
-            ).await {
+                agent_executor(&current_goal, &state),
+            )
+            .await
+            {
                 Ok(result) => result?,
                 Err(_) => {
                     state.failure_count += 1;
@@ -271,7 +285,9 @@ impl AgentController {
             let execution_time = iteration_start.elapsed();
 
             // Validate iteration result
-            if iteration_result.tool_calls.len() > self.config.agent_execution.max_tools_per_iteration as usize {
+            if iteration_result.tool_calls.len()
+                > self.config.agent_execution.max_tools_per_iteration as usize
+            {
                 return Err(AgentError::TooManyTools(
                     iteration_result.tool_calls.len(),
                     self.config.agent_execution.max_tools_per_iteration as usize,
@@ -282,7 +298,10 @@ impl AgentController {
 
             // Perform automated verification if enabled
             let verification_result = if true {
-                match self.verify_iteration_result(&iteration_result, &state).await {
+                match self
+                    .verify_iteration_result(&iteration_result, &state)
+                    .await
+                {
                     Ok(result) => Some(result),
                     Err(e) => {
                         eprintln!("Verification failed: {}", e);
@@ -299,7 +318,8 @@ impl AgentController {
 
             // Implement memory tracking
             let current_memory = self.estimate_memory_usage().unwrap_or(0);
-            let memory_peak_bytes = current_memory.max(state.resource_usage_stats.peak_memory_bytes);
+            let memory_peak_bytes =
+                current_memory.max(state.resource_usage_stats.peak_memory_bytes);
 
             // Update state's peak memory
             state.resource_usage_stats.peak_memory_bytes = memory_peak_bytes;
@@ -319,7 +339,9 @@ impl AgentController {
 
             // Calculate confidence trend (moving average of confidence scores)
             let confidence_trend = if !state.execution_history.is_empty() {
-                let recent_confidences: Vec<f32> = state.execution_history.iter()
+                let recent_confidences: Vec<f32> = state
+                    .execution_history
+                    .iter()
                     .rev()
                     .take(3)
                     .map(|r| r.confidence_score)
@@ -333,12 +355,14 @@ impl AgentController {
 
             // Calculate goal progress score based on iteration metrics
             let goal_progress_score = {
-                let tools_used_score = (iteration_result.tool_calls.len() as f32 /
-                    self.config.agent_execution.max_tools_per_iteration as f32).min(1.0);
-                let reasoning_score = (iteration_result.reasoning_steps.len() as f32 / 5.0).min(1.0);
+                let tools_used_score = (iteration_result.tool_calls.len() as f32
+                    / self.config.agent_execution.max_tools_per_iteration as f32)
+                    .min(1.0);
+                let reasoning_score =
+                    (iteration_result.reasoning_steps.len() as f32 / 5.0).min(1.0);
                 let confidence_score = iteration_result.confidence_score;
 
-                (tools_used_score * 0.3 + reasoning_score * 0.3 + confidence_score * 0.4)
+                tools_used_score * 0.3 + reasoning_score * 0.3 + confidence_score * 0.4
             };
             convergence_indicators.insert("goal_progress_score".to_string(), goal_progress_score);
 
@@ -348,8 +372,10 @@ impl AgentController {
             // Implement resource tracking
             let resource_usage = ResourceUsageStats {
                 peak_memory_bytes: memory_peak_bytes,
-                total_cpu_time_ms: state.resource_usage_stats.total_cpu_time_ms + execution_time.as_millis() as u64,
-                io_operations: state.resource_usage_stats.io_operations + iteration_result.tool_calls.len() as u32,
+                total_cpu_time_ms: state.resource_usage_stats.total_cpu_time_ms
+                    + execution_time.as_millis() as u64,
+                io_operations: state.resource_usage_stats.io_operations
+                    + iteration_result.tool_calls.len() as u32,
                 network_requests: state.resource_usage_stats.network_requests + 1, // Each iteration likely involves network
             };
 
@@ -363,10 +389,15 @@ impl AgentController {
                 resource_usage,
                 iteration_number: state.iteration_count,
                 reasoning_steps: reasoning_steps_clone,
-                tool_calls: tool_calls_clone.iter().map(|tc| format!("{:?}", tc)).collect(),
+                tool_calls: tool_calls_clone
+                    .iter()
+                    .map(|tc| format!("{:?}", tc))
+                    .collect(),
                 verification_result: verification_result.clone(),
                 execution_time_ms: execution_time.as_millis() as u64,
-                success: verification_result.as_ref().map_or(false, |v| matches!(v, VerificationResult::Passed { .. })),
+                success: verification_result
+                    .as_ref()
+                    .map_or(false, |v| matches!(v, VerificationResult::Passed { .. })),
             };
 
             state.execution_history.push(record);
@@ -388,21 +419,32 @@ impl AgentController {
                         confidence_score,
                         iterations_used: state.iteration_count,
                         tools_executed: state.total_tools_executed,
-                        verification_history: state.execution_history.iter()
+                        verification_history: state
+                            .execution_history
+                            .iter()
                             .filter_map(|r| r.verification_result.clone())
                             .collect(),
                         execution_time: start_time.elapsed(),
-                        tool_calls: state.execution_history.iter().flat_map(|r| r.tool_calls.clone()).collect(),
+                        tool_calls: state
+                            .execution_history
+                            .iter()
+                            .flat_map(|r| r.tool_calls.clone())
+                            .collect(),
                         tool_results: Vec::new(),
                     });
                 }
                 IterationDecision::Fail(reason) => {
                     state.failure_count += 1;
 
-                    if self.config.agent_execution.allow_iteration_on_failure && state.failure_count < 3 {
+                    if self.config.agent_execution.allow_iteration_on_failure
+                        && state.failure_count < 3
+                    {
                         // Attempt recovery
                         state.recovery_attempts += 1;
-                        current_goal = format!("{} (Recovery attempt {})", initial_goal, state.recovery_attempts);
+                        current_goal = format!(
+                            "{} (Recovery attempt {})",
+                            initial_goal, state.recovery_attempts
+                        );
                         continue;
                     } else {
                         return Err(AgentError::ExecutionFailed(reason));
@@ -412,7 +454,9 @@ impl AgentController {
         }
 
         // Max iterations reached
-        Err(AgentError::MaxIterationsExceeded(self.config.agent_execution.max_iterations))
+        Err(AgentError::MaxIterationsExceeded(
+            self.config.agent_execution.max_iterations,
+        ))
     }
 
     /// Execute agent with bounded loops and automated verification using owned execution
@@ -422,7 +466,12 @@ impl AgentController {
         agent_executor: F,
     ) -> anyhow::Result<AgentResult>
     where
-        F: Fn(String, AgentExecutionState) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<AgentIterationResult>> + Send>>,
+        F: Fn(
+            String,
+            AgentExecutionState,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = anyhow::Result<AgentIterationResult>> + Send>,
+        >,
     {
         let start_time = Instant::now();
         let mut state = AgentExecutionState {
@@ -450,10 +499,13 @@ impl AgentController {
             state.iteration_count += 1;
 
             // Check total execution time
-            if start_time.elapsed() > Duration::from_secs(self.config.agent_execution.max_execution_time_seconds) {
+            if start_time.elapsed()
+                > Duration::from_secs(self.config.agent_execution.max_execution_time_seconds)
+            {
                 return Err(anyhow::anyhow!(
                     "Agent execution exceeded time limit: {} seconds",
-                    Duration::from_secs(self.config.agent_execution.max_execution_time_seconds).as_secs()
+                    Duration::from_secs(self.config.agent_execution.max_execution_time_seconds)
+                        .as_secs()
                 ));
             }
 
@@ -461,12 +513,17 @@ impl AgentController {
             let iteration_start = Instant::now();
             let iteration_result = match timeout(
                 Duration::from_secs(60), // 1 minute per iteration
-                agent_executor(current_goal.clone(), state.clone())
-            ).await {
+                agent_executor(current_goal.clone(), state.clone()),
+            )
+            .await
+            {
                 Ok(result) => result?,
                 Err(_) => {
                     state.failure_count += 1;
-                    return Err(anyhow::anyhow!("Iteration {} timed out", state.iteration_count));
+                    return Err(anyhow::anyhow!(
+                        "Iteration {} timed out",
+                        state.iteration_count
+                    ));
                 }
             };
 
@@ -485,7 +542,10 @@ impl AgentController {
 
             // Perform automated verification if enabled
             let verification_result = if true {
-                match self.verify_iteration_result(&iteration_result, &state).await {
+                match self
+                    .verify_iteration_result(&iteration_result, &state)
+                    .await
+                {
                     Ok(result) => Some(result),
                     Err(e) => {
                         eprintln!("Verification failed: {}", e);
@@ -502,7 +562,8 @@ impl AgentController {
 
             // Implement memory tracking
             let current_memory = self.estimate_memory_usage().unwrap_or(0);
-            let memory_peak_bytes = current_memory.max(state.resource_usage_stats.peak_memory_bytes);
+            let memory_peak_bytes =
+                current_memory.max(state.resource_usage_stats.peak_memory_bytes);
 
             // Update state's peak memory
             state.resource_usage_stats.peak_memory_bytes = memory_peak_bytes;
@@ -522,7 +583,9 @@ impl AgentController {
 
             // Calculate confidence trend (moving average of confidence scores)
             let confidence_trend = if !state.execution_history.is_empty() {
-                let recent_confidences: Vec<f32> = state.execution_history.iter()
+                let recent_confidences: Vec<f32> = state
+                    .execution_history
+                    .iter()
                     .rev()
                     .take(3)
                     .map(|r| r.confidence_score)
@@ -536,12 +599,14 @@ impl AgentController {
 
             // Calculate goal progress score based on iteration metrics
             let goal_progress_score = {
-                let tools_used_score = (iteration_result.tool_calls.len() as f32 /
-                    self.config.agent_execution.max_tools_per_iteration as f32).min(1.0);
-                let reasoning_score = (iteration_result.reasoning_steps.len() as f32 / 5.0).min(1.0);
+                let tools_used_score = (iteration_result.tool_calls.len() as f32
+                    / self.config.agent_execution.max_tools_per_iteration as f32)
+                    .min(1.0);
+                let reasoning_score =
+                    (iteration_result.reasoning_steps.len() as f32 / 5.0).min(1.0);
                 let confidence_score = iteration_result.confidence_score;
 
-                (tools_used_score * 0.3 + reasoning_score * 0.3 + confidence_score * 0.4)
+                tools_used_score * 0.3 + reasoning_score * 0.3 + confidence_score * 0.4
             };
             convergence_indicators.insert("goal_progress_score".to_string(), goal_progress_score);
 
@@ -551,8 +616,10 @@ impl AgentController {
             // Implement resource tracking
             let resource_usage = ResourceUsageStats {
                 peak_memory_bytes: memory_peak_bytes,
-                total_cpu_time_ms: state.resource_usage_stats.total_cpu_time_ms + execution_time.as_millis() as u64,
-                io_operations: state.resource_usage_stats.io_operations + iteration_result.tool_calls.len() as u32,
+                total_cpu_time_ms: state.resource_usage_stats.total_cpu_time_ms
+                    + execution_time.as_millis() as u64,
+                io_operations: state.resource_usage_stats.io_operations
+                    + iteration_result.tool_calls.len() as u32,
                 network_requests: state.resource_usage_stats.network_requests + 1, // Each iteration likely involves network
             };
 
@@ -566,10 +633,15 @@ impl AgentController {
                 resource_usage,
                 iteration_number: state.iteration_count,
                 reasoning_steps: reasoning_steps_clone,
-                tool_calls: tool_calls_clone.iter().map(|tc| format!("{:?}", tc)).collect(),
+                tool_calls: tool_calls_clone
+                    .iter()
+                    .map(|tc| format!("{:?}", tc))
+                    .collect(),
                 verification_result: verification_result.clone(),
                 execution_time_ms: execution_time.as_millis() as u64,
-                success: verification_result.as_ref().map_or(false, |v| matches!(v, VerificationResult::Passed { .. })),
+                success: verification_result
+                    .as_ref()
+                    .map_or(false, |v| matches!(v, VerificationResult::Passed { .. })),
             };
 
             state.execution_history.push(record);
@@ -591,21 +663,32 @@ impl AgentController {
                         confidence_score,
                         iterations_used: state.iteration_count,
                         tools_executed: state.total_tools_executed,
-                        verification_history: state.execution_history.iter()
+                        verification_history: state
+                            .execution_history
+                            .iter()
                             .filter_map(|r| r.verification_result.clone())
                             .collect(),
                         execution_time: start_time.elapsed(),
-                        tool_calls: state.execution_history.iter().flat_map(|r| r.tool_calls.clone()).collect(),
+                        tool_calls: state
+                            .execution_history
+                            .iter()
+                            .flat_map(|r| r.tool_calls.clone())
+                            .collect(),
                         tool_results: Vec::new(),
                     });
                 }
                 IterationDecision::Fail(reason) => {
                     state.failure_count += 1;
 
-                    if self.config.agent_execution.allow_iteration_on_failure && state.failure_count < 3 {
+                    if self.config.agent_execution.allow_iteration_on_failure
+                        && state.failure_count < 3
+                    {
                         // Attempt recovery
                         state.recovery_attempts += 1;
-                        current_goal = format!("{} (Recovery attempt {})", initial_goal, state.recovery_attempts);
+                        current_goal = format!(
+                            "{} (Recovery attempt {})",
+                            initial_goal, state.recovery_attempts
+                        );
                         continue;
                     } else {
                         return Err(anyhow::anyhow!("Agent execution failed: {}", reason));
@@ -615,7 +698,10 @@ impl AgentController {
         }
 
         // Max iterations reached
-        Err(anyhow::anyhow!("Maximum iterations exceeded: {}", self.config.agent_execution.max_iterations))
+        Err(anyhow::anyhow!(
+            "Maximum iterations exceeded: {}",
+            self.config.agent_execution.max_iterations
+        ))
     }
 
     /// Verify the results of an agent iteration
@@ -647,8 +733,10 @@ impl AgentController {
         checks_performed.push("progress_check".to_string());
         if state.iteration_count > 1 {
             // Check if we're making progress (simplified)
-            let recent_iterations = &state.execution_history[state.execution_history.len().saturating_sub(3)..];
-            let similar_results = recent_iterations.iter()
+            let recent_iterations =
+                &state.execution_history[state.execution_history.len().saturating_sub(3)..];
+            let similar_results = recent_iterations
+                .iter()
                 .filter(|r| r.reasoning_steps == result.reasoning_steps)
                 .count();
 
@@ -686,9 +774,21 @@ impl AgentController {
         }
 
         // Get convergence indicators from the latest iteration
-        let iteration_stability = state.convergence_metrics.get("iteration_stability").copied().unwrap_or(0.0);
-        let confidence_trend = state.convergence_metrics.get("confidence_trend").copied().unwrap_or(0.0);
-        let goal_progress_score = state.convergence_metrics.get("goal_progress_score").copied().unwrap_or(0.0);
+        let iteration_stability = state
+            .convergence_metrics
+            .get("iteration_stability")
+            .copied()
+            .unwrap_or(0.0);
+        let confidence_trend = state
+            .convergence_metrics
+            .get("confidence_trend")
+            .copied()
+            .unwrap_or(0.0);
+        let goal_progress_score = state
+            .convergence_metrics
+            .get("goal_progress_score")
+            .copied()
+            .unwrap_or(0.0);
 
         // Check for convergence:
         // 1. High iteration stability (results are not changing much)
@@ -698,9 +798,9 @@ impl AgentController {
         let confidence_threshold = state.convergence_threshold;
         let progress_threshold = 0.7;
 
-        iteration_stability >= stability_threshold &&
-        confidence_trend >= confidence_threshold &&
-        goal_progress_score >= progress_threshold
+        iteration_stability >= stability_threshold
+            && confidence_trend >= confidence_threshold
+            && goal_progress_score >= progress_threshold
     }
 
     /// Decide whether to continue iterating
@@ -732,11 +832,11 @@ impl AgentController {
         }
 
         // Check if tools suggest we need more information
-        let needs_more_info = result.tool_calls.iter().any(|tc|
-            tc.to_lowercase().contains("search") ||
-            tc.to_lowercase().contains("lookup") ||
-            tc.to_lowercase().contains("check")
-        );
+        let needs_more_info = result.tool_calls.iter().any(|tc| {
+            tc.to_lowercase().contains("search")
+                || tc.to_lowercase().contains("lookup")
+                || tc.to_lowercase().contains("check")
+        });
 
         if needs_more_info && state.iteration_count < self.config.agent_execution.max_iterations {
             IterationDecision::Continue(format!("Gather more information: {}", result.next_goal))
@@ -745,7 +845,11 @@ impl AgentController {
         }
     }
 
-    fn calculate_iteration_confidence(&self, result: &AgentIterationResult, _state: &AgentExecutionState) -> f32 {
+    fn calculate_iteration_confidence(
+        &self,
+        result: &AgentIterationResult,
+        _state: &AgentExecutionState,
+    ) -> f32 {
         let mut confidence = 0.5; // Base confidence
 
         // Reasoning quality
@@ -763,9 +867,13 @@ impl AgentController {
     }
 
     fn calculate_final_confidence(&self, state: &AgentExecutionState) -> f32 {
-        let verification_scores: Vec<f32> = state.execution_history.iter()
+        let verification_scores: Vec<f32> = state
+            .execution_history
+            .iter()
             .filter_map(|r| match &r.verification_result {
-                Some(VerificationResult::Passed { confidence_score, .. }) => Some(*confidence_score),
+                Some(VerificationResult::Passed {
+                    confidence_score, ..
+                }) => Some(*confidence_score),
                 _ => None,
             })
             .collect();
@@ -777,14 +885,21 @@ impl AgentController {
         }
     }
 
-    fn generate_final_response(&self, result: &AgentIterationResult, state: &AgentExecutionState) -> String {
+    fn generate_final_response(
+        &self,
+        result: &AgentIterationResult,
+        state: &AgentExecutionState,
+    ) -> String {
         let mut response = result.final_response.clone();
 
         // Add metadata about execution
         response.push_str(&format!("\n\n--- Execution Summary ---\n"));
         response.push_str(&format!("Iterations: {}\n", state.iteration_count));
         response.push_str(&format!("Tools executed: {}\n", state.total_tools_executed));
-        response.push_str(&format!("Execution time: {:.2}s\n", state.start_time.elapsed().unwrap_or_default().as_secs_f64()));
+        response.push_str(&format!(
+            "Execution time: {:.2}s\n",
+            state.start_time.elapsed().unwrap_or_default().as_secs_f64()
+        ));
 
         if state.failure_count > 0 {
             response.push_str(&format!("Recovery attempts: {}\n", state.recovery_attempts));
@@ -826,9 +941,13 @@ impl std::fmt::Display for AgentError {
         match self {
             AgentError::Timeout(msg) => write!(f, "Agent timeout: {}", msg),
             AgentError::IterationTimeout(iter) => write!(f, "Iteration {} timed out", iter),
-            AgentError::TooManyTools(actual, limit) => write!(f, "Too many tools in iteration: {} > {}", actual, limit),
+            AgentError::TooManyTools(actual, limit) => {
+                write!(f, "Too many tools in iteration: {} > {}", actual, limit)
+            }
             AgentError::ExecutionFailed(msg) => write!(f, "Agent execution failed: {}", msg),
-            AgentError::MaxIterationsExceeded(max) => write!(f, "Maximum iterations exceeded: {}", max),
+            AgentError::MaxIterationsExceeded(max) => {
+                write!(f, "Maximum iterations exceeded: {}", max)
+            }
             AgentError::VerificationError(msg) => write!(f, "Verification error: {}", msg),
             AgentError::InternalError(msg) => write!(f, "Internal error: {}", msg),
         }
@@ -873,7 +992,8 @@ impl SafeFailureHandler {
 
                     if attempt < self.max_retries {
                         // Exponential backoff
-                        let delay_ms = (1000.0 * self.backoff_multiplier.powi(attempt as i32 - 1)) as u64;
+                        let delay_ms =
+                            (1000.0 * self.backoff_multiplier.powi(attempt as i32 - 1)) as u64;
                         tokio::time::sleep(Duration::from_millis(delay_ms)).await;
                     }
                 }
@@ -883,7 +1003,11 @@ impl SafeFailureHandler {
         Err(last_error.unwrap_or_else(|| AgentError::InternalError("Unknown error".to_string())))
     }
 
-    pub fn generate_safe_fallback_response(&self, error: &AgentError, original_goal: &str) -> String {
+    pub fn generate_safe_fallback_response(
+        &self,
+        error: &AgentError,
+        original_goal: &str,
+    ) -> String {
         match error {
             AgentError::Timeout(_) => {
                 format!("I apologize, but I couldn't complete the task within the time limit. The request was: '{}'. Please try breaking it down into smaller, more specific tasks.", original_goal)

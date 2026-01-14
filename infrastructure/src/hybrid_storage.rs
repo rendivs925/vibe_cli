@@ -1,5 +1,5 @@
-use crate::qdrant_storage::QdrantStorage;
 use crate::embedding_storage::EmbeddingStorage;
+use crate::qdrant_storage::QdrantStorage;
 use domain::models::Embedding;
 use shared::types::Result;
 use std::collections::HashMap;
@@ -56,7 +56,11 @@ impl HybridStorage {
     }
 
     /// Search for similar embeddings
-    pub async fn search_similar(&self, query_vector: &[f32], limit: usize) -> Result<Vec<Embedding>> {
+    pub async fn search_similar(
+        &self,
+        query_vector: &[f32],
+        limit: usize,
+    ) -> Result<Vec<Embedding>> {
         if self.use_qdrant {
             if let Some(qdrant) = &self.qdrant {
                 qdrant.search_similar(query_vector, limit).await
@@ -81,11 +85,7 @@ impl HybridStorage {
 
         scored.sort_by(|a, b| b.0.partial_cmp(&a.0).unwrap_or(std::cmp::Ordering::Equal));
 
-        Ok(scored
-            .into_iter()
-            .take(limit)
-            .map(|(_, emb)| emb)
-            .collect())
+        Ok(scored.into_iter().take(limit).map(|(_, emb)| emb).collect())
     }
 
     /// Cosine similarity calculation
@@ -140,8 +140,10 @@ impl HybridStorage {
 
         // Add hybrid-specific stats
         stats.insert("hybrid_mode".to_string(), self.use_qdrant.to_string());
-        stats.insert("primary_storage".to_string(),
-            if self.use_qdrant { "qdrant" } else { "sqlite" }.to_string());
+        stats.insert(
+            "primary_storage".to_string(),
+            if self.use_qdrant { "qdrant" } else { "sqlite" }.to_string(),
+        );
 
         Ok(stats)
     }

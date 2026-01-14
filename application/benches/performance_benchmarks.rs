@@ -1,19 +1,18 @@
+use application::{
+    advanced_scheduler::{AdvancedScheduler, SchedulingStrategy},
+    dynamic_scaling::{DynamicScalingController, ScalingConfig, ScalingPolicy, SystemMetrics},
+    parallel_agent::{ParallelAgentOrchestrator, SubTask},
+    task_decomposer::{DecompositionStrategy, TaskDecomposer},
+};
 /// Comprehensive performance benchmarks for advanced features
 ///
 /// Run with: cargo bench
 /// Generate HTML reports in: target/criterion/
-
-use criterion::{black_box, criterion_group, criterion_main, Criterion, BenchmarkId};
-use application::{
-    advanced_scheduler::{AdvancedScheduler, SchedulingStrategy},
-    dynamic_scaling::{DynamicScalingController, ScalingConfig, ScalingPolicy, SystemMetrics},
-    parallel_agent::{SubTask, ParallelAgentOrchestrator},
-    task_decomposer::{TaskDecomposer, DecompositionStrategy},
-};
+use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion};
 use shared::{
-    zero_copy::{StringInterner, concat_strings, join_with_separator},
-    memory_pool::{ObjectPool, BufferPool},
     batch_processing::{BatchProcessor, VectorBatchOps},
+    memory_pool::{BufferPool, ObjectPool},
+    zero_copy::{concat_strings, join_with_separator, StringInterner},
 };
 
 /// Benchmark advanced scheduler performance
@@ -133,7 +132,9 @@ fn bench_string_interner(c: &mut Criterion) {
 fn bench_string_concat(c: &mut Criterion) {
     let mut group = c.benchmark_group("string_concat");
 
-    let parts = vec!["Hello", " ", "World", "!", " ", "This", " ", "is", " ", "a", " ", "test"];
+    let parts = vec![
+        "Hello", " ", "World", "!", " ", "This", " ", "is", " ", "a", " ", "test",
+    ];
 
     group.bench_function("concat_strings", |b| {
         b.iter(|| {
@@ -307,7 +308,12 @@ fn bench_parallel_agent(c: &mut Criterion) {
                     })
                 };
 
-                black_box(orchestrator.execute_parallel(tasks, executor).await.unwrap());
+                black_box(
+                    orchestrator
+                        .execute_parallel(tasks, executor)
+                        .await
+                        .unwrap(),
+                );
             })
         });
     });

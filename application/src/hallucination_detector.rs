@@ -1,11 +1,10 @@
+use anyhow::Result;
 /// Enhanced validation engine for preventing AI hallucinations and ensuring suggestion accuracy
 /// Cross-references AI suggestions against actual project structure and dependencies
-
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use anyhow::Result;
 
 /// Confidence level for AI suggestions
 #[derive(Debug, Clone, PartialEq)]
@@ -79,7 +78,11 @@ impl HallucinationDetector {
     }
 
     /// Validate an AI suggestion against project reality
-    pub async fn validate_suggestion(&self, suggestion: &str, context: &ValidationContext) -> Result<ValidationResult> {
+    pub async fn validate_suggestion(
+        &self,
+        suggestion: &str,
+        context: &ValidationContext,
+    ) -> Result<ValidationResult> {
         let knowledge = self.knowledge_base.read().await;
         let mut issues = Vec::new();
         let mut suggestions = Vec::new();
@@ -89,13 +92,16 @@ impl HallucinationDetector {
         self.check_obvious_hallucinations(suggestion, &mut issues)?;
 
         // Validate file paths mentioned
-        self.validate_file_paths(suggestion, &knowledge, &mut issues, &mut validated_paths).await?;
+        self.validate_file_paths(suggestion, &knowledge, &mut issues, &mut validated_paths)
+            .await?;
 
         // Check dependency validity
-        self.validate_dependencies(suggestion, &knowledge, &mut issues, &mut suggestions).await?;
+        self.validate_dependencies(suggestion, &knowledge, &mut issues, &mut suggestions)
+            .await?;
 
         // Check API endpoint validity
-        self.validate_api_endpoints(suggestion, &knowledge, &mut issues).await?;
+        self.validate_api_endpoints(suggestion, &knowledge, &mut issues)
+            .await?;
 
         // Calculate confidence level
         let confidence = self.calculate_confidence(&issues, suggestion, context);
@@ -109,7 +115,11 @@ impl HallucinationDetector {
     }
 
     /// Check for obvious hallucination patterns
-    fn check_obvious_hallucinations(&self, suggestion: &str, issues: &mut Vec<String>) -> Result<()> {
+    fn check_obvious_hallucinations(
+        &self,
+        suggestion: &str,
+        issues: &mut Vec<String>,
+    ) -> Result<()> {
         let hallucination_patterns = [
             "/etc/hosts",
             "/etc/passwd",
@@ -124,7 +134,10 @@ impl HallucinationDetector {
 
         for pattern in &hallucination_patterns {
             if suggestion.contains(pattern) {
-                issues.push(format!("CRITICAL: Contains dangerous system operation: {}", pattern));
+                issues.push(format!(
+                    "CRITICAL: Contains dangerous system operation: {}",
+                    pattern
+                ));
             }
         }
 
@@ -137,7 +150,13 @@ impl HallucinationDetector {
     }
 
     /// Validate file paths mentioned in suggestion
-    async fn validate_file_paths(&self, suggestion: &str, knowledge: &ProjectKnowledge, issues: &mut Vec<String>, validated_paths: &mut Vec<PathBuf>) -> Result<()> {
+    async fn validate_file_paths(
+        &self,
+        suggestion: &str,
+        knowledge: &ProjectKnowledge,
+        issues: &mut Vec<String>,
+        validated_paths: &mut Vec<PathBuf>,
+    ) -> Result<()> {
         // Extract potential file paths from suggestion
         let path_patterns = [
             r"[\w/.-]+\.rs\b",
@@ -158,8 +177,15 @@ impl HallucinationDetector {
                     let path = PathBuf::from(path_str);
 
                     // Check if it's a relative path that should exist in project
-                    if path.is_relative() && !knowledge.file_structure.contains_key(&path.canonicalize().unwrap_or(path.clone())) {
-                        issues.push(format!("WARNING: References non-existent project file: {}", path_str));
+                    if path.is_relative()
+                        && !knowledge
+                            .file_structure
+                            .contains_key(&path.canonicalize().unwrap_or(path.clone()))
+                    {
+                        issues.push(format!(
+                            "WARNING: References non-existent project file: {}",
+                            path_str
+                        ));
                     } else {
                         validated_paths.push(path);
                     }
@@ -171,7 +197,13 @@ impl HallucinationDetector {
     }
 
     /// Validate dependencies mentioned
-    async fn validate_dependencies(&self, suggestion: &str, knowledge: &ProjectKnowledge, issues: &mut Vec<String>, suggestions: &mut Vec<String>) -> Result<()> {
+    async fn validate_dependencies(
+        &self,
+        suggestion: &str,
+        knowledge: &ProjectKnowledge,
+        issues: &mut Vec<String>,
+        suggestions: &mut Vec<String>,
+    ) -> Result<()> {
         // Check for crate dependencies mentioned
         let dep_patterns = [
             r"use\s+[\w:]+::",
@@ -185,8 +217,13 @@ impl HallucinationDetector {
                     let dep_usage = capture.as_str();
                     // This is a simplified check - in practice, we'd analyze imports more thoroughly
                     if dep_usage.contains("nonexistent_crate") {
-                        issues.push(format!("ERROR: References non-existent dependency: {}", dep_usage));
-                        suggestions.push("Consider checking Cargo.toml for available dependencies".to_string());
+                        issues.push(format!(
+                            "ERROR: References non-existent dependency: {}",
+                            dep_usage
+                        ));
+                        suggestions.push(
+                            "Consider checking Cargo.toml for available dependencies".to_string(),
+                        );
                     }
                 }
             }
@@ -196,17 +233,30 @@ impl HallucinationDetector {
     }
 
     /// Validate API endpoints mentioned
-    async fn validate_api_endpoints(&self, suggestion: &str, knowledge: &ProjectKnowledge, issues: &mut Vec<String>) -> Result<()> {
+    async fn validate_api_endpoints(
+        &self,
+        suggestion: &str,
+        knowledge: &ProjectKnowledge,
+        issues: &mut Vec<String>,
+    ) -> Result<()> {
         // Look for API endpoint patterns
         if suggestion.contains("http://") || suggestion.contains("https://") {
-            issues.push("WARNING: Contains external API references - ensure these are intentional".to_string());
+            issues.push(
+                "WARNING: Contains external API references - ensure these are intentional"
+                    .to_string(),
+            );
         }
 
         Ok(())
     }
 
     /// Calculate overall confidence level
-    fn calculate_confidence(&self, issues: &[String], suggestion: &str, context: &ValidationContext) -> ConfidenceLevel {
+    fn calculate_confidence(
+        &self,
+        issues: &[String],
+        suggestion: &str,
+        context: &ValidationContext,
+    ) -> ConfidenceLevel {
         let critical_count = issues.iter().filter(|i| i.starts_with("CRITICAL")).count();
         let error_count = issues.iter().filter(|i| i.starts_with("ERROR")).count();
         let warning_count = issues.iter().filter(|i| i.starts_with("WARNING")).count();
@@ -242,7 +292,9 @@ impl HallucinationDetector {
     /// Assess suggestion complexity (0.0 to 1.0)
     fn assess_complexity(&self, suggestion: &str) -> f32 {
         let word_count = suggestion.split_whitespace().count();
-        let has_code = suggestion.contains("fn ") || suggestion.contains("struct ") || suggestion.contains("impl ");
+        let has_code = suggestion.contains("fn ")
+            || suggestion.contains("struct ")
+            || suggestion.contains("impl ");
         let has_paths = suggestion.contains("/") || suggestion.contains(".rs");
 
         let mut score: f32 = 0.0;
@@ -288,7 +340,11 @@ impl HallucinationDetector {
 
     /// Scan project file structure
     async fn scan_file_structure(&self, knowledge: &mut ProjectKnowledge) -> Result<()> {
-        fn scan_dir_sync(dir: &Path, knowledge: &mut ProjectKnowledge, project_root: &Path) -> Result<()> {
+        fn scan_dir_sync(
+            dir: &Path,
+            knowledge: &mut ProjectKnowledge,
+            project_root: &Path,
+        ) -> Result<()> {
             for entry in std::fs::read_dir(dir)? {
                 let entry = entry?;
                 let path = entry.path();
@@ -310,7 +366,7 @@ impl HallucinationDetector {
                             is_file: true,
                             size: metadata.len(),
                             dependencies: Vec::new(), // Will be filled by dependency analysis
-                        }
+                        },
                     );
                 }
             }
@@ -331,7 +387,10 @@ impl HallucinationDetector {
             // Simple dependency extraction - in practice, use a TOML parser
             let content = tokio::fs::read_to_string(&cargo_toml).await?;
             // Extract dependencies (simplified)
-            knowledge.dependencies.insert("cargo_deps".to_string(), vec!["serde".to_string(), "tokio".to_string()]);
+            knowledge.dependencies.insert(
+                "cargo_deps".to_string(),
+                vec!["serde".to_string(), "tokio".to_string()],
+            );
         }
 
         Ok(())

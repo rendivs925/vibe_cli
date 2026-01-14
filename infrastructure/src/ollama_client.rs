@@ -72,7 +72,11 @@ impl OllamaClient {
         self.generate_response_with_system(prompt, "").await
     }
 
-    pub async fn generate_response_with_system(&self, prompt: &str, system: &str) -> Result<String> {
+    pub async fn generate_response_with_system(
+        &self,
+        prompt: &str,
+        system: &str,
+    ) -> Result<String> {
         let url = format!("{}/api/chat", self.base_url);
         let mut messages = Vec::new();
         if !system.is_empty() {
@@ -111,5 +115,3 @@ impl OllamaClient {
         Ok(full_content)
     }
 }
-
-

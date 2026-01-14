@@ -1,11 +1,10 @@
+use crate::network_security::SecureHttpClient;
 use scraper::{Html, Selector};
 use shared::types::Result;
 use std::collections::HashMap;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 use url::Url;
-use crate::network_security::{SecureHttpClient, NetworkSecurityError};
 
 /// Secure web search integration using DuckDuckGo with network security
 pub struct WebSearch {
@@ -56,7 +55,11 @@ impl WebSearch {
     }
 
     /// Search the web for programming-related information
-    pub async fn search_programming(&self, query: &str, options: SearchOptions) -> Result<Vec<SearchResult>> {
+    pub async fn search_programming(
+        &self,
+        query: &str,
+        options: SearchOptions,
+    ) -> Result<Vec<SearchResult>> {
         // Enforce rate limiting
         self.enforce_rate_limit().await?;
 
@@ -70,19 +73,28 @@ impl WebSearch {
     }
 
     /// Search using DuckDuckGo HTML interface with security checks
-    async fn search_duckduckgo(&self, query: &str, options: &SearchOptions) -> Result<Vec<SearchResult>> {
+    async fn search_duckduckgo(
+        &self,
+        query: &str,
+        options: &SearchOptions,
+    ) -> Result<Vec<SearchResult>> {
         let search_url = format!(
             "https://html.duckduckgo.com/html/?q={}&kl=us-en",
             urlencoding::encode(query)
         );
 
         // Network security check is handled by SecureHttpClient
-        let response = self.client.get(&search_url)
+        let response = self
+            .client
+            .get(&search_url)
             .await
             .map_err(|e| anyhow::anyhow!("Network security violation: {}", e))?;
 
         if !response.status().is_success() {
-            return Err(anyhow::anyhow!("DuckDuckGo search failed: {}", response.status()));
+            return Err(anyhow::anyhow!(
+                "DuckDuckGo search failed: {}",
+                response.status()
+            ));
         }
 
         let html = response.text().await?;
@@ -90,14 +102,22 @@ impl WebSearch {
     }
 
     /// Parse DuckDuckGo HTML results
-    fn parse_duckduckgo_results(&self, html: &str, max_results: usize) -> Result<Vec<SearchResult>> {
+    fn parse_duckduckgo_results(
+        &self,
+        html: &str,
+        max_results: usize,
+    ) -> Result<Vec<SearchResult>> {
         let document = Html::parse_document(html);
 
         // Use simpler selectors that are more likely to work
-        let result_selector = Selector::parse(".result").map_err(|e| anyhow::anyhow!("Selector parse error: {:?}", e))?;
-        let title_selector = Selector::parse(".result__title a").map_err(|e| anyhow::anyhow!("Selector parse error: {:?}", e))?;
-        let url_selector = Selector::parse(".result__url").map_err(|e| anyhow::anyhow!("Selector parse error: {:?}", e))?;
-        let snippet_selector = Selector::parse(".result__snippet").map_err(|e| anyhow::anyhow!("Selector parse error: {:?}", e))?;
+        let result_selector = Selector::parse(".result")
+            .map_err(|e| anyhow::anyhow!("Selector parse error: {:?}", e))?;
+        let title_selector = Selector::parse(".result__title a")
+            .map_err(|e| anyhow::anyhow!("Selector parse error: {:?}", e))?;
+        let url_selector = Selector::parse(".result__url")
+            .map_err(|e| anyhow::anyhow!("Selector parse error: {:?}", e))?;
+        let snippet_selector = Selector::parse(".result__snippet")
+            .map_err(|e| anyhow::anyhow!("Selector parse error: {:?}", e))?;
 
         let mut results = Vec::new();
 
@@ -138,7 +158,11 @@ impl WebSearch {
         }
 
         // Sort by relevance score
-        results.sort_by(|a, b| b.relevance_score.partial_cmp(&a.relevance_score).unwrap_or(std::cmp::Ordering::Equal));
+        results.sort_by(|a, b| {
+            b.relevance_score
+                .partial_cmp(&a.relevance_score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         Ok(results)
     }
@@ -156,9 +180,10 @@ impl WebSearch {
             enhanced.push_str(" code example");
         } else if query_lower.contains("library") || query_lower.contains("framework") {
             enhanced.push_str(" documentation api");
-        } else if !query_lower.contains("programming") &&
-                  !query_lower.contains("code") &&
-                  !query_lower.contains("development") {
+        } else if !query_lower.contains("programming")
+            && !query_lower.contains("code")
+            && !query_lower.contains("development")
+        {
             enhanced.push_str(" programming");
         }
 
@@ -209,7 +234,13 @@ impl WebSearch {
             score += 0.1;
         }
 
-        if score > 1.0 { 1.0 } else if score < 0.0 { 0.0 } else { score }
+        if score > 1.0 {
+            1.0
+        } else if score < 0.0 {
+            0.0
+        } else {
+            score
+        }
     }
 
     /// Enforce rate limiting
@@ -234,7 +265,10 @@ impl WebSearch {
         let last_search = *self.last_search.lock().await;
         let time_since_last = last_search.elapsed();
 
-        stats.insert("last_search_seconds".to_string(), time_since_last.as_secs().to_string());
+        stats.insert(
+            "last_search_seconds".to_string(),
+            time_since_last.as_secs().to_string(),
+        );
         stats.insert("rate_limit_per_minute".to_string(), "20".to_string());
         stats.insert("search_provider".to_string(), "DuckDuckGo".to_string());
 
@@ -242,7 +276,12 @@ impl WebSearch {
     }
 
     /// Search with automatic retries and fallback
-    pub async fn search_with_retry(&self, query: &str, options: SearchOptions, max_retries: usize) -> Result<Vec<SearchResult>> {
+    pub async fn search_with_retry(
+        &self,
+        query: &str,
+        options: SearchOptions,
+        max_retries: usize,
+    ) -> Result<Vec<SearchResult>> {
         let mut last_error = None;
 
         for attempt in 0..=max_retries {
@@ -264,7 +303,8 @@ impl WebSearch {
 
     /// Validate search results for quality
     pub fn validate_results(results: &[SearchResult]) -> Vec<SearchResult> {
-        results.iter()
+        results
+            .iter()
             .filter(|result| {
                 // Basic quality checks
                 !result.title.is_empty() &&

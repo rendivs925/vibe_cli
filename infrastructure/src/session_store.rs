@@ -1,4 +1,4 @@
-use anyhow::{Result, Context};
+use anyhow::{Context, Result};
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use sled::{Db, Tree};
@@ -74,8 +74,12 @@ impl SessionStore {
         let db = sled::open(&db_path).context("Failed to open sled database")?;
 
         // Get trees
-        let sessions_tree = db.open_tree("sessions").context("Failed to open sessions tree")?;
-        let metadata_tree = db.open_tree("metadata").context("Failed to open metadata tree")?;
+        let sessions_tree = db
+            .open_tree("sessions")
+            .context("Failed to open sessions tree")?;
+        let metadata_tree = db
+            .open_tree("metadata")
+            .context("Failed to open metadata tree")?;
 
         Ok(Self {
             db,
@@ -134,8 +138,7 @@ impl SessionStore {
     /// Save a session to storage
     pub fn save_session(&self, session: &Session) -> Result<()> {
         let key = format!("session:{}", session.metadata.name);
-        let data = serde_json::to_vec(session)
-            .context("Failed to serialize session")?;
+        let data = serde_json::to_vec(session).context("Failed to serialize session")?;
 
         self.sessions_tree.insert(key.as_bytes(), data.as_slice())?;
         self.sessions_tree.flush()?;
@@ -171,9 +174,10 @@ impl SessionStore {
         let mut sessions = self.list_sessions()?;
         sessions.retain(|s| s.name != session_name);
 
-        let data = serde_json::to_vec(&sessions)
-            .context("Failed to serialize updated session list")?;
-        self.metadata_tree.insert("session:list".as_bytes(), data.as_slice())?;
+        let data =
+            serde_json::to_vec(&sessions).context("Failed to serialize updated session list")?;
+        self.metadata_tree
+            .insert("session:list".as_bytes(), data.as_slice())?;
         self.metadata_tree.flush()?;
 
         Ok(())
@@ -194,9 +198,9 @@ impl SessionStore {
         // Add updated metadata
         sessions.push(session.metadata.clone());
 
-        let data = serde_json::to_vec(&sessions)
-            .context("Failed to serialize session list")?;
-        self.metadata_tree.insert("session:list".as_bytes(), data.as_slice())?;
+        let data = serde_json::to_vec(&sessions).context("Failed to serialize session list")?;
+        self.metadata_tree
+            .insert("session:list".as_bytes(), data.as_slice())?;
         self.metadata_tree.flush()?;
 
         Ok(())
@@ -204,7 +208,8 @@ impl SessionStore {
 
     /// Export session to JSON file for backup
     pub fn export_session(&self, session_name: &str) -> Result<PathBuf> {
-        let session = self.load_session(session_name)?
+        let session = self
+            .load_session(session_name)?
             .context("Session not found")?;
 
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
@@ -216,8 +221,7 @@ impl SessionStore {
 
         let json_data = serde_json::to_string_pretty(&session)
             .context("Failed to serialize session to JSON")?;
-        std::fs::write(&export_path, json_data)
-            .context("Failed to write session export file")?;
+        std::fs::write(&export_path, json_data).context("Failed to write session export file")?;
 
         Ok(export_path)
     }

@@ -1,6 +1,5 @@
 use anyhow::Result;
 use regex::Regex;
-use std::collections::HashMap;
 
 /// Error analysis and fix generation engine
 #[derive(Clone)]
@@ -59,7 +58,9 @@ impl ErrorAnalyzer {
         project_root: &std::path::Path,
     ) -> Result<Vec<FixSuggestion>> {
         match error.error_type {
-            ErrorType::CompilationError => self.analyze_compilation_error(error, project_root).await,
+            ErrorType::CompilationError => {
+                self.analyze_compilation_error(error, project_root).await
+            }
             ErrorType::TestFailure => self.analyze_test_failure(error, project_root).await,
             ErrorType::LspDiagnostic => self.analyze_lsp_diagnostic(error, project_root).await,
             ErrorType::LogError => self.analyze_log_error(error, project_root).await,
@@ -220,7 +221,9 @@ impl ErrorAnalyzer {
             description: "Fix failing assertion by correcting the logic".to_string(),
             confidence: 0.5,
             changes: vec![],
-            explanation: "The test assertion failed. Review the test logic and expected vs actual values.".to_string(),
+            explanation:
+                "The test assertion failed. Review the test logic and expected vs actual values."
+                    .to_string(),
         }
     }
 
@@ -238,7 +241,8 @@ impl ErrorAnalyzer {
             description: "Remove unused import".to_string(),
             confidence: 0.95,
             changes: vec![],
-            explanation: "An import statement is not being used. Remove it to clean up the code.".to_string(),
+            explanation: "An import statement is not being used. Remove it to clean up the code."
+                .to_string(),
         }
     }
 
@@ -247,7 +251,8 @@ impl ErrorAnalyzer {
             description: "Add documentation comment".to_string(),
             confidence: 0.9,
             changes: vec![],
-            explanation: "Public items should be documented. Add a `///` comment above the item.".to_string(),
+            explanation: "Public items should be documented. Add a `///` comment above the item."
+                .to_string(),
         }
     }
 
@@ -256,7 +261,9 @@ impl ErrorAnalyzer {
             description: "Add connection error handling and retry logic".to_string(),
             confidence: 0.6,
             changes: vec![],
-            explanation: "Connection failures should be handled with retries and proper error messages.".to_string(),
+            explanation:
+                "Connection failures should be handled with retries and proper error messages."
+                    .to_string(),
         }
     }
 
@@ -315,23 +322,33 @@ impl ErrorAnalyzer {
 impl From<&super::background_supervisor::BackgroundEvent> for ErrorContext {
     fn from(event: &super::background_supervisor::BackgroundEvent) -> Self {
         match event {
-            super::background_supervisor::BackgroundEvent::LspDiagnostic { file, severity, message } => {
-                ErrorContext {
-                    error_type: ErrorType::LspDiagnostic,
-                    message: message.clone(),
-                    file: Some(file.to_string_lossy().to_string()),
-                    line: None,
-                    column: None,
-                    context: "LSP diagnostic".to_string(),
-                    severity: match severity {
-                        super::background_supervisor::DiagnosticSeverity::Error => ErrorSeverity::High,
-                        super::background_supervisor::DiagnosticSeverity::Warning => ErrorSeverity::Medium,
-                        super::background_supervisor::DiagnosticSeverity::Information => ErrorSeverity::Low,
-                        super::background_supervisor::DiagnosticSeverity::Hint => ErrorSeverity::Low,
-                    },
-                }
-            }
-            super::background_supervisor::BackgroundEvent::TestResult { session, status, output } => {
+            super::background_supervisor::BackgroundEvent::LspDiagnostic {
+                file,
+                severity,
+                message,
+            } => ErrorContext {
+                error_type: ErrorType::LspDiagnostic,
+                message: message.clone(),
+                file: Some(file.to_string_lossy().to_string()),
+                line: None,
+                column: None,
+                context: "LSP diagnostic".to_string(),
+                severity: match severity {
+                    super::background_supervisor::DiagnosticSeverity::Error => ErrorSeverity::High,
+                    super::background_supervisor::DiagnosticSeverity::Warning => {
+                        ErrorSeverity::Medium
+                    }
+                    super::background_supervisor::DiagnosticSeverity::Information => {
+                        ErrorSeverity::Low
+                    }
+                    super::background_supervisor::DiagnosticSeverity::Hint => ErrorSeverity::Low,
+                },
+            },
+            super::background_supervisor::BackgroundEvent::TestResult {
+                session,
+                status,
+                output,
+            } => {
                 if let super::background_supervisor::TestStatus::Failed { error } = status {
                     ErrorContext {
                         error_type: ErrorType::TestFailure,
@@ -355,7 +372,11 @@ impl From<&super::background_supervisor::BackgroundEvent> for ErrorContext {
                     }
                 }
             }
-            super::background_supervisor::BackgroundEvent::LogEntry { source, level, message } => {
+            super::background_supervisor::BackgroundEvent::LogEntry {
+                source,
+                level,
+                message,
+            } => {
                 let severity = match level {
                     super::background_supervisor::LogLevel::Error => ErrorSeverity::High,
                     super::background_supervisor::LogLevel::Warn => ErrorSeverity::Medium,

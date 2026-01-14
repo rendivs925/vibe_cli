@@ -1,7 +1,7 @@
+use regex::Regex;
 use shared::types::Result;
 use std::collections::HashMap;
-use tree_sitter::{Parser, Query, QueryCursor, StreamingIterator, Language};
-use regex::Regex;
+use tree_sitter::{Language, Parser, Query, QueryCursor, StreamingIterator};
 
 /// AST Parser for semantic code analysis
 pub struct AstParser {
@@ -67,35 +67,44 @@ impl AstParser {
         let mut rust_queries = HashMap::new();
 
         // Function definitions
-        rust_queries.insert("functions".to_string(), Query::new(
-            &tree_sitter_rust::LANGUAGE.into(),
-            r#"
+        rust_queries.insert(
+            "functions".to_string(),
+            Query::new(
+                &tree_sitter_rust::LANGUAGE.into(),
+                r#"
             (function_item
                 name: (identifier) @func_name
                 parameters: (parameters) @func_params
                 body: (block) @func_body) @function
             "#,
-        )?);
+            )?,
+        );
 
         // Struct definitions
-        rust_queries.insert("structs".to_string(), Query::new(
-            &tree_sitter_rust::LANGUAGE.into(),
-            r#"
+        rust_queries.insert(
+            "structs".to_string(),
+            Query::new(
+                &tree_sitter_rust::LANGUAGE.into(),
+                r#"
             (struct_item
                 name: (type_identifier) @struct_name
                 body: (field_declaration_list) @struct_body) @struct
             "#,
-        )?);
+            )?,
+        );
 
         // Trait definitions
-        rust_queries.insert("traits".to_string(), Query::new(
-            &tree_sitter_rust::LANGUAGE.into(),
-            r#"
+        rust_queries.insert(
+            "traits".to_string(),
+            Query::new(
+                &tree_sitter_rust::LANGUAGE.into(),
+                r#"
             (trait_item
                 name: (type_identifier) @trait_name
                 body: (declaration_list) @trait_body) @trait
             "#,
-        )?);
+            )?,
+        );
 
         queries.insert("rs".to_string(), rust_queries);
 
@@ -103,25 +112,31 @@ impl AstParser {
         let mut python_queries = HashMap::new();
 
         // Function definitions
-        python_queries.insert("functions".to_string(), Query::new(
-            &tree_sitter_python::LANGUAGE.into(),
-            r#"
+        python_queries.insert(
+            "functions".to_string(),
+            Query::new(
+                &tree_sitter_python::LANGUAGE.into(),
+                r#"
             (function_definition
                 name: (identifier) @func_name
                 parameters: (parameters) @func_params
                 body: (block) @func_body) @function
             "#,
-        )?);
+            )?,
+        );
 
         // Class definitions
-        python_queries.insert("classes".to_string(), Query::new(
-            &tree_sitter_python::LANGUAGE.into(),
-            r#"
+        python_queries.insert(
+            "classes".to_string(),
+            Query::new(
+                &tree_sitter_python::LANGUAGE.into(),
+                r#"
             (class_definition
                 name: (identifier) @class_name
                 body: (block) @class_body) @class
             "#,
-        )?);
+            )?,
+        );
 
         queries.insert("py".to_string(), python_queries);
 
@@ -129,9 +144,11 @@ impl AstParser {
         let mut js_queries = HashMap::new();
 
         // Function declarations
-        js_queries.insert("functions".to_string(), Query::new(
-            &tree_sitter_javascript::LANGUAGE.into(),
-            r#"
+        js_queries.insert(
+            "functions".to_string(),
+            Query::new(
+                &tree_sitter_javascript::LANGUAGE.into(),
+                r#"
             [
                 (function_declaration
                     name: (identifier) @func_name
@@ -146,23 +163,29 @@ impl AstParser {
                     body: (statement_block) @func_body) @function_expr
             ]
             "#,
-        )?);
+            )?,
+        );
 
         // Class declarations
-        js_queries.insert("classes".to_string(), Query::new(
-            &tree_sitter_javascript::LANGUAGE.into(),
-            r#"
+        js_queries.insert(
+            "classes".to_string(),
+            Query::new(
+                &tree_sitter_javascript::LANGUAGE.into(),
+                r#"
             (class_declaration
                 name: (identifier) @class_name
                 body: (class_body) @class_body) @class
             "#,
-        )?);
+            )?,
+        );
 
         // Create TypeScript queries separately
         let mut ts_queries = HashMap::new();
-        ts_queries.insert("functions".to_string(), Query::new(
-            &tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
-            r#"
+        ts_queries.insert(
+            "functions".to_string(),
+            Query::new(
+                &tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+                r#"
             [
                 (function_declaration
                     name: (identifier) @func_name
@@ -177,16 +200,20 @@ impl AstParser {
                     body: (statement_block) @func_body) @function_expr
             ]
             "#,
-        )?);
+            )?,
+        );
 
-        ts_queries.insert("classes".to_string(), Query::new(
-            &tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
-            r#"
+        ts_queries.insert(
+            "classes".to_string(),
+            Query::new(
+                &tree_sitter_typescript::LANGUAGE_TYPESCRIPT.into(),
+                r#"
             (class_declaration
                 name: (identifier) @class_name
                 body: (class_body) @class_body) @class
             "#,
-        )?);
+            )?,
+        );
 
         queries.insert("js".to_string(), js_queries);
         queries.insert("ts".to_string(), ts_queries);
@@ -196,10 +223,13 @@ impl AstParser {
 
     /// Parse source code and extract semantic information
     pub fn parse_code(&mut self, code: &str, language: &str) -> Result<AstNode> {
-        let parser = self.parsers.get_mut(language)
+        let parser = self
+            .parsers
+            .get_mut(language)
             .ok_or_else(|| anyhow::anyhow!("Unsupported language: {}", language))?;
 
-        let tree = parser.parse(code, None)
+        let tree = parser
+            .parse(code, None)
             .ok_or_else(|| anyhow::anyhow!("Failed to parse code"))?;
 
         let root_node = tree.root_node();
@@ -229,13 +259,18 @@ impl AstParser {
 
     /// Extract chunks using AST queries
     fn extract_chunks_ast(&mut self, code: &str, language: &str) -> Result<Vec<String>> {
-        let parser = self.parsers.get_mut(language)
+        let parser = self
+            .parsers
+            .get_mut(language)
             .ok_or_else(|| anyhow::anyhow!("Unsupported language: {}", language))?;
 
-        let tree = parser.parse(code, None)
+        let tree = parser
+            .parse(code, None)
             .ok_or_else(|| anyhow::anyhow!("Failed to parse code"))?;
 
-        let queries = self.language_queries.get(language)
+        let queries = self
+            .language_queries
+            .get(language)
             .ok_or_else(|| anyhow::anyhow!("No queries for language: {}", language))?;
 
         let mut chunks = Vec::new();
@@ -295,9 +330,9 @@ impl AstParser {
         match language {
             "rs" => vec![
                 r#"fn\s+\w+\([^}]*\)\s*\{[^}]*\}"#.to_string(), // Functions
-                r#"struct\s+\w+[^}]*\}"#.to_string(),             // Structs
-                r#"impl[^}]*\}"#.to_string(),                      // Implementations
-                r#"trait\s+\w+[^}]*\}"#.to_string(),              // Traits
+                r#"struct\s+\w+[^}]*\}"#.to_string(),           // Structs
+                r#"impl[^}]*\}"#.to_string(),                   // Implementations
+                r#"trait\s+\w+[^}]*\}"#.to_string(),            // Traits
             ],
             "py" => vec![
                 r#"def\s+\w+\([^)]*\):(?:\n\s+.*)*"#.to_string(), // Functions
@@ -305,8 +340,8 @@ impl AstParser {
             ],
             "js" | "ts" => vec![
                 r#"function\s+\w+\([^}]*\)\s*\{[^}]*\}"#.to_string(), // Functions
-                r#"\w+\s*\([^}]*\)\s*=>\s*\{[^}]*\}"#.to_string(),     // Arrow functions
-                r#"class\s+\w+[^}]*\}"#.to_string(),                    // Classes
+                r#"\w+\s*\([^}]*\)\s*=>\s*\{[^}]*\}"#.to_string(),    // Arrow functions
+                r#"class\s+\w+[^}]*\}"#.to_string(),                  // Classes
             ],
             _ => vec![r#".*"#.to_string()], // Catch-all
         }
@@ -317,9 +352,7 @@ impl AstParser {
         let start = node.start_position();
         let end = node.end_position();
 
-        let text = node.utf8_text(source.as_bytes())
-            .unwrap_or("")
-            .to_string();
+        let text = node.utf8_text(source.as_bytes()).unwrap_or("").to_string();
 
         let mut children = Vec::new();
         let mut cursor = node.walk();
@@ -343,10 +376,22 @@ impl AstParser {
 
     /// Check if a node type represents noise (comments, whitespace, etc.)
     fn is_noise_node(node_type: &str) -> bool {
-        matches!(node_type,
-            "comment" | "line_comment" | "block_comment" |
-            "whitespace" | ";" | "," | "(" | ")" | "{" | "}" |
-            "[" | "]" | ":" | "."
+        matches!(
+            node_type,
+            "comment"
+                | "line_comment"
+                | "block_comment"
+                | "whitespace"
+                | ";"
+                | ","
+                | "("
+                | ")"
+                | "{"
+                | "}"
+                | "["
+                | "]"
+                | ":"
+                | "."
         )
     }
 
@@ -356,7 +401,11 @@ impl AstParser {
     }
 
     /// Get language statistics
-    pub fn get_language_stats(&mut self, code: &str, language: &str) -> Result<HashMap<String, usize>> {
+    pub fn get_language_stats(
+        &mut self,
+        code: &str,
+        language: &str,
+    ) -> Result<HashMap<String, usize>> {
         let ast = self.parse_code(code, language)?;
         let mut stats = HashMap::new();
 
@@ -375,10 +424,13 @@ impl AstParser {
 
     /// Extract code documentation and comments
     pub fn extract_documentation(&mut self, code: &str, language: &str) -> Result<Vec<String>> {
-        let parser = self.parsers.get_mut(language)
+        let parser = self
+            .parsers
+            .get_mut(language)
             .ok_or_else(|| anyhow::anyhow!("Unsupported language: {}", language))?;
 
-        let tree = parser.parse(code, None)
+        let tree = parser
+            .parse(code, None)
             .ok_or_else(|| anyhow::anyhow!("Failed to parse code"))?;
 
         let query_str = match language {
@@ -399,7 +451,7 @@ impl AstParser {
         let query = Query::new(language_ref, query_str)?;
         let mut cursor = QueryCursor::new();
         let mut matches_iter = cursor.matches(&query, tree.root_node(), code.as_bytes());
-        
+
         let mut docs = Vec::new();
         while let Some(m) = matches_iter.next() {
             for capture in m.captures {

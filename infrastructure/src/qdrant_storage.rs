@@ -16,7 +16,10 @@ impl QdrantStorage {
         collection_name: String,
         vector_dim: usize,
     ) -> Result<Self> {
-        eprintln!("Qdrant storage initialized (stub): collection: {}", collection_name);
+        eprintln!(
+            "Qdrant storage initialized (stub): collection: {}",
+            collection_name
+        );
 
         Ok(Self {
             collection_name,
@@ -32,7 +35,11 @@ impl QdrantStorage {
     }
 
     /// Search for similar embeddings (stub implementation)
-    pub async fn search_similar(&self, _query_vector: &[f32], _limit: usize) -> Result<Vec<Embedding>> {
+    pub async fn search_similar(
+        &self,
+        _query_vector: &[f32],
+        _limit: usize,
+    ) -> Result<Vec<Embedding>> {
         // Stub implementation - returns local results only
         eprintln!("Qdrant search stub - using local similarity search");
         Ok(vec![])

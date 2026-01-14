@@ -1,5 +1,5 @@
-use shared::types::Result;
 use serde::{Deserialize, Serialize};
+use shared::types::Result;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -121,11 +121,17 @@ impl ExpertResolver {
     }
 
     /// Resolve experts for a given query with dependency resolution
-    pub async fn resolve_experts(&self, query: &str, required_capabilities: &[String]) -> Result<ResolutionResult> {
+    pub async fn resolve_experts(
+        &self,
+        query: &str,
+        required_capabilities: &[String],
+    ) -> Result<ResolutionResult> {
         let experts = self.experts.read().await;
 
         // Find candidate experts based on capabilities and query matching
-        let mut candidates = self.find_candidates(&experts, query, required_capabilities).await;
+        let mut candidates = self
+            .find_candidates(&experts, query, required_capabilities)
+            .await;
 
         // Sort by priority (higher priority first)
         candidates.sort_by(|a, b| b.priority.cmp(&a.priority));
@@ -177,14 +183,19 @@ impl ExpertResolver {
 
             // Check description relevance
             if let Some(desc) = expert.metadata.get("description") {
-                if query_lower.split_whitespace().any(|word| desc.to_lowercase().contains(word)) {
+                if query_lower
+                    .split_whitespace()
+                    .any(|word| desc.to_lowercase().contains(word))
+                {
                     score += 2;
                 }
             }
 
             if score > 0 {
                 let mut candidate = expert.clone();
-                candidate.metadata.insert("relevance_score".to_string(), score.to_string());
+                candidate
+                    .metadata
+                    .insert("relevance_score".to_string(), score.to_string());
                 candidates.push(candidate);
             }
         }
@@ -193,7 +204,10 @@ impl ExpertResolver {
     }
 
     /// Resolve dependencies with cycle detection and conflict resolution
-    async fn resolve_dependencies(&self, candidates: &[Expert]) -> (Vec<Expert>, Vec<String>, Vec<String>) {
+    async fn resolve_dependencies(
+        &self,
+        candidates: &[Expert],
+    ) -> (Vec<Expert>, Vec<String>, Vec<String>) {
         let mut resolved = Vec::new();
         let mut missing = Vec::new();
         let mut conflicts = Vec::new();
@@ -233,12 +247,7 @@ impl ExpertResolver {
             if let Some(dep_expert) = experts.get(dep_name) {
                 if !visited.contains(dep_name) {
                     self.resolve_expert_iterative(
-                        experts,
-                        dep_expert,
-                        resolved,
-                        visited,
-                        missing,
-                        conflicts,
+                        experts, dep_expert, resolved, visited, missing, conflicts,
                     );
                 }
             } else {
@@ -336,10 +345,12 @@ impl ExpertResolver {
     }
 
     /// Create new expert with metadata
-    pub async fn create_expert(&self, metadata: ExpertMetadata, path: Option<PathBuf>) -> Result<()> {
-        let expert_path = path.unwrap_or_else(|| {
-            self.knowledge_base_path.join(&metadata.name)
-        });
+    pub async fn create_expert(
+        &self,
+        metadata: ExpertMetadata,
+        path: Option<PathBuf>,
+    ) -> Result<()> {
+        let expert_path = path.unwrap_or_else(|| self.knowledge_base_path.join(&metadata.name));
 
         fs::create_dir_all(&expert_path)?;
 
@@ -387,7 +398,8 @@ impl ExpertResolver {
     /// Get experts by domain
     pub async fn get_experts_by_domain(&self, domain: &str) -> Vec<Expert> {
         let experts = self.experts.read().await;
-        experts.values()
+        experts
+            .values()
             .filter(|e| e.domain == domain)
             .cloned()
             .collect()
@@ -400,7 +412,8 @@ impl ExpertResolver {
 
         for expert in experts.values() {
             for capability in &expert.capabilities {
-                summary.entry(capability.clone())
+                summary
+                    .entry(capability.clone())
                     .or_insert_with(Vec::new)
                     .push(expert.name.clone());
             }
@@ -417,7 +430,10 @@ impl ExpertResolver {
         for expert in experts.values() {
             for dep in &expert.dependencies {
                 if !experts.contains_key(dep) {
-                    issues.push(format!("Expert '{}' depends on missing expert '{}'", expert.name, dep));
+                    issues.push(format!(
+                        "Expert '{}' depends on missing expert '{}'",
+                        expert.name, dep
+                    ));
                 }
             }
         }

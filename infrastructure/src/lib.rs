@@ -1,40 +1,40 @@
+pub mod agent_control;
+pub mod ast_parser;
+pub mod background_supervisor;
+pub mod candle_inference;
+pub mod chatgpt_browser;
+pub mod chatgpt_ocr;
+pub mod command_interpreter;
+pub mod compilation_watcher;
 pub mod config;
 pub mod embedder;
 pub mod embedding_storage;
-pub mod file_scanner;
-pub mod ollama_client;
-pub mod search;
-pub mod qdrant_storage;
-pub mod hybrid_storage;
-pub mod ast_parser;
-pub mod web_search;
-pub mod expert_resolver;
-pub mod safety;
-pub mod qdrant_advanced;
-pub mod input_classifier;
-pub mod shell_monitor;
-pub mod sandbox;
-pub mod tools;
-pub mod command_interpreter;
-pub mod network_security;
-pub mod resource_enforcement;
-pub mod policy_engine;
-pub mod agent_control;
-pub mod observability;
-pub mod feature_flags;
-pub mod candle_inference;
-pub mod session_store;
-pub mod background_supervisor;
-pub mod lsp_client;
-pub mod test_watcher;
-pub mod log_tailer;
 pub mod error_analyzer;
- pub mod chatgpt_browser;
- pub mod chatgpt_ocr;
- pub mod smart_router;
- pub mod privacy_controls;
- pub mod compilation_watcher;
- pub mod fix_applier;
+pub mod expert_resolver;
+pub mod feature_flags;
+pub mod file_scanner;
+pub mod fix_applier;
+pub mod hybrid_storage;
+pub mod input_classifier;
+pub mod log_tailer;
+pub mod lsp_client;
+pub mod network_security;
+pub mod observability;
+pub mod ollama_client;
+pub mod policy_engine;
+pub mod privacy_controls;
+pub mod qdrant_advanced;
+pub mod qdrant_storage;
+pub mod resource_enforcement;
+pub mod safety;
+pub mod sandbox;
+pub mod search;
+pub mod session_store;
+pub mod shell_monitor;
+pub mod smart_router;
+pub mod test_watcher;
+pub mod tools;
+pub mod web_search;
 
 /// Common inference enum for different backends (Candle, Ollama, etc.)
 #[derive(Clone)]
@@ -75,7 +75,11 @@ impl InferenceEngine {
                     model_id: info.model_id,
                     architecture: format!("{:?}", info.architecture),
                     backend: "Candle".to_string(),
-                    device: if service.config().use_gpu { "GPU".to_string() } else { "CPU".to_string() },
+                    device: if service.config().use_gpu {
+                        "GPU".to_string()
+                    } else {
+                        "CPU".to_string()
+                    },
                 }
             }
         }

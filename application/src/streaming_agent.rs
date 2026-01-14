@@ -5,11 +5,10 @@
 /// - Real-time file change notifications
 /// - Interactive user controls (pause, resume, cancel)
 /// - Multiple display modes (simple, rich, panels)
-
 use crate::parallel_agent::{SubTask, SubTaskResult};
 use shared::types::Result;
-use std::path::PathBuf;
 use std::io::Write;
+use std::path::PathBuf;
 use tokio::sync::mpsc;
 use tokio::time::{Duration, Instant};
 
@@ -17,33 +16,73 @@ use tokio::time::{Duration, Instant};
 #[derive(Debug, Clone)]
 pub enum StreamEvent {
     /// Agent is starting reasoning process
-    ReasoningStart { task_description: String },
+    ReasoningStart {
+        task_description: String,
+    },
     /// Agent produces a reasoning step
-    ReasoningStep { step_number: usize, content: String },
+    ReasoningStep {
+        step_number: usize,
+        content: String,
+    },
     /// Agent completes reasoning
-    ReasoningComplete { total_steps: usize, duration_ms: u64 },
+    ReasoningComplete {
+        total_steps: usize,
+        duration_ms: u64,
+    },
 
     /// Agent plans to execute a tool
-    ToolPlanned { tool_name: String, description: String },
+    ToolPlanned {
+        tool_name: String,
+        description: String,
+    },
     /// Tool execution starts
-    ToolStart { tool_name: String, parameters: String },
+    ToolStart {
+        tool_name: String,
+        parameters: String,
+    },
     /// Tool produces output (streaming)
-    ToolOutput { tool_name: String, output_chunk: String, is_complete: bool },
+    ToolOutput {
+        tool_name: String,
+        output_chunk: String,
+        is_complete: bool,
+    },
     /// Tool execution completes
-    ToolComplete { tool_name: String, success: bool, duration_ms: u64, error: Option<String> },
+    ToolComplete {
+        tool_name: String,
+        success: bool,
+        duration_ms: u64,
+        error: Option<String>,
+    },
 
     /// File is being created/modified/deleted
-    FileChange { path: PathBuf, change_type: FileChangeType, content_preview: Option<String> },
+    FileChange {
+        path: PathBuf,
+        change_type: FileChangeType,
+        content_preview: Option<String>,
+    },
 
     /// Agent produces final result
-    Result { content: String, confidence: f32 },
+    Result {
+        content: String,
+        confidence: f32,
+    },
 
     /// Execution status updates
-    Progress { completed_tasks: usize, total_tasks: usize, current_task: Option<String> },
-    Status { message: String, level: StatusLevel },
+    Progress {
+        completed_tasks: usize,
+        total_tasks: usize,
+        current_task: Option<String>,
+    },
+    Status {
+        message: String,
+        level: StatusLevel,
+    },
 
     /// User interaction required
-    UserPrompt { question: String, options: Vec<String> },
+    UserPrompt {
+        question: String,
+        options: Vec<String>,
+    },
 }
 
 /// File change types
@@ -95,7 +134,9 @@ pub struct StreamingAgentOrchestrator {
 
 impl StreamingAgentOrchestrator {
     /// Create new streaming orchestrator
-    pub fn new(display_mode: DisplayMode) -> (Self, mpsc::Receiver<StreamEvent>, mpsc::Sender<UserControl>) {
+    pub fn new(
+        display_mode: DisplayMode,
+    ) -> (Self, mpsc::Receiver<StreamEvent>, mpsc::Sender<UserControl>) {
         let (event_tx, event_rx) = mpsc::channel(100);
         let (control_tx, control_rx) = mpsc::channel(10);
 
@@ -149,27 +190,31 @@ impl StreamingAgentOrchestrator {
                 self.emit_event(StreamEvent::Status {
                     message: "Execution paused".to_string(),
                     level: StatusLevel::Info,
-                }).await?;
+                })
+                .await?;
             }
             UserControl::Resume => {
                 *self.is_paused.lock().unwrap() = false;
                 self.emit_event(StreamEvent::Status {
                     message: "Execution resumed".to_string(),
                     level: StatusLevel::Info,
-                }).await?;
+                })
+                .await?;
             }
             UserControl::Cancel => {
                 self.emit_event(StreamEvent::Status {
                     message: "Execution cancelled".to_string(),
                     level: StatusLevel::Warning,
-                }).await?;
+                })
+                .await?;
                 return Err(anyhow::anyhow!("Execution cancelled by user"));
             }
             UserControl::ModifyGoal(new_goal) => {
                 self.emit_event(StreamEvent::Status {
                     message: format!("Goal modified to: {}", new_goal),
                     level: StatusLevel::Info,
-                }).await?;
+                })
+                .await?;
             }
             UserControl::AnswerPrompt(_) => {
                 // Handle prompt responses
@@ -193,7 +238,8 @@ impl StreamingAgentOrchestrator {
             completed_tasks: 0,
             total_tasks,
             current_task: None,
-        }).await?;
+        })
+        .await?;
 
         let mut results = Vec::new();
         let mut completed_count = 0;
@@ -208,13 +254,15 @@ impl StreamingAgentOrchestrator {
                 completed_tasks: completed_count,
                 total_tasks,
                 current_task: Some(task.description.clone()),
-            }).await?;
+            })
+            .await?;
 
             // Execute tool with streaming
             self.emit_event(StreamEvent::ToolStart {
                 tool_name: "task_executor".to_string(),
                 parameters: format!("task: {}", task.id),
-            }).await?;
+            })
+            .await?;
 
             let start_time = Instant::now();
             let result = executor(task.clone()).await?;
@@ -225,7 +273,8 @@ impl StreamingAgentOrchestrator {
                 success: result.success,
                 duration_ms: duration,
                 error: result.error.clone(),
-            }).await?;
+            })
+            .await?;
 
             results.push(result);
             completed_count += 1;
@@ -235,7 +284,8 @@ impl StreamingAgentOrchestrator {
             completed_tasks: completed_count,
             total_tasks,
             current_task: None,
-        }).await?;
+        })
+        .await?;
 
         Ok(results)
     }
@@ -265,18 +315,18 @@ impl FileChangeWatcher {
                 // Try to read first few lines for preview
                 std::fs::read_to_string(&path)
                     .ok()
-                    .map(|content| {
-                        content.lines().take(3).collect::<Vec<&str>>().join("\n")
-                    })
+                    .map(|content| content.lines().take(3).collect::<Vec<&str>>().join("\n"))
             }
             _ => None,
         };
 
-        self.event_tx.send(StreamEvent::FileChange {
-            path,
-            change_type,
-            content_preview,
-        }).await?;
+        self.event_tx
+            .send(StreamEvent::FileChange {
+                path,
+                change_type,
+                content_preview,
+            })
+            .await?;
 
         Ok(())
     }
@@ -303,30 +353,54 @@ impl StreamingDisplay {
 
     fn render_simple(&self, event: &StreamEvent) {
         match event {
-            StreamEvent::ReasoningStep { step_number, content } => {
+            StreamEvent::ReasoningStep {
+                step_number,
+                content,
+            } => {
                 println!("🤔 Step {}: {}", step_number, content);
             }
-            StreamEvent::ToolStart { tool_name, parameters } => {
+            StreamEvent::ToolStart {
+                tool_name,
+                parameters,
+            } => {
                 println!("🔧 Starting: {} ({})", tool_name, parameters);
             }
-            StreamEvent::ToolOutput { tool_name, output_chunk, is_complete } => {
+            StreamEvent::ToolOutput {
+                tool_name,
+                output_chunk,
+                is_complete,
+            } => {
                 print!("{}", output_chunk);
                 if *is_complete {
                     println!(" ✓ {} completed", tool_name);
                 }
             }
-            StreamEvent::FileChange { path, change_type, .. } => {
+            StreamEvent::FileChange {
+                path, change_type, ..
+            } => {
                 let icon = match change_type {
                     FileChangeType::Created => "📄",
                     FileChangeType::Modified => "📝",
                     FileChangeType::Deleted => "🗑️",
                     FileChangeType::Renamed { .. } => "📋",
                 };
-                println!("{} {}: {}", icon, change_type_to_string(change_type), path.display());
+                println!(
+                    "{} {}: {}",
+                    icon,
+                    change_type_to_string(change_type),
+                    path.display()
+                );
             }
-            StreamEvent::Progress { completed_tasks, total_tasks, current_task } => {
+            StreamEvent::Progress {
+                completed_tasks,
+                total_tasks,
+                current_task,
+            } => {
                 if let Some(task) = current_task {
-                    println!("📊 Progress: {}/{} - {}", completed_tasks, total_tasks, task);
+                    println!(
+                        "📊 Progress: {}/{} - {}",
+                        completed_tasks, total_tasks, task
+                    );
                 }
             }
             StreamEvent::Status { message, level } => {
@@ -351,7 +425,9 @@ impl StreamingDisplay {
     fn render_minimal(&self, event: &StreamEvent) {
         // Minimal output for automation
         match event {
-            StreamEvent::ToolComplete { tool_name, success, .. } => {
+            StreamEvent::ToolComplete {
+                 success, ..
+            } => {
                 if *success {
                     print!(".");
                 } else {
@@ -359,7 +435,11 @@ impl StreamingDisplay {
                 }
                 std::io::stdout().flush();
             }
-            StreamEvent::Progress { completed_tasks, total_tasks, .. } => {
+            StreamEvent::Progress {
+                completed_tasks,
+                total_tasks,
+                ..
+            } => {
                 print!("\r{}/{}", completed_tasks, total_tasks);
                 std::io::stdout().flush();
             }

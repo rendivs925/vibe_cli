@@ -1,6 +1,6 @@
-use shared::types::Result;
+use crate::parallel_agent::SubTask;
 use serde::{Deserialize, Serialize};
-use crate::parallel_agent::{SubTask};
+use shared::types::Result;
 
 /// Strategy for decomposing tasks
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -23,7 +23,7 @@ pub struct TaskComplexity {
     pub estimated_lines_of_code: usize,
     pub file_count: usize,
     pub dependency_depth: usize,
-    pub risk_level: f32, // 0.0 - 1.0
+    pub risk_level: f32,        // 0.0 - 1.0
     pub parallelizability: f32, // 0.0 - 1.0 (1.0 = highly parallelizable)
 }
 
@@ -61,9 +61,9 @@ impl TaskDecomposer {
         // Heuristic-based complexity analysis
         let word_count = goal.split_whitespace().count();
         let has_multiple_actions = goal.contains(" and ") || goal.contains(",");
-        let has_file_operations = goal.to_lowercase().contains("file") ||
-                                  goal.to_lowercase().contains("create") ||
-                                  goal.to_lowercase().contains("modify");
+        let has_file_operations = goal.to_lowercase().contains("file")
+            || goal.to_lowercase().contains("create")
+            || goal.to_lowercase().contains("modify");
 
         let estimated_lines = if word_count < 10 {
             50
@@ -128,7 +128,8 @@ impl TaskDecomposer {
             id: "integration".to_string(),
             description: "Integrate all file changes".to_string(),
             priority: 5,
-            dependencies: tasks.iter()
+            dependencies: tasks
+                .iter()
                 .filter(|t| t.id.starts_with("modify_file_"))
                 .map(|t| t.id.clone())
                 .collect(),
@@ -139,7 +140,11 @@ impl TaskDecomposer {
     }
 
     /// Decompose by functional features
-    fn decompose_by_feature(&self, goal: &str, _complexity: &TaskComplexity) -> Result<Vec<SubTask>> {
+    fn decompose_by_feature(
+        &self,
+        goal: &str,
+        _complexity: &TaskComplexity,
+    ) -> Result<Vec<SubTask>> {
         let mut tasks = Vec::new();
 
         // Requirements analysis
@@ -230,7 +235,11 @@ impl TaskDecomposer {
     }
 
     /// Intelligent AI-powered decomposition
-    fn decompose_intelligent(&self, goal: &str, complexity: &TaskComplexity) -> Result<Vec<SubTask>> {
+    fn decompose_intelligent(
+        &self,
+        goal: &str,
+        complexity: &TaskComplexity,
+    ) -> Result<Vec<SubTask>> {
         // Placeholder for AI-powered decomposition
         // In production, this would call an LLM to intelligently decompose the task
 
@@ -288,7 +297,8 @@ impl TaskDecomposer {
         }
 
         // Phase 3: Integration and testing
-        let impl_tasks: Vec<String> = all_tasks.iter()
+        let impl_tasks: Vec<String> = all_tasks
+            .iter()
             .filter(|t| t.id.starts_with("impl_"))
             .map(|t| t.id.clone())
             .collect();
@@ -320,7 +330,8 @@ impl TaskDecomposer {
     /// Optimize task dependencies to maximize parallelism
     pub fn optimize_dependencies(&self, tasks: &mut [SubTask]) {
         // Build a map of task IDs to their dependencies first
-        let dep_map: std::collections::HashMap<String, Vec<String>> = tasks.iter()
+        let dep_map: std::collections::HashMap<String, Vec<String>> = tasks
+            .iter()
             .map(|t| (t.id.clone(), t.dependencies.clone()))
             .collect();
 
@@ -344,9 +355,8 @@ impl TaskDecomposer {
     /// Calculate critical path through task graph
     pub fn calculate_critical_path(&self, tasks: &[SubTask]) -> Vec<String> {
         let mut critical_path = Vec::new();
-        let mut current_tasks: Vec<&SubTask> = tasks.iter()
-            .filter(|t| t.dependencies.is_empty())
-            .collect();
+        let mut current_tasks: Vec<&SubTask> =
+            tasks.iter().filter(|t| t.dependencies.is_empty()).collect();
 
         while !current_tasks.is_empty() {
             // Find highest priority task
@@ -355,7 +365,8 @@ impl TaskDecomposer {
 
                 // Find next tasks that depend on this one
                 let task_id = task.id.clone();
-                current_tasks = tasks.iter()
+                current_tasks = tasks
+                    .iter()
                     .filter(|t| t.dependencies.contains(&task_id))
                     .collect();
             } else {
@@ -379,7 +390,8 @@ mod tests {
         assert!(simple.estimated_lines_of_code < 100);
         assert!(simple.parallelizability < 0.5);
 
-        let complex = decomposer.analyze_complexity("Create a new module with multiple files and database integration");
+        let complex = decomposer
+            .analyze_complexity("Create a new module with multiple files and database integration");
         assert!(complex.estimated_lines_of_code > 100);
         assert!(complex.file_count > 1);
     }
@@ -387,7 +399,9 @@ mod tests {
     #[test]
     fn test_decompose_by_file() {
         let decomposer = TaskDecomposer::new(DecompositionStrategy::ByFile);
-        let tasks = decomposer.decompose("Implement user authentication").unwrap();
+        let tasks = decomposer
+            .decompose("Implement user authentication")
+            .unwrap();
 
         assert!(!tasks.is_empty());
         assert!(tasks.iter().any(|t| t.id.contains("analysis")));

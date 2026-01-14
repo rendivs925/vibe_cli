@@ -84,11 +84,8 @@ impl AdvancedQdrantManager {
         for language in &self.supported_languages {
             let collection_name = format!("vibe_{}", language);
 
-            let storage = QdrantStorage::new(
-                qdrant_url.clone(),
-                collection_name,
-                self.vector_dim,
-            ).await?;
+            let storage =
+                QdrantStorage::new(qdrant_url.clone(), collection_name, self.vector_dim).await?;
 
             collections.insert(language.clone(), storage);
         }
@@ -122,10 +119,14 @@ impl AdvancedQdrantManager {
 
         // Group embeddings by detected language
         for embedding in embeddings {
-            let language = self.detect_language(&embedding.path)
+            let language = self
+                .detect_language(&embedding.path)
                 .unwrap_or_else(|| "general".to_string());
 
-            language_groups.entry(language).or_insert_with(Vec::new).push(embedding);
+            language_groups
+                .entry(language)
+                .or_insert_with(Vec::new)
+                .push(embedding);
         }
 
         // Insert into appropriate collections
@@ -149,9 +150,9 @@ impl AdvancedQdrantManager {
         let collections = self.collections.read().await;
 
         // Determine which collections to search
-        let target_languages = request.languages.unwrap_or_else(|| {
-            self.supported_languages.iter().cloned().collect()
-        });
+        let target_languages = request
+            .languages
+            .unwrap_or_else(|| self.supported_languages.iter().cloned().collect());
 
         // Normalize query vector
         let normalized_query = self.normalize_vector(&request.query);
@@ -184,7 +185,11 @@ impl AdvancedQdrantManager {
         }
 
         // Sort by score and apply final limit
-        all_results.sort_by(|a, b| b.score.partial_cmp(&a.score).unwrap_or(std::cmp::Ordering::Equal));
+        all_results.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         all_results.truncate(request.limit);
 
         Ok(all_results)
@@ -245,7 +250,8 @@ impl AdvancedQdrantManager {
             let stat = CollectionStats {
                 name: format!("vibe_{}", language),
                 language: language.clone(),
-                point_count: storage_stats.get("sqlite_embeddings")
+                point_count: storage_stats
+                    .get("sqlite_embeddings")
                     .and_then(|s| s.parse().ok())
                     .unwrap_or(0),
                 memory_usage_mb: 100, // Placeholder - would need actual Qdrant metrics
@@ -287,7 +293,8 @@ impl AdvancedQdrantManager {
                 Ok(s) => s,
                 Err(_) => continue,
             };
-            let count = stats.get("sqlite_embeddings")
+            let count = stats
+                .get("sqlite_embeddings")
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(0);
 
@@ -362,7 +369,11 @@ impl AdvancedQdrantManager {
     }
 
     /// Add new language support
-    pub async fn add_language_support(&mut self, language: String, qdrant_url: Option<String>) -> Result<()> {
+    pub async fn add_language_support(
+        &mut self,
+        language: String,
+        qdrant_url: Option<String>,
+    ) -> Result<()> {
         if self.supported_languages.contains(&language) {
             return Ok(()); // Already supported
         }
@@ -370,11 +381,7 @@ impl AdvancedQdrantManager {
         self.supported_languages.insert(language.clone());
 
         let collection_name = format!("vibe_{}", language);
-        let storage = QdrantStorage::new(
-            qdrant_url,
-            collection_name,
-            self.vector_dim,
-        ).await?;
+        let storage = QdrantStorage::new(qdrant_url, collection_name, self.vector_dim).await?;
 
         let mut collections = self.collections.write().await;
         collections.insert(language, storage);
@@ -419,7 +426,8 @@ impl AdvancedQdrantManager {
                 Ok(s) => s,
                 Err(_) => continue,
             };
-            let size = stats.get("sqlite_embeddings")
+            let size = stats
+                .get("sqlite_embeddings")
                 .and_then(|s| s.parse().ok())
                 .unwrap_or(0);
 

@@ -1,0 +1,128 @@
+# Vibe CLI Power User Configuration
+# This file demonstrates advanced configuration options for power users
+
+# Command aliases - shortcuts for commonly used commands
+aliases:
+  ll: "ls -la"
+  gs: "git status"
+  ga: "git add"
+  gc: "git commit"
+  gp: "git push"
+  monitor: "sys_memory && sys_load && sys_uptime"
+
+# Keyboard shortcuts for interactive chat mode
+shortcuts:
+  ":q": "exit"
+  ":h": "/help"
+  ":c": "/config"
+  ":s": "/suggest"
+
+# UI theme configuration
+theme:
+  name: "power_user"
+  colors:
+    success: "green"
+    error: "red"
+    warning: "yellow"
+    info: "cyan"
+    accent: "magenta"
+  icons:
+    success: "✓"
+    error: "✗"
+    warning: "⚠"
+    info: "ℹ"
+    loading: "⏳"
+  layout:
+    compact: "false"
+    show_timestamps: "true"
+    show_progress: "true"
+
+# Plugin configurations
+plugins:
+  enabled:
+    - "fileops"
+    - "sysinfo"
+  settings:
+    fileops:
+      max_file_size: "10MB"
+      safe_mode: "true"
+    sysinfo:
+      show_details: "true"
+      update_interval: "30"
+  paths:
+    - "~/.config/vibe_cli/plugins"
+    - "~/.vibe_cli/plugins"
+
+# Performance tuning options
+performance:
+  prewarm_models: false
+  cache_strategy: "lru"
+  parallel_jobs: 8
+  memory_limit_mb: 2048
+  background_processing: true
+  startup_optimizations: true
+
+# Advanced safety and permission settings
+permissions:
+  allowed_commands:
+    - "^ls.*$"
+    - "^cat.*$"
+    - "^grep.*$"
+    - "^find.*$"
+    - "^git.*$"
+    - "^cargo.*$"
+    - "^file_.*$"
+    - "^sys_.*$"
+  blocked_commands:
+    - "^rm\\s+-rf\\s+/.*$"
+    - "^dd.*$"
+    - "^mkfs.*$"
+    - ">:.*$"
+  file_restrictions:
+    read_only_paths:
+      - "/etc/passwd"
+      - "/etc/shadow"
+      - "/root"
+  network_access:
+    "localhost": true
+    "github.com": true
+    "*.wikipedia.org": true
+  confirmation_level: "smart"
+
+# Custom editor integrations
+editors:
+  preferred_editor: "code"
+  integrations:
+    vscode:
+      open_file: "code --goto {file}:{line}"
+    vim:
+      open_file: "vim +{line} {file}"
+    emacs:
+      open_file: "emacs +{line} {file}"
+  lsp:
+    rust: "rust-analyzer"
+    python: "pylsp"
+    javascript: "typescript-language-server"
+  auto_save: true
+
+# Batch operation settings
+batch:
+  max_concurrent: 4
+  queue_size: 100
+  retry_attempts: 3
+  timeout_seconds: 300
+  progress_reporting: true
+
+# Custom scripts and macros
+scripts:
+  backup_project: "git add . && git commit -m 'Backup: $(date)' && git push"
+  clean_build: "cargo clean && cargo build --release"
+  test_all: "cargo test --workspace && cargo clippy && cargo fmt --check"
+
+macros:
+  full_workflow: ["backup_project", "clean_build", "test_all"]
+
+execution:
+  timeout: "300"
+  parallel: "true"
+  fail_fast: "false"

@@ -594,4 +594,3 @@ async fn test_security_pipeline_integration() {
 
     println!("✅ Security pipeline integration test passed");
 }
-

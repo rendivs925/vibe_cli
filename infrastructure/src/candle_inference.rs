@@ -10,8 +10,8 @@
 //
 // Status: Architecture ready, awaiting dependency resolution for full implementation
 
-use shared::types::Result;
 use serde::{Deserialize, Serialize};
+use shared::types::Result;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tokio::sync::RwLock;
@@ -22,13 +22,12 @@ use tokio::sync::RwLock;
 // use candle_transformers::models::mistral::{MistralConfig, MistralModel};
 // use tokenizers::Tokenizer;
 
-
 /// Model quantization level for memory efficiency
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum QuantizationLevel {
-    None,      // Full precision (F32/F16)
-    Q4,        // 4-bit quantization
-    Q8,        // 8-bit quantization
+    None, // Full precision (F32/F16)
+    Q4,   // 4-bit quantization
+    Q8,   // 8-bit quantization
 }
 
 /// Supported model architectures
@@ -72,8 +71,8 @@ impl Default for ModelConfig {
 /// Cached model instance for inference
 struct CachedModel {
     config: ModelConfig,
-    model: (), // Placeholder for MistralModel
-    tokenizer: (), // Placeholder for Tokenizer
+    model: (),      // Placeholder for MistralModel
+    tokenizer: (),  // Placeholder for Tokenizer
     device: String, // Device identifier
     loaded_at: std::time::SystemTime,
     last_used: std::time::SystemTime,
@@ -115,11 +114,7 @@ impl CandleInferenceService {
         println!("Loading Candle model: {}", self.config.model_id);
 
         // Placeholder implementation until dependencies are resolved
-        let device = if self.config.use_gpu {
-            "cuda:0"
-        } else {
-            "cpu"
-        };
+        let device = if self.config.use_gpu { "cuda:0" } else { "cpu" };
 
         // Placeholder tokenizer and model
         let tokenizer = ();
@@ -139,7 +134,7 @@ impl CandleInferenceService {
         Ok(())
     }
 
-    /// Create a basic tokenizer for development 
+    /// Create a basic tokenizer for development
     fn create_basic_tokenizer(&self) -> Result<()> {
         // Placeholder until dependencies are resolved
         Ok(())
@@ -225,11 +220,9 @@ impl CandleInferenceService {
             *cache = None;
             Ok(())
         } else {
-        Ok(())
+            Ok(())
+        }
     }
-}
-
-
 
     /// Get model config
     pub fn config(&self) -> &ModelConfig {
@@ -254,9 +247,9 @@ impl CandleInferenceService {
     pub fn estimate_memory_usage(&self) -> u64 {
         // Rough estimates based on model size and quantization
         match self.config.quantization {
-            QuantizationLevel::None => 14_000_000_000,  // ~14GB for 7B model
-            QuantizationLevel::Q8 => 7_000_000_000,     // ~7GB for 8-bit
-            QuantizationLevel::Q4 => 4_000_000_000,     // ~4GB for 4-bit
+            QuantizationLevel::None => 14_000_000_000, // ~14GB for 7B model
+            QuantizationLevel::Q8 => 7_000_000_000,    // ~7GB for 8-bit
+            QuantizationLevel::Q4 => 4_000_000_000,    // ~4GB for 4-bit
         }
     }
 }

@@ -1,11 +1,11 @@
-use std::collections::HashMap;
-use std::sync::Arc;
-use std::time::{Duration, Instant, SystemTime};
-use tokio::sync::RwLock;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs::{self, OpenOptions};
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::Arc;
+use std::time::{Duration, Instant, SystemTime};
+use tokio::sync::RwLock;
 
 /// Structured audit event for compliance tracking
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -145,7 +145,10 @@ impl AuditTrailManager {
         Ok(())
     }
 
-    pub fn record_agent_execution(&mut self, audit: AgentExecutionAudit) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn record_agent_execution(
+        &mut self,
+        audit: AgentExecutionAudit,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let event = AuditEvent {
             timestamp: SystemTime::now(),
             event_type: AuditEventType::AgentExecution,
@@ -157,14 +160,35 @@ impl AuditTrailManager {
             result: AuditResult::Success,
             details: {
                 let mut details = HashMap::new();
-                details.insert("request_id".to_string(), serde_json::json!(audit.request_id));
+                details.insert(
+                    "request_id".to_string(),
+                    serde_json::json!(audit.request_id),
+                );
                 details.insert("goal".to_string(), serde_json::json!(audit.goal));
-                details.insert("iterations_used".to_string(), serde_json::json!(audit.iterations_used));
-                details.insert("tools_executed".to_string(), serde_json::json!(audit.tools_executed));
-                details.insert("execution_time_ms".to_string(), serde_json::json!(audit.execution_time_ms));
-                details.insert("confidence_score".to_string(), serde_json::json!(audit.confidence_score));
-                details.insert("security_checks_passed".to_string(), serde_json::json!(audit.security_checks_passed));
-                details.insert("resource_limits_enforced".to_string(), serde_json::json!(audit.resource_limits_enforced));
+                details.insert(
+                    "iterations_used".to_string(),
+                    serde_json::json!(audit.iterations_used),
+                );
+                details.insert(
+                    "tools_executed".to_string(),
+                    serde_json::json!(audit.tools_executed),
+                );
+                details.insert(
+                    "execution_time_ms".to_string(),
+                    serde_json::json!(audit.execution_time_ms),
+                );
+                details.insert(
+                    "confidence_score".to_string(),
+                    serde_json::json!(audit.confidence_score),
+                );
+                details.insert(
+                    "security_checks_passed".to_string(),
+                    serde_json::json!(audit.security_checks_passed),
+                );
+                details.insert(
+                    "resource_limits_enforced".to_string(),
+                    serde_json::json!(audit.resource_limits_enforced),
+                );
                 if let Some(reason) = audit.convergence_reason {
                     details.insert("convergence_reason".to_string(), serde_json::json!(reason));
                 }
@@ -176,7 +200,10 @@ impl AuditTrailManager {
         self.record_event(event)
     }
 
-    pub fn record_security_event(&mut self, audit: SecurityAuditEvent) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn record_security_event(
+        &mut self,
+        audit: SecurityAuditEvent,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let severity = match audit.risk_level.as_str() {
             "critical" => AuditSeverity::Critical,
             "high" => AuditSeverity::High,
@@ -199,8 +226,14 @@ impl AuditTrailManager {
             },
             details: {
                 let mut details = HashMap::new();
-                details.insert("event_type".to_string(), serde_json::json!(audit.event_type));
-                details.insert("risk_level".to_string(), serde_json::json!(audit.risk_level));
+                details.insert(
+                    "event_type".to_string(),
+                    serde_json::json!(audit.event_type),
+                );
+                details.insert(
+                    "risk_level".to_string(),
+                    serde_json::json!(audit.risk_level),
+                );
                 details.insert("blocked".to_string(), serde_json::json!(audit.blocked));
                 if let Some(ip) = audit.source_ip {
                     details.insert("source_ip".to_string(), serde_json::json!(ip));
@@ -213,13 +246,23 @@ impl AuditTrailManager {
                 }
                 details
             },
-            compliance_flags: vec![ComplianceFlag::GDPR, ComplianceFlag::HIPAA, ComplianceFlag::PCI],
+            compliance_flags: vec![
+                ComplianceFlag::GDPR,
+                ComplianceFlag::HIPAA,
+                ComplianceFlag::PCI,
+            ],
         };
 
         self.record_event(event)
     }
 
-    pub fn record_configuration_change(&mut self, component: &str, setting: &str, old_value: &str, new_value: &str) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn record_configuration_change(
+        &mut self,
+        component: &str,
+        setting: &str,
+        old_value: &str,
+        new_value: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let event = AuditEvent {
             timestamp: SystemTime::now(),
             event_type: AuditEventType::ConfigurationChange,
@@ -264,8 +307,11 @@ impl AuditTrailManager {
             } else {
                 format!(
                     "[{}] {} {} {} {} {} - {:?}",
-                    event.timestamp.duration_since(std::time::UNIX_EPOCH)
-                        .unwrap_or_default().as_secs(),
+                    event
+                        .timestamp
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .unwrap_or_default()
+                        .as_secs(),
                     event.severity,
                     event.event_type,
                     event.operation,
@@ -339,8 +385,14 @@ impl AuditTrailManager {
 
             // Sort by modification time (newest first)
             log_files.sort_by(|a, b| {
-                b.metadata().and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH)
-                    .cmp(&a.metadata().and_then(|m| m.modified()).unwrap_or(SystemTime::UNIX_EPOCH))
+                b.metadata()
+                    .and_then(|m| m.modified())
+                    .unwrap_or(SystemTime::UNIX_EPOCH)
+                    .cmp(
+                        &a.metadata()
+                            .and_then(|m| m.modified())
+                            .unwrap_or(SystemTime::UNIX_EPOCH),
+                    )
             });
 
             // Remove oldest files if we exceed max_log_files
@@ -412,25 +464,40 @@ impl ObservabilityManager {
     }
 
     /// Record agent execution for audit trail
-    pub async fn record_agent_execution_audit(&self, audit: AgentExecutionAudit) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn record_agent_execution_audit(
+        &self,
+        audit: AgentExecutionAudit,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let mut audit_trail = self.audit_trail.write().await;
         audit_trail.record_agent_execution(audit)
     }
 
     /// Record security event for audit trail
-    pub async fn record_security_audit(&self, audit: SecurityAuditEvent) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn record_security_audit(
+        &self,
+        audit: SecurityAuditEvent,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let mut audit_trail = self.audit_trail.write().await;
         audit_trail.record_security_event(audit)
     }
 
     /// Record configuration change for audit trail
-    pub async fn record_configuration_change(&self, component: &str, setting: &str, old_value: &str, new_value: &str) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn record_configuration_change(
+        &self,
+        component: &str,
+        setting: &str,
+        old_value: &str,
+        new_value: &str,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let mut audit_trail = self.audit_trail.write().await;
         audit_trail.record_configuration_change(component, setting, old_value, new_value)
     }
 
     /// Record generic audit event
-    pub async fn record_audit_event(&self, event: AuditEvent) -> Result<(), Box<dyn std::error::Error>> {
+    pub async fn record_audit_event(
+        &self,
+        event: AuditEvent,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let mut audit_trail = self.audit_trail.write().await;
         audit_trail.record_event(event)
     }
@@ -467,7 +534,9 @@ pub fn init_global_observability(config: &crate::config::AuditTrailConfig) {
 /// Get global observability manager (panics if not initialized)
 pub fn get_global_observability() -> &'static ObservabilityManager {
     unsafe {
-        GLOBAL_OBSERVABILITY.as_ref().expect("Global observability not initialized")
+        GLOBAL_OBSERVABILITY
+            .as_ref()
+            .expect("Global observability not initialized")
     }
 }
 
@@ -510,8 +579,12 @@ impl MetricsCollector {
     }
 
     pub fn record_request(&mut self, operation: &str, duration: Duration, success: bool) {
-        *self.requests_total.entry(operation.to_string()).or_insert(0) += 1;
-        self.requests_duration.insert(operation.to_string(), duration);
+        *self
+            .requests_total
+            .entry(operation.to_string())
+            .or_insert(0) += 1;
+        self.requests_duration
+            .insert(operation.to_string(), duration);
 
         if !success {
             *self.errors_total.entry(operation.to_string()).or_insert(0) += 1;
@@ -521,7 +594,10 @@ impl MetricsCollector {
     }
 
     pub fn record_security_event(&mut self, event_type: &str, _details: HashMap<String, String>) {
-        *self.security_events.entry(event_type.to_string()).or_insert(0) += 1;
+        *self
+            .security_events
+            .entry(event_type.to_string())
+            .or_insert(0) += 1;
     }
 
     pub fn record_resource_usage(&mut self, memory_mb: u64, cpu_percent: f32) {
@@ -767,8 +843,13 @@ impl AlertManager {
 
     pub async fn raise_alert(&self, severity: AlertSeverity, message: String, source: &str) {
         let alert = Alert {
-            id: format!("alert_{}", std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos()),
+            id: format!(
+                "alert_{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_nanos()
+            ),
             severity,
             message: message.clone(),
             source: source.to_string(),
@@ -785,10 +866,7 @@ impl AlertManager {
 
     pub async fn get_active_alerts(&self) -> Vec<Alert> {
         let alerts = self.alerts.read().await;
-        alerts.iter()
-            .filter(|a| !a.acknowledged)
-            .cloned()
-            .collect()
+        alerts.iter().filter(|a| !a.acknowledged).cloned().collect()
     }
 
     pub async fn acknowledge_alert(&self, alert_id: &str) -> bool {
@@ -835,8 +913,13 @@ impl RequestTracer {
     }
 
     pub fn start_trace(&self, operation: &str) -> TraceHandle {
-        let trace_id = format!("trace_{}", std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_nanos());
+        let trace_id = format!(
+            "trace_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_nanos()
+        );
 
         let trace = Trace {
             id: trace_id.clone(),
@@ -908,7 +991,8 @@ macro_rules! record_request {
     ($operation:expr, $duration:expr, $success:expr) => {
         tokio::spawn(async move {
             $crate::infrastructure::observability::OBSERVABILITY
-                .record_request($operation, $duration, $success).await;
+                .record_request($operation, $duration, $success)
+                .await;
         });
     };
 }
@@ -938,7 +1022,10 @@ macro_rules! trace_request {
 macro_rules! raise_alert {
     ($severity:expr, $message:expr, $source:expr) => {
         tokio::spawn(async move {
-            $crate::infrastructure::observability::OBSERVABILITY.alert_manager.raise_alert($severity, $message, $source).await;
+            $crate::infrastructure::observability::OBSERVABILITY
+                .alert_manager
+                .raise_alert($severity, $message, $source)
+                .await;
         });
     };
 }

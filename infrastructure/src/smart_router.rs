@@ -1,12 +1,11 @@
+use anyhow::Result;
+use chrono::{DateTime, Utc};
+use serde::{Deserialize, Serialize};
 /// Smart routing and caching system for hybrid local/remote AI processing
 /// Routes queries between local models and remote ChatGPT based on complexity and cost
-
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
-use anyhow::Result;
-use serde::{Deserialize, Serialize};
-use chrono::{DateTime, Utc};
 
 /// Query routing decision
 #[derive(Debug, Clone, PartialEq)]
@@ -22,12 +21,12 @@ pub enum QueryDestination {
 /// Query complexity analysis
 #[derive(Debug, Clone)]
 pub struct QueryComplexity {
-    pub score: f32,              // 0.0 to 1.0 complexity score
-    pub has_code: bool,          // Contains code snippets
-    pub has_architecture: bool,  // Architecture or design questions
-    pub has_research: bool,      // Requires external knowledge/research
-    pub word_count: usize,       // Length indicator
-    pub technical_terms: usize,  // Count of technical keywords
+    pub score: f32,             // 0.0 to 1.0 complexity score
+    pub has_code: bool,         // Contains code snippets
+    pub has_architecture: bool, // Architecture or design questions
+    pub has_research: bool,     // Requires external knowledge/research
+    pub word_count: usize,      // Length indicator
+    pub technical_terms: usize, // Count of technical keywords
 }
 
 /// Cost tracking for optimization
@@ -36,7 +35,7 @@ pub struct QueryCost {
     pub query_id: String,
     pub destination: String,
     pub processing_time_ms: u64,
-    pub cost_cents: u64,  // 0 for local/remote (web interface)
+    pub cost_cents: u64, // 0 for local/remote (web interface)
     pub timestamp: DateTime<Utc>,
     pub success: bool,
 }
@@ -99,10 +98,10 @@ pub struct QueryAnalysis {
 impl Default for RoutingThresholds {
     fn default() -> Self {
         Self {
-            remote_threshold: 0.7,     // Complex queries go remote
-            local_threshold: 0.3,      // Simple queries stay local
-            cache_ttl_seconds: 3600,   // 1 hour cache
-            max_cache_entries: 1000,   // Reasonable cache size
+            remote_threshold: 0.7,   // Complex queries go remote
+            local_threshold: 0.3,    // Simple queries stay local
+            cache_ttl_seconds: 3600, // 1 hour cache
+            max_cache_entries: 1000, // Reasonable cache size
         }
     }
 }
@@ -199,7 +198,12 @@ impl SmartRouter {
     }
 
     /// Cache a response
-    pub async fn cache_response(&self, query: &str, response: &str, destination: &str) -> Result<()> {
+    pub async fn cache_response(
+        &self,
+        query: &str,
+        response: &str,
+        destination: &str,
+    ) -> Result<()> {
         if !self.user_preferences.enable_caching {
             return Ok(());
         }
@@ -218,7 +222,8 @@ impl SmartRouter {
         // Enforce cache size limits
         if cache.len() >= self.complexity_thresholds.max_cache_entries {
             // Remove oldest entries (simple strategy)
-            let to_remove: Vec<String> = cache.iter()
+            let to_remove: Vec<String> = cache
+                .iter()
                 .filter(|(_, v)| {
                     let age = Utc::now().signed_duration_since(v.timestamp).num_seconds() as u64;
                     age > v.ttl_seconds
@@ -245,7 +250,9 @@ impl SmartRouter {
         let cache = self.response_cache.read().await;
 
         if let Some(cached) = cache.get(&query_hash) {
-            let age = Utc::now().signed_duration_since(cached.timestamp).num_seconds() as u64;
+            let age = Utc::now()
+                .signed_duration_since(cached.timestamp)
+                .num_seconds() as u64;
             if age < cached.ttl_seconds {
                 return Ok(Some(cached.response.clone()));
             }
@@ -255,7 +262,13 @@ impl SmartRouter {
     }
 
     /// Record query cost for analytics
-    pub async fn record_cost(&self, query_id: &str, destination: &str, processing_time_ms: u64, success: bool) -> Result<()> {
+    pub async fn record_cost(
+        &self,
+        query_id: &str,
+        destination: &str,
+        processing_time_ms: u64,
+        success: bool,
+    ) -> Result<()> {
         let cost = QueryCost {
             query_id: query_id.to_string(),
             destination: destination.to_string(),
@@ -307,39 +320,73 @@ impl SmartRouter {
         let lower_query = query.to_lowercase();
         let words: Vec<&str> = query.split_whitespace().collect();
 
-        let has_code = lower_query.contains("```") ||
-                      lower_query.contains("fn ") ||
-                      lower_query.contains("struct ") ||
-                      lower_query.contains("impl ") ||
-                      lower_query.contains("use ") ||
-                      lower_query.contains("let ") ||
-                      lower_query.contains("const ");
+        let has_code = lower_query.contains("```")
+            || lower_query.contains("fn ")
+            || lower_query.contains("struct ")
+            || lower_query.contains("impl ")
+            || lower_query.contains("use ")
+            || lower_query.contains("let ")
+            || lower_query.contains("const ");
 
-        let has_architecture = lower_query.contains("architecture") ||
-                              lower_query.contains("design") ||
-                              lower_query.contains("system") ||
-                              lower_query.contains("component") ||
-                              lower_query.contains("module") ||
-                              lower_query.contains("pattern");
+        let has_architecture = lower_query.contains("architecture")
+            || lower_query.contains("design")
+            || lower_query.contains("system")
+            || lower_query.contains("component")
+            || lower_query.contains("module")
+            || lower_query.contains("pattern");
 
-        let has_research = lower_query.contains("research") ||
-                          lower_query.contains("latest") ||
-                          lower_query.contains("current") ||
-                          lower_query.contains("trend") ||
-                          lower_query.contains("best practice") ||
-                          lower_query.contains("how to") ||
-                          lower_query.contains("tutorial");
+        let has_research = lower_query.contains("research")
+            || lower_query.contains("latest")
+            || lower_query.contains("current")
+            || lower_query.contains("trend")
+            || lower_query.contains("best practice")
+            || lower_query.contains("how to")
+            || lower_query.contains("tutorial");
 
         let technical_terms = [
-            "algorithm", "asynchronous", "authentication", "authorization", "backend",
-            "blockchain", "cache", "concurrency", "container", "database", "debugging",
-            "deployment", "distributed", "encryption", "framework", "frontend",
-            "inheritance", "interface", "kubernetes", "lambda", "machine learning",
-            "microservice", "middleware", "optimization", "parallel", "polymorphism",
-            "protocol", "refactoring", "repository", "scalability", "security",
-            "serialization", "serverless", "streaming", "synchronization", "testing",
-            "transaction", "virtualization", "websocket"
-        ].iter().filter(|term| lower_query.contains(*term)).count();
+            "algorithm",
+            "asynchronous",
+            "authentication",
+            "authorization",
+            "backend",
+            "blockchain",
+            "cache",
+            "concurrency",
+            "container",
+            "database",
+            "debugging",
+            "deployment",
+            "distributed",
+            "encryption",
+            "framework",
+            "frontend",
+            "inheritance",
+            "interface",
+            "kubernetes",
+            "lambda",
+            "machine learning",
+            "microservice",
+            "middleware",
+            "optimization",
+            "parallel",
+            "polymorphism",
+            "protocol",
+            "refactoring",
+            "repository",
+            "scalability",
+            "security",
+            "serialization",
+            "serverless",
+            "streaming",
+            "synchronization",
+            "testing",
+            "transaction",
+            "virtualization",
+            "websocket",
+        ]
+        .iter()
+        .filter(|term| lower_query.contains(*term))
+        .count();
 
         // Calculate complexity score (0.0 to 1.0)
         let mut score = 0.0;
@@ -376,7 +423,10 @@ impl SmartRouter {
     }
 
     /// Determine destination based on complexity
-    fn determine_destination(&self, complexity: &QueryComplexity) -> (QueryDestination, f32, Vec<String>) {
+    fn determine_destination(
+        &self,
+        complexity: &QueryComplexity,
+    ) -> (QueryDestination, f32, Vec<String>) {
         let mut reasoning = Vec::new();
 
         if complexity.score >= self.complexity_thresholds.remote_threshold {
@@ -397,7 +447,10 @@ impl SmartRouter {
         }
 
         // Borderline case
-        reasoning.push(format!("Borderline complexity score: {:.2}", complexity.score));
+        reasoning.push(format!(
+            "Borderline complexity score: {:.2}",
+            complexity.score
+        ));
         reasoning.push("Could be handled locally or remotely".to_string());
 
         if self.user_preferences.confirm_complex {
@@ -445,7 +498,10 @@ mod tests {
         let router = SmartRouter::new();
 
         // Test simple query
-        let simple = router.analyze_query("How do I print hello world in Rust?").await.unwrap();
+        let simple = router
+            .analyze_query("How do I print hello world in Rust?")
+            .await
+            .unwrap();
         assert!(simple.complexity.score < 0.5);
         assert_eq!(simple.recommended_destination, QueryDestination::Local);
 
@@ -463,7 +519,10 @@ mod tests {
         let response = "Paris";
 
         // Cache response
-        router.cache_response(query, response, "local").await.unwrap();
+        router
+            .cache_response(query, response, "local")
+            .await
+            .unwrap();
 
         // Retrieve from cache
         let cached = router.get_cached_response(query).await.unwrap();
