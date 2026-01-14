@@ -1491,10 +1491,11 @@ impl CliApp {
 
                 // Background services disabled - no automatic startup
                 // Event receiver available for explicit manual control
-                let event_receiver = supervisor.get_event_receiver();
-                tokio::spawn(async move {
-                    Self::handle_background_events(event_receiver).await;
-                });
+                if let Some(event_receiver) = supervisor.get_event_receiver() {
+                    tokio::spawn(async move {
+                        Self::handle_background_events(event_receiver).await;
+                    });
+                }
 
                 // Log status update (services disabled)
                 tokio::spawn(async move {
