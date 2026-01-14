@@ -3057,7 +3057,6 @@ OUTPUT:"#,
                     }
                 }
                 return Ok(());
-            }
             } else if !is_safe {
                 // For unsafe cached commands, offer to generate a new command
                 if ask_confirmation("Generate new command instead?", false)? {
@@ -3261,9 +3260,6 @@ OUTPUT ONLY THE COMMAND:"#,
                     }
                 }
             }
-</file>  
-</xai:function_call name="read">
-<parameter name="filePath">presentation/src/cli.rs
         } else {
             println!("{}", "Command execution cancelled.".yellow());
         }
