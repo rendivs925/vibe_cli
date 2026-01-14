@@ -2946,32 +2946,31 @@ OUTPUT:"#,
             }
         }
 
+        // Handle cached commands with streamlined confirmation
         if let Ok(Some(cached_command)) = self.load_cached(&effective_query) {
-            println!(
-                "{}",
-                format!("Found cached command: {}", cached_command).green()
-            );
-            if ask_confirmation("Use cached command?", true)? {
+            println!("{}", format!("Found cached command: {}", cached_command).green());
+
+            // Check if command is safe
+            let is_safe = power_config.is_command_allowed(&cached_command);
+            let prompt = if is_safe {
+                format!("Execute cached command: {} [Y/n]", cached_command)
+            } else {
+                format!("Execute cached command (requires elevated permissions): {} [y/N]", cached_command)
+            };
+
+            if ask_confirmation(&prompt, is_safe)? {
                 let sandbox = Sandbox::new();
-                // Check permissions before executing cached command
-                if !power_config.is_command_allowed(&cached_command) {
-                    println!(
-                        "{}",
-                        "Command blocked by sandbox".red()
-                    );
-                    if !ask_confirmation("Run anyway?", false)? {
+
+                // Try direct command execution first
+                match sandbox.execute_command_string(&cached_command).await {
+                    Ok(output) => {
+                        println!("{}", output);
                         return Ok(());
                     }
-                }
-
-                match sandbox
-                    .execute_safe("bash", vec!["-c".to_string(), cached_command.clone()])
-                    .await
-                {
-                    Ok(output) => println!("{}", output),
                     Err(e) => {
-                        eprintln!("{}", format!("Sandbox execution failed: {}", e).red());
-                        if ask_confirmation("Try running without sandboxing?", false)? {
+                        eprintln!("{}", format!("Command execution failed: {}", e).red());
+                        // Offer direct execution as fallback
+                        if ask_confirmation("Try executing directly (bypassing sandbox)? [y/N]", false)? {
                             match std::process::Command::new("bash")
                                 .arg("-c")
                                 .arg(&cached_command)
@@ -2991,20 +2990,26 @@ OUTPUT:"#,
                                     }
                                 }
                                 Err(e) => {
-                                    eprintln!(
-                                        "{}",
-                                        format!("Direct execution failed: {}", e).red()
-                                    );
+                                    eprintln!("{}", format!("Direct execution failed: {}", e).red());
                                 }
                             }
                         }
+                        return Ok(());
                     }
                 }
+            } else if !is_safe {
+                // For unsafe cached commands, offer to generate a new command
+                if ask_confirmation("Generate new command instead? [y/N]", false)? {
+                    // Continue to command generation below
+                } else {
+                    return Ok(());
+                }
+            } else {
                 return Ok(());
             }
         }
 
-        // Use context-aware command generation
+        // Generate new command using AI
         let system_context = infrastructure::config::SystemContext::gather();
 
         // Gather dynamic context based on request type
@@ -3097,29 +3102,26 @@ OUTPUT ONLY THE COMMAND:"#,
 
         let _ = self.save_cached(&effective_query, &command);
 
-        // Check permissions before executing generated command
-        if !power_config.is_command_allowed(&command) {
-            println!(
-                "{}",
-                "Command blocked by sandbox".red()
-            );
-            if !ask_confirmation("Run anyway?", false)? {
-                return Ok(());
-            }
-        }
+        // Single confirmation for new commands
+        let is_safe = power_config.is_command_allowed(&command);
+        let prompt = if is_safe {
+            format!("Execute: {} [Y/n]", command)
+        } else {
+            format!("Execute (requires elevated permissions): {} [y/N]", command)
+        };
 
-        if ask_confirmation("Run this command?", false)? {
+        if ask_confirmation(&prompt, is_safe)? {
             let sandbox = Sandbox::new();
-            match sandbox
-                .execute_safe("bash", vec!["-c".to_string(), command.clone()])
-                .await
-            {
+
+            // Try direct command execution first
+            match sandbox.execute_command_string(&command).await {
                 Ok(output) => {
                     println!("{}", output);
                 }
                 Err(e) => {
-                    eprintln!("{}", format!("Sandbox execution failed: {}", e).red());
-                    if ask_confirmation("Try running without sandboxing?", false)? {
+                    eprintln!("{}", format!("Command execution failed: {}", e).red());
+                    // Offer direct execution as fallback
+                    if ask_confirmation("Try executing directly (bypassing sandbox)? [y/N]", false)? {
                         match std::process::Command::new("bash")
                             .arg("-c")
                             .arg(&command)

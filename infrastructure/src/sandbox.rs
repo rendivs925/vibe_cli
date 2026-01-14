@@ -337,6 +337,82 @@ impl Sandbox {
         self.max_output_size = max_output;
     }
 
+    /// Parse and execute a shell command string directly (avoiding bash -c)
+    pub async fn execute_command_string(&self, command_string: &str) -> Result<String> {
+        // Parse the command string into program and arguments
+        let (program, args) = self.parse_command_string(command_string)?;
+
+        // Execute directly using the existing safe execution method
+        self.execute_safe(&program, args).await
+    }
+
+    /// Parse a shell command string into program and arguments
+    /// Handles simple commands like "ls -la" or "systemctl status ssh"
+    /// Does not handle complex shell features like pipes, redirects, etc.
+    fn parse_command_string(&self, command_string: &str) -> Result<(String, Vec<String>)> {
+        let trimmed = command_string.trim();
+
+        // Reject commands with shell metacharacters that require bash
+        let shell_metachars = ['|', '&', ';', '(', ')', '<', '>', '`', '$', '{', '}', '[', ']', '*', '?', '~'];
+        if trimmed.chars().any(|c| shell_metachars.contains(&c)) {
+            return Err(anyhow::anyhow!(
+                "Command contains shell metacharacters and must be executed through shell"
+            ));
+        }
+
+        // Split by whitespace, handling simple quoted strings
+        let mut args = Vec::new();
+        let mut current_arg = String::new();
+        let mut in_quotes = false;
+        let mut quote_char = '"';
+
+        for ch in trimmed.chars() {
+            match ch {
+                '"' | '\'' => {
+                    if in_quotes && ch == quote_char {
+                        // End of quoted string
+                        in_quotes = false;
+                        if !current_arg.is_empty() {
+                            args.push(current_arg);
+                            current_arg = String::new();
+                        }
+                    } else if !in_quotes {
+                        // Start of quoted string
+                        in_quotes = true;
+                        quote_char = ch;
+                    } else {
+                        // Quote inside quoted string
+                        current_arg.push(ch);
+                    }
+                }
+                ' ' | '\t' | '\n' if !in_quotes => {
+                    // Whitespace separator
+                    if !current_arg.is_empty() {
+                        args.push(current_arg);
+                        current_arg = String::new();
+                    }
+                }
+                _ => {
+                    current_arg.push(ch);
+                }
+            }
+        }
+
+        // Add the last argument if any
+        if !current_arg.is_empty() {
+            args.push(current_arg);
+        }
+
+        if args.is_empty() {
+            return Err(anyhow::anyhow!("Empty command"));
+        }
+
+        let program = args[0].clone();
+        let arguments = args[1..].to_vec();
+
+        Ok((program, arguments))
+    }
+
     /// Get sandbox statistics
     pub fn get_stats(&self) -> std::collections::HashMap<String, String> {
         let mut stats = std::collections::HashMap::new();
