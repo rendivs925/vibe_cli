@@ -3410,10 +3410,6 @@ OUTPUT ONLY THE COMMAND:"#,
 
         false
     }
-        }
-
-        false
-    }
 
     /// Handle streaming agent mode - demonstrates real-time execution
     async fn handle_stream_mode(&mut self, goal: &str) -> Result<()> {
