@@ -29,16 +29,12 @@ impl LogTailer {
     pub async fn start_monitoring(
         mut self,
         event_tx: Sender<super::background_supervisor::BackgroundEvent>,
-    ) -> Result<()> {
+) -> Result<()> {
         println!("  └─ 📜 Log tailer disabled by default");
-
-        // Add common log file locations
-        self.add_default_log_files();
-
-        if self.watched_files.is_empty() {
-            println!("  └─ ⚠️ No log files found to monitor");
-            return Ok(());
-        }
+        
+        // Log tailer disabled by default - no automatic monitoring
+        // Only start if explicitly requested
+        Ok(())
 
         // Start monitoring each log file
         let mut handles = Vec::new();

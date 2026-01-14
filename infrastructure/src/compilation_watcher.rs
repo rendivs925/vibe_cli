@@ -17,6 +17,10 @@ impl CompilationWatcher {
         event_tx: Sender<super::background_supervisor::BackgroundEvent>,
     ) -> Result<Self> {
         println!("  └─ 🔨 Compilation watcher disabled by default");
+        
+        // Compilation watcher disabled by default - no automatic monitoring
+        // Only start if explicitly requested
+        Ok(Self { project_root, event_tx })
 
         // Start monitoring in a separate task
         tokio::spawn(async move {

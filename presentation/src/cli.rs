@@ -1357,10 +1357,22 @@ impl CliApp {
                     Self::handle_background_events(event_receiver).await;
                 });
 
-                // Background services disabled by default
+                // Background services disabled by default - no automatic startup
+        if let Some(project_root) = find_project_root() {
+            if let Some(mut supervisor) = self.background_supervisor.take() {
+                let project_root_path = std::path::PathBuf::from(project_root);
+                
+                // Background services disabled - no automatic startup
+                // Event receiver available for explicit manual control
+                let event_receiver = supervisor.event_receiver();
+                tokio::spawn(async move {
+                    Self::handle_background_events(event_receiver).await;
+                });
+                
+                // Log status update (services disabled)
                 tokio::spawn(async move {
                     if let Err(e) = supervisor.start(&project_root_path).await {
-                        eprintln!("Background services disabled by default: {}", e);
+                        eprintln!("Background services remain disabled: {}", e);
                     }
                 });
             }
