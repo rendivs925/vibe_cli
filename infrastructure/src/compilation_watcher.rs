@@ -16,7 +16,7 @@ impl CompilationWatcher {
         project_root: PathBuf,
         event_tx: Sender<super::background_supervisor::BackgroundEvent>,
     ) -> Result<Self> {
-        println!("  └─ 🔨 Starting compilation watcher...");
+        println!("  └─ 🔨 Compilation watcher disabled by default");
 
         // Start monitoring in a separate task
         tokio::spawn(async move {

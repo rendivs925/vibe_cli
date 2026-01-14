@@ -132,7 +132,7 @@ impl BackgroundSupervisor {
 
     /// Start all background services
     pub async fn start(&mut self, project_root: &PathBuf) -> Result<()> {
-        println!("🧠 Starting background intelligence services...");
+        // Background services disabled by default - no automatic startup
         self.project_root = Some(project_root.clone());
 
         // Initialize fix applier
@@ -148,9 +148,8 @@ impl BackgroundSupervisor {
         self.start_log_tailer().await?;
 
         // Start autonomous fix analyzer
+// Background services disabled by default - no automatic startup
         self.start_autonomous_fix_analyzer().await?;
-
-        println!("✅ Background intelligence active");
         Ok(())
     }
 
@@ -233,7 +232,7 @@ impl BackgroundSupervisor {
         analyzer: ErrorAnalyzer,
         project_root: PathBuf,
     ) -> Result<()> {
-        println!("🤖 Autonomous fix analyzer active - monitoring for errors...");
+        // Autonomous fix analyzer disabled by default - no automatic startup
 
         // Initialize fix applier
         let mut fix_applier = FixApplier::new(project_root.clone());
@@ -446,7 +445,7 @@ impl BackgroundSupervisor {
         shutdown_rx: Receiver<()>,
     ) -> Result<()> {
         println!(
-            "  └─ 📁 File watcher starting on {}",
+            "  └─ 📁 File watcher disabled by default - {}",
             project_root.display()
         );
 

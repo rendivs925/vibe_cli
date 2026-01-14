@@ -30,7 +30,7 @@ impl LogTailer {
         mut self,
         event_tx: Sender<super::background_supervisor::BackgroundEvent>,
     ) -> Result<()> {
-        println!("  └─ 📜 Starting log tailer...");
+        println!("  └─ 📜 Log tailer disabled by default");
 
         // Add common log file locations
         self.add_default_log_files();

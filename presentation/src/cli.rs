@@ -1357,10 +1357,10 @@ impl CliApp {
                     Self::handle_background_events(event_receiver).await;
                 });
 
-                // Start background services
+                // Background services disabled by default
                 tokio::spawn(async move {
                     if let Err(e) = supervisor.start(&project_root_path).await {
-                        eprintln!("Failed to start background services: {}", e);
+                        eprintln!("Background services disabled by default: {}", e);
                     }
                 });
             }
