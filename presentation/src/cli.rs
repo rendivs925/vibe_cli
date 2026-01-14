@@ -2977,50 +2977,87 @@ OUTPUT:"#,
                     cached_command.clone()
                 };
 
-                let sandbox = Sandbox::new();
-
-                // Try direct command execution first
-                match sandbox.execute_command_string(&effective_command).await {
-                    Ok(output) => {
-                        println!("{}", output);
-                        return Ok(());
-                    }
-                    Err(e) => {
-                        eprintln!("{}", format!("Command execution failed: {}", e).red());
-                        // Offer direct execution as fallback
-                        if ask_confirmation("Try executing directly (bypassing sandbox)?", false)? {
-                            match std::process::Command::new("bash")
-                                .arg("-c")
-                                .arg(&effective_command)
-                                .output()
-                            {
-                                Ok(output) => {
-                                    println!("{}", String::from_utf8_lossy(&output.stdout));
-                                    if !output.status.success() {
-                                        let stderr = String::from_utf8_lossy(&output.stderr);
-                                        // Check if this is an expected non-error exit code
-                                        if Self::is_expected_exit_code(&effective_command, output.status.code(), &stderr) {
-                                            // Don't treat as error
-                                        } else {
-                                            println!(
-                                                "{}",
-                                                format!(
-                                                    "Command failed: {}",
-                                                    stderr
-                                                )
-                                                .red()
-                                            );
-                                        }
-                                    }
+                if needs_sudo {
+                    // For sudo commands, skip sandbox and execute directly
+                    match std::process::Command::new("bash")
+                        .arg("-c")
+                        .arg(&effective_command)
+                        .output()
+                    {
+                        Ok(output) => {
+                            println!("{}", String::from_utf8_lossy(&output.stdout));
+                            if !output.status.success() {
+                                let stderr = String::from_utf8_lossy(&output.stderr);
+                                // Check if this is an expected non-error exit code
+                                if Self::is_expected_exit_code(&effective_command, output.status.code(), &stderr) {
+                                    let _ = self.save_cached(&effective_query, &effective_command);
+                                } else {
+                                    println!(
+                                        "{}",
+                                        format!(
+                                            "Command failed: {}",
+                                            stderr
+                                        )
+                                        .red()
+                                    );
                                 }
-                                Err(e) => {
-                                    eprintln!("{}", format!("Direct execution failed: {}", e).red());
-                                }
+                            } else {
+                                let _ = self.save_cached(&effective_query, &effective_command);
                             }
                         }
-                        return Ok(());
+                        Err(e) => {
+                            eprintln!("{}", format!("Direct execution failed: {}", e).red());
+                        }
+                    }
+                } else {
+                    // For non-sudo commands, try sandbox first
+                    let sandbox = Sandbox::new();
+                    match sandbox.execute_command_string(&effective_command).await {
+                        Ok(output) => {
+                            println!("{}", output);
+                            return Ok(());
+                        }
+                        Err(e) => {
+                            eprintln!("{}", format!("Command execution failed: {}", e).red());
+                            // Offer direct execution as fallback
+                            if ask_confirmation("Try executing directly (bypassing sandbox)?", false)? {
+                                match std::process::Command::new("bash")
+                                    .arg("-c")
+                                    .arg(&effective_command)
+                                    .output()
+                                {
+                                    Ok(output) => {
+                                        println!("{}", String::from_utf8_lossy(&output.stdout));
+                                        if !output.status.success() {
+                                            let stderr = String::from_utf8_lossy(&output.stderr);
+                                            // Check if this is an expected non-error exit code
+                                            if Self::is_expected_exit_code(&effective_command, output.status.code(), &stderr) {
+                                                let _ = self.save_cached(&effective_query, &effective_command);
+                                            } else {
+                                                println!(
+                                                    "{}",
+                                                    format!(
+                                                        "Command failed: {}",
+                                                        stderr
+                                                    )
+                                                    .red()
+                                                );
+                                            }
+                                        } else {
+                                            let _ = self.save_cached(&effective_query, &effective_command);
+                                        }
+                                    }
+                                    Err(e) => {
+                                        eprintln!("{}", format!("Direct execution failed: {}", e).red());
+                                    }
+                                }
+                            }
+                            return Ok(());
+                        }
                     }
                 }
+                return Ok(());
+            }
             } else if !is_safe {
                 // For unsafe cached commands, offer to generate a new command
                 if ask_confirmation("Generate new command instead?", false)? {
@@ -3147,51 +3184,71 @@ OUTPUT ONLY THE COMMAND:"#,
         };
 
         if ask_confirmation(&prompt, is_safe)? {
-            let sandbox = Sandbox::new();
-
-            // Try direct command execution first
-            match sandbox.execute_command_string(&command).await {
-                Ok(output) => {
-                    println!("{}", output);
-                }
-                Err(e) => {
-                    eprintln!("{}", format!("Command execution failed: {}", e).red());
-                        // Offer direct execution as fallback
-                        if ask_confirmation("Try executing directly (bypassing sandbox)?", false)? {
-                        match std::process::Command::new("bash")
-                            .arg("-c")
-                            .arg(&command)
-                            .output()
-                        {
-                            Ok(output) => {
-                                println!("{}", String::from_utf8_lossy(&output.stdout));
-                                if !output.status.success() {
-                                    let stderr = String::from_utf8_lossy(&output.stderr);
-                                    // Check if this is an expected non-error exit code
-                                    if Self::is_expected_exit_code(&command, output.status.code(), &stderr) {
-                                        // Don't treat as error, cache the command
-                                        let _ = self.save_cached(&effective_query, &command);
-                                    } else {
-                                        println!(
-                                            "{}",
-                                            format!(
-                                                "Command failed: {}",
-                                                stderr
-                                            )
-                                            .red()
-                                        );
-                                    }
-                                } else {
-                                    let _ = self.save_cached(&effective_query, &command);
-                                }
+            if needs_sudo {
+                // For sudo commands, skip sandbox and execute directly
+                match std::process::Command::new("bash")
+                    .arg("-c")
+                    .arg(&effective_command)
+                    .output()
+                {
+                    Ok(output) => {
+                        println!("{}", String::from_utf8_lossy(&output.stdout));
+                        if !output.status.success() {
+                            let stderr = String::from_utf8_lossy(&output.stderr);
+                            // Check if this is an expected non-error exit code
+                            if Self::is_expected_exit_code(&effective_command, output.status.code(), &stderr) {
+                                let _ = self.save_cached(&effective_query, &effective_command);
+                            } else {
+                                println!(
+                                    "{}",
+                                    format!(
+                                        "Command failed: {}",
+                                        stderr
+                                    )
+                                    .red()
+                                );
                             }
-                            Err(e) => {
-                                eprintln!("{}", format!("Direct execution failed: {}", e).red());
-                            }
+                        } else {
+                            let _ = self.save_cached(&effective_query, &effective_command);
                         }
                     }
+                    Err(e) => {
+                        eprintln!("{}", format!("Direct execution failed: {}", e).red());
+                    }
                 }
-            }
+            } else {
+                // For non-sudo commands, try sandbox first
+                let sandbox = Sandbox::new();
+                match sandbox.execute_command_string(&effective_command).await {
+                    Ok(output) => {
+                        println!("{}", output);
+                    }
+                    Err(e) => {
+                        eprintln!("{}", format!("Command execution failed: {}", e).red());
+                        // Offer direct execution as fallback
+                        if ask_confirmation("Try executing directly (bypassing sandbox)?", false)? {
+                            match std::process::Command::new("bash")
+                                .arg("-c")
+                                .arg(&effective_command)
+                                .output()
+                            {
+                                Ok(output) => {
+                                    println!("{}", String::from_utf8_lossy(&output.stdout));
+                                    if !output.status.success() {
+                                        let stderr = String::from_utf8_lossy(&output.stderr);
+                                        // Check if this is an expected non-error exit code
+                                        if Self::is_expected_exit_code(&effective_command, output.status.code(), &stderr) {
+                                            let _ = self.save_cached(&effective_query, &effective_command);
+                                        } else {
+                                            println!(
+                                                "{}",
+                                                format!(
+                                                    "Command failed: {}",
+
+(File has more lines. Use 'offset' parameter to read beyond line 3215)
+</file>  
+</xai:function_call name="read">
+<parameter name="filePath">presentation/src/cli.rs
         } else {
             println!("{}", "Command execution cancelled.".yellow());
         }
