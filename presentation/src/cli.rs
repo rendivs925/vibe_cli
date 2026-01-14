@@ -3057,15 +3057,13 @@ OUTPUT:"#,
                     }
                 }
                 return Ok(());
-            } else if !is_safe {
-                // For unsafe cached commands, offer to generate a new command
+            } else {
+                // For both safe and unsafe cached commands, offer to generate a new command
                 if ask_confirmation("Generate new command instead?", false)? {
                     // Continue to command generation below
                 } else {
                     return Ok(());
                 }
-            } else {
-                return Ok(());
             }
         }
 
