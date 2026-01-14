@@ -2951,18 +2951,36 @@ OUTPUT:"#,
             println!("{}", format!("Found cached command: {}", cached_command).green());
 
             // Check if command is safe
-            let is_safe = power_config.is_command_allowed(&cached_command);
-            let prompt = if is_safe {
-                format!("Execute cached command: {} [Y/n]", cached_command)
+            let needs_sudo = Self::command_needs_sudo(&cached_command);
+            let effective_command = if needs_sudo {
+                format!("sudo {}", cached_command)
             } else {
-                format!("Execute cached command (requires elevated permissions): {} [y/N]", cached_command)
+                cached_command.clone()
+            };
+            let is_safe = power_config.is_command_allowed(&effective_command);
+            let prompt = if is_safe {
+                if needs_sudo {
+                    format!("Execute cached command with admin privileges: {}", cached_command)
+                } else {
+                    format!("Execute cached command: {}", cached_command)
+                }
+            } else {
+                format!("Execute cached command (requires elevated permissions): {}", effective_command)
             };
 
             if ask_confirmation(&prompt, is_safe)? {
+                // Check if this cached command needs sudo
+                let needs_sudo = Self::command_needs_sudo(&cached_command);
+                let effective_command = if needs_sudo {
+                    format!("sudo {}", cached_command)
+                } else {
+                    cached_command.clone()
+                };
+
                 let sandbox = Sandbox::new();
 
                 // Try direct command execution first
-                match sandbox.execute_command_string(&cached_command).await {
+                match sandbox.execute_command_string(&effective_command).await {
                     Ok(output) => {
                         println!("{}", output);
                         return Ok(());
@@ -2970,10 +2988,10 @@ OUTPUT:"#,
                     Err(e) => {
                         eprintln!("{}", format!("Command execution failed: {}", e).red());
                         // Offer direct execution as fallback
-                        if ask_confirmation("Try executing directly (bypassing sandbox)? [y/N]", false)? {
+                        if ask_confirmation("Try executing directly (bypassing sandbox)?", false)? {
                             match std::process::Command::new("bash")
                                 .arg("-c")
-                                .arg(&cached_command)
+                                .arg(&effective_command)
                                 .output()
                             {
                                 Ok(output) => {
@@ -2999,7 +3017,7 @@ OUTPUT:"#,
                 }
             } else if !is_safe {
                 // For unsafe cached commands, offer to generate a new command
-                if ask_confirmation("Generate new command instead? [y/N]", false)? {
+                if ask_confirmation("Generate new command instead?", false)? {
                     // Continue to command generation below
                 } else {
                     return Ok(());
@@ -3102,12 +3120,24 @@ OUTPUT ONLY THE COMMAND:"#,
 
         let _ = self.save_cached(&effective_query, &command);
 
-        // Single confirmation for new commands
-        let is_safe = power_config.is_command_allowed(&command);
-        let prompt = if is_safe {
-            format!("Execute: {} [Y/n]", command)
+        // Check if this is a system command that might need sudo
+        let needs_sudo = Self::command_needs_sudo(&command);
+        let effective_command = if needs_sudo {
+            format!("sudo {}", command)
         } else {
-            format!("Execute (requires elevated permissions): {} [y/N]", command)
+            command.clone()
+        };
+
+        // Single confirmation for new commands
+        let is_safe = power_config.is_command_allowed(&effective_command);
+        let prompt = if is_safe {
+            if needs_sudo {
+                format!("Execute with admin privileges: {}", command)
+            } else {
+                format!("Execute: {}", command)
+            }
+        } else {
+            format!("Execute (requires elevated permissions): {}", effective_command)
         };
 
         if ask_confirmation(&prompt, is_safe)? {
@@ -3120,8 +3150,8 @@ OUTPUT ONLY THE COMMAND:"#,
                 }
                 Err(e) => {
                     eprintln!("{}", format!("Command execution failed: {}", e).red());
-                    // Offer direct execution as fallback
-                    if ask_confirmation("Try executing directly (bypassing sandbox)? [y/N]", false)? {
+                        // Offer direct execution as fallback
+                        if ask_confirmation("Try executing directly (bypassing sandbox)?", false)? {
                         match std::process::Command::new("bash")
                             .arg("-c")
                             .arg(&command)
@@ -3303,6 +3333,48 @@ OUTPUT ONLY THE COMMAND:"#,
         std::fs::write(&cache_path, serialized)?;
 
         Ok(())
+    }
+
+    /// Check if a command typically requires sudo/admin privileges
+    fn command_needs_sudo(command: &str) -> bool {
+        let sudo_commands = [
+            "systemctl",
+            "service",
+            "systemd",
+            "apt",
+            "apt-get",
+            "yum",
+            "dnf",
+            "pacman",
+            "zypper",
+            "mount",
+            "umount",
+            "fdisk",
+            "mkfs",
+            "fsck",
+            "iptables",
+            "ufw",
+            "firewall-cmd",
+            "usermod",
+            "useradd",
+            "userdel",
+            "groupadd",
+            "groupdel",
+            "chmod",
+            "chown",
+            "passwd",
+            "visudo",
+            "crontab",
+        ];
+
+        // Check if the command starts with any of the sudo-requiring commands
+        for sudo_cmd in &sudo_commands {
+            if command.starts_with(&format!("{} ", sudo_cmd)) || command == *sudo_cmd {
+                return true;
+            }
+        }
+
+        false
     }
 
     /// Handle streaming agent mode - demonstrates real-time execution
