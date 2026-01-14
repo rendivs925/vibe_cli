@@ -2569,7 +2569,9 @@ impl CliApp {
                     "{}",
                     format!("Command blocked by permissions: {}", effective_input).red()
                 );
-                continue;
+                if !ask_confirmation("Run anyway? (y/n)", false)? {
+                    continue;
+                }
             }
 
             let prompt = format!("You are on a system with: {}. Generate a bash command to: {}. Respond with only the exact command to run, without any formatting, backticks, quotes, or explanation. Ensure the command is complete, syntactically correct, and uses standard Unix tools. For size comparisons, use appropriate units like -BG for gigabytes in df.", self.system_info, effective_input);
@@ -2955,7 +2957,9 @@ OUTPUT:"#,
                         "{}",
                         format!("Command blocked by permissions: {}", cached_command).red()
                     );
-                    return Ok(());
+                    if !ask_confirmation("Run anyway? (y/n)", false)? {
+                        return Ok(());
+                    }
                 }
 
                 match sandbox
@@ -3095,7 +3099,9 @@ OUTPUT ONLY THE COMMAND:"#,
                 "{}",
                 format!("Command blocked by permissions: {}", command).red()
             );
-            return Ok(());
+            if !ask_confirmation("Run anyway? (y/n)", false)? {
+                return Ok(());
+            }
         }
 
         if ask_confirmation("Run this command?", false)? {
