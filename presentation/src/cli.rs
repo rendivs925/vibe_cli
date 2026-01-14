@@ -3095,6 +3095,8 @@ OUTPUT ONLY THE COMMAND:"#,
         let command = extract_command_from_response(&response);
         println!("{}", format!("Command: {}", command).green());
 
+        let _ = self.save_cached(&effective_query, &command);
+
         // Check permissions before executing generated command
         if !power_config.is_command_allowed(&command) {
             println!(
@@ -3114,7 +3116,6 @@ OUTPUT ONLY THE COMMAND:"#,
             {
                 Ok(output) => {
                     println!("{}", output);
-                    let _ = self.save_cached(&effective_query, &command);
                 }
                 Err(e) => {
                     eprintln!("{}", format!("Sandbox execution failed: {}", e).red());
