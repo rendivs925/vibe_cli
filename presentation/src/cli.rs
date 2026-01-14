@@ -2569,7 +2569,7 @@ impl CliApp {
                     "{}",
                     format!("Command blocked by permissions: {}", effective_input).red()
                 );
-                if !ask_confirmation("Run anyway? (y/n)", false)? {
+                if !ask_confirmation("Run anyway?", false)? {
                     continue;
                 }
             }
@@ -2957,7 +2957,7 @@ OUTPUT:"#,
                         "{}",
                         format!("Command blocked by permissions: {}", cached_command).red()
                     );
-                    if !ask_confirmation("Run anyway? (y/n)", false)? {
+                    if !ask_confirmation("Run anyway?", false)? {
                         return Ok(());
                     }
                 }
@@ -3099,7 +3099,7 @@ OUTPUT ONLY THE COMMAND:"#,
                 "{}",
                 format!("Command blocked by permissions: {}", command).red()
             );
-            if !ask_confirmation("Run anyway? (y/n)", false)? {
+            if !ask_confirmation("Run anyway?", false)? {
                 return Ok(());
             }
         }
