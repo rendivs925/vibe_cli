@@ -2567,7 +2567,7 @@ impl CliApp {
             if !power_config.is_command_allowed(&effective_input) {
                 println!(
                     "{}",
-                    "Command blocked by permissions".red()
+                    "Command blocked by sandbox".red()
                 );
                 if !ask_confirmation("Run anyway?", false)? {
                     continue;
@@ -2955,7 +2955,7 @@ OUTPUT:"#,
                 if !power_config.is_command_allowed(&cached_command) {
                     println!(
                         "{}",
-                        "Command blocked by permissions".red()
+                        "Command blocked by sandbox".red()
                     );
                     if !ask_confirmation("Run anyway?", false)? {
                         return Ok(());
@@ -3097,7 +3097,7 @@ OUTPUT ONLY THE COMMAND:"#,
         if !power_config.is_command_allowed(&command) {
             println!(
                 "{}",
-                "Command blocked by permissions".red()
+                "Command blocked by sandbox".red()
             );
             if !ask_confirmation("Run anyway?", false)? {
                 return Ok(());
