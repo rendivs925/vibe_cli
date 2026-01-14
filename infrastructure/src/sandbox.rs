@@ -67,6 +67,7 @@ impl Sandbox {
             "vmstat",
             "sar",
             "sysctl",
+            "sudo",
         ] {
             allowed_commands.insert(cmd.to_string());
         }

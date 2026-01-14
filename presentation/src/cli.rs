@@ -2998,9 +2998,9 @@ OUTPUT:"#,
                                     println!("{}", String::from_utf8_lossy(&output.stdout));
                                     if !output.status.success() {
                                         let stderr = String::from_utf8_lossy(&output.stderr);
-                                        // Special handling for systemctl status - exit code 3 is normal for inactive services
-                                        if effective_command.starts_with("systemctl status") && output.status.code() == Some(3) && !stderr.contains("Failed to") {
-                                            println!("{}", "Note: Service is currently inactive (this is normal)".yellow());
+                                        // Check if this is an expected non-error exit code
+                                        if Self::is_expected_exit_code(&effective_command, output.status.code(), &stderr) {
+                                            // Don't treat as error
                                         } else {
                                             println!(
                                                 "{}",
@@ -3167,9 +3167,9 @@ OUTPUT ONLY THE COMMAND:"#,
                                 println!("{}", String::from_utf8_lossy(&output.stdout));
                                 if !output.status.success() {
                                     let stderr = String::from_utf8_lossy(&output.stderr);
-                                    // Special handling for systemctl status - exit code 3 is normal for inactive services
-                                    if command.starts_with("systemctl status") && output.status.code() == Some(3) && !stderr.contains("Failed to") {
-                                        println!("{}", "Note: Service is currently inactive (this is normal)".yellow());
+                                    // Check if this is an expected non-error exit code
+                                    if Self::is_expected_exit_code(&command, output.status.code(), &stderr) {
+                                        // Don't treat as error, cache the command
                                         let _ = self.save_cached(&effective_query, &command);
                                     } else {
                                         println!(
@@ -3378,6 +3378,10 @@ OUTPUT ONLY THE COMMAND:"#,
             "passwd",
             "visudo",
             "crontab",
+            "overwrite",
+            "modify",
+            "edit",
+            "update",
         ];
 
         // Check if the command starts with any of the sudo-requiring commands
@@ -3385,6 +3389,27 @@ OUTPUT ONLY THE COMMAND:"#,
             if command.starts_with(&format!("{} ", sudo_cmd)) || command == *sudo_cmd {
                 return true;
             }
+        }
+
+        false
+    }
+
+    /// Check if a command's exit code should be considered successful despite being non-zero
+    fn is_expected_exit_code(command: &str, exit_code: Option<i32>, stderr: &str) -> bool {
+        // Handle systemctl status commands - exit code 3 means service is inactive (normal)
+        if (command.contains("systemctl status") || command.contains("sudo systemctl status")) && exit_code == Some(3) && !stderr.contains("Failed to") {
+            println!("{}", "Note: Service is currently inactive (this is normal)".yellow());
+            return true;
+        }
+
+        // Add more command-specific exit code handling here as needed
+        // For example:
+        // if command.contains("some_command") && exit_code == Some(expected_code) {
+        //     return true;
+        // }
+
+        false
+    }
         }
 
         false
