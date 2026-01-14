@@ -273,10 +273,6 @@ impl BackgroundSupervisor {
         event_tx: Sender<BackgroundEvent>,
         shutdown_rx: Receiver<()>,
     ) -> Result<()> {
-        println!(
-            "  └─ 📁 File watcher disabled by default - {}",
-            project_root.display()
-        );
 
         // Create a channel for file system events
         let (watcher_tx, watcher_rx) = flume::unbounded();
@@ -305,8 +301,6 @@ impl BackgroundSupervisor {
             "*.log",
         ];
 
-        println!("  └─ 📁 Watching for changes (excluding build artifacts)...");
-
         loop {
             tokio::select! {
                 // Handle file system events
@@ -333,7 +327,6 @@ impl BackgroundSupervisor {
             }
         }
 
-        println!("  └─ 📁 File watcher shutting down");
         Ok(())
     }
 
