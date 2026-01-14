@@ -3455,7 +3455,6 @@ OUTPUT ONLY THE COMMAND:"#,
     fn is_expected_exit_code(command: &str, exit_code: Option<i32>, stderr: &str) -> bool {
         // Handle systemctl status commands - exit code 3 means service is inactive (normal)
         if (command.contains("systemctl status") || command.contains("sudo systemctl status")) && exit_code == Some(3) && !stderr.contains("Failed to") {
-            println!("{}", "Note: Service is currently inactive (this is normal)".yellow());
             return true;
         }
 
