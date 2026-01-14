@@ -2816,7 +2816,9 @@ OUTPUT:"#,
         // Check cache first
         if let Some(cached_response) = self.load_cached_explain(&prompt)? {
             println!("{}", cached_response);
-            return Ok(());
+            if ask_confirmation("Use this cached explanation?", true)? {
+                return Ok(());
+            }
         }
 
         eprintln!("Analyzing file content...");
@@ -2832,8 +2834,8 @@ OUTPUT:"#,
 
     async fn handle_rag(&mut self, question: &str) -> Result<()> {
         if let Some(cached_response) = self.load_cached_rag(question)? {
-            if ask_confirmation("Cached answer found. Use it?", true)? {
-                println!("{}", cached_response);
+            println!("{}", cached_response);
+            if ask_confirmation("Use this cached answer?", true)? {
                 return Ok(());
             }
         }
