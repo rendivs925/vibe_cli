@@ -3244,8 +3244,23 @@ OUTPUT ONLY THE COMMAND:"#,
                                                 "{}",
                                                 format!(
                                                     "Command failed: {}",
-
-(File has more lines. Use 'offset' parameter to read beyond line 3215)
+                                                    stderr
+                                                )
+                                                .red()
+                                            );
+                                        }
+                                    } else {
+                                        let _ = self.save_cached(&effective_query, &effective_command);
+                                    }
+                                }
+                                Err(e) => {
+                                    eprintln!("{}", format!("Direct execution failed: {}", e).red());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
 </file>  
 </xai:function_call name="read">
 <parameter name="filePath">presentation/src/cli.rs
