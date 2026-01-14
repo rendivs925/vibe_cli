@@ -2565,9 +2565,14 @@ impl CliApp {
             let client = infrastructure::ollama_client::OllamaClient::new()?;
             // Check permissions for the expanded command if it's a direct command
             if !power_config.is_command_allowed(&effective_input) {
+                let display_command = if effective_input.len() > 50 {
+                    format!("{}...", &effective_input[..47])
+                } else {
+                    effective_input.clone()
+                };
                 println!(
                     "{}",
-                    format!("Command blocked by permissions: {}", effective_input).red()
+                    format!("Command blocked by permissions: {}", display_command).red()
                 );
                 if !ask_confirmation("Run anyway?", false)? {
                     continue;
@@ -2953,9 +2958,14 @@ OUTPUT:"#,
                 let sandbox = Sandbox::new();
                 // Check permissions before executing cached command
                 if !power_config.is_command_allowed(&cached_command) {
+                    let display_command = if cached_command.len() > 50 {
+                        format!("{}...", &cached_command[..47])
+                    } else {
+                        cached_command.clone()
+                    };
                     println!(
                         "{}",
-                        format!("Command blocked by permissions: {}", cached_command).red()
+                        format!("Command blocked by permissions: {}", display_command).red()
                     );
                     if !ask_confirmation("Run anyway?", false)? {
                         return Ok(());
@@ -3095,9 +3105,14 @@ OUTPUT ONLY THE COMMAND:"#,
 
         // Check permissions before executing generated command
         if !power_config.is_command_allowed(&command) {
+            let display_command = if command.len() > 50 {
+                format!("{}...", &command[..47])
+            } else {
+                command.clone()
+            };
             println!(
                 "{}",
-                format!("Command blocked by permissions: {}", command).red()
+                format!("Command blocked by permissions: {}", display_command).red()
             );
             if !ask_confirmation("Run anyway?", false)? {
                 return Ok(());
