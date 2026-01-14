@@ -2997,14 +2997,20 @@ OUTPUT:"#,
                                 Ok(output) => {
                                     println!("{}", String::from_utf8_lossy(&output.stdout));
                                     if !output.status.success() {
-                                        println!(
-                                            "{}",
-                                            format!(
-                                                "Command failed: {}",
-                                                String::from_utf8_lossy(&output.stderr)
-                                            )
-                                            .red()
-                                        );
+                                        let stderr = String::from_utf8_lossy(&output.stderr);
+                                        // Special handling for systemctl status - exit code 3 is normal for inactive services
+                                        if effective_command.starts_with("systemctl status") && output.status.code() == Some(3) && !stderr.contains("Failed to") {
+                                            println!("{}", "Note: Service is currently inactive (this is normal)".yellow());
+                                        } else {
+                                            println!(
+                                                "{}",
+                                                format!(
+                                                    "Command failed: {}",
+                                                    stderr
+                                                )
+                                                .red()
+                                            );
+                                        }
                                     }
                                 }
                                 Err(e) => {
@@ -3160,14 +3166,21 @@ OUTPUT ONLY THE COMMAND:"#,
                             Ok(output) => {
                                 println!("{}", String::from_utf8_lossy(&output.stdout));
                                 if !output.status.success() {
-                                    println!(
-                                        "{}",
-                                        format!(
-                                            "Command failed: {}",
-                                            String::from_utf8_lossy(&output.stderr)
-                                        )
-                                        .red()
-                                    );
+                                    let stderr = String::from_utf8_lossy(&output.stderr);
+                                    // Special handling for systemctl status - exit code 3 is normal for inactive services
+                                    if command.starts_with("systemctl status") && output.status.code() == Some(3) && !stderr.contains("Failed to") {
+                                        println!("{}", "Note: Service is currently inactive (this is normal)".yellow());
+                                        let _ = self.save_cached(&effective_query, &command);
+                                    } else {
+                                        println!(
+                                            "{}",
+                                            format!(
+                                                "Command failed: {}",
+                                                stderr
+                                            )
+                                            .red()
+                                        );
+                                    }
                                 } else {
                                     let _ = self.save_cached(&effective_query, &command);
                                 }
