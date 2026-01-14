@@ -106,7 +106,7 @@ setup-ollama: ## Setup Ollama for AI features
 build: ## Build the application in release mode
 	@echo "🔨 Building Vibe CLI (release mode)..."
 	@echo "======================================"
-	RUSTFLAGS="-C target-cpu=native -C link-arg=-fuse-ld=lld" cargo build --release
+	RUSTFLAGS="-C target-cpu=native" cargo build --release
 	@echo "✅ Build complete: target/release/vibe_cli"
 
 build-debug: ## Build the application in debug mode
