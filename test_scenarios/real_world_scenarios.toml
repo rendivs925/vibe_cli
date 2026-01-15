@@ -1,0 +1,170 @@
+# Vibe CLI Real-World Test Scenarios
+# Comprehensive test cases covering developer workflows and system administration tasks
+
+# Developer Workflow Scenarios
+[developer_workflows]
+# Basic file operations
+"list all files in current directory"
+"show directory structure recursively"
+"find all Rust source files"
+"find all configuration files"
+
+# Code analysis
+"explain how authentication works in this codebase"
+"find all TODO comments"
+"locate database connection code"
+"find error handling patterns"
+
+# Build and testing
+"check for compilation errors"
+"find unused imports"
+"show test coverage"
+"identify performance bottlenecks"
+
+# Version control
+"show git status for all repositories"
+"find uncommitted changes"
+"check for merge conflicts"
+"show recent commits"
+
+# Debugging
+"find memory leaks in the codebase"
+"check for race conditions"
+"analyze performance issues"
+"find security vulnerabilities"
+
+# Code review preparation
+"find deprecated API usage"
+"check code formatting"
+"identify code smells"
+"find potential bugs"
+
+[system_administration]
+# System monitoring
+"show current memory usage"
+"display CPU utilization"
+"check disk space usage"
+"monitor network traffic"
+
+# Process management
+"list all running processes"
+"find processes using high CPU"
+"show memory-intensive processes"
+"check for zombie processes"
+
+# File system operations
+"find files larger than 1GB"
+"locate recently modified files"
+"find duplicate files"
+"check file permissions"
+
+# Network administration
+"show network interface status"
+"display routing table"
+"check open ports"
+"monitor network connections"
+
+# Security and permissions
+"find world-writable files"
+"check for setuid binaries"
+"audit sudo privileges"
+"find exposed secrets"
+
+# System maintenance
+"check system logs for errors"
+"find temporary files to clean"
+"check service statuses"
+"monitor system temperature"
+
+[complex_multi_step]
+# Development environment setup
+"set up a new Rust project with testing and CI/CD"
+"configure a Node.js application with database"
+"initialize a Python project with virtual environment"
+
+# Infrastructure deployment
+"deploy a web application to AWS"
+"set up monitoring stack with Prometheus"
+"configure load balancer with SSL"
+"automate backup procedures"
+
+# Database operations
+"migrate PostgreSQL database schema"
+"optimize MongoDB queries"
+"set up database replication"
+"implement database backup strategy"
+
+# DevOps workflows
+"set up Kubernetes cluster locally"
+"configure CI/CD pipeline with GitHub Actions"
+"implement infrastructure as code"
+"set up container registry"
+
+# Performance optimization
+"optimize React application bundle size"
+"improve database query performance"
+"implement caching strategy"
+"optimize API response times"
+
+[code_analysis_scenarios]
+# Large codebase analysis
+"analyze the entire project for security issues"
+"find all API endpoints in the codebase"
+"identify architectural patterns"
+"map data flow through the application"
+
+# Code quality assessment
+"check code complexity metrics"
+"find code duplication"
+"assess test coverage gaps"
+"identify technical debt"
+
+# Refactoring opportunities
+"find long functions to break down"
+"identify tight coupling between modules"
+"find unused code to remove"
+"locate magic numbers and strings"
+
+# Documentation needs
+"find undocumented public APIs"
+"check for missing error documentation"
+"identify unclear variable names"
+"find missing type annotations"
+
+[concurrent_workflows]
+# Multiple developers
+"team of 3 developers working simultaneously"
+"code review process with multiple reviewers"
+"pair programming session"
+"distributed team collaboration"
+
+# CI/CD pipelines
+"parallel test execution"
+"concurrent deployment processes"
+"automated security scanning"
+"performance regression testing"
+
+# System monitoring
+"real-time log analysis"
+"alert processing and notification"
+"resource usage monitoring"
+"performance metric collection"
+
+[edge_cases]
+# Error conditions
+"handle network connectivity issues"
+"manage API rate limiting"
+"process malformed input"
+"handle resource exhaustion"
+
+# Large scale operations
+"analyze codebase with 100k+ files"
+"process 1TB+ of log data"
+"handle 10k+ concurrent requests"
+"manage petabyte-scale storage"
+
+# Unusual scenarios
+"work with encrypted files"
+"handle multi-language projects"
+"support legacy system integration"
+"manage geographically distributed data"
