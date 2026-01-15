@@ -49,15 +49,12 @@ impl OllamaClient {
             env::var("OLLAMA_BASE_URL").unwrap_or_else(|_| "http://localhost:11434".to_string());
         let model = env::var("BASE_MODEL").unwrap_or_else(|_| "qwen2.5:1.5b-instruct".to_string());
 
-        // Ultra-high performance HTTP client with HTTP/2 and connection pooling
+        // High-performance HTTP client with connection pooling
         let client = ClientBuilder::new()
-            .pool_max_idle_per_host(20) // Increased connection pool for HTTP/2 multiplexing
-            .pool_idle_timeout(Duration::from_secs(60)) // Keep connections alive longer for HTTP/2
+            .pool_max_idle_per_host(10) // Connection pool
+            .pool_idle_timeout(Duration::from_secs(30)) // Keep connections alive
             .tcp_nodelay(true) // Disable Nagle's algorithm for low latency
             .timeout(Duration::from_secs(300)) // 5 minute timeout for long inferences
-            .http2_prior_knowledge() // Enable HTTP/2 with prior knowledge
-            .http2_max_frame_size(Some(32768)) // Larger frames for better throughput
-            .http2_adaptive_window(true) // Adaptive window sizing
             .build()?;
 
         Ok(Self {
