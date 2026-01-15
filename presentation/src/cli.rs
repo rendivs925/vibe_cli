@@ -344,13 +344,83 @@ fn extract_command_from_response(response: &str) -> String {
     } else {
         response.to_string()
     };
-    // Remove surrounding backticks, quotes, and extra whitespace
-    cleaned
-        .trim_matches('`')
-        .trim_matches('"')
-        .trim_matches('\'')
-        .trim()
-        .to_string()
+
+    // Smart quote handling: only remove surrounding quotes if they wrap the entire command
+    // and there are no quotes within the command (indicating they're part of command syntax)
+    let trimmed = cleaned.trim_matches('`').trim();
+    if trimmed.starts_with('"') && trimmed.ends_with('"') {
+        let inner = &trimmed[1..trimmed.len()-1];
+        // If there are no quotes inside, it's safe to remove the outer quotes
+        if !inner.contains('"') && !inner.contains('\'') {
+            return inner.trim().to_string();
+        }
+        // Otherwise, keep the quotes as they're part of the command syntax
+    } else if trimmed.starts_with('\'') && trimmed.ends_with('\'') {
+        let inner = &trimmed[1..trimmed.len()-1];
+        // Same logic for single quotes
+        if !inner.contains('\'') && !inner.contains('"') {
+            return inner.trim().to_string();
+        }
+    }
+
+    trimmed.to_string()
+}
+
+/// Validate that a command has basic syntactical correctness
+fn validate_command_syntax(command: &str) -> Result<(), String> {
+    let trimmed = command.trim();
+
+    // Check for unclosed quotes
+    let mut single_quote_count = 0;
+    let mut double_quote_count = 0;
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+
+    for ch in trimmed.chars() {
+        match ch {
+            '"' if !in_single_quote => {
+                in_double_quote = !in_double_quote;
+                double_quote_count += 1;
+            }
+            '\'' if !in_double_quote => {
+                in_single_quote = !in_single_quote;
+                single_quote_count += 1;
+            }
+            _ => {}
+        }
+    }
+
+    if in_single_quote || in_double_quote {
+        return Err("Command contains unclosed quotes".to_string());
+    }
+
+    // Check for unbalanced parentheses (basic check)
+    let paren_count = trimmed.chars().fold(0, |count, ch| {
+        match ch {
+            '(' => count + 1,
+            ')' => count - 1,
+            _ => count,
+        }
+    });
+
+    if paren_count != 0 {
+        return Err("Command contains unbalanced parentheses".to_string());
+    }
+
+    // Check for obviously malformed patterns
+    if trimmed.contains("&&&") || trimmed.contains("|||") {
+        return Err("Command contains consecutive operators".to_string());
+    }
+
+    if trimmed.starts_with('|') || trimmed.starts_with('&') || trimmed.starts_with(';') {
+        return Err("Command starts with a pipe or operator".to_string());
+    }
+
+    if trimmed.ends_with('|') || trimmed.ends_with('&') {
+        return Err("Command ends with a pipe or operator".to_string());
+    }
+
+    Ok(())
 }
 
 #[derive(Parser)]
@@ -635,7 +705,9 @@ impl CliApp {
                 }
             }
         }
-        trimmed.to_string()
+        // Be conservative with quote removal - only remove backticks, not quotes
+        // Quotes are now handled intelligently in extract_command_from_response
+        trimmed.trim_matches('`').trim().to_string()
     }
 
     fn load_cached(&self, prompt: &str) -> Result<Option<String>> {
@@ -665,7 +737,18 @@ impl CliApp {
         // First try exact match
         for entry in &cache.entries {
             if entry.prompt == prompt {
-                return Ok(Some(Self::clean_command_output(&entry.command)));
+                let cleaned_command = Self::clean_command_output(&entry.command);
+                // Validate cached command syntax before returning
+                if validate_command_syntax(&cleaned_command).is_ok() {
+                    return Ok(Some(cleaned_command));
+                } else {
+                    eprintln!("{}", format!("Warning: Cached command has syntax issues, regenerating").yellow());
+                    // Remove invalid entry from cache
+                    cache.entries.retain(|e| e.prompt != prompt);
+                    let serialized = serde_json::to_string_pretty(&cache)?;
+                    std::fs::write(&self.cache_path, serialized)?;
+                    return Ok(None);
+                }
             }
         }
 
@@ -682,7 +765,18 @@ impl CliApp {
         }
 
         if let Some(entry) = best_match {
-            Ok(Some(Self::clean_command_output(&entry.command)))
+            let cleaned_command = Self::clean_command_output(&entry.command);
+            // Validate semantically similar cached command syntax before returning
+            if validate_command_syntax(&cleaned_command).is_ok() {
+                Ok(Some(cleaned_command))
+            } else {
+                eprintln!("{}", format!("Warning: Similar cached command has syntax issues, regenerating").yellow());
+                // Remove invalid entry from cache
+                cache.entries.retain(|e| e.prompt != entry.prompt);
+                let serialized = serde_json::to_string_pretty(&cache)?;
+                std::fs::write(&self.cache_path, serialized)?;
+                Ok(None)
+            }
         } else {
             Ok(None)
         }
@@ -3182,7 +3276,15 @@ OUTPUT ONLY THE COMMAND:"#,
         let command = extract_command_from_response(&response);
         println!("{}", format!("Command: {}", command).green());
 
-        let _ = self.save_cached(&effective_query, &command);
+        // Validate command syntax before caching
+        match validate_command_syntax(&command) {
+            Ok(_) => {
+                let _ = self.save_cached(&effective_query, &command);
+            }
+            Err(error_msg) => {
+                eprintln!("{}", format!("Warning: Generated command has syntax issues ({}), not caching", error_msg).yellow());
+            }
+        }
 
         // Handle system queries with dynamic processing
         if is_system_query {
