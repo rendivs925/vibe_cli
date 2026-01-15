@@ -10,6 +10,17 @@ members = [
     "cli"
 ]
 
+[workspace.package]
+version = "2.0.0"
+edition = "2021"
+license = "MIT"
+authors = ["Vibe CLI Team"]
+description = "A comprehensive AI-powered CLI assistant for system administration, development automation, and intelligent command execution"
+repository = "https://github.com/vibe-cli/vibe_cli"
+homepage = "https://vibe-cli.dev"
+keywords = ["cli", "ai", "automation", "system-administration", "devops"]
+categories = ["command-line-utilities", "development-tools"]
+
 [profile.release]
 opt-level = 3
 lto = "fat"
