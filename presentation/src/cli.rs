@@ -44,18 +44,18 @@ pub enum CommandIntent {
 }
 
 /// Risk assessment for commands in agent execution
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
 pub enum AgentCommandRisk {
-    InfoOnly,       // Read-only queries (ls, pwd, cat)
-    SafeOperations, // Safe operations (mkdir, echo, cp)
-    NetworkAccess,  // Network-dependent (npm install, git clone)
-    SystemChanges,  // System modifications (chmod, chown, systemctl)
-    Destructive,    // Destructive operations (rm -rf, dd, format)
-    Unknown,        // Cannot assess risk
+    InfoOnly,           // Read-only queries (ls, pwd, cat)
+    SafeOperations,     // Safe operations (mkdir, echo, cp)
+    NetworkAccess,      // Network-dependent (npm install, git clone)
+    SystemChanges,      // System modifications (chmod, chown, systemctl)
+    Destructive,        // Destructive operations (rm -rf, dd, format)
+    Unknown,            // Cannot assess risk
 }
 
 /// Individual step in an agent execution plan
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, serde::Deserialize)]
 pub struct AgentStep {
     pub id: String,
     pub command: String,
@@ -68,6 +68,7 @@ pub struct AgentStep {
 
 /// Complete agent execution plan
 #[derive(Debug, Clone)]
+#[derive(serde::Deserialize)]
 pub struct AgentPlan {
     pub steps: Vec<AgentStep>,
     pub total_estimated_time: Option<String>,
