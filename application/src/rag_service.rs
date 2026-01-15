@@ -105,6 +105,18 @@ impl RagService {
         self.query_with_feedback(question, "").await
     }
 
+    /// Query with streaming response for real-time feedback
+    pub async fn query_streaming<F>(
+        &self,
+        question: &str,
+        mut on_chunk: F,
+    ) -> Result<String>
+    where
+        F: FnMut(&str) + Send,
+    {
+        self.query_with_feedback_streaming(question, "", on_chunk).await
+    }
+
     pub async fn query_with_feedback(&self, question: &str, feedback: &str) -> Result<String> {
         let query_embedding = self.inference_engine.generate_embeddings(question).await?;
         let all_embeddings = self.storage.get_all_embeddings().await?;
@@ -180,6 +192,94 @@ impl RagService {
             sanitized_question, context
         ));
         self.inference_engine.generate(&prompt).await
+    }
+
+    /// Query with feedback and streaming response
+    pub async fn query_with_feedback_streaming<F>(
+        &self,
+        question: &str,
+        feedback: &str,
+        mut on_chunk: F,
+    ) -> Result<String>
+    where
+        F: FnMut(&str) + Send,
+    {
+        let query_embedding = self.inference_engine.generate_embeddings(question).await?;
+        let all_embeddings = self.storage.get_all_embeddings().await?;
+        let mut relevant_chunks =
+            SearchEngine::find_relevant_chunks(&query_embedding, &all_embeddings, 50);
+
+        // For project-level questions, include README and directory tree if available
+        if question.to_lowercase().contains("project")
+            || question.to_lowercase().contains("what is")
+        {
+            if let Ok(readme_content) = tokio::fs::read_to_string("README.md").await {
+                relevant_chunks.insert(0, format!("FILE: README.md\n{}", readme_content));
+            }
+            let dir_overview = self.scanner.directory_overview(8, 2000);
+            if !dir_overview.is_empty() {
+                relevant_chunks.insert(0, format!("DIRECTORY TREE:\n{}", dir_overview));
+            }
+        }
+
+        // Check for secrets in retrieved content
+        let mut contains_high_severity_secrets = false;
+        for chunk in &relevant_chunks {
+            if self.secrets_detector.contains_high_severity_secrets(chunk) {
+                contains_high_severity_secrets = true;
+                break;
+            }
+        }
+
+        if contains_high_severity_secrets {
+            return Ok("__SECRETS_DETECTED__: Retrieved content contains sensitive information. You may choose to continue with a sanitized version that masks secrets.".to_string());
+        }
+
+        // Sanitize all context chunks
+        let sanitized_chunks: Vec<String> = relevant_chunks
+            .into_iter()
+            .map(|chunk| {
+                // First sanitize content, then scan for secrets
+                let sanitized = self.content_sanitizer.sanitize_rag_content(&chunk).content;
+                // Scan again after sanitization (secrets should be masked)
+                let secrets_scan = self.secrets_detector.scan_content(&sanitized);
+                secrets_scan.sanitized_content
+            })
+            .collect();
+
+        let context = sanitized_chunks.join("\n\n");
+        if context.is_empty() {
+            return Ok("No relevant code context found for this query.".to_string());
+        }
+
+        // Sanitize user inputs
+        let sanitized_question = self
+            .content_sanitizer
+            .sanitize_user_input(question)
+            .unwrap_or_else(|_| "Invalid question provided".to_string());
+
+        let sanitized_feedback = if feedback.is_empty() {
+            String::new()
+        } else {
+            match self.content_sanitizer.sanitize_user_input(feedback) {
+                Ok(f) => format!("\n\nUser feedback for improvement: {}", f),
+                Err(_) => String::new(),
+            }
+        };
+
+        // Create secure prompt with sanitized content
+        let context_refs: Vec<&str> = vec![&context];
+        let prompt = self.content_sanitizer.create_secure_prompt(
+            "Answer strictly from the provided context. If the context is insufficient, reply: 'Insufficient context to answer.'",
+            &sanitized_question,
+            &context_refs,
+        ).unwrap_or_else(|_| format!(
+            "SYSTEM: Answer strictly from the provided context. If insufficient, reply: 'Insufficient context to answer.'\n\nQUESTION: {}\n\nCONTEXT:\n{}\n\nRESPONSE:",
+            sanitized_question, context
+        ));
+
+        // Use streaming inference for real-time response
+        self.inference_engine.generate_streaming(&prompt, on_chunk).await
     }
 
     /// Query with feedback, forcing continuation even if secrets are detected

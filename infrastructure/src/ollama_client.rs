@@ -89,6 +89,18 @@ impl OllamaClient {
         self.generate_response_with_system(prompt, "").await
     }
 
+    /// Generate response with streaming for real-time feedback
+    pub async fn generate_response_streaming<F>(
+        &self,
+        prompt: &str,
+        mut on_chunk: F,
+    ) -> Result<String>
+    where
+        F: FnMut(&str) + Send,
+    {
+        self.generate_response_with_system_streaming(prompt, "", on_chunk).await
+    }
+
     pub async fn generate_response_with_system(
         &self,
         prompt: &str,
@@ -126,6 +138,63 @@ impl OllamaClient {
             }
             if let Ok(chat_resp) = serde_json::from_str::<ChatResponse>(line) {
                 full_content.push_str(&chat_resp.message.content);
+                if chat_resp.done {
+                    break;
+                }
+            }
+        }
+        Ok(full_content)
+    }
+
+    /// Generate response with system message and streaming support
+    pub async fn generate_response_with_system_streaming<F>(
+        &self,
+        prompt: &str,
+        system: &str,
+        mut on_chunk: F,
+    ) -> Result<String>
+    where
+        F: FnMut(&str) + Send,
+    {
+        let url = format!("{}/api/chat", self.base_url);
+        let mut messages = Vec::new();
+        if !system.is_empty() {
+            messages.push(Message {
+                role: "system".to_string(),
+                content: system.to_string(),
+            });
+        }
+        messages.push(Message {
+            role: "user".to_string(),
+            content: prompt.to_string(),
+        });
+
+        // Enable streaming for real-time feedback
+        let request = ChatRequest {
+            model: self.model.clone(),
+            messages,
+            stream: true, // Enable streaming
+        };
+
+        let response = self.client.post(&url).json(&request).send().await?;
+        let status = response.status();
+        let text = response.text().await?;
+        if !status.is_success() {
+            return Err(anyhow::anyhow!("Ollama API error: {}", text));
+        }
+
+        let mut full_content = String::with_capacity(4096); // Pre-allocate for performance
+        for line in text.lines() {
+            if line.trim().is_empty() {
+                continue;
+            }
+            if let Ok(chat_resp) = serde_json::from_str::<ChatResponse>(line) {
+                let chunk = &chat_resp.message.content;
+                if !chunk.is_empty() {
+                    // Call the callback with each chunk for real-time display
+                    on_chunk(chunk);
+                    full_content.push_str(chunk);
+                }
                 if chat_resp.done {
                     break;
                 }

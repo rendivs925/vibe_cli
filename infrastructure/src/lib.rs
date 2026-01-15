@@ -60,6 +60,25 @@ impl InferenceEngine {
         }
     }
 
+    /// Generate text completion with streaming for real-time feedback
+    pub async fn generate_streaming<F>(
+        &self,
+        prompt: &str,
+        on_chunk: F,
+    ) -> shared::types::Result<String>
+    where
+        F: FnMut(&str) + Send,
+    {
+        match self {
+            InferenceEngine::Ollama(client) => client.generate_response_streaming(prompt, on_chunk).await,
+            InferenceEngine::Candle(service) => {
+                // For Candle, we fall back to non-streaming for now
+                // TODO: Implement streaming for Candle inference
+                service.generate(prompt).await
+            }
+        }
+    }
+
     /// Get model information
     pub async fn get_model_info(&self) -> ModelInfo {
         match self {

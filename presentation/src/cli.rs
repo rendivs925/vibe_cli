@@ -1199,6 +1199,10 @@ pub struct Cli {
     #[arg(long)]
     pub stream: bool,
 
+    /// Stream AI responses in real-time for instant feedback
+    #[arg(long, help = "Enable real-time streaming of AI responses")]
+    pub streaming: bool,
+
     /// Use safe build mode with RAG context and user confirmation
     #[arg(
         long,
@@ -2433,14 +2437,14 @@ impl CliApp {
         } else if cli.explain {
             self.handle_explain(&args_str).await
         } else if cli.rag {
-            self.handle_rag(&args_str).await
+            self.handle_rag(&args_str, cli.streaming).await
         } else if cli.stream {
             self.handle_stream_mode(&args_str).await
         } else if cli.context {
             self.handle_context(&args_str).await
         } else {
             // Default: general query with ultra-fast processing
-            self.handle_query(&args_str).await
+            self.handle_query_streaming(&args_str, cli.streaming).await
         }
     }
 
@@ -3653,7 +3657,7 @@ impl CliApp {
         Ok(())
     }
 
-    async fn handle_rag(&mut self, question: &str) -> Result<()> {
+    async fn handle_rag(&mut self, question: &str, enable_streaming: bool) -> Result<()> {
         if let Some(cached_response) = self.load_cached_rag(question)? {
             println!("{}", cached_response);
             if ask_confirmation("Use this cached answer?", true)? {
@@ -3678,12 +3682,30 @@ impl CliApp {
         let mut feedback = String::new();
         loop {
             eprintln!("Thinking...");
-            let response = self
-                .rag_service
-                .as_ref()
-                .unwrap()
-                .query_with_feedback(question, &feedback)
-                .await?;
+            let response = if enable_streaming {
+                println!("🧠 Analyzing context...");
+                let mut streamed_response = String::new();
+                let result = self
+                    .rag_service
+                    .as_ref()
+                    .unwrap()
+                    .query_with_feedback_streaming(question, &feedback, |chunk| {
+                        // Real-time streaming display
+                        print!("{}", chunk);
+                        std::io::Write::flush(&mut std::io::stdout()).unwrap();
+                        streamed_response.push_str(chunk);
+                    })
+                    .await?;
+                println!(); // New line after streaming
+                result
+            } else {
+                self
+                    .rag_service
+                    .as_ref()
+                    .unwrap()
+                    .query_with_feedback(question, &feedback)
+                    .await?
+            };
 
             if response.starts_with("__SECRETS_DETECTED__:") {
                 println!(
@@ -3741,6 +3763,11 @@ impl CliApp {
 
     /// Ultra-fast query handler with maximum performance optimizations
     async fn handle_query(&mut self, query: &str) -> Result<()> {
+        self.handle_query_streaming(query, false).await
+    }
+
+    /// Ultra-fast streaming query handler for real-time feedback
+    async fn handle_query_streaming(&mut self, query: &str, enable_streaming: bool) -> Result<()> {
         use shared::performance_monitor::GLOBAL_METRICS;
 
         GLOBAL_METRICS.start_operation("query_total").await;
@@ -4098,7 +4125,22 @@ OUTPUT ONLY THE COMMAND:"#,
             }
         );
 
-        let response = client.generate_response(&prompt).await?;
+        // Use streaming response for real-time feedback if enabled
+        let response = if enable_streaming {
+            println!("🤖 Generating command...");
+            let mut streamed_response = String::new();
+            let result = client.generate_response_streaming(&prompt, |chunk| {
+                // Real-time streaming display
+                print!("{}", chunk);
+                std::io::Write::flush(&mut std::io::stdout()).unwrap();
+                streamed_response.push_str(chunk);
+            }).await?;
+            println!(); // New line after streaming
+            result
+        } else {
+            client.generate_response(&prompt).await?
+        };
+
         let command = extract_command_from_response(&response);
         println!("{}", format!("Command: {}", command).green());
 
