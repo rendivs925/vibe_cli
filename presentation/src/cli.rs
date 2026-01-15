@@ -16,8 +16,6 @@ use infrastructure::{
     sandbox::Sandbox,
     session_store::SessionStore,
 };
-use serde::{Deserialize, Serialize};
-use serde_json;
 use shared::confirmation::ask_confirmation;
 use shared::types::Result;
 use std::collections::{HashMap, HashSet};
@@ -30,869 +28,25 @@ use tokio::sync::{oneshot, RwLock};
 use tokio::time::{self, Duration};
 
 use crate::editor;
+use crate::types::*;
+use crate::utils::*;
+use crate::analysis::*;
+use crate::agent::*;
+use crate::confirmation::*;
+use crate::cache::*;
+use crate::session::*;
 
-/// Classification of user query intent
-#[derive(Debug, Clone, PartialEq)]
-pub enum CommandIntent {
-    InfoQuery,      // "what's my GPU", "how much RAM"
-    Installation,   // "install python", "setup nginx"
-    Configuration,  // "configure nginx", "enable firewall"
-    ServiceControl, // "start apache", "restart mysql"
-    SystemQuery,    // "show disk usage", "list processes"
-    AgentTask,      // Multi-step tasks using --agent
-    Unknown,        // Unclassified queries
-}
 
-/// Risk assessment for commands in agent execution
-#[derive(Debug, Clone, PartialEq, serde::Deserialize)]
-pub enum AgentCommandRisk {
-    InfoOnly,           // Read-only queries (ls, pwd, cat)
-    SafeOperations,     // Safe operations (mkdir, echo, cp)
-    NetworkAccess,      // Network-dependent (npm install, git clone)
-    SystemChanges,      // System modifications (chmod, chown, systemctl)
-    Destructive,        // Destructive operations (rm -rf, dd, format)
-    Unknown,            // Cannot assess risk
-}
 
-/// Individual step in an agent execution plan
-#[derive(Debug, Clone, serde::Deserialize)]
-pub struct AgentStep {
-    pub id: String,
-    pub command: String,
-    pub description: String,
-    pub risk_level: AgentCommandRisk,
-    pub estimated_duration: Option<String>,
-    pub dependencies: Vec<String>,
-    pub rollback_command: Option<String>,
-}
 
-/// Complete agent execution plan
-#[derive(Debug, Clone)]
-#[derive(serde::Deserialize)]
-pub struct AgentPlan {
-    pub steps: Vec<AgentStep>,
-    pub total_estimated_time: Option<String>,
-    pub total_disk_impact: Option<String>,
-    pub network_required: bool,
-    pub safety_concerns: Vec<String>,
-}
 
-/// Risk assessment for commands
-#[derive(Debug, Clone, PartialEq)]
-pub enum CommandRisk {
-    InfoOnly,      // Read-only queries, no system changes
-    SafeSetup,     // Package installs, basic service setup
-    SystemChanges, // Configuration changes, user creation
-    HighRisk,      // Destructive operations, system-wide changes
-    Unknown,       // Cannot assess risk
-}
 
-/// Installation option for user selection
-#[derive(Debug, Clone)]
-pub struct InstallationOption {
-    pub name: String,
-    pub description: String,
-    pub pros: Vec<String>,
-    pub cons: Vec<String>,
-    pub risk_level: CommandRisk,
-    pub commands: Vec<String>,
-    pub estimated_time: Option<String>,
-    pub disk_space: Option<String>,
-}
 
-fn find_project_root() -> Option<String> {
-    let mut current = std::env::current_dir().ok()?;
-    loop {
-        // Check for various project indicators
-        let project_files = [
-            "Cargo.toml",       // Rust
-            "package.json",     // Node.js
-            "requirements.txt", // Python
-            "Pipfile",          // Python
-            "pyproject.toml",   // Python
-            "setup.py",         // Python
-            "Makefile",         // C/C++
-            "CMakeLists.txt",   // C/C++
-            "configure.ac",     // C/C++
-            "go.mod",           // Go
-            "Gemfile",          // Ruby
-            "composer.json",    // PHP
-            ".git",             // Git repo as fallback
-        ];
 
-        for file in &project_files {
-            if current.join(file).exists() {
-                return Some(current.display().to_string());
-            }
-        }
 
-        if !current.pop() {
-            break;
-        }
-    }
-    None
-}
 
-fn project_cache_suffix() -> String {
-    if let Some(root) = find_project_root() {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        root.hash(&mut hasher);
-        format!("{:x}", hasher.finish())
-    } else {
-        "global".to_string()
-    }
-}
 
-fn detect_system_info() -> String {
-    let mut info = Vec::new();
 
-    // Detect OS
-    if let Ok(os) = std::fs::read_to_string("/etc/os-release") {
-        for line in os.lines() {
-            if line.starts_with("ID=") {
-                info.push(format!(
-                    "Distro: {}",
-                    line.trim_start_matches("ID=").trim_matches('"')
-                ));
-            } else if line.starts_with("VERSION_ID=") {
-                info.push(format!(
-                    "Version: {}",
-                    line.trim_start_matches("VERSION_ID=").trim_matches('"')
-                ));
-            }
-        }
-    } else if let Ok(os) = std::process::Command::new("uname").arg("-s").output() {
-        info.push(format!(
-            "OS: {}",
-            String::from_utf8_lossy(&os.stdout).trim()
-        ));
-    }
-
-    // Detect init system
-    if std::path::Path::new("/run/systemd/system").exists() {
-        info.push("Init system: systemd".to_string());
-    } else if std::path::Path::new("/etc/init.d").exists() {
-        info.push("Init system: init.d".to_string());
-    }
-
-    // Detect package manager
-    if std::process::Command::new("which")
-        .arg("apt")
-        .output()
-        .is_ok()
-    {
-        info.push("Package manager: apt".to_string());
-    } else if std::process::Command::new("which")
-        .arg("yum")
-        .output()
-        .is_ok()
-    {
-        info.push("Package manager: yum".to_string());
-    } else if std::process::Command::new("which")
-        .arg("dnf")
-        .output()
-        .is_ok()
-    {
-        info.push("Package manager: dnf".to_string());
-    } else if std::process::Command::new("which")
-        .arg("pacman")
-        .output()
-        .is_ok()
-    {
-        info.push("Package manager: pacman".to_string());
-    }
-
-    // Kernel version
-    if let Ok(kernel) = std::process::Command::new("uname").arg("-r").output() {
-        info.push(format!(
-            "Kernel: {}",
-            String::from_utf8_lossy(&kernel.stdout).trim()
-        ));
-    }
-
-    info.join(", ")
-}
-
-// Cache entries expire after 7 days (604800 seconds)
-const CACHE_TTL_SECONDS: u64 = 604800;
-
-// Semantic similarity threshold (0.0 to 1.0)
-const SEMANTIC_SIMILARITY_THRESHOLD: f64 = 0.7;
-
-#[derive(Serialize, Deserialize, Default)]
-struct CacheFile {
-    entries: Vec<CacheEntry>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct CacheEntry {
-    prompt: String,
-    command: String,
-    timestamp: u64,
-}
-
-#[derive(Serialize, Deserialize, Default)]
-struct ExplainCacheFile {
-    entries: Vec<ExplainCacheEntry>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct ExplainCacheEntry {
-    prompt: String,
-    response: String,
-    timestamp: u64,
-}
-
-#[derive(Serialize, Deserialize, Default)]
-struct RagCacheFile {
-    entries: Vec<RagCacheEntry>,
-}
-
-#[derive(Serialize, Deserialize)]
-struct RagCacheEntry {
-    question: String,
-    response: String,
-    timestamp: u64,
-}
-
-/// Statistics about context gathering for display
-#[derive(Default, Clone)]
-struct ContextStats {
-    files_scanned: usize,
-    files_analyzed: usize,
-    keywords_count: usize,
-    os_info: String,
-    cwd: String,
-    total_files: usize,
-    relevant_files: usize,
-}
-
-/// Remove markdown code fences/backticks and surrounding quotes
-fn clean_command_output(raw: &str) -> String {
-    let trimmed = raw.trim();
-    if trimmed.starts_with("```") && trimmed.ends_with("```") {
-        let lines: Vec<&str> = trimmed.lines().collect();
-        if lines.len() >= 3 && lines.last().unwrap().trim() == "```" {
-            return lines[1..lines.len() - 1].join("\n").trim().to_string();
-        }
-    }
-    trimmed
-        .trim_matches('`')
-        .trim_matches('"')
-        .trim_matches('\'')
-        .trim()
-        .to_string()
-}
-
-/// Extract last JSON object/array from text
-fn extract_last_json(raw: &str) -> Option<&str> {
-    let trimmed = raw.trim();
-    if trimmed.starts_with('{') && trimmed.ends_with('}')
-        || trimmed.starts_with('[') && trimmed.ends_with(']')
-    {
-        return Some(trimmed);
-    }
-    let bytes = trimmed.as_bytes();
-    let mut depth = 0;
-    let mut start = None;
-    for (i, &b) in bytes.iter().enumerate() {
-        if b == b'{' || b == b'[' {
-            if depth == 0 {
-                start = Some(i);
-            }
-            depth += 1;
-        } else if b == b'}' || b == b']' {
-            depth -= 1;
-            if depth == 0 {
-                if let Some(s) = start {
-                    return Some(&trimmed[s..=i]);
-                }
-            }
-        }
-    }
-    None
-}
-
-/// Extract JSON array from possibly noisy text
-fn extract_json_array(text: &str) -> Option<&str> {
-    let bytes = text.as_bytes();
-    let mut depth = 0;
-    let mut start = None;
-    let mut in_string = false;
-    let mut escape_next = false;
-
-    for (i, &b) in bytes.iter().enumerate() {
-        if escape_next {
-            escape_next = false;
-            continue;
-        }
-
-        match b {
-            b'"' => in_string = !in_string,
-            b'\\' => {
-                if in_string {
-                    escape_next = true;
-                }
-            }
-            b'[' => {
-                if !in_string && depth == 0 {
-                    start = Some(i);
-                }
-                if !in_string {
-                    depth += 1;
-                }
-            }
-            b']' => {
-                if !in_string {
-                    depth -= 1;
-                    if depth == 0 {
-                        if let Some(s) = start {
-                            return Some(&text[s..=i]);
-                        }
-                    }
-                }
-            }
-            _ => {}
-        }
-    }
-    None
-}
-
-/// Parse agent response into a list of commands
-fn parse_agent_plan(raw: &str) -> Vec<String> {
-    // Try plain parse
-    if let Ok(cmds) = serde_json::from_str::<Vec<String>>(raw) {
-        return cmds;
-    }
-    // Clean and try again
-    let cleaned = clean_command_output(raw);
-    if let Ok(cmds) = serde_json::from_str::<Vec<String>>(&cleaned) {
-        return cmds;
-    }
-    // Try to pull array from noisy text
-    if let Some(arr) = extract_json_array(raw) {
-        if let Ok(cmds) = serde_json::from_str::<Vec<String>>(arr) {
-            return cmds;
-        }
-    }
-    if let Some(json) = extract_last_json(raw) {
-        if let Ok(cmds) = serde_json::from_str::<Vec<String>>(json) {
-            return cmds;
-        }
-    }
-    // Fallback: split non-empty lines, stripping common list markers and code fences
-    raw.lines()
-        .map(|l| l.trim())
-        .filter(|l| {
-            !l.is_empty() && !l.starts_with("```") && !l.ends_with("```") && *l != "[" && *l != "]"
-        })
-        .map(|l| {
-            let mut line = l
-                .trim_start_matches(|c| c == '-' || c == '*' || c == '•')
-                .trim();
-            if let Some(pos) = line.find(|c: char| c == ')' || c == '.' || c == ':') {
-                // Only strip early numbering markers
-                if pos < 4 {
-                    line = line[pos + 1..].trim();
-                }
-            }
-            line.trim_matches(',').trim().trim_matches('"').to_string()
-        })
-        .filter(|l| !l.is_empty())
-        .collect()
-}
-
-fn extract_command_from_response(response: &str) -> String {
-    let response = response.trim();
-    let cleaned = if response.starts_with("```bash") && response.ends_with("```") {
-        let start = response.find('\n').unwrap_or(0) + 1;
-        let end = response.len() - 3;
-        response[start..end].trim().to_string()
-    } else if response.starts_with("```") && response.ends_with("```") {
-        let start = response.find('\n').unwrap_or(0) + 1;
-        let end = response.len() - 3;
-        response[start..end].trim().to_string()
-    } else {
-        response.to_string()
-    };
-
-    // Smart quote handling: only remove surrounding quotes if they wrap the entire command
-    // and there are no quotes within the command (indicating they're part of command syntax)
-    let trimmed = cleaned.trim_matches('`').trim();
-    if trimmed.starts_with('"') && trimmed.ends_with('"') {
-        let inner = &trimmed[1..trimmed.len() - 1];
-        // If there are no quotes inside, it's safe to remove the outer quotes
-        if !inner.contains('"') && !inner.contains('\'') {
-            return inner.trim().to_string();
-        }
-        // Otherwise, keep the quotes as they're part of the command syntax
-    } else if trimmed.starts_with('\'') && trimmed.ends_with('\'') {
-        let inner = &trimmed[1..trimmed.len() - 1];
-        // Same logic for single quotes
-        if !inner.contains('\'') && !inner.contains('"') {
-            return inner.trim().to_string();
-        }
-    }
-
-    trimmed.to_string()
-}
-
-/// Analyze user query to determine intent
-fn analyze_query_intent(query: &str) -> CommandIntent {
-    let query_lower = query.to_lowercase();
-
-    // Installation keywords
-    let install_keywords = [
-        "install",
-        "setup",
-        "add",
-        "create",
-        "build",
-        "compile",
-        "download",
-        "get",
-        "fetch",
-        "deploy",
-        "configure",
-    ];
-
-    // Configuration keywords
-    let config_keywords = [
-        "configure",
-        "config",
-        "enable",
-        "disable",
-        "set",
-        "update",
-        "modify",
-        "change",
-        "edit",
-        "tune",
-        "optimize",
-    ];
-
-    // Service control keywords
-    let service_keywords = [
-        "start",
-        "stop",
-        "restart",
-        "reload",
-        "enable",
-        "disable",
-        "status",
-        "systemctl",
-        "service",
-        "daemon",
-    ];
-
-    // Information query patterns
-    let info_patterns = [
-        "what's",
-        "what is",
-        "how much",
-        "how many",
-        "show",
-        "list",
-        "display",
-        "check",
-        "verify",
-        "info",
-        "information",
-    ];
-
-    // Check for installation intent
-    if install_keywords.iter().any(|&kw| query_lower.contains(kw)) {
-        return CommandIntent::Installation;
-    }
-
-    // Check for configuration intent
-    if config_keywords.iter().any(|&kw| query_lower.contains(kw)) {
-        return CommandIntent::Configuration;
-    }
-
-    // Check for service control intent
-    if service_keywords.iter().any(|&kw| query_lower.contains(kw)) {
-        return CommandIntent::ServiceControl;
-    }
-
-    // Check for information queries
-    if info_patterns.iter().any(|&pat| query_lower.contains(pat)) {
-        return CommandIntent::InfoQuery;
-    }
-
-    // Default to system query for general queries
-    if query_lower.contains("disk")
-        || query_lower.contains("memory")
-        || query_lower.contains("cpu")
-        || query_lower.contains("gpu")
-        || query_lower.contains("network")
-        || query_lower.contains("process")
-    {
-        return CommandIntent::SystemQuery;
-    }
-
-    CommandIntent::Unknown
-}
-
-/// Assess risk level of a command for agent execution
-fn assess_agent_command_risk(command: &str) -> AgentCommandRisk {
-    let cmd_lower = command.to_lowercase();
-
-    // Destructive commands - highest risk
-    let destructive_patterns = [
-        "rm -rf", "rm -r", "rmdir", "del", "delete", "format", "mkfs", "dd if=", "fdisk", "parted",
-        "wipe", "shred", "unlink",
-    ];
-
-    // System-changing commands
-    let system_change_patterns = [
-        "chmod 777",
-        "chmod 666",
-        "chown root",
-        "chown 0",
-        "chown :root",
-        "usermod",
-        "userdel",
-        "useradd",
-        "groupmod",
-        "groupdel",
-        "groupadd",
-        "systemctl enable",
-        "systemctl disable",
-        "systemctl stop",
-        "ufw --force enable",
-        "ufw --force disable",
-        "iptables",
-        "mount",
-        "umount",
-        "fsck",
-        "tune2fs",
-        "resize2fs",
-    ];
-
-    // Network access commands
-    let network_patterns = [
-        "curl",
-        "wget",
-        "git clone",
-        "git pull",
-        "git fetch",
-        "npm install",
-        "npm update",
-        "yarn install",
-        "yarn add",
-        "pip install",
-        "pip download",
-        "apt install",
-        "apt update",
-        "yum install",
-        "dnf install",
-        "pacman -S",
-        "brew install",
-        "docker pull",
-        "docker push",
-        "scp",
-        "rsync",
-        "ssh",
-    ];
-
-    // Safe operations
-    let safe_patterns = [
-        "ls", "pwd", "echo", "printf", "cat", "head", "tail", "grep", "find", "which", "whereis",
-        "type", "file", "stat", "du", "df", "free", "ps", "top", "htop", "uname", "whoami", "id",
-        "groups", "mkdir", "touch", "cp", "mv", "ln", "basename", "dirname",
-    ];
-
-    // Info-only commands
-    let info_patterns = [
-        "date",
-        "cal",
-        "uptime",
-        "w",
-        "who",
-        "last",
-        "history",
-        "env",
-        "printenv",
-        "locale",
-        "tzselect",
-        "locale-gen",
-    ];
-
-    // Check destructive first (highest priority)
-    if destructive_patterns
-        .iter()
-        .any(|&pat| cmd_lower.contains(pat))
-    {
-        return AgentCommandRisk::Destructive;
-    }
-
-    // Check system changes
-    if system_change_patterns
-        .iter()
-        .any(|&pat| cmd_lower.contains(pat))
-    {
-        return AgentCommandRisk::SystemChanges;
-    }
-
-    // Check network access
-    if network_patterns.iter().any(|&pat| cmd_lower.contains(pat)) {
-        return AgentCommandRisk::NetworkAccess;
-    }
-
-    // Check safe operations
-    if safe_patterns
-        .iter()
-        .any(|&pat| cmd_lower.starts_with(pat) || cmd_lower.contains(&format!(" {}", pat)))
-    {
-        return AgentCommandRisk::SafeOperations;
-    }
-
-    // Check info-only
-    if info_patterns.iter().any(|&pat| cmd_lower.starts_with(pat)) {
-        return AgentCommandRisk::InfoOnly;
-    }
-
-    // Default to unknown
-    AgentCommandRisk::Unknown
-}
-
-/// Assess risk level of a command
-fn assess_command_risk(command: &str) -> CommandRisk {
-    let cmd_lower = command.to_lowercase();
-
-    // High-risk commands
-    let high_risk_patterns = [
-        "rm -rf",
-        "format",
-        "mkfs",
-        "fdisk",
-        "dd if=",
-        "shutdown",
-        "reboot",
-        "halt",
-        "poweroff",
-        "systemctl stop",
-        "killall",
-    ];
-
-    // System-changing commands
-    let system_change_patterns = [
-        "usermod",
-        "userdel",
-        "groupmod",
-        "chmod 777",
-        "chown root",
-        "systemctl enable",
-        "systemctl disable",
-        "ufw",
-        "firewall",
-        "iptables",
-        "mount",
-        "umount",
-    ];
-
-    // Safe setup commands
-    let safe_setup_commands = [
-        "apt install",
-        "apt-get install",
-        "yum install",
-        "dnf install",
-        "pacman -S",
-        "brew install",
-        "pip install",
-        "npm install",
-        "gem install",
-        "cargo install",
-    ];
-
-    // Info-only commands (read-only)
-    let info_only_commands = [
-        "ls", "df", "free", "ps", "top", "htop", "uname", "whoami", "pwd", "cat", "grep", "find",
-        "which", "whereis", "type",
-    ];
-
-    // Check high risk first
-    if high_risk_patterns
-        .iter()
-        .any(|&pat| cmd_lower.contains(pat))
-    {
-        return CommandRisk::HighRisk;
-    }
-
-    // Check system changes
-    if system_change_patterns
-        .iter()
-        .any(|&pat| cmd_lower.contains(pat))
-    {
-        return CommandRisk::SystemChanges;
-    }
-
-    // Check safe setup
-    if safe_setup_commands
-        .iter()
-        .any(|&cmd| cmd_lower.contains(cmd))
-    {
-        return CommandRisk::SafeSetup;
-    }
-
-    // Check info-only
-    if info_only_commands
-        .iter()
-        .any(|&cmd| cmd_lower.starts_with(cmd))
-    {
-        return CommandRisk::InfoOnly;
-    }
-
-    // Default to unknown
-    CommandRisk::Unknown
-}
-
-/// Present confirmation dialog for data collection commands
-fn prompt_data_collection_confirmation(
-    command: &str,
-    query: &str,
-    risk: CommandRisk,
-) -> Result<bool> {
-    println!("DATA COLLECTION REQUIRED");
-    println!();
-    println!("This query needs to run: {}", command);
-
-    // Determine purpose based on query content
-    let purpose = if query.to_lowercase().contains("gpu")
-        || query.to_lowercase().contains("graphics")
-    {
-        "Gather GPU information for analysis"
-    } else if query.to_lowercase().contains("cpu") || query.to_lowercase().contains("processor") {
-        "Gather CPU information for analysis"
-    } else if query.to_lowercase().contains("ram") || query.to_lowercase().contains("memory") {
-        "Gather memory information for analysis"
-    } else if query.to_lowercase().contains("disk") || query.to_lowercase().contains("storage") {
-        "Gather disk usage information for analysis"
-    } else if query.to_lowercase().contains("network") {
-        "Gather network information for analysis"
-    } else {
-        "Gather system information for analysis"
-    };
-
-    println!("Purpose: {}", purpose);
-
-    // Show safety level
-    let safety_desc = match risk {
-        CommandRisk::InfoOnly => "Read-only, no system modifications",
-        CommandRisk::SafeSetup => "Safe system query with minimal impact",
-        CommandRisk::SystemChanges => "May modify system configuration",
-        CommandRisk::HighRisk => "High-risk operation requiring careful review",
-        CommandRisk::Unknown => "Risk level cannot be determined",
-    };
-
-    println!("Safety: {}", safety_desc);
-    println!();
-
-    ask_confirmation("Allow command execution?", risk == CommandRisk::InfoOnly)
-}
-
-/// Present confirmation dialog for installation commands
-fn prompt_installation_confirmation(
-    command: &str,
-    intent: CommandIntent,
-    packages: Vec<String>,
-    services: Vec<String>,
-    disk_space: Option<String>,
-) -> Result<bool> {
-    println!("INSTALLATION COMMAND DETECTED");
-    println!();
-    println!("Command: {}", command);
-
-    if !packages.is_empty() {
-        println!();
-        println!("Packages to install:");
-        for package in &packages {
-            println!("  - {}", package);
-        }
-    }
-
-    if !services.is_empty() {
-        println!();
-        println!("System changes:");
-        for service in &services {
-            println!("  - New service: {}", service);
-        }
-    }
-
-    if let Some(space) = &disk_space {
-        println!("  - Disk space: {}", space);
-    }
-
-    // Check if sudo is needed
-    let needs_sudo =
-        command.contains("sudo") || assess_command_risk(command) != CommandRisk::InfoOnly;
-    if needs_sudo {
-        println!("  - Requires: sudo privileges");
-    }
-
-    println!();
-
-    // Default to 'No' for installations unless it's very safe
-    ask_confirmation("Execute installation?", false)
-}
-
-/// Analyze installation command to extract details
-fn analyze_installation_command(command: &str) -> (Vec<String>, Vec<String>, Option<String>) {
-    let mut packages = Vec::new();
-    let mut services = Vec::new();
-    let mut disk_space = None;
-
-    // Extract package names from common install commands
-    let cmd_lower = command.to_lowercase();
-
-    if cmd_lower.contains("apt install") || cmd_lower.contains("apt-get install") {
-        // Extract package names after "install"
-        if let Some(install_pos) = cmd_lower.find("install") {
-            let package_part = &command[install_pos + 7..].trim();
-            packages = package_part
-                .split_whitespace()
-                .map(|s| s.to_string())
-                .collect();
-        }
-    } else if cmd_lower.contains("pip install") {
-        if let Some(install_pos) = cmd_lower.find("install") {
-            let package_part = &command[install_pos + 7..].trim();
-            packages = package_part
-                .split_whitespace()
-                .take(3) // Limit to first few packages
-                .map(|s| format!("{} (Python package)", s))
-                .collect();
-        }
-    }
-
-    // Estimate disk space based on packages
-    if !packages.is_empty() {
-        if packages.len() == 1 {
-            disk_space = Some("~50MB".to_string());
-        } else if packages.len() <= 3 {
-            disk_space = Some("~100MB".to_string());
-        } else {
-            disk_space = Some("~250MB".to_string());
-        }
-    }
-
-    // Identify services that might be started
-    for package in &packages {
-        let pkg_lower = package.to_lowercase();
-        if pkg_lower.contains("nginx") || pkg_lower == "nginx" {
-            services.push("nginx".to_string());
-        } else if pkg_lower.contains("apache") || pkg_lower.contains("httpd") {
-            services.push("apache2".to_string());
-        } else if pkg_lower.contains("mysql") || pkg_lower.contains("mariadb") {
-            services.push("mysql".to_string());
-        } else if pkg_lower.contains("postgresql") {
-            services.push("postgresql".to_string());
-        }
-    }
-
-    (packages, services, disk_space)
-}
 
 /// Analyze agent task and generate execution plan
 async fn analyze_agent_task(task: &str) -> Result<AgentPlan> {
@@ -1311,7 +465,7 @@ impl CliApp {
         Ok(input.trim_end().to_string())
     }
     pub fn new() -> Self {
-        let cache_path = Self::default_cache_path();
+        let cache_path = cache::default_cache_path();
         let system_info_path = Self::default_system_info_path();
         let system_info = Self::load_or_collect_system_info(&system_info_path);
         let config = Config::load();
@@ -1358,16 +512,7 @@ impl CliApp {
         }
     }
 
-    fn default_cache_path() -> PathBuf {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        let mut path = PathBuf::from(home);
-        path.push(".local");
-        path.push("share");
-        path.push("vibe_cli");
-        let suffix = project_cache_suffix();
-        path.push(format!("{}_cli_cache.json", suffix));
-        path
-    }
+
 
     fn default_system_info_path() -> PathBuf {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
@@ -1378,19 +523,7 @@ impl CliApp {
         path
     }
 
-    fn context_specific_db_path(context_path: &str) -> String {
-        let mut hasher = std::collections::hash_map::DefaultHasher::new();
-        context_path.hash(&mut hasher);
-        let suffix = format!("{:x}", hasher.finish());
 
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        let mut path = PathBuf::from(home);
-        path.push(".local");
-        path.push("share");
-        path.push("vibe_cli");
-        path.push(format!("{}_embeddings.db", suffix));
-        path.to_string_lossy().to_string()
-    }
 
     fn load_or_collect_system_info(path: &PathBuf) -> String {
         if let Ok(existing) = std::fs::read_to_string(path) {
@@ -1409,171 +542,11 @@ impl CliApp {
         detected
     }
 
-    /// Normalize text for semantic comparison
-    fn normalize_text(text: &str) -> String {
-        text.to_lowercase()
-            .chars()
-            .filter(|c| c.is_alphanumeric() || c.is_whitespace())
-            .collect::<String>()
-            .split_whitespace()
-            .collect::<Vec<&str>>()
-            .join(" ")
-    }
 
-    /// Calculate semantic similarity between two prompts
-    fn semantic_similarity(prompt1: &str, prompt2: &str) -> f64 {
-        let norm1 = Self::normalize_text(prompt1);
-        let norm2 = Self::normalize_text(prompt2);
 
-        if norm1 == norm2 {
-            return 1.0;
-        }
 
-        let words1: HashSet<&str> = norm1.split_whitespace().collect();
-        let words2: HashSet<&str> = norm2.split_whitespace().collect();
 
-        let intersection: HashSet<&str> = words1.intersection(&words2).cloned().collect();
-        let union: HashSet<&str> = words1.union(&words2).cloned().collect();
 
-        if union.is_empty() {
-            return 0.0;
-        }
-
-        intersection.len() as f64 / union.len() as f64
-    }
-
-    /// Clean command output by removing markdown code blocks
-    fn clean_command_output(raw: &str) -> String {
-        let trimmed = raw.trim();
-        if trimmed.starts_with("```") && trimmed.ends_with("```") {
-            // Remove the first and last lines if they are ``` or ```sh
-            let lines: Vec<&str> = trimmed.lines().collect();
-            if lines.len() >= 3 {
-                if lines[0].trim().starts_with("```") && lines.last().unwrap().trim() == "```" {
-                    return lines[1..lines.len() - 1].join("\n").trim().to_string();
-                }
-            }
-        }
-        // Be conservative with quote removal - only remove backticks, not quotes
-        // Quotes are now handled intelligently in extract_command_from_response
-        trimmed.trim_matches('`').trim().to_string()
-    }
-
-    fn load_cached(&self, prompt: &str) -> Result<Option<String>> {
-        if !self.cache_path.exists() {
-            return Ok(None);
-        }
-
-        let data = std::fs::read_to_string(&self.cache_path)?;
-        let mut cache: CacheFile = serde_json::from_str(&data).unwrap_or_default();
-
-        // Remove expired entries
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        cache
-            .entries
-            .retain(|entry| now - entry.timestamp < CACHE_TTL_SECONDS);
-
-        // Save cleaned cache back to disk
-        if let Some(parent) = self.cache_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-        let serialized = serde_json::to_string_pretty(&cache)?;
-        std::fs::write(&self.cache_path, serialized)?;
-
-        // First try exact match
-        let mut entries_to_remove = Vec::new();
-        let mut exact_match: Option<&CacheEntry> = None;
-
-        for entry in &cache.entries {
-            if entry.prompt == prompt {
-                let cleaned_command = Self::clean_command_output(&entry.command);
-                // Validate cached command syntax before returning
-                if validate_command_syntax(&cleaned_command).is_ok() {
-                    return Ok(Some(cleaned_command));
-                } else {
-                    eprintln!(
-                        "{}",
-                        format!("Warning: Cached command has syntax issues, regenerating").yellow()
-                    );
-                    // Mark invalid entry for removal
-                    entries_to_remove.push(entry.prompt.clone());
-                    break;
-                }
-            }
-        }
-
-        // Then try semantic similarity
-        let mut best_match: Option<&CacheEntry> = None;
-        let mut best_similarity = 0.0;
-
-        for entry in &cache.entries {
-            let similarity = Self::semantic_similarity(prompt, &entry.prompt);
-            if similarity > best_similarity && similarity >= SEMANTIC_SIMILARITY_THRESHOLD {
-                best_similarity = similarity;
-                best_match = Some(entry);
-            }
-        }
-
-        let result = if let Some(entry) = best_match {
-            let cleaned_command = Self::clean_command_output(&entry.command);
-            // Validate semantically similar cached command syntax before returning
-            if validate_command_syntax(&cleaned_command).is_ok() {
-                Ok(Some(cleaned_command))
-            } else {
-                eprintln!(
-                    "{}",
-                    format!("Warning: Similar cached command has syntax issues, regenerating")
-                        .yellow()
-                );
-                // Mark invalid entry for removal
-                entries_to_remove.push(entry.prompt.clone());
-                Ok(None)
-            }
-        } else {
-            Ok(None)
-        };
-
-        // Remove invalid entries from cache after determining result
-        if !entries_to_remove.is_empty() {
-            cache
-                .entries
-                .retain(|e| !entries_to_remove.contains(&e.prompt));
-            let serialized = serde_json::to_string_pretty(&cache)?;
-            std::fs::write(&self.cache_path, serialized)?;
-        }
-
-        result
-    }
-
-    fn save_cached(&self, prompt: &str, command: &str) -> Result<()> {
-        let mut cache = if self.cache_path.exists() {
-            let data = std::fs::read_to_string(&self.cache_path).unwrap_or_default();
-            serde_json::from_str::<CacheFile>(&data).unwrap_or_default()
-        } else {
-            CacheFile::default()
-        };
-
-        cache.entries.push(CacheEntry {
-            prompt: prompt.to_string(),
-            command: Self::clean_command_output(command),
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-        });
-
-        if let Some(parent) = self.cache_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-
-        let serialized = serde_json::to_string_pretty(&cache)?;
-        std::fs::write(&self.cache_path, serialized)?;
-
-        Ok(())
-    }
 
     async fn handle_ai_agent(&mut self, goal: &str) -> Result<()> {
         use domain::models::AgentRequest;
@@ -3373,26 +2346,7 @@ impl CliApp {
         }
     }
 
-    /// Strip surrounding code fences/backticks to avoid emitting markdown into files
-    fn strip_code_fences(code: &str) -> String {
-        let trimmed = code.trim();
-        if trimmed.starts_with("```") && trimmed.ends_with("```") {
-            let mut lines: Vec<&str> = trimmed.lines().collect();
-            if !lines.is_empty()
-                && lines
-                    .first()
-                    .map(|l| l.trim().starts_with("```"))
-                    .unwrap_or(false)
-            {
-                lines.remove(0);
-            }
-            if !lines.is_empty() && lines.last().map(|l| l.trim() == "```").unwrap_or(false) {
-                lines.pop();
-            }
-            return lines.join("\n").trim().to_string();
-        }
-        trimmed.trim_matches('`').trim().to_string()
-    }
+
 
     async fn handle_chat(&self) -> Result<()> {
         use dialoguer::{theme::ColorfulTheme, Input};
@@ -3622,7 +2576,7 @@ impl CliApp {
         let prompt = format!("Explain this content in detail:\n\n{}", content);
 
         // Check cache first
-        if let Some(cached_response) = self.load_cached_explain(&prompt)? {
+        if let Some(cached_response) = cache::load_cached_explain(&cache::explain_cache_path(), &prompt)? {
             println!("{}", cached_response);
             if ask_confirmation("Use this cached explanation?", true)? {
                 return Ok(());
@@ -3634,14 +2588,14 @@ impl CliApp {
         let response = client.generate_response(&prompt).await?;
 
         // Cache the response
-        self.save_cached_explain(&prompt, &response)?;
+        cache::save_cached_explain(&cache::explain_cache_path(), &prompt, &response)?;
 
         println!("{}", response);
         Ok(())
     }
 
     async fn handle_rag(&mut self, question: &str, enable_streaming: bool) -> Result<()> {
-        if let Some(cached_response) = self.load_cached_rag(question)? {
+        if let Some(cached_response) = cache::load_cached_rag(&cache::rag_cache_path(), question)? {
             println!("{}", cached_response);
             if ask_confirmation("Use this cached answer?", true)? {
                 return Ok(());
@@ -3713,7 +2667,7 @@ impl CliApp {
             }
 
             if ask_confirmation("Satisfied with this response?", true)? {
-                self.save_cached_rag(question, &response)?;
+                cache::save_cached_rag(&cache::rag_cache_path(), question, &response)?;
                 break;
             } else {
                 feedback.clear();
@@ -3794,10 +2748,10 @@ impl CliApp {
 
         // Ultra-fast cached command lookup with performance monitoring
         GLOBAL_METRICS.start_operation("cache_lookup").await;
-        let cache_hit = self.load_cached(&effective_query).is_ok_and(|opt| opt.is_some());
+        let cache_hit = cache::load_cached(&self.cache_path, &effective_query).is_ok_and(|opt| opt.is_some());
         GLOBAL_METRICS.end_operation("cache_lookup").await;
 
-        if let Ok(Some(cached_command)) = self.load_cached(&effective_query) {
+        if let Ok(Some(cached_command)) = cache::load_cached(&self.cache_path, &effective_query) {
             // Use enhanced confirmation system based on intent
             let confirmed = match query_intent {
                 CommandIntent::Installation => {
@@ -3815,7 +2769,7 @@ impl CliApp {
 
             if confirmed {
                 // Check if this cached command needs sudo
-                let needs_sudo = Self::command_needs_sudo(&cached_command);
+                let needs_sudo = command_needs_sudo(&cached_command);
                 let effective_command = if needs_sudo {
                     format!("sudo {}", cached_command)
                 } else {
@@ -3835,19 +2789,19 @@ impl CliApp {
                             println!("{}", String::from_utf8_lossy(&output.stdout));
                             if !output.status.success() {
                                 let stderr = String::from_utf8_lossy(&output.stderr);
-                                // Check if this is an expected non-error exit code
-                                if Self::is_expected_exit_code(
+                            // Check if this is an expected non-error exit code
+                                if is_expected_exit_code(
                                     &effective_command,
                                     output.status.code(),
                                     &stderr,
                                 ) {
-                                    let _ = self.save_cached(&effective_query, &effective_command);
+                                let _ = cache::save_cached(&self.cache_path, &effective_query, &effective_command);
                                 } else {
                                     println!("{}", format!("Command failed: {}", stderr).red());
                                 }
-                            } else {
-                                let _ = self.save_cached(&effective_query, &effective_command);
-                            }
+                                } else {
+                                    let _ = cache::save_cached(&self.cache_path, &effective_query, &effective_command);
+                                }
                         }
                         Err(e) => {
                             eprintln!("{}", format!("Direct execution failed: {}", e).red());
@@ -3878,11 +2832,11 @@ impl CliApp {
                                         if !output.status.success() {
                                             let stderr = String::from_utf8_lossy(&output.stderr);
                                             // Check if this is an expected non-error exit code
-                                            if Self::is_expected_exit_code(
-                                                &effective_command,
-                                                output.status.code(),
-                                                &stderr,
-                                            ) {
+                                if is_expected_exit_code(
+                                    &effective_command,
+                                    output.status.code(),
+                                    &stderr,
+                                ) {
                                                 let _ = self.save_cached(
                                                     &effective_query,
                                                     &effective_command,
@@ -4030,7 +2984,7 @@ OUTPUT ONLY THE COMMAND:"#,
         // Validate command syntax before caching
         match validate_command_syntax(&command) {
             Ok(_) => {
-                let _ = self.save_cached(&effective_query, &command);
+                let _ = cache::save_cached(&self.cache_path, &effective_query, &command);
             }
             Err(error_msg) => {
                 eprintln!(
@@ -4045,7 +2999,7 @@ OUTPUT ONLY THE COMMAND:"#,
         }
 
         // Check if this is a system command that might need sudo
-        let needs_sudo = Self::command_needs_sudo(&command);
+                let needs_sudo = command_needs_sudo(&command);
         let effective_command = if needs_sudo {
             format!("sudo {}", command)
         } else {
@@ -4080,17 +3034,17 @@ OUTPUT ONLY THE COMMAND:"#,
                         if !output.status.success() {
                             let stderr = String::from_utf8_lossy(&output.stderr);
                             // Check if this is an expected non-error exit code
-                            if Self::is_expected_exit_code(
-                                &effective_command,
-                                output.status.code(),
-                                &stderr,
-                            ) {
-                                let _ = self.save_cached(&effective_query, &effective_command);
-                            } else {
+                                if Self::is_expected_exit_code(
+                                    &effective_command,
+                                    output.status.code(),
+                                    &stderr,
+                                ) {
+                                    let _ = cache::save_cached(&self.cache_path, &effective_query, &effective_command);
+                                } else {
                                 println!("{}", format!("Command failed: {}", stderr).red());
                             }
                         } else {
-                            let _ = self.save_cached(&effective_query, &effective_command);
+                            let _ = cache::save_cached(&self.cache_path, &effective_query, &effective_command);
                         }
                     }
                     Err(e) => {
@@ -4118,11 +3072,11 @@ OUTPUT ONLY THE COMMAND:"#,
                                     if !output.status.success() {
                                         let stderr = String::from_utf8_lossy(&output.stderr);
                                         // Check if this is an expected non-error exit code
-                                        if Self::is_expected_exit_code(
-                                            &effective_command,
-                                            output.status.code(),
-                                            &stderr,
-                                        ) {
+                                            if is_expected_exit_code(
+                                                &effective_command,
+                                                output.status.code(),
+                                                &stderr,
+                                            ) {
                                             let _ = self
                                                 .save_cached(&effective_query, &effective_command);
                                         } else {
@@ -4133,7 +3087,7 @@ OUTPUT ONLY THE COMMAND:"#,
                                         }
                                     } else {
                                         let _ =
-                                            self.save_cached(&effective_query, &effective_command);
+                                            cache::save_cached(&self.cache_path, &effective_query, &effective_command);
                                     }
                                 }
                                 Err(e) => {
@@ -4388,7 +3342,7 @@ COMMAND:"#,
         match validate_command_syntax(&command) {
             Ok(_) => {
                 // Prepare the effective command (with sudo if needed)
-                let needs_sudo = Self::command_needs_sudo(&command);
+        let needs_sudo = command_needs_sudo(&command);
                 let effective_command = if needs_sudo {
                     format!("sudo {}", command)
                 } else {
@@ -4715,24 +3669,9 @@ COMMAND:"#,
         }
     }
 
-    fn keywords_from_text(text: &str) -> Vec<String> {
-        text.split_whitespace()
-            .map(|w| w.trim_matches(|c: char| !c.is_alphanumeric()))
-            .filter(|w| w.len() > 2)
-            .map(|w| w.to_lowercase())
-            .collect()
-    }
 
-    fn explain_cache_path() -> PathBuf {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        let mut path = PathBuf::from(home);
-        path.push(".local");
-        path.push("share");
-        path.push("vibe_cli");
-        let suffix = project_cache_suffix();
-        path.push(format!("{}_explain_cache.bin", suffix));
-        path
-    }
+
+
 
     fn load_cached_explain(&self, prompt: &str) -> Result<Option<String>> {
         let cache_path = Self::explain_cache_path();
@@ -4794,141 +3733,9 @@ COMMAND:"#,
         Ok(())
     }
 
-    fn rag_cache_path() -> PathBuf {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        let mut path = PathBuf::from(home);
-        path.push(".local");
-        path.push("share");
-        path.push("vibe_cli");
-        let suffix = project_cache_suffix();
-        path.push(format!("{}_rag_cache.bin", suffix));
-        path
-    }
 
-    fn load_cached_rag(&self, question: &str) -> Result<Option<String>> {
-        let cache_path = Self::rag_cache_path();
-        if !cache_path.exists() {
-            return Ok(None);
-        }
 
-        let data = std::fs::read(&cache_path)?;
-        let mut cache: RagCacheFile = bincode::deserialize(&data).unwrap_or_default();
 
-        // Remove expired entries (7 days)
-        let now = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .unwrap()
-            .as_secs();
-        cache.entries.retain(|entry| now - entry.timestamp < 604800);
-
-        // Save cleaned cache
-        if let Some(parent) = cache_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-
-        let serialized = bincode::serialize(&cache)?;
-        std::fs::write(&cache_path, serialized)?;
-        // Find exact match
-        for entry in &cache.entries {
-            if entry.question == question {
-                return Ok(Some(entry.response.clone()));
-            }
-        }
-        Ok(None)
-    }
-
-    fn save_cached_rag(&self, question: &str, response: &str) -> Result<()> {
-        let cache_path = Self::rag_cache_path();
-        let mut cache = if cache_path.exists() {
-            let data = std::fs::read(&cache_path).unwrap_or_default();
-            bincode::deserialize::<RagCacheFile>(&data).unwrap_or_default()
-        } else {
-            RagCacheFile::default()
-        };
-
-        cache.entries.push(RagCacheEntry {
-            question: question.to_string(),
-            response: response.to_string(),
-            timestamp: std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_secs(),
-        });
-
-        if let Some(parent) = cache_path.parent() {
-            std::fs::create_dir_all(parent)?;
-        }
-
-        let serialized = bincode::serialize(&cache)?;
-        std::fs::write(&cache_path, serialized)?;
-
-        Ok(())
-    }
-
-    /// Check if a command typically requires sudo/admin privileges
-    fn command_needs_sudo(command: &str) -> bool {
-        let sudo_commands = [
-            "systemctl",
-            "service",
-            "systemd",
-            "apt",
-            "apt-get",
-            "yum",
-            "dnf",
-            "pacman",
-            "zypper",
-            "mount",
-            "umount",
-            "fdisk",
-            "mkfs",
-            "fsck",
-            "iptables",
-            "ufw",
-            "firewall-cmd",
-            "usermod",
-            "useradd",
-            "userdel",
-            "groupadd",
-            "groupdel",
-            "chmod",
-            "chown",
-            "passwd",
-            "visudo",
-            "crontab",
-            "overwrite",
-            "modify",
-            "edit",
-            "update",
-        ];
-
-        // Check if the command starts with any of the sudo-requiring commands
-        for sudo_cmd in &sudo_commands {
-            if command.starts_with(&format!("{} ", sudo_cmd)) || command == *sudo_cmd {
-                return true;
-            }
-        }
-
-        false
-    }
-
-    /// Check if a command's exit code should be considered successful despite being non-zero
-    fn is_expected_exit_code(command: &str, exit_code: Option<i32>, stderr: &str) -> bool {
-        // Handle systemctl status commands - exit code 3 means service is inactive (normal)
-        if (command.contains("systemctl status") || command.contains("sudo systemctl status"))
-            && exit_code == Some(3)
-            && !stderr.contains("Failed to")
-        {
-            return true;
-        }
-
-        // Add more command-specific exit code handling here as needed
-        // For example:
-        // if command.contains("some_command") && exit_code == Some(expected_code) {
-        //     return true;
-        // }
-
-        false
-    }
 
     /// Handle streaming agent mode - demonstrates real-time execution
     async fn handle_stream_mode(&mut self, goal: &str) -> Result<()> {
