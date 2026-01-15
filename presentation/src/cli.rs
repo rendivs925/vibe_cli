@@ -3860,106 +3860,6 @@ impl CliApp {
                                 ) {
                                     let _ = self.save_cached(&effective_query, &effective_command);
                                 } else {
-        let power_config = self.get_power_config();
-
-        // Check for command aliases first
-        let effective_query = if let Some(alias_expansion) = power_config.get_alias(query) {
-            println!("Using alias '{}' -> '{}'", query, alias_expansion);
-            alias_expansion.clone()
-        } else {
-            query.to_string()
-        };
-
-        // Analyze query intent for enhanced handling
-        let query_intent = analyze_query_intent(&effective_query);
-
-        // Check if this is a system information query that should use dynamic processing
-        let is_system_query = if let Some(classifier) = &self.input_classifier {
-            match classifier.classify_input(&effective_query).await {
-                Ok(result) => {
-                    result.input_type == InputType::SystemQuery
-                        || query_intent == CommandIntent::InfoQuery
-                        || query_intent == CommandIntent::SystemQuery
-                }
-                Err(_) => false,
-            }
-        } else {
-            false
-        };
-
-        // Handle installation/setup commands with special confirmation
-        if query_intent == CommandIntent::Installation {
-            return self.handle_installation_query(&effective_query).await;
-        }
-
-        // Check for plugin commands first
-        if let Some(plugin_manager) = &self.config.plugin_manager {
-            let manager = plugin_manager.read().await;
-            if let Some(result) = manager.execute_command(&effective_query, vec![]).await {
-                match result {
-                    Ok(output) => {
-                        println!("{}", output);
-                        return Ok(());
-                    }
-                    Err(e) => {
-                        eprintln!("Plugin error: {}", e);
-                        return Ok(());
-                    }
-                }
-            }
-        }
-
-        // Handle cached commands with enhanced confirmation
-        if let Ok(Some(cached_command)) = self.load_cached(&effective_query) {
-            // Use enhanced confirmation system based on intent
-            let confirmed = match query_intent {
-                CommandIntent::Installation => {
-                    let (packages, services, disk_space) =
-                        analyze_installation_command(&cached_command);
-                    let risk = assess_command_risk(&cached_command);
-                    prompt_installation_confirmation(
-                        &cached_command,
-                        query_intent,
-                        packages,
-                        services,
-                        disk_space,
-                    )?
-                }
-                _ => {
-                    // For info queries, use data collection confirmation
-                    let risk = assess_command_risk(&cached_command);
-                    prompt_data_collection_confirmation(&cached_command, &effective_query, risk)?
-                }
-            };
-
-            if confirmed {
-                // Check if this cached command needs sudo
-                let needs_sudo = Self::command_needs_sudo(&cached_command);
-                let effective_command = if needs_sudo {
-                    format!("sudo {}", cached_command)
-                } else {
-                    cached_command.clone()
-                };
-
-                if needs_sudo {
-                    // For sudo commands, skip sandbox and execute directly
-                    match std::process::Command::new("bash")
-                        .arg("-c")
-                        .arg(&effective_command)
-                        .output()
-                    {
-                        Ok(output) => {
-                            println!("{}", String::from_utf8_lossy(&output.stdout));
-                            if !output.status.success() {
-                                let stderr = String::from_utf8_lossy(&output.stderr);
-                                // Check if this is an expected non-error exit code
-                                if Self::is_expected_exit_code(
-                                    &effective_command,
-                                    output.status.code(),
-                                    &stderr,
-                                ) {
-                                    let _ = self.save_cached(&effective_query, &effective_command);
-                                } else {
                                     println!("{}", format!("Command failed: {}", stderr).red());
                                 }
                             } else {
@@ -4132,7 +4032,7 @@ OUTPUT ONLY THE COMMAND:"#,
             let result = client.generate_response_streaming(&prompt, |chunk| {
                 // Real-time streaming display
                 print!("{}", chunk);
-                std::io::Write::flush(&mut std::io::stdout()).unwrap();
+                let _ = std::io::stdout().flush(); // Ignore flush errors for streaming
                 streamed_response.push_str(chunk);
             }).await?;
             println!(); // New line after streaming
@@ -4259,6 +4159,7 @@ OUTPUT ONLY THE COMMAND:"#,
                                     }
                                 }
                                 Err(e) => {
+                                    GLOBAL_METRICS.end_operation("command_execution").await;
                                     eprintln!(
                                         "{}",
                                         format!("Direct execution failed: {}", e).red()
@@ -4268,56 +4169,16 @@ OUTPUT ONLY THE COMMAND:"#,
                         }
                     }
                 }
+            } else {
+                println!("{}", "Command cancelled.".yellow());
             }
-        } else {
-            println!("{}", "Command execution cancelled.".yellow());
         }
+
+        GLOBAL_METRICS.end_operation("query_total").await;
         Ok(())
     }
 
-    async fn handle_system_query(&mut self, query: &str, command: &str) -> Result<()> {
-        let power_config = self.get_power_config();
-
-        // Use enhanced confirmation for data collection
-        let risk = assess_command_risk(command);
-        let confirmed = prompt_data_collection_confirmation(command, query, risk)?;
-
-        if !confirmed {
-            println!("Query cancelled.");
-            return Ok(());
-        }
-        // Check if command is safe
-        let needs_sudo = Self::command_needs_sudo(command);
-        let effective_command = if needs_sudo {
-            format!("sudo {}", command)
-        } else {
-            command.to_string()
-        };
-
-        let is_safe = power_config.is_command_allowed(&effective_command);
-        let prompt_text = if is_safe {
-            if needs_sudo {
-                format!(
-                    "Execute system info command with admin privileges: {}",
-                    command
-                )
-            } else {
-                format!("Execute system info command: {}", command)
-            }
-        } else {
-            format!(
-                "Execute system info command (requires elevated permissions): {}",
-                effective_command
-            )
-        };
-
-        if !ask_confirmation(&prompt_text, is_safe)? {
-            println!("{}", "Command execution cancelled.".yellow());
-            return Ok(());
-        }
-
-        // Execute the command and get raw output
-        let raw_output = if needs_sudo {
+    async fn process_system_output(
             // For sudo commands, skip sandbox and execute directly
             match std::process::Command::new("bash")
                 .arg("-c")
@@ -4850,21 +4711,7 @@ COMMAND:"#,
                     println!("{}", output);
                 }
                 Ok(())
-            }
-            Err(e) => {
-                // Try direct execution as fallback
-                match std::process::Command::new("bash")
-                    .arg("-c")
-                    .arg(&step.command)
-                    .status()
-                {
-                    Ok(status) if status.success() => Ok(()),
-                    Ok(status) => Err(anyhow!(
-                        "Command failed with exit code: {:?}",
-                        status.code()
-                    )),
-                    Err(e) => Err(anyhow!("Execution failed: {}", e)),
-                }
+    }
             }
         }
     }
