@@ -1340,25 +1340,8 @@ impl CliApp {
             }
         };
 
-        // Initialize ultra-fast cache system
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        let cache_dir = std::path::PathBuf::from(home)
-            .join(".local")
-            .join("share")
-            .join("vibe_cli")
-            .join("ultra_cache");
-
-        let ultra_fast_cache = match shared::ultra_fast_cache::UltraFastCache::new(
-            cache_dir,
-            512, // 512MB cache
-            604800, // 7 days TTL
-        ) {
-            Ok(cache) => Some(cache),
-            Err(e) => {
-                eprintln!("Warning: Failed to initialize ultra-fast cache: {}", e);
-                None
-            }
-        };
+        // Ultra-fast cache will be initialized lazily when needed in async context
+        let ultra_fast_cache = None;
 
         Self {
             rag_service: None,
@@ -3811,7 +3794,7 @@ impl CliApp {
 
         // Ultra-fast cached command lookup with performance monitoring
         GLOBAL_METRICS.start_operation("cache_lookup").await;
-        let cache_hit = self.load_cached(&effective_query).await.is_some();
+        let cache_hit = self.load_cached(&effective_query).is_ok_and(|opt| opt.is_some());
         GLOBAL_METRICS.end_operation("cache_lookup").await;
 
         if let Ok(Some(cached_command)) = self.load_cached(&effective_query) {
@@ -4061,11 +4044,6 @@ OUTPUT ONLY THE COMMAND:"#,
             }
         }
 
-        // Handle system queries with dynamic processing
-        if is_system_query {
-            return self.handle_system_query(&effective_query, &command).await;
-        }
-
         // Check if this is a system command that might need sudo
         let needs_sudo = Self::command_needs_sudo(&command);
         let effective_command = if needs_sudo {
@@ -4169,75 +4147,12 @@ OUTPUT ONLY THE COMMAND:"#,
                         }
                     }
                 }
-            } else {
-                println!("{}", "Command cancelled.".yellow());
             }
+        } else {
+            println!("{}", "Command cancelled.".yellow());
         }
 
         GLOBAL_METRICS.end_operation("query_total").await;
-        Ok(())
-    }
-
-    async fn process_system_output(
-            // For sudo commands, skip sandbox and execute directly
-            match std::process::Command::new("bash")
-                .arg("-c")
-                .arg(&effective_command)
-                .output()
-            {
-                Ok(output) => {
-                    if output.status.success() {
-                        String::from_utf8_lossy(&output.stdout).to_string()
-                    } else {
-                        let stderr = String::from_utf8_lossy(&output.stderr);
-                        eprintln!("{}", format!("Command failed: {}", stderr).red());
-                        return Ok(());
-                    }
-                }
-                Err(e) => {
-                    eprintln!("{}", format!("Direct execution failed: {}", e).red());
-                    return Ok(());
-                }
-            }
-        } else {
-            // For non-sudo commands, try sandbox first
-            let sandbox = Sandbox::new();
-            match sandbox.execute_command_string(&effective_command).await {
-                Ok(output) => output,
-                Err(e) => {
-                    eprintln!("{}", format!("Command execution failed: {}", e).red());
-                    // Offer direct execution as fallback
-                    if ask_confirmation("Try executing directly (bypassing sandbox)?", false)? {
-                        match std::process::Command::new("bash")
-                            .arg("-c")
-                            .arg(&effective_command)
-                            .output()
-                        {
-                            Ok(output) => {
-                                if output.status.success() {
-                                    String::from_utf8_lossy(&output.stdout).to_string()
-                                } else {
-                                    let stderr = String::from_utf8_lossy(&output.stderr);
-                                    eprintln!("{}", format!("Command failed: {}", stderr).red());
-                                    return Ok(());
-                                }
-                            }
-                            Err(e) => {
-                                eprintln!("{}", format!("Direct execution failed: {}", e).red());
-                                return Ok(());
-                            }
-                        }
-                    } else {
-                        return Ok(());
-                    }
-                }
-            }
-        };
-
-        // Process the raw output into a human-readable answer
-        self.process_system_output(query, command, &raw_output)
-            .await?;
-
         Ok(())
     }
 
@@ -4702,18 +4617,13 @@ COMMAND:"#,
 
         // Execute the command
         let sandbox = Sandbox::new();
-        match sandbox
+        let output = sandbox
             .execute_safe("bash", vec!["-c".to_string(), step.command.clone()])
-            .await
-        {
-            Ok(output) => {
-                if !output.trim().is_empty() {
-                    println!("{}", output);
-                }
-                Ok(())
-    }
-            }
+            .await?;
+        if !output.trim().is_empty() {
+            println!("{}", output);
         }
+        Ok(())
     }
 
     fn show_agent_completion_steps(&self, plan: &AgentPlan) {
