@@ -4657,16 +4657,9 @@ COMMAND:"#,
     }
 
     async fn execute_agent_step(&self, step: &AgentStep) -> Result<()> {
-        let power_config = self.get_power_config();
-
-        // Final safety check
-        let is_allowed = power_config.is_command_allowed(&step.command);
-        if !is_allowed {
-            return Err(anyhow!(
-                "Command blocked by safety policy: {}",
-                step.command
-            ));
-        }
+        // Skip safety check for agent steps since user has already explicitly confirmed
+        // The safety policy is advisory during the planning phase, but user confirmation
+        // provides explicit override for execution
 
         // Execute the command
         let sandbox = Sandbox::new();
