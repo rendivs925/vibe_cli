@@ -147,7 +147,7 @@ checksum = "a23eb6b1614318a8071c9b2521f36b424b2c83db5eb3a0fead4a6c0809af6e61"
 
 [[package]]
 name = "application"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "colored",
@@ -1113,7 +1113,7 @@ dependencies = [
 
 [[package]]
 name = "domain"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "serde",
@@ -2370,7 +2370,7 @@ dependencies = [
 
 [[package]]
 name = "infrastructure"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "aes-gcm",
  "anyhow",
@@ -3576,7 +3576,7 @@ checksum = "925383efa346730478fb4838dbe9137d2a47675ad789c546d150a6e1dd4ab31c"
 
 [[package]]
 name = "presentation"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "application",
@@ -4372,7 +4372,7 @@ checksum = "bbfa15b3dddfee50a0fff136974b3e1bde555604ba463834a7eb7deb6417705d"
 
 [[package]]
 name = "shared"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "anyhow",
  "colored",
@@ -5407,7 +5407,7 @@ checksum = "0b928f33d975fc6ad9f86c8f283853ad26bdd5b10b7f1542aa2fa15e2289105a"
 
 [[package]]
 name = "vibe_cli"
-version = "0.1.0"
+version = "2.0.0"
 dependencies = [
  "application",
  "bincode",
