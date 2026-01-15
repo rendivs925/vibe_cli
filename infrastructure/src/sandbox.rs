@@ -25,7 +25,7 @@ impl Sandbox {
 
         // Safe allowed commands
         for cmd in &[
-            "ls", "cat", "grep", "find", "head", "tail", "wc", "sort", "uniq", "pwd", "echo",
+            "ls", "cat", "grep", "find", "head", "tail", "wc", "sort", "uniq", "pwd", "echo", "bash",
         ] {
             allowed_commands.insert(cmd.to_string());
         }
