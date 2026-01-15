@@ -10,6 +10,7 @@ use infrastructure::{
         LogLevel, TestStatus,
     },
     config::Config,
+    input_classifier::{InputClassifier, InputType},
     ollama_client::OllamaClient,
     sandbox::Sandbox,
     session_store::SessionStore,
@@ -479,6 +480,7 @@ pub struct CliApp {
     background_supervisor: Option<BackgroundSupervisor>,
     scripted_inputs: Option<std::collections::VecDeque<String>>,
     power_config_override: Option<infrastructure::config::PowerUserConfig>,
+    input_classifier: Option<infrastructure::input_classifier::InputClassifier>,
 }
 
 impl CliApp {
@@ -512,6 +514,17 @@ impl CliApp {
             None
         };
 
+        // Initialize input classifier
+        let input_classifier = match infrastructure::ollama_client::OllamaClient::new() {
+            Ok(client) => Some(infrastructure::input_classifier::InputClassifier::new(
+                std::sync::Arc::new(client),
+            )),
+            Err(e) => {
+                eprintln!("Warning: Failed to initialize input classifier: {}", e);
+                None
+            }
+        };
+
         Self {
             rag_service: None,
             cache_path,
@@ -522,6 +535,7 @@ impl CliApp {
             background_supervisor: Some(BackgroundSupervisor::new()),
             scripted_inputs: None,
             power_config_override: None,
+            input_classifier,
         }
     }
 
@@ -2929,6 +2943,16 @@ OUTPUT:"#,
             query.to_string()
         };
 
+        // Check if this is a system information query that should use dynamic processing
+        let is_system_query = if let Some(classifier) = &self.input_classifier {
+            match classifier.classify_input(&effective_query).await {
+                Ok(result) => result.input_type == InputType::SystemQuery,
+                Err(_) => false,
+            }
+        } else {
+            false
+        };
+
         // Check for plugin commands first
         if let Some(plugin_manager) = &self.config.plugin_manager {
             let manager = plugin_manager.read().await;
@@ -3160,6 +3184,11 @@ OUTPUT ONLY THE COMMAND:"#,
 
         let _ = self.save_cached(&effective_query, &command);
 
+        // Handle system queries with dynamic processing
+        if is_system_query {
+            return self.handle_system_query(&effective_query, &command).await;
+        }
+
         // Check if this is a system command that might need sudo
         let needs_sudo = Self::command_needs_sudo(&command);
         let effective_command = if needs_sudo {
@@ -3261,6 +3290,257 @@ OUTPUT ONLY THE COMMAND:"#,
         } else {
             println!("{}", "Command execution cancelled.".yellow());
         }
+        Ok(())
+    }
+
+    async fn handle_system_query(
+        &mut self,
+        query: &str,
+        command: &str,
+    ) -> Result<()> {
+        let power_config = self.get_power_config();
+        // Check if command is safe
+        let needs_sudo = Self::command_needs_sudo(command);
+        let effective_command = if needs_sudo {
+            format!("sudo {}", command)
+        } else {
+            command.to_string()
+        };
+
+        let is_safe = power_config.is_command_allowed(&effective_command);
+        let prompt_text = if is_safe {
+            if needs_sudo {
+                format!("Execute system info command with admin privileges: {}", command)
+            } else {
+                format!("Execute system info command: {}", command)
+            }
+        } else {
+            format!("Execute system info command (requires elevated permissions): {}", effective_command)
+        };
+
+        if !ask_confirmation(&prompt_text, is_safe)? {
+            println!("{}", "Command execution cancelled.".yellow());
+            return Ok(());
+        }
+
+        // Execute the command and get raw output
+        let raw_output = if needs_sudo {
+            // For sudo commands, skip sandbox and execute directly
+            match std::process::Command::new("bash")
+                .arg("-c")
+                .arg(&effective_command)
+                .output()
+            {
+                Ok(output) => {
+                    if output.status.success() {
+                        String::from_utf8_lossy(&output.stdout).to_string()
+                    } else {
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        eprintln!("{}", format!("Command failed: {}", stderr).red());
+                        return Ok(());
+                    }
+                }
+                Err(e) => {
+                    eprintln!("{}", format!("Direct execution failed: {}", e).red());
+                    return Ok(());
+                }
+            }
+        } else {
+            // For non-sudo commands, try sandbox first
+            let sandbox = Sandbox::new();
+            match sandbox.execute_command_string(&effective_command).await {
+                Ok(output) => output,
+                Err(e) => {
+                    eprintln!("{}", format!("Command execution failed: {}", e).red());
+                    // Offer direct execution as fallback
+                    if ask_confirmation("Try executing directly (bypassing sandbox)?", false)? {
+                        match std::process::Command::new("bash")
+                            .arg("-c")
+                            .arg(&effective_command)
+                            .output()
+                        {
+                            Ok(output) => {
+                                if output.status.success() {
+                                    String::from_utf8_lossy(&output.stdout).to_string()
+                                } else {
+                                    let stderr = String::from_utf8_lossy(&output.stderr);
+                                    eprintln!("{}", format!("Command failed: {}", stderr).red());
+                                    return Ok(());
+                                }
+                            }
+                            Err(e) => {
+                                eprintln!("{}", format!("Direct execution failed: {}", e).red());
+                                return Ok(());
+                            }
+                        }
+                    } else {
+                        return Ok(());
+                    }
+                }
+            }
+        };
+
+        // Process the raw output into a human-readable answer
+        self.process_system_output(query, command, &raw_output).await?;
+
+        Ok(())
+    }
+
+    async fn process_system_output(&self, query: &str, command: &str, raw_output: &str) -> Result<()> {
+        let client = infrastructure::ollama_client::OllamaClient::new()?;
+        let system_context = infrastructure::config::SystemContext::gather();
+
+        let prompt = format!(
+            r#"Process this command output for the user's query and provide a direct, human-readable answer.
+
+SYSTEM CONTEXT:
+- OS: {} ({})
+- Architecture: {}
+- CPU: {} ({} cores)
+- RAM: {} total, {} used
+- GPU: {}
+- Package Manager: {}
+
+QUERY: {}
+COMMAND: {}
+RAW OUTPUT:
+{}
+
+Provide:
+1. Direct answer (1-2 sentences, conversational tone)
+2. Key facts extracted (bullet points)
+3. Brief explanation of what the data means (if needed)
+4. Confidence score (0.0-1.0) in the accuracy of your processing
+
+Format as JSON:
+{{
+    "answer": "Your direct answer here",
+    "facts": ["Fact 1", "Fact 2", "Fact 3"],
+    "explanation": "Brief explanation if needed, otherwise empty string",
+    "confidence": 0.85
+}}
+
+Focus on being helpful and concise. If the output is empty or shows an error, explain what happened.
+For confidence: 0.9+ means very confident, 0.7-0.9 means reasonably confident, below 0.7 means uncertain.
+Use the system context to better understand the output format and provide more accurate answers."#,
+            system_context.distro,
+            system_context.os_type,
+            system_context.architecture,
+            system_context.cpu_model,
+            system_context.cpu_cores,
+            system_context.ram_total,
+            system_context.ram_used,
+            system_context.gpu_model,
+            system_context.package_manager,
+            query, command, raw_output
+        );
+
+        match client.generate_response(&prompt).await {
+            Ok(response) => {
+                // Parse the JSON response
+                if let Some(json_start) = response.find('{') {
+                    let json_str = &response[json_start..];
+                    if let Some(json_end) = json_str.rfind('}') {
+                        let json_content = &json_str[..=json_end];
+
+                        #[derive(serde::Deserialize)]
+                        struct ProcessedOutput {
+                            answer: String,
+                            facts: Vec<String>,
+                            explanation: String,
+                            confidence: Option<f32>,
+                        }
+
+                        match serde_json::from_str::<ProcessedOutput>(json_content) {
+                            Ok(processed) => {
+                                let confidence = processed.confidence.unwrap_or(0.8);
+
+                                // Display confidence indicator
+                                let confidence_indicator = match confidence {
+                                    c if c >= 0.9 => "High confidence".green(),
+                                    c if c >= 0.7 => "Medium confidence".yellow(),
+                                    _ => "Low confidence".red(),
+                                };
+                                println!("{}", format!("System Information ({}):", confidence_indicator).bold());
+
+                                // Display the processed answer
+                                println!("{}", processed.answer);
+
+                                if !processed.facts.is_empty() {
+                                    println!("\n{}", "Key Details:".blue().bold());
+                                    for fact in &processed.facts {
+                                        println!("  • {}", fact);
+                                    }
+                                }
+
+                                if !processed.explanation.is_empty() {
+                                    println!("\n{}", "Note:".blue().bold());
+                                    println!("{}", processed.explanation);
+                                }
+
+                                // Progressive disclosure based on confidence
+                                if confidence >= 0.8 {
+                                    // High confidence: show brief technical summary
+                                    println!("\n{}", "Technical Summary:".yellow().bold());
+                                    println!("  Command executed: {}", command.cyan());
+                                    let lines: Vec<&str> = raw_output.lines().collect();
+                                    println!("  Output lines: {}", lines.len().to_string().dimmed());
+                                } else {
+                                    // Lower confidence: show more technical details
+                                    println!("\n{}", "Technical Details:".yellow().bold());
+                                    println!("  Command: {}", command.cyan());
+                                    println!("  Raw Output:");
+                                    let lines: Vec<&str> = raw_output.lines().collect();
+                                    if lines.len() > 10 {
+                                        println!("    {} (showing first 5 lines)", format!("{} lines total", lines.len()).dimmed());
+                                        for line in lines.iter().take(5) {
+                                            println!("    {}", line.dimmed());
+                                        }
+                                        println!("    {}", "... (truncated - use 'raw' option to see full output)".dimmed());
+                                    } else {
+                                        for line in lines {
+                                            println!("    {}", line.dimmed());
+                                        }
+                                    }
+                                }
+
+                                // Low confidence warning and feedback option
+                                if confidence < 0.7 {
+                                    println!("\n{}", "⚠️  This answer has low confidence. Consider checking the raw output manually.".red());
+                                }
+
+                                // Offer feedback option for medium/low confidence answers
+                                if confidence < 0.9 {
+                                    println!("\n{}", "Was this answer helpful? (y/n or provide correction):".dimmed());
+                                    // In a full implementation, this would read user input and learn from corrections
+                                    // For now, we just provide the option
+                                }
+                            }
+                            Err(_) => {
+                                // Fallback to showing raw output if processing fails
+                                println!("{}", "Failed to process output, showing raw result:".yellow());
+                                println!("{}", raw_output);
+                            }
+                        }
+                    } else {
+                        // Fallback to showing raw output
+                        println!("{}", "Failed to process output, showing raw result:".yellow());
+                        println!("{}", raw_output);
+                    }
+                } else {
+                    // Fallback to showing raw output
+                    println!("{}", "Failed to process output, showing raw result:".yellow());
+                    println!("{}", raw_output);
+                }
+            }
+            Err(e) => {
+                eprintln!("{}", format!("Failed to process output: {}", e).red());
+                // Fallback to showing raw output
+                println!("{}", "Showing raw command output:".yellow());
+                println!("{}", raw_output);
+            }
+        }
+
         Ok(())
     }
 
