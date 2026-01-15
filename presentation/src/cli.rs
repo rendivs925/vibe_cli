@@ -1,10 +1,10 @@
+use anyhow::anyhow;
 use application::{agent_service::AgentService, build_service::BuildPlan, rag_service::RagService};
 use chrono::Utc;
 use clap::Parser;
 use colored::Colorize;
 use docx_rs::*;
 use flume::Receiver;
-use serde_json;
 use infrastructure::{
     background_supervisor::{
         BackgroundEvent, BackgroundSupervisor, DiagnosticSeverity, FileChangeType, GitStatus,
@@ -17,6 +17,7 @@ use infrastructure::{
     session_store::SessionStore,
 };
 use serde::{Deserialize, Serialize};
+use serde_json;
 use shared::confirmation::ask_confirmation;
 use shared::types::Result;
 use std::collections::{HashMap, HashSet};
@@ -45,12 +46,12 @@ pub enum CommandIntent {
 /// Risk assessment for commands in agent execution
 #[derive(Debug, Clone, PartialEq)]
 pub enum AgentCommandRisk {
-    InfoOnly,           // Read-only queries (ls, pwd, cat)
-    SafeOperations,     // Safe operations (mkdir, echo, cp)
-    NetworkAccess,      // Network-dependent (npm install, git clone)
-    SystemChanges,      // System modifications (chmod, chown, systemctl)
-    Destructive,        // Destructive operations (rm -rf, dd, format)
-    Unknown,            // Cannot assess risk
+    InfoOnly,       // Read-only queries (ls, pwd, cat)
+    SafeOperations, // Safe operations (mkdir, echo, cp)
+    NetworkAccess,  // Network-dependent (npm install, git clone)
+    SystemChanges,  // System modifications (chmod, chown, systemctl)
+    Destructive,    // Destructive operations (rm -rf, dd, format)
+    Unknown,        // Cannot assess risk
 }
 
 /// Individual step in an agent execution plan
@@ -78,11 +79,11 @@ pub struct AgentPlan {
 /// Risk assessment for commands
 #[derive(Debug, Clone, PartialEq)]
 pub enum CommandRisk {
-    InfoOnly,       // Read-only queries, no system changes
-    SafeSetup,      // Package installs, basic service setup
-    SystemChanges,  // Configuration changes, user creation
-    HighRisk,       // Destructive operations, system-wide changes
-    Unknown,        // Cannot assess risk
+    InfoOnly,      // Read-only queries, no system changes
+    SafeSetup,     // Package installs, basic service setup
+    SystemChanges, // Configuration changes, user creation
+    HighRisk,      // Destructive operations, system-wide changes
+    Unknown,       // Cannot assess risk
 }
 
 /// Installation option for user selection
@@ -418,14 +419,14 @@ fn extract_command_from_response(response: &str) -> String {
     // and there are no quotes within the command (indicating they're part of command syntax)
     let trimmed = cleaned.trim_matches('`').trim();
     if trimmed.starts_with('"') && trimmed.ends_with('"') {
-        let inner = &trimmed[1..trimmed.len()-1];
+        let inner = &trimmed[1..trimmed.len() - 1];
         // If there are no quotes inside, it's safe to remove the outer quotes
         if !inner.contains('"') && !inner.contains('\'') {
             return inner.trim().to_string();
         }
         // Otherwise, keep the quotes as they're part of the command syntax
     } else if trimmed.starts_with('\'') && trimmed.ends_with('\'') {
-        let inner = &trimmed[1..trimmed.len()-1];
+        let inner = &trimmed[1..trimmed.len() - 1];
         // Same logic for single quotes
         if !inner.contains('\'') && !inner.contains('"') {
             return inner.trim().to_string();
@@ -441,26 +442,61 @@ fn analyze_query_intent(query: &str) -> CommandIntent {
 
     // Installation keywords
     let install_keywords = [
-        "install", "setup", "add", "create", "build", "compile",
-        "download", "get", "fetch", "deploy", "configure"
+        "install",
+        "setup",
+        "add",
+        "create",
+        "build",
+        "compile",
+        "download",
+        "get",
+        "fetch",
+        "deploy",
+        "configure",
     ];
 
     // Configuration keywords
     let config_keywords = [
-        "configure", "config", "enable", "disable", "set", "update",
-        "modify", "change", "edit", "tune", "optimize"
+        "configure",
+        "config",
+        "enable",
+        "disable",
+        "set",
+        "update",
+        "modify",
+        "change",
+        "edit",
+        "tune",
+        "optimize",
     ];
 
     // Service control keywords
     let service_keywords = [
-        "start", "stop", "restart", "reload", "enable", "disable",
-        "status", "systemctl", "service", "daemon"
+        "start",
+        "stop",
+        "restart",
+        "reload",
+        "enable",
+        "disable",
+        "status",
+        "systemctl",
+        "service",
+        "daemon",
     ];
 
     // Information query patterns
     let info_patterns = [
-        "what's", "what is", "how much", "how many", "show", "list",
-        "display", "check", "verify", "info", "information"
+        "what's",
+        "what is",
+        "how much",
+        "how many",
+        "show",
+        "list",
+        "display",
+        "check",
+        "verify",
+        "info",
+        "information",
     ];
 
     // Check for installation intent
@@ -484,9 +520,13 @@ fn analyze_query_intent(query: &str) -> CommandIntent {
     }
 
     // Default to system query for general queries
-    if query_lower.contains("disk") || query_lower.contains("memory") ||
-       query_lower.contains("cpu") || query_lower.contains("gpu") ||
-       query_lower.contains("network") || query_lower.contains("process") {
+    if query_lower.contains("disk")
+        || query_lower.contains("memory")
+        || query_lower.contains("cpu")
+        || query_lower.contains("gpu")
+        || query_lower.contains("network")
+        || query_lower.contains("process")
+    {
         return CommandIntent::SystemQuery;
     }
 
@@ -499,49 +539,98 @@ fn assess_agent_command_risk(command: &str) -> AgentCommandRisk {
 
     // Destructive commands - highest risk
     let destructive_patterns = [
-        "rm -rf", "rm -r", "rmdir", "del", "delete", "format", "mkfs",
-        "dd if=", "fdisk", "parted", "wipe", "shred", "unlink"
+        "rm -rf", "rm -r", "rmdir", "del", "delete", "format", "mkfs", "dd if=", "fdisk", "parted",
+        "wipe", "shred", "unlink",
     ];
 
     // System-changing commands
     let system_change_patterns = [
-        "chmod 777", "chmod 666", "chown root", "chown 0", "chown :root",
-        "usermod", "userdel", "useradd", "groupmod", "groupdel", "groupadd",
-        "systemctl enable", "systemctl disable", "systemctl stop",
-        "ufw --force enable", "ufw --force disable", "iptables",
-        "mount", "umount", "fsck", "tune2fs", "resize2fs"
+        "chmod 777",
+        "chmod 666",
+        "chown root",
+        "chown 0",
+        "chown :root",
+        "usermod",
+        "userdel",
+        "useradd",
+        "groupmod",
+        "groupdel",
+        "groupadd",
+        "systemctl enable",
+        "systemctl disable",
+        "systemctl stop",
+        "ufw --force enable",
+        "ufw --force disable",
+        "iptables",
+        "mount",
+        "umount",
+        "fsck",
+        "tune2fs",
+        "resize2fs",
     ];
 
     // Network access commands
     let network_patterns = [
-        "curl", "wget", "git clone", "git pull", "git fetch",
-        "npm install", "npm update", "yarn install", "yarn add",
-        "pip install", "pip download", "apt install", "apt update",
-        "yum install", "dnf install", "pacman -S", "brew install",
-        "docker pull", "docker push", "scp", "rsync", "ssh"
+        "curl",
+        "wget",
+        "git clone",
+        "git pull",
+        "git fetch",
+        "npm install",
+        "npm update",
+        "yarn install",
+        "yarn add",
+        "pip install",
+        "pip download",
+        "apt install",
+        "apt update",
+        "yum install",
+        "dnf install",
+        "pacman -S",
+        "brew install",
+        "docker pull",
+        "docker push",
+        "scp",
+        "rsync",
+        "ssh",
     ];
 
     // Safe operations
     let safe_patterns = [
-        "ls", "pwd", "echo", "printf", "cat", "head", "tail", "grep",
-        "find", "which", "whereis", "type", "file", "stat", "du", "df",
-        "free", "ps", "top", "htop", "uname", "whoami", "id", "groups",
-        "mkdir", "touch", "cp", "mv", "ln", "basename", "dirname"
+        "ls", "pwd", "echo", "printf", "cat", "head", "tail", "grep", "find", "which", "whereis",
+        "type", "file", "stat", "du", "df", "free", "ps", "top", "htop", "uname", "whoami", "id",
+        "groups", "mkdir", "touch", "cp", "mv", "ln", "basename", "dirname",
     ];
 
     // Info-only commands
     let info_patterns = [
-        "date", "cal", "uptime", "w", "who", "last", "history",
-        "env", "printenv", "locale", "tzselect", "locale-gen"
+        "date",
+        "cal",
+        "uptime",
+        "w",
+        "who",
+        "last",
+        "history",
+        "env",
+        "printenv",
+        "locale",
+        "tzselect",
+        "locale-gen",
     ];
 
     // Check destructive first (highest priority)
-    if destructive_patterns.iter().any(|&pat| cmd_lower.contains(pat)) {
+    if destructive_patterns
+        .iter()
+        .any(|&pat| cmd_lower.contains(pat))
+    {
         return AgentCommandRisk::Destructive;
     }
 
     // Check system changes
-    if system_change_patterns.iter().any(|&pat| cmd_lower.contains(pat)) {
+    if system_change_patterns
+        .iter()
+        .any(|&pat| cmd_lower.contains(pat))
+    {
         return AgentCommandRisk::SystemChanges;
     }
 
@@ -551,7 +640,10 @@ fn assess_agent_command_risk(command: &str) -> AgentCommandRisk {
     }
 
     // Check safe operations
-    if safe_patterns.iter().any(|&pat| cmd_lower.starts_with(pat) || cmd_lower.contains(&format!(" {}", pat))) {
+    if safe_patterns
+        .iter()
+        .any(|&pat| cmd_lower.starts_with(pat) || cmd_lower.contains(&format!(" {}", pat)))
+    {
         return AgentCommandRisk::SafeOperations;
     }
 
@@ -570,47 +662,84 @@ fn assess_command_risk(command: &str) -> CommandRisk {
 
     // High-risk commands
     let high_risk_patterns = [
-        "rm -rf", "format", "mkfs", "fdisk", "dd if=", "shutdown",
-        "reboot", "halt", "poweroff", "systemctl stop", "killall"
+        "rm -rf",
+        "format",
+        "mkfs",
+        "fdisk",
+        "dd if=",
+        "shutdown",
+        "reboot",
+        "halt",
+        "poweroff",
+        "systemctl stop",
+        "killall",
     ];
 
     // System-changing commands
     let system_change_patterns = [
-        "usermod", "userdel", "groupmod", "chmod 777", "chown root",
-        "systemctl enable", "systemctl disable", "ufw", "firewall",
-        "iptables", "mount", "umount"
+        "usermod",
+        "userdel",
+        "groupmod",
+        "chmod 777",
+        "chown root",
+        "systemctl enable",
+        "systemctl disable",
+        "ufw",
+        "firewall",
+        "iptables",
+        "mount",
+        "umount",
     ];
 
     // Safe setup commands
     let safe_setup_commands = [
-        "apt install", "apt-get install", "yum install", "dnf install",
-        "pacman -S", "brew install", "pip install", "npm install",
-        "gem install", "cargo install"
+        "apt install",
+        "apt-get install",
+        "yum install",
+        "dnf install",
+        "pacman -S",
+        "brew install",
+        "pip install",
+        "npm install",
+        "gem install",
+        "cargo install",
     ];
 
     // Info-only commands (read-only)
     let info_only_commands = [
-        "ls", "df", "free", "ps", "top", "htop", "uname", "whoami",
-        "pwd", "cat", "grep", "find", "which", "whereis", "type"
+        "ls", "df", "free", "ps", "top", "htop", "uname", "whoami", "pwd", "cat", "grep", "find",
+        "which", "whereis", "type",
     ];
 
     // Check high risk first
-    if high_risk_patterns.iter().any(|&pat| cmd_lower.contains(pat)) {
+    if high_risk_patterns
+        .iter()
+        .any(|&pat| cmd_lower.contains(pat))
+    {
         return CommandRisk::HighRisk;
     }
 
     // Check system changes
-    if system_change_patterns.iter().any(|&pat| cmd_lower.contains(pat)) {
+    if system_change_patterns
+        .iter()
+        .any(|&pat| cmd_lower.contains(pat))
+    {
         return CommandRisk::SystemChanges;
     }
 
     // Check safe setup
-    if safe_setup_commands.iter().any(|&cmd| cmd_lower.contains(cmd)) {
+    if safe_setup_commands
+        .iter()
+        .any(|&cmd| cmd_lower.contains(cmd))
+    {
         return CommandRisk::SafeSetup;
     }
 
     // Check info-only
-    if info_only_commands.iter().any(|&cmd| cmd_lower.starts_with(cmd)) {
+    if info_only_commands
+        .iter()
+        .any(|&cmd| cmd_lower.starts_with(cmd))
+    {
         return CommandRisk::InfoOnly;
     }
 
@@ -629,7 +758,9 @@ fn prompt_data_collection_confirmation(
     println!("This query needs to run: {}", command);
 
     // Determine purpose based on query content
-    let purpose = if query.to_lowercase().contains("gpu") || query.to_lowercase().contains("graphics") {
+    let purpose = if query.to_lowercase().contains("gpu")
+        || query.to_lowercase().contains("graphics")
+    {
         "Gather GPU information for analysis"
     } else if query.to_lowercase().contains("cpu") || query.to_lowercase().contains("processor") {
         "Gather CPU information for analysis"
@@ -693,7 +824,8 @@ fn prompt_installation_confirmation(
     }
 
     // Check if sudo is needed
-    let needs_sudo = command.contains("sudo") || assess_command_risk(command) != CommandRisk::InfoOnly;
+    let needs_sudo =
+        command.contains("sudo") || assess_command_risk(command) != CommandRisk::InfoOnly;
     if needs_sudo {
         println!("  - Requires: sudo privileges");
     }
@@ -717,14 +849,16 @@ fn analyze_installation_command(command: &str) -> (Vec<String>, Vec<String>, Opt
         // Extract package names after "install"
         if let Some(install_pos) = cmd_lower.find("install") {
             let package_part = &command[install_pos + 7..].trim();
-            packages = package_part.split_whitespace()
+            packages = package_part
+                .split_whitespace()
                 .map(|s| s.to_string())
                 .collect();
         }
     } else if cmd_lower.contains("pip install") {
         if let Some(install_pos) = cmd_lower.find("install") {
             let package_part = &command[install_pos + 7..].trim();
-            packages = package_part.split_whitespace()
+            packages = package_part
+                .split_whitespace()
                 .take(3) // Limit to first few packages
                 .map(|s| format!("{} (Python package)", s))
                 .collect();
@@ -862,7 +996,9 @@ fn enhance_agent_plan(mut plan: AgentPlan, original_task: &str) -> AgentPlan {
 
     // Analyze for safety concerns
     let mut safety_concerns = Vec::new();
-    let network_steps = plan.steps.iter()
+    let network_steps = plan
+        .steps
+        .iter()
         .filter(|s| s.risk_level == AgentCommandRisk::NetworkAccess)
         .count();
 
@@ -870,16 +1006,23 @@ fn enhance_agent_plan(mut plan: AgentPlan, original_task: &str) -> AgentPlan {
         safety_concerns.push(format!("{} steps require network access", network_steps));
     }
 
-    let destructive_steps = plan.steps.iter()
+    let destructive_steps = plan
+        .steps
+        .iter()
         .filter(|s| s.risk_level == AgentCommandRisk::Destructive)
         .count();
 
     if destructive_steps > 0 {
-        safety_concerns.push(format!("{} steps are potentially destructive", destructive_steps));
+        safety_concerns.push(format!(
+            "{} steps are potentially destructive",
+            destructive_steps
+        ));
     }
 
     // Check for disk space impact
-    let has_installs = plan.steps.iter()
+    let has_installs = plan
+        .steps
+        .iter()
         .any(|s| s.command.contains("install") || s.command.contains("download"));
 
     if has_installs && plan.total_disk_impact.is_none() {
@@ -887,7 +1030,9 @@ fn enhance_agent_plan(mut plan: AgentPlan, original_task: &str) -> AgentPlan {
     }
 
     // Update network requirement based on analysis
-    plan.network_required = plan.steps.iter()
+    plan.network_required = plan
+        .steps
+        .iter()
         .any(|s| s.risk_level == AgentCommandRisk::NetworkAccess);
 
     plan.safety_concerns = safety_concerns;
@@ -898,12 +1043,13 @@ fn enhance_agent_plan(mut plan: AgentPlan, original_task: &str) -> AgentPlan {
 /// Display agent execution plan in structured format
 fn display_agent_plan(plan: &AgentPlan) {
     println!();
-    println!("EXECUTION PLAN ({} steps{})",
-             plan.steps.len(),
-             plan.total_estimated_time
-                 .as_ref()
-                 .map(|t| format!(" - Estimated: {}", t))
-                 .unwrap_or_default()
+    println!(
+        "EXECUTION PLAN ({} steps{})",
+        plan.steps.len(),
+        plan.total_estimated_time
+            .as_ref()
+            .map(|t| format!(" - Estimated: {}", t))
+            .unwrap_or_default()
     );
 
     for (i, step) in plan.steps.iter().enumerate() {
@@ -928,7 +1074,10 @@ fn display_agent_plan(plan: &AgentPlan) {
     if let Some(disk) = &plan.total_disk_impact {
         println!("  Disk Impact: {}", disk);
     }
-    println!("  Network Required: {}", if plan.network_required { "Yes" } else { "No" });
+    println!(
+        "  Network Required: {}",
+        if plan.network_required { "Yes" } else { "No" }
+    );
 
     if !plan.safety_concerns.is_empty() {
         println!("  Safety Concerns:");
@@ -975,12 +1124,10 @@ fn validate_command_syntax(command: &str) -> std::result::Result<(), String> {
     }
 
     // Check for unbalanced parentheses (basic check)
-    let paren_count = trimmed.chars().fold(0, |count, ch| {
-        match ch {
-            '(' => count + 1,
-            ')' => count - 1,
-            _ => count,
-        }
+    let paren_count = trimmed.chars().fold(0, |count, ch| match ch {
+        '(' => count + 1,
+        ')' => count - 1,
+        _ => count,
     });
 
     if paren_count != 0 {
@@ -1325,7 +1472,10 @@ impl CliApp {
                 if validate_command_syntax(&cleaned_command).is_ok() {
                     return Ok(Some(cleaned_command));
                 } else {
-                    eprintln!("{}", format!("Warning: Cached command has syntax issues, regenerating").yellow());
+                    eprintln!(
+                        "{}",
+                        format!("Warning: Cached command has syntax issues, regenerating").yellow()
+                    );
                     // Mark invalid entry for removal
                     entries_to_remove.push(entry.prompt.clone());
                     break;
@@ -1351,7 +1501,11 @@ impl CliApp {
             if validate_command_syntax(&cleaned_command).is_ok() {
                 Ok(Some(cleaned_command))
             } else {
-                eprintln!("{}", format!("Warning: Similar cached command has syntax issues, regenerating").yellow());
+                eprintln!(
+                    "{}",
+                    format!("Warning: Similar cached command has syntax issues, regenerating")
+                        .yellow()
+                );
                 // Mark invalid entry for removal
                 entries_to_remove.push(entry.prompt.clone());
                 Ok(None)
@@ -1362,7 +1516,9 @@ impl CliApp {
 
         // Remove invalid entries from cache after determining result
         if !entries_to_remove.is_empty() {
-            cache.entries.retain(|e| !entries_to_remove.contains(&e.prompt));
+            cache
+                .entries
+                .retain(|e| !entries_to_remove.contains(&e.prompt));
             let serialized = serde_json::to_string_pretty(&cache)?;
             std::fs::write(&self.cache_path, serialized)?;
         }
@@ -3261,10 +3417,7 @@ impl CliApp {
             let client = infrastructure::ollama_client::OllamaClient::new()?;
             // Check permissions for the expanded command if it's a direct command
             if !power_config.is_command_allowed(&effective_input) {
-                println!(
-                    "{}",
-                    "Command blocked by sandbox".red()
-                );
+                println!("{}", "Command blocked by sandbox".red());
                 if !ask_confirmation("Run anyway?", false)? {
                     continue;
                 }
@@ -3568,9 +3721,11 @@ impl CliApp {
         // Check if this is a system information query that should use dynamic processing
         let is_system_query = if let Some(classifier) = &self.input_classifier {
             match classifier.classify_input(&effective_query).await {
-                Ok(result) => result.input_type == InputType::SystemQuery ||
-                             query_intent == CommandIntent::InfoQuery ||
-                             query_intent == CommandIntent::SystemQuery,
+                Ok(result) => {
+                    result.input_type == InputType::SystemQuery
+                        || query_intent == CommandIntent::InfoQuery
+                        || query_intent == CommandIntent::SystemQuery
+                }
                 Err(_) => false,
             }
         } else {
@@ -3604,7 +3759,8 @@ impl CliApp {
             // Use enhanced confirmation system based on intent
             let confirmed = match query_intent {
                 CommandIntent::Installation => {
-                    let (packages, services, disk_space) = analyze_installation_command(&cached_command);
+                    let (packages, services, disk_space) =
+                        analyze_installation_command(&cached_command);
                     let risk = assess_command_risk(&cached_command);
                     prompt_installation_confirmation(
                         &cached_command,
@@ -3642,17 +3798,14 @@ impl CliApp {
                             if !output.status.success() {
                                 let stderr = String::from_utf8_lossy(&output.stderr);
                                 // Check if this is an expected non-error exit code
-                                if Self::is_expected_exit_code(&effective_command, output.status.code(), &stderr) {
+                                if Self::is_expected_exit_code(
+                                    &effective_command,
+                                    output.status.code(),
+                                    &stderr,
+                                ) {
                                     let _ = self.save_cached(&effective_query, &effective_command);
                                 } else {
-                                    println!(
-                                        "{}",
-                                        format!(
-                                            "Command failed: {}",
-                                            stderr
-                                        )
-                                        .red()
-                                    );
+                                    println!("{}", format!("Command failed: {}", stderr).red());
                                 }
                             } else {
                                 let _ = self.save_cached(&effective_query, &effective_command);
@@ -3673,7 +3826,10 @@ impl CliApp {
                         Err(e) => {
                             eprintln!("{}", format!("Command execution failed: {}", e).red());
                             // Offer direct execution as fallback
-                            if ask_confirmation("Try executing directly (bypassing sandbox)?", false)? {
+                            if ask_confirmation(
+                                "Try executing directly (bypassing sandbox)?",
+                                false,
+                            )? {
                                 match std::process::Command::new("bash")
                                     .arg("-c")
                                     .arg(&effective_command)
@@ -3684,24 +3840,31 @@ impl CliApp {
                                         if !output.status.success() {
                                             let stderr = String::from_utf8_lossy(&output.stderr);
                                             // Check if this is an expected non-error exit code
-                                            if Self::is_expected_exit_code(&effective_command, output.status.code(), &stderr) {
-                                                let _ = self.save_cached(&effective_query, &effective_command);
+                                            if Self::is_expected_exit_code(
+                                                &effective_command,
+                                                output.status.code(),
+                                                &stderr,
+                                            ) {
+                                                let _ = self.save_cached(
+                                                    &effective_query,
+                                                    &effective_command,
+                                                );
                                             } else {
                                                 println!(
                                                     "{}",
-                                                    format!(
-                                                        "Command failed: {}",
-                                                        stderr
-                                                    )
-                                                    .red()
+                                                    format!("Command failed: {}", stderr).red()
                                                 );
                                             }
                                         } else {
-                                            let _ = self.save_cached(&effective_query, &effective_command);
+                                            let _ = self
+                                                .save_cached(&effective_query, &effective_command);
                                         }
                                     }
                                     Err(e) => {
-                                        eprintln!("{}", format!("Direct execution failed: {}", e).red());
+                                        eprintln!(
+                                            "{}",
+                                            format!("Direct execution failed: {}", e).red()
+                                        );
                                     }
                                 }
                             }
@@ -3817,7 +3980,14 @@ OUTPUT ONLY THE COMMAND:"#,
                 let _ = self.save_cached(&effective_query, &command);
             }
             Err(error_msg) => {
-                eprintln!("{}", format!("Warning: Generated command has syntax issues ({}), not caching", error_msg).yellow());
+                eprintln!(
+                    "{}",
+                    format!(
+                        "Warning: Generated command has syntax issues ({}), not caching",
+                        error_msg
+                    )
+                    .yellow()
+                );
             }
         }
 
@@ -3843,7 +4013,10 @@ OUTPUT ONLY THE COMMAND:"#,
                 format!("Execute: {}", command)
             }
         } else {
-            format!("Execute (requires elevated permissions): {}", effective_command)
+            format!(
+                "Execute (requires elevated permissions): {}",
+                effective_command
+            )
         };
 
         if ask_confirmation(&prompt, is_safe)? {
@@ -3859,17 +4032,14 @@ OUTPUT ONLY THE COMMAND:"#,
                         if !output.status.success() {
                             let stderr = String::from_utf8_lossy(&output.stderr);
                             // Check if this is an expected non-error exit code
-                            if Self::is_expected_exit_code(&effective_command, output.status.code(), &stderr) {
+                            if Self::is_expected_exit_code(
+                                &effective_command,
+                                output.status.code(),
+                                &stderr,
+                            ) {
                                 let _ = self.save_cached(&effective_query, &effective_command);
                             } else {
-                                println!(
-                                    "{}",
-                                    format!(
-                                        "Command failed: {}",
-                                        stderr
-                                    )
-                                    .red()
-                                );
+                                println!("{}", format!("Command failed: {}", stderr).red());
                             }
                         } else {
                             let _ = self.save_cached(&effective_query, &effective_command);
@@ -3900,24 +4070,29 @@ OUTPUT ONLY THE COMMAND:"#,
                                     if !output.status.success() {
                                         let stderr = String::from_utf8_lossy(&output.stderr);
                                         // Check if this is an expected non-error exit code
-                                        if Self::is_expected_exit_code(&effective_command, output.status.code(), &stderr) {
-                                            let _ = self.save_cached(&effective_query, &effective_command);
+                                        if Self::is_expected_exit_code(
+                                            &effective_command,
+                                            output.status.code(),
+                                            &stderr,
+                                        ) {
+                                            let _ = self
+                                                .save_cached(&effective_query, &effective_command);
                                         } else {
                                             println!(
                                                 "{}",
-                                                format!(
-                                                    "Command failed: {}",
-                                                    stderr
-                                                )
-                                                .red()
+                                                format!("Command failed: {}", stderr).red()
                                             );
                                         }
                                     } else {
-                                        let _ = self.save_cached(&effective_query, &effective_command);
+                                        let _ =
+                                            self.save_cached(&effective_query, &effective_command);
                                     }
                                 }
                                 Err(e) => {
-                                    eprintln!("{}", format!("Direct execution failed: {}", e).red());
+                                    eprintln!(
+                                        "{}",
+                                        format!("Direct execution failed: {}", e).red()
+                                    );
                                 }
                             }
                         }
@@ -3930,11 +4105,7 @@ OUTPUT ONLY THE COMMAND:"#,
         Ok(())
     }
 
-    async fn handle_system_query(
-        &mut self,
-        query: &str,
-        command: &str,
-    ) -> Result<()> {
+    async fn handle_system_query(&mut self, query: &str, command: &str) -> Result<()> {
         let power_config = self.get_power_config();
 
         // Use enhanced confirmation for data collection
@@ -3956,12 +4127,18 @@ OUTPUT ONLY THE COMMAND:"#,
         let is_safe = power_config.is_command_allowed(&effective_command);
         let prompt_text = if is_safe {
             if needs_sudo {
-                format!("Execute system info command with admin privileges: {}", command)
+                format!(
+                    "Execute system info command with admin privileges: {}",
+                    command
+                )
             } else {
                 format!("Execute system info command: {}", command)
             }
         } else {
-            format!("Execute system info command (requires elevated permissions): {}", effective_command)
+            format!(
+                "Execute system info command (requires elevated permissions): {}",
+                effective_command
+            )
         };
 
         if !ask_confirmation(&prompt_text, is_safe)? {
@@ -4027,12 +4204,18 @@ OUTPUT ONLY THE COMMAND:"#,
         };
 
         // Process the raw output into a human-readable answer
-        self.process_system_output(query, command, &raw_output).await?;
+        self.process_system_output(query, command, &raw_output)
+            .await?;
 
         Ok(())
     }
 
-    async fn process_system_output(&self, query: &str, command: &str, raw_output: &str) -> Result<()> {
+    async fn process_system_output(
+        &self,
+        query: &str,
+        command: &str,
+        raw_output: &str,
+    ) -> Result<()> {
         let client = infrastructure::ollama_client::OllamaClient::new()?;
         let system_context = infrastructure::config::SystemContext::gather();
 
@@ -4078,7 +4261,9 @@ Use the system context to better understand the output format and provide more a
             system_context.ram_used,
             system_context.gpu_model,
             system_context.package_manager,
-            query, command, raw_output
+            query,
+            command,
+            raw_output
         );
 
         match client.generate_response(&prompt).await {
@@ -4107,7 +4292,11 @@ Use the system context to better understand the output format and provide more a
                                     c if c >= 0.7 => "Medium confidence".yellow(),
                                     _ => "Low confidence".red(),
                                 };
-                                println!("{}", format!("System Information ({}):", confidence_indicator).bold());
+                                println!(
+                                    "{}",
+                                    format!("System Information ({}):", confidence_indicator)
+                                        .bold()
+                                );
 
                                 // Display the processed answer
                                 println!("{}", processed.answer);
@@ -4130,7 +4319,10 @@ Use the system context to better understand the output format and provide more a
                                     println!("\n{}", "Technical Summary:".yellow().bold());
                                     println!("  Command executed: {}", command.cyan());
                                     let lines: Vec<&str> = raw_output.lines().collect();
-                                    println!("  Output lines: {}", lines.len().to_string().dimmed());
+                                    println!(
+                                        "  Output lines: {}",
+                                        lines.len().to_string().dimmed()
+                                    );
                                 } else {
                                     // Lower confidence: show more technical details
                                     println!("\n{}", "Technical Details:".yellow().bold());
@@ -4138,11 +4330,18 @@ Use the system context to better understand the output format and provide more a
                                     println!("  Raw Output:");
                                     let lines: Vec<&str> = raw_output.lines().collect();
                                     if lines.len() > 10 {
-                                        println!("    {} (showing first 5 lines)", format!("{} lines total", lines.len()).dimmed());
+                                        println!(
+                                            "    {} (showing first 5 lines)",
+                                            format!("{} lines total", lines.len()).dimmed()
+                                        );
                                         for line in lines.iter().take(5) {
                                             println!("    {}", line.dimmed());
                                         }
-                                        println!("    {}", "... (truncated - use 'raw' option to see full output)".dimmed());
+                                        println!(
+                                            "    {}",
+                                            "... (truncated - use 'raw' option to see full output)"
+                                                .dimmed()
+                                        );
                                     } else {
                                         for line in lines {
                                             println!("    {}", line.dimmed());
@@ -4157,25 +4356,38 @@ Use the system context to better understand the output format and provide more a
 
                                 // Offer feedback option for medium/low confidence answers
                                 if confidence < 0.9 {
-                                    println!("\n{}", "Was this answer helpful? (y/n or provide correction):".dimmed());
+                                    println!(
+                                        "\n{}",
+                                        "Was this answer helpful? (y/n or provide correction):"
+                                            .dimmed()
+                                    );
                                     // In a full implementation, this would read user input and learn from corrections
                                     // For now, we just provide the option
                                 }
                             }
                             Err(_) => {
                                 // Fallback to showing raw output if processing fails
-                                println!("{}", "Failed to process output, showing raw result:".yellow());
+                                println!(
+                                    "{}",
+                                    "Failed to process output, showing raw result:".yellow()
+                                );
                                 println!("{}", raw_output);
                             }
                         }
                     } else {
                         // Fallback to showing raw output
-                        println!("{}", "Failed to process output, showing raw result:".yellow());
+                        println!(
+                            "{}",
+                            "Failed to process output, showing raw result:".yellow()
+                        );
                         println!("{}", raw_output);
                     }
                 } else {
                     // Fallback to showing raw output
-                    println!("{}", "Failed to process output, showing raw result:".yellow());
+                    println!(
+                        "{}",
+                        "Failed to process output, showing raw result:".yellow()
+                    );
                     println!("{}", raw_output);
                 }
             }
@@ -4259,7 +4471,10 @@ COMMAND:"#,
                 let is_allowed = power_config.is_command_allowed(&effective_command);
                 if !is_allowed {
                     // Command is blocked by safety policy - ask for override confirmation
-                    eprintln!("Command '{}' is blocked by safety policy.", effective_command);
+                    eprintln!(
+                        "Command '{}' is blocked by safety policy.",
+                        effective_command
+                    );
                     if !ask_confirmation("Execute anyway?", false)? {
                         println!("Command cancelled due to safety policy.");
                         return Ok(());
@@ -4446,12 +4661,18 @@ COMMAND:"#,
         // Final safety check
         let is_allowed = power_config.is_command_allowed(&step.command);
         if !is_allowed {
-            return Err(anyhow!("Command blocked by safety policy: {}", step.command));
+            return Err(anyhow!(
+                "Command blocked by safety policy: {}",
+                step.command
+            ));
         }
 
         // Execute the command
         let sandbox = Sandbox::new();
-        match sandbox.execute_safe("bash", vec!["-c".to_string(), step.command.clone()]).await {
+        match sandbox
+            .execute_safe("bash", vec!["-c".to_string(), step.command.clone()])
+            .await
+        {
             Ok(output) => {
                 if !output.trim().is_empty() {
                     println!("{}", output);
@@ -4466,7 +4687,10 @@ COMMAND:"#,
                     .status()
                 {
                     Ok(status) if status.success() => Ok(()),
-                    Ok(status) => Err(anyhow!("Command failed with exit code: {:?}", status.code())),
+                    Ok(status) => Err(anyhow!(
+                        "Command failed with exit code: {:?}",
+                        status.code()
+                    )),
                     Err(e) => Err(anyhow!("Execution failed: {}", e)),
                 }
             }
@@ -4475,13 +4699,20 @@ COMMAND:"#,
 
     fn show_agent_completion_steps(&self, plan: &AgentPlan) {
         // Analyze the completed plan to suggest next steps
-        let has_web_server = plan.steps.iter()
-            .any(|s| s.command.contains("nginx") || s.command.contains("apache") || s.command.contains("httpd"));
+        let has_web_server = plan.steps.iter().any(|s| {
+            s.command.contains("nginx")
+                || s.command.contains("apache")
+                || s.command.contains("httpd")
+        });
 
-        let has_node_app = plan.steps.iter()
+        let has_node_app = plan
+            .steps
+            .iter()
             .any(|s| s.command.contains("npm") || s.command.contains("node"));
 
-        let has_python_app = plan.steps.iter()
+        let has_python_app = plan
+            .steps
+            .iter()
             .any(|s| s.command.contains("pip") || s.command.contains("python"));
 
         println!();
@@ -4524,7 +4755,9 @@ COMMAND:"#,
             println!("  - Test installation: curl http://localhost");
             println!("  - Enable SSL: sudo certbot --nginx (if certbot is installed)");
         } else if cmd_lower.contains("apache") || cmd_lower.contains("httpd") {
-            println!("  - Configure apache: sudo nano /etc/apache2/sites-available/000-default.conf");
+            println!(
+                "  - Configure apache: sudo nano /etc/apache2/sites-available/000-default.conf"
+            );
             println!("  - Test installation: curl http://localhost");
             println!("  - Enable SSL: sudo a2enmod ssl && sudo a2ensite default-ssl");
         } else if cmd_lower.contains("mysql") || cmd_lower.contains("mariadb") {
@@ -4540,7 +4773,9 @@ COMMAND:"#,
             println!("  - Install virtualenv: pip3 install virtualenv");
         } else if cmd_lower.contains("git") {
             println!("  - Configure git: git config --global user.name \"Your Name\"");
-            println!("  - Configure git: git config --global user.email \"your.email@example.com\"");
+            println!(
+                "  - Configure git: git config --global user.email \"your.email@example.com\""
+            );
         } else if cmd_lower.contains("docker") {
             println!("  - Start service: sudo systemctl start docker");
             println!("  - Add user to docker group: sudo usermod -aG docker $USER");
@@ -4750,7 +4985,10 @@ COMMAND:"#,
     /// Check if a command's exit code should be considered successful despite being non-zero
     fn is_expected_exit_code(command: &str, exit_code: Option<i32>, stderr: &str) -> bool {
         // Handle systemctl status commands - exit code 3 means service is inactive (normal)
-        if (command.contains("systemctl status") || command.contains("sudo systemctl status")) && exit_code == Some(3) && !stderr.contains("Failed to") {
+        if (command.contains("systemctl status") || command.contains("sudo systemctl status"))
+            && exit_code == Some(3)
+            && !stderr.contains("Failed to")
+        {
             return true;
         }
 
