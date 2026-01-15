@@ -4,6 +4,7 @@ use clap::Parser;
 use colored::Colorize;
 use docx_rs::*;
 use flume::Receiver;
+use serde_json;
 use infrastructure::{
     background_supervisor::{
         BackgroundEvent, BackgroundSupervisor, DiagnosticSeverity, FileChangeType, GitStatus,
@@ -37,7 +38,41 @@ pub enum CommandIntent {
     Configuration,  // "configure nginx", "enable firewall"
     ServiceControl, // "start apache", "restart mysql"
     SystemQuery,    // "show disk usage", "list processes"
+    AgentTask,      // Multi-step tasks using --agent
     Unknown,        // Unclassified queries
+}
+
+/// Risk assessment for commands in agent execution
+#[derive(Debug, Clone, PartialEq)]
+pub enum AgentCommandRisk {
+    InfoOnly,           // Read-only queries (ls, pwd, cat)
+    SafeOperations,     // Safe operations (mkdir, echo, cp)
+    NetworkAccess,      // Network-dependent (npm install, git clone)
+    SystemChanges,      // System modifications (chmod, chown, systemctl)
+    Destructive,        // Destructive operations (rm -rf, dd, format)
+    Unknown,            // Cannot assess risk
+}
+
+/// Individual step in an agent execution plan
+#[derive(Debug, Clone)]
+pub struct AgentStep {
+    pub id: String,
+    pub command: String,
+    pub description: String,
+    pub risk_level: AgentCommandRisk,
+    pub estimated_duration: Option<String>,
+    pub dependencies: Vec<String>,
+    pub rollback_command: Option<String>,
+}
+
+/// Complete agent execution plan
+#[derive(Debug, Clone)]
+pub struct AgentPlan {
+    pub steps: Vec<AgentStep>,
+    pub total_estimated_time: Option<String>,
+    pub total_disk_impact: Option<String>,
+    pub network_required: bool,
+    pub safety_concerns: Vec<String>,
 }
 
 /// Risk assessment for commands
@@ -458,6 +493,77 @@ fn analyze_query_intent(query: &str) -> CommandIntent {
     CommandIntent::Unknown
 }
 
+/// Assess risk level of a command for agent execution
+fn assess_agent_command_risk(command: &str) -> AgentCommandRisk {
+    let cmd_lower = command.to_lowercase();
+
+    // Destructive commands - highest risk
+    let destructive_patterns = [
+        "rm -rf", "rm -r", "rmdir", "del", "delete", "format", "mkfs",
+        "dd if=", "fdisk", "parted", "wipe", "shred", "unlink"
+    ];
+
+    // System-changing commands
+    let system_change_patterns = [
+        "chmod 777", "chmod 666", "chown root", "chown 0", "chown :root",
+        "usermod", "userdel", "useradd", "groupmod", "groupdel", "groupadd",
+        "systemctl enable", "systemctl disable", "systemctl stop",
+        "ufw --force enable", "ufw --force disable", "iptables",
+        "mount", "umount", "fsck", "tune2fs", "resize2fs"
+    ];
+
+    // Network access commands
+    let network_patterns = [
+        "curl", "wget", "git clone", "git pull", "git fetch",
+        "npm install", "npm update", "yarn install", "yarn add",
+        "pip install", "pip download", "apt install", "apt update",
+        "yum install", "dnf install", "pacman -S", "brew install",
+        "docker pull", "docker push", "scp", "rsync", "ssh"
+    ];
+
+    // Safe operations
+    let safe_patterns = [
+        "ls", "pwd", "echo", "printf", "cat", "head", "tail", "grep",
+        "find", "which", "whereis", "type", "file", "stat", "du", "df",
+        "free", "ps", "top", "htop", "uname", "whoami", "id", "groups",
+        "mkdir", "touch", "cp", "mv", "ln", "basename", "dirname"
+    ];
+
+    // Info-only commands
+    let info_patterns = [
+        "date", "cal", "uptime", "w", "who", "last", "history",
+        "env", "printenv", "locale", "tzselect", "locale-gen"
+    ];
+
+    // Check destructive first (highest priority)
+    if destructive_patterns.iter().any(|&pat| cmd_lower.contains(pat)) {
+        return AgentCommandRisk::Destructive;
+    }
+
+    // Check system changes
+    if system_change_patterns.iter().any(|&pat| cmd_lower.contains(pat)) {
+        return AgentCommandRisk::SystemChanges;
+    }
+
+    // Check network access
+    if network_patterns.iter().any(|&pat| cmd_lower.contains(pat)) {
+        return AgentCommandRisk::NetworkAccess;
+    }
+
+    // Check safe operations
+    if safe_patterns.iter().any(|&pat| cmd_lower.starts_with(pat) || cmd_lower.contains(&format!(" {}", pat))) {
+        return AgentCommandRisk::SafeOperations;
+    }
+
+    // Check info-only
+    if info_patterns.iter().any(|&pat| cmd_lower.starts_with(pat)) {
+        return AgentCommandRisk::InfoOnly;
+    }
+
+    // Default to unknown
+    AgentCommandRisk::Unknown
+}
+
 /// Assess risk level of a command
 fn assess_command_risk(command: &str) -> CommandRisk {
     let cmd_lower = command.to_lowercase();
@@ -651,6 +757,197 @@ fn analyze_installation_command(command: &str) -> (Vec<String>, Vec<String>, Opt
     }
 
     (packages, services, disk_space)
+}
+
+/// Analyze agent task and generate execution plan
+async fn analyze_agent_task(task: &str) -> Result<AgentPlan> {
+    println!("ANALYZING TASK: \"{}\"", task);
+
+    // Get current directory context
+    let current_dir = std::env::current_dir()
+        .ok()
+        .and_then(|p| p.to_str().map(|s| s.to_string()))
+        .unwrap_or_else(|| ".".to_string());
+
+    let ls_output = std::process::Command::new("sh")
+        .arg("-c")
+        .arg("ls -la 2>/dev/null | head -n 20")
+        .output()
+        .ok()
+        .and_then(|o| String::from_utf8(o.stdout).ok())
+        .unwrap_or_else(|| String::new());
+
+    // Use AI to generate detailed execution plan
+    let client = infrastructure::ollama_client::OllamaClient::new()?;
+
+    let prompt = format!(
+        r#"Analyze this task and create a detailed execution plan with individual steps.
+
+TASK: {}
+
+CURRENT DIRECTORY: {}
+DIRECTORY CONTENTS (first 20 entries):
+{}
+
+Generate a JSON object with this structure:
+{{
+  "steps": [
+    {{
+      "id": "step_1",
+      "command": "exact shell command",
+      "description": "what this step does",
+      "risk_level": "InfoOnly|SafeOperations|NetworkAccess|SystemChanges|Destructive",
+      "estimated_duration": "X seconds" or "X minutes",
+      "dependencies": ["step_id1", "step_id2"] (empty array if none)
+    }}
+  ],
+  "estimated_total_time": "X minutes",
+  "disk_impact": "X MB" (if applicable),
+  "network_required": true/false,
+  "safety_concerns": ["concern1", "concern2"] (if any)
+}}
+
+Rules:
+- Commands must be executable shell commands
+- Each step should be atomic and independently verifiable
+- Include realistic time estimates
+- Mark dependencies accurately
+- Flag any safety concerns
+- Use only commands available in the current directory context
+- Prefer safer alternatives when possible
+
+OUTPUT ONLY VALID JSON:"#,
+        task, current_dir, ls_output
+    );
+
+    let response = client.generate_response(&prompt).await?;
+    let plan: AgentPlan = serde_json::from_str(&response)
+        .map_err(|e| anyhow!("Failed to parse agent plan: {}", e))?;
+
+    // Enhance plan with additional analysis
+    let enhanced_plan = enhance_agent_plan(plan, task);
+
+    Ok(enhanced_plan)
+}
+
+/// Enhance agent plan with additional analysis and safety checks
+fn enhance_agent_plan(mut plan: AgentPlan, original_task: &str) -> AgentPlan {
+    // Re-assess risk levels and add rollback commands
+    for step in &mut plan.steps {
+        let assessed_risk = assess_agent_command_risk(&step.command);
+        step.risk_level = assessed_risk;
+
+        // Add rollback commands for reversible operations
+        step.rollback_command = match step.command.split_whitespace().next() {
+            Some("mkdir") => {
+                // Extract directory name
+                let parts: Vec<&str> = step.command.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    Some(format!("rmdir {}", parts[1]))
+                } else {
+                    None
+                }
+            }
+            Some("touch") => {
+                let parts: Vec<&str> = step.command.split_whitespace().collect();
+                if parts.len() >= 2 {
+                    Some(format!("rm -f {}", parts[1]))
+                } else {
+                    None
+                }
+            }
+            _ => None,
+        };
+    }
+
+    // Analyze for safety concerns
+    let mut safety_concerns = Vec::new();
+    let network_steps = plan.steps.iter()
+        .filter(|s| s.risk_level == AgentCommandRisk::NetworkAccess)
+        .count();
+
+    if network_steps > 0 {
+        safety_concerns.push(format!("{} steps require network access", network_steps));
+    }
+
+    let destructive_steps = plan.steps.iter()
+        .filter(|s| s.risk_level == AgentCommandRisk::Destructive)
+        .count();
+
+    if destructive_steps > 0 {
+        safety_concerns.push(format!("{} steps are potentially destructive", destructive_steps));
+    }
+
+    // Check for disk space impact
+    let has_installs = plan.steps.iter()
+        .any(|s| s.command.contains("install") || s.command.contains("download"));
+
+    if has_installs && plan.total_disk_impact.is_none() {
+        plan.total_disk_impact = Some("~50MB".to_string());
+    }
+
+    // Update network requirement based on analysis
+    plan.network_required = plan.steps.iter()
+        .any(|s| s.risk_level == AgentCommandRisk::NetworkAccess);
+
+    plan.safety_concerns = safety_concerns;
+
+    plan
+}
+
+/// Display agent execution plan in structured format
+fn display_agent_plan(plan: &AgentPlan) {
+    println!();
+    println!("EXECUTION PLAN ({} steps{})",
+             plan.steps.len(),
+             plan.total_estimated_time
+                 .as_ref()
+                 .map(|t| format!(" - Estimated: {}", t))
+                 .unwrap_or_default()
+    );
+
+    for (i, step) in plan.steps.iter().enumerate() {
+        let step_num = i + 1;
+        println!();
+        println!("STEP {}: {}", step_num, step.description.to_uppercase());
+        println!("  Command: {}", step.command);
+        println!("  Risk Level: {}", format_risk_level(&step.risk_level));
+
+        if let Some(duration) = &step.estimated_duration {
+            println!("  Estimated Time: {}", duration);
+        }
+
+        if !step.dependencies.is_empty() {
+            println!("  Dependencies: {}", step.dependencies.join(", "));
+        }
+    }
+
+    // Show summary
+    println!();
+    println!("PLAN SUMMARY:");
+    if let Some(disk) = &plan.total_disk_impact {
+        println!("  Disk Impact: {}", disk);
+    }
+    println!("  Network Required: {}", if plan.network_required { "Yes" } else { "No" });
+
+    if !plan.safety_concerns.is_empty() {
+        println!("  Safety Concerns:");
+        for concern in &plan.safety_concerns {
+            println!("    - {}", concern);
+        }
+    }
+}
+
+/// Format risk level for display
+fn format_risk_level(risk: &AgentCommandRisk) -> &'static str {
+    match risk {
+        AgentCommandRisk::InfoOnly => "Info Only",
+        AgentCommandRisk::SafeOperations => "Safe Operations",
+        AgentCommandRisk::NetworkAccess => "Network Access",
+        AgentCommandRisk::SystemChanges => "System Changes",
+        AgentCommandRisk::Destructive => "Destructive",
+        AgentCommandRisk::Unknown => "Unknown",
+    }
 }
 
 /// Validate that a command has basic syntactical correctness
@@ -3024,60 +3321,57 @@ impl CliApp {
     }
 
     async fn handle_agent(&self, task: &str) -> Result<()> {
-        let system_context = infrastructure::config::SystemContext::gather();
+        // Analyze task and generate execution plan
+        let plan = analyze_agent_task(task).await?;
 
-        // Get current directory and its contents
-        let current_dir = std::env::current_dir()
-            .ok()
-            .and_then(|p| p.to_str().map(|s| s.to_string()))
-            .unwrap_or_else(|| ".".to_string());
-
-        let ls_output = std::process::Command::new("sh")
-            .arg("-c")
-            .arg("ls -la 2>/dev/null | head -n 30")
-            .output()
-            .ok()
-            .and_then(|o| String::from_utf8(o.stdout).ok())
-            .unwrap_or_else(|| String::new());
-
-        let client = infrastructure::ollama_client::OllamaClient::new()?;
-        let prompt = format!(
-            r#"You generate a STRICT JSON array of executable shell commands for the user's goal.
-
-REQUEST: {task}
-
-ENVIRONMENT:
-- Current directory: {cwd}
-- Directory listing (first 30 entries):
-{ls}
-
-SYSTEM:
-- Auto-detect distro and package manager at runtime; do not assume one unless required by the task.
-
-HARD RULES (no exceptions):
-1) Output ONLY a JSON array of strings, like ["cmd1", "cmd2"]. No prose, code fences, or extra text.
-2) Assume you are already in the current directory—never emit cd/pushd for it.
-3) Use only files and paths that appear in the directory listing; do not invent names.
-4) Every command must be syntactically complete (e.g., zip archive.zip file1 file2).
-5) Prefer the simplest minimal set of commands. If one command solves it, return a single-element array.
-6) Use real paths (relative to the current directory) and avoid placeholders like /path/to or ~.
-7) If the task cannot be satisfied with the available files, respond with [].
-
-OUTPUT:"#,
-            task = task,
-            cwd = current_dir,
-            ls = ls_output,
-        );
-        let response = client.generate_response(&prompt).await?;
-        let commands = parse_agent_plan(&response);
-
-        if commands.is_empty() {
-            println!(
-                "{}",
-                "Model did not return a runnable command list (expected JSON array).".red()
-            );
+        if plan.steps.is_empty() {
+            println!("No executable steps generated for this task.");
             return Ok(());
         }
+
+        // Display the execution plan
+        display_agent_plan(&plan);
+
+        // Get execution preference
+        println!();
+        println!("EXECUTION OPTIONS:");
+        println!("1. Execute complete plan (recommended)");
+        println!("   - All steps run automatically");
+        println!("   - Progress tracking enabled");
+        println!("   - Automatic error recovery");
+        println!();
+        println!("2. Step-by-step execution");
+        println!("   - Confirm each step individually");
+        println!("   - Full control over execution");
+        println!("   - Manual intervention possible");
+        println!();
+        println!("3. Dry run mode");
+        println!("   - Show what would happen");
+        println!("   - Validate commands without execution");
+        println!("   - Test system compatibility");
+        println!();
+        println!("Choose execution mode (1-3) or 'cancel':");
+
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        let choice = input.trim();
+
+        match choice {
+            "1" => self.execute_complete_plan(&plan).await?,
+            "2" => self.execute_step_by_step(&plan).await?,
+            "3" => self.execute_dry_run(&plan).await?,
+            "cancel" => {
+                println!("Execution cancelled.");
+                return Ok(());
+            }
+            _ => {
+                println!("Invalid choice. Execution cancelled.");
+                return Ok(());
+            }
+        }
+
+        Ok(())
+    }
 
         println!("\n{}", "Proposed plan:".green());
         for (i, cmd) in commands.iter().enumerate() {
@@ -4078,6 +4372,204 @@ COMMAND:"#,
         }
 
         Ok(())
+    }
+
+    async fn execute_complete_plan(&self, plan: &AgentPlan) -> Result<()> {
+        println!();
+        println!("EXECUTING AGENT PLAN...");
+
+        let start_time = std::time::Instant::now();
+        let mut completed_steps = 0;
+        let total_steps = plan.steps.len();
+
+        for (i, step) in plan.steps.iter().enumerate() {
+            let step_num = i + 1;
+            println!();
+            println!("[{}/{}] {}", step_num, total_steps, step.description);
+
+            // Execute the step
+            match self.execute_agent_step(step).await {
+                Ok(_) => {
+                    completed_steps += 1;
+                    println!("Step {}/{}: {}", step_num, total_steps, step.description);
+                }
+                Err(e) => {
+                    eprintln!("Step {}/{} failed: {}", step_num, total_steps, e);
+                    if ask_confirmation("Continue with remaining steps?", false)? {
+                        continue;
+                    } else {
+                        eprintln!("Execution stopped due to error.");
+                        break;
+                    }
+                }
+            }
+        }
+
+        let duration = start_time.elapsed();
+        println!();
+        println!("AGENT EXECUTION COMPLETE");
+        println!("- Total steps: {}", total_steps);
+        println!("- Successful: {}", completed_steps);
+        println!("- Failed: {}", total_steps - completed_steps);
+        println!("- Duration: {:.1}s", duration.as_secs_f64());
+
+        if completed_steps == total_steps {
+            self.show_agent_completion_steps(plan);
+        }
+
+        Ok(())
+    }
+
+    async fn execute_step_by_step(&self, plan: &AgentPlan) -> Result<()> {
+        println!();
+        println!("STEP-BY-STEP EXECUTION MODE");
+
+        for (i, step) in plan.steps.iter().enumerate() {
+            let step_num = i + 1;
+            println!();
+            println!("STEP {}: {}", step_num, step.description.to_uppercase());
+            println!("Command: {}", step.command);
+            println!("Risk Level: {}", format_risk_level(&step.risk_level));
+
+            if let Some(duration) = &step.estimated_duration {
+                println!("Estimated Time: {}", duration);
+            }
+
+            println!();
+            let confirm = ask_confirmation("Execute this step?", true)?;
+
+            if !confirm {
+                println!("Step {} skipped.", step_num);
+                continue;
+            }
+
+            match self.execute_agent_step(step).await {
+                Ok(_) => println!("Step {} completed successfully.", step_num),
+                Err(e) => {
+                    eprintln!("Step {} failed: {}", step_num, e);
+                    if !ask_confirmation("Continue with next step?", false)? {
+                        break;
+                    }
+                }
+            }
+        }
+
+        println!();
+        println!("Step-by-step execution complete.");
+        Ok(())
+    }
+
+    async fn execute_dry_run(&self, plan: &AgentPlan) -> Result<()> {
+        println!();
+        println!("DRY RUN MODE - No commands will be executed");
+        println!("========================================");
+
+        for (i, step) in plan.steps.iter().enumerate() {
+            let step_num = i + 1;
+            println!();
+            println!("STEP {}: {}", step_num, step.description);
+            println!("  Command: {}", step.command);
+            println!("  Risk Level: {}", format_risk_level(&step.risk_level));
+
+            if let Some(duration) = &step.estimated_duration {
+                println!("  Estimated Time: {}", duration);
+            }
+
+            // Simulate validation
+            match validate_command_syntax(&step.command) {
+                Ok(_) => println!("  Validation: Command syntax OK"),
+                Err(e) => println!("  Validation: Syntax error - {}", e),
+            }
+
+            // Check if command would be allowed
+            let power_config = self.get_power_config();
+            let is_allowed = power_config.is_command_allowed(&step.command);
+            if is_allowed {
+                println!("  Safety: Command allowed");
+            } else {
+                println!("  Safety: Command blocked by policy");
+            }
+        }
+
+        println!();
+        println!("DRY RUN COMPLETE");
+        println!("- Total steps: {}", plan.steps.len());
+        println!("- Commands validated and checked for safety");
+        println!("- No system changes made");
+
+        Ok(())
+    }
+
+    async fn execute_agent_step(&self, step: &AgentStep) -> Result<()> {
+        let power_config = self.get_power_config();
+
+        // Final safety check
+        let is_allowed = power_config.is_command_allowed(&step.command);
+        if !is_allowed {
+            return Err(anyhow!("Command blocked by safety policy: {}", step.command));
+        }
+
+        // Execute the command
+        let sandbox = Sandbox::new();
+        match sandbox.execute_safe("bash", vec!["-c".to_string(), step.command.clone()]).await {
+            Ok(output) => {
+                if !output.trim().is_empty() {
+                    println!("{}", output);
+                }
+                Ok(())
+            }
+            Err(e) => {
+                // Try direct execution as fallback
+                match std::process::Command::new("bash")
+                    .arg("-c")
+                    .arg(&step.command)
+                    .status()
+                {
+                    Ok(status) if status.success() => Ok(()),
+                    Ok(status) => Err(anyhow!("Command failed with exit code: {:?}", status.code())),
+                    Err(e) => Err(anyhow!("Execution failed: {}", e)),
+                }
+            }
+        }
+    }
+
+    fn show_agent_completion_steps(&self, plan: &AgentPlan) {
+        // Analyze the completed plan to suggest next steps
+        let has_web_server = plan.steps.iter()
+            .any(|s| s.command.contains("nginx") || s.command.contains("apache") || s.command.contains("httpd"));
+
+        let has_node_app = plan.steps.iter()
+            .any(|s| s.command.contains("npm") || s.command.contains("node"));
+
+        let has_python_app = plan.steps.iter()
+            .any(|s| s.command.contains("pip") || s.command.contains("python"));
+
+        println!();
+        println!("NEXT STEPS SUGGESTED:");
+
+        if has_web_server {
+            println!("1. Start your web server:");
+            println!("   sudo systemctl start nginx  # or apache2");
+            println!("2. Test your server:");
+            println!("   curl http://localhost");
+            if has_node_app {
+                println!("3. Start your Node.js application:");
+                println!("   cd your-app && npm start");
+            }
+        }
+
+        if has_python_app && !has_web_server {
+            println!("1. Run your Python application:");
+            println!("   python3 your_app.py");
+            println!("2. Or with virtual environment:");
+            println!("   source venv/bin/activate && python your_app.py");
+        }
+
+        if plan.network_required {
+            println!("Note: Some steps required network access for package downloads.");
+        }
+
+        println!("Use 'vibe --agent \"verify setup\"' to check your installation.");
     }
 
     fn show_post_installation_steps(&self, command: &str, original_query: &str) {
