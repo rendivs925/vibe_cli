@@ -956,8 +956,20 @@ OUTPUT ONLY VALID JSON:"#,
     );
 
     let response = client.generate_response(&prompt).await?;
-    let plan: AgentPlan = serde_json::from_str(&response)
-        .map_err(|e| anyhow!("Failed to parse agent plan: {}", e))?;
+
+    // Extract JSON from the response (AI might include extra text)
+    let plan: AgentPlan = if let Some(json_start) = response.find('{') {
+        let json_str = &response[json_start..];
+        if let Some(json_end) = json_str.rfind('}') {
+            let json_content = &json_str[..=json_end];
+            serde_json::from_str(json_content)
+                .map_err(|e| anyhow!("Failed to parse agent plan JSON: {}", e))?
+        } else {
+            return Err(anyhow!("No closing brace found in agent plan response"));
+        }
+    } else {
+        return Err(anyhow!("No JSON found in agent plan response"));
+    };
 
     // Enhance plan with additional analysis
     let enhanced_plan = enhance_agent_plan(plan, task);
