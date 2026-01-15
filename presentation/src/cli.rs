@@ -1283,6 +1283,7 @@ pub struct Cli {
 pub struct CliApp {
     rag_service: Option<RagService>,
     cache_path: PathBuf,
+    ultra_fast_cache: Option<shared::ultra_fast_cache::UltraFastCache>,
     system_info: String,
     config: Config,
     session_store: Option<SessionStore>,
@@ -1335,9 +1336,30 @@ impl CliApp {
             }
         };
 
+        // Initialize ultra-fast cache system
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let cache_dir = std::path::PathBuf::from(home)
+            .join(".local")
+            .join("share")
+            .join("vibe_cli")
+            .join("ultra_cache");
+
+        let ultra_fast_cache = match shared::ultra_fast_cache::UltraFastCache::new(
+            cache_dir,
+            512, // 512MB cache
+            604800, // 7 days TTL
+        ) {
+            Ok(cache) => Some(cache),
+            Err(e) => {
+                eprintln!("Warning: Failed to initialize ultra-fast cache: {}", e);
+                None
+            }
+        };
+
         Self {
             rag_service: None,
             cache_path,
+            ultra_fast_cache,
             system_info,
             config,
             session_store,

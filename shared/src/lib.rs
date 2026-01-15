@@ -6,6 +6,7 @@ pub mod memory_pool;
 pub mod performance;
 pub mod performance_monitor;
 pub mod secrets_detector;
+pub mod ultra_fast_cache;
 pub mod telemetry;
 pub mod types;
 pub mod utils;

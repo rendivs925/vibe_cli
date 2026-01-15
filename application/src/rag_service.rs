@@ -40,8 +40,8 @@ impl RagService {
     }
 
     pub async fn build_index(&self) -> Result<()> {
-        self.build_index_with_files(&self.scanner.collect_files()?)
-            .await
+        let files = self.scanner.collect_files()?;
+        self.build_index_with_files(&files).await
     }
 
     pub async fn build_index_for_keywords(&self, keywords: &[String]) -> Result<()> {
@@ -115,7 +115,7 @@ impl RagService {
         if question.to_lowercase().contains("project")
             || question.to_lowercase().contains("what is")
         {
-            if let Ok(readme_content) = std::fs::read_to_string("README.md") {
+            if let Ok(readme_content) = tokio::fs::read_to_string("README.md").await {
                 relevant_chunks.insert(0, format!("FILE: README.md\n{}", readme_content));
             }
             let dir_overview = self.scanner.directory_overview(8, 2000);
@@ -197,7 +197,7 @@ impl RagService {
         if question.to_lowercase().contains("project")
             || question.to_lowercase().contains("what is")
         {
-            if let Ok(readme_content) = std::fs::read_to_string("README.md") {
+            if let Ok(readme_content) = tokio::fs::read_to_string("README.md").await {
                 relevant_chunks.insert(0, format!("FILE: README.md\n{}", readme_content));
             }
             let dir_overview = self.scanner.directory_overview(8, 2000);
@@ -445,7 +445,7 @@ impl RagService {
             }
         }
 
-        let scans = self.scanner.scan_paths(files)?;
+        let scans = self.scanner.scan_paths(files).await?;
         for scan in scans {
             if scan.hash.is_empty() || scan.chunks.is_empty() {
                 continue;
