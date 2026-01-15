@@ -367,12 +367,10 @@ fn extract_command_from_response(response: &str) -> String {
 }
 
 /// Validate that a command has basic syntactical correctness
-fn validate_command_syntax(command: &str) -> Result<(), String> {
+fn validate_command_syntax(command: &str) -> std::result::Result<(), String> {
     let trimmed = command.trim();
 
     // Check for unclosed quotes
-    let mut single_quote_count = 0;
-    let mut double_quote_count = 0;
     let mut in_single_quote = false;
     let mut in_double_quote = false;
 
@@ -380,11 +378,9 @@ fn validate_command_syntax(command: &str) -> Result<(), String> {
         match ch {
             '"' if !in_single_quote => {
                 in_double_quote = !in_double_quote;
-                double_quote_count += 1;
             }
             '\'' if !in_double_quote => {
                 in_single_quote = !in_single_quote;
-                single_quote_count += 1;
             }
             _ => {}
         }
@@ -735,6 +731,9 @@ impl CliApp {
         std::fs::write(&self.cache_path, serialized)?;
 
         // First try exact match
+        let mut entries_to_remove = Vec::new();
+        let mut exact_match = None;
+
         for entry in &cache.entries {
             if entry.prompt == prompt {
                 let cleaned_command = Self::clean_command_output(&entry.command);
@@ -743,11 +742,9 @@ impl CliApp {
                     return Ok(Some(cleaned_command));
                 } else {
                     eprintln!("{}", format!("Warning: Cached command has syntax issues, regenerating").yellow());
-                    // Remove invalid entry from cache
-                    cache.entries.retain(|e| e.prompt != prompt);
-                    let serialized = serde_json::to_string_pretty(&cache)?;
-                    std::fs::write(&self.cache_path, serialized)?;
-                    return Ok(None);
+                    // Mark invalid entry for removal
+                    entries_to_remove.push(entry.prompt.clone());
+                    break;
                 }
             }
         }
@@ -771,14 +768,19 @@ impl CliApp {
                 Ok(Some(cleaned_command))
             } else {
                 eprintln!("{}", format!("Warning: Similar cached command has syntax issues, regenerating").yellow());
-                // Remove invalid entry from cache
-                cache.entries.retain(|e| e.prompt != entry.prompt);
-                let serialized = serde_json::to_string_pretty(&cache)?;
-                std::fs::write(&self.cache_path, serialized)?;
+                // Mark invalid entry for removal
+                entries_to_remove.push(entry.prompt.clone());
                 Ok(None)
             }
         } else {
             Ok(None)
+        }
+
+        // Remove invalid entries from cache after the loop
+        if !entries_to_remove.is_empty() {
+            cache.entries.retain(|e| !entries_to_remove.contains(&e.prompt));
+            let serialized = serde_json::to_string_pretty(&cache)?;
+            std::fs::write(&self.cache_path, serialized)?;
         }
     }
 
