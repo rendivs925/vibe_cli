@@ -28,12 +28,12 @@ use std::sync::Arc;
 use tokio::sync::{oneshot, RwLock};
 use tokio::time::{self, Duration};
 
+use crate::agent::*;
+use crate::analysis::*;
+use crate::confirmation::*;
 use crate::editor;
 use crate::types::*;
 use crate::utils::*;
-use crate::analysis::*;
-use crate::agent::*;
-use crate::confirmation::*;
 // Inline cache functions since module resolution is broken
 fn default_cache_path() -> PathBuf {
     PathBuf::from("/tmp/cache.json")
@@ -71,18 +71,6 @@ fn save_cached_rag(_cache_path: &PathBuf, _question: &str, _response: &str) -> R
     Ok(())
 }
 use crate::session::*;
-
-
-
-
-
-
-
-
-
-
-
-
 
 /// Analyze agent task and generate execution plan
 async fn analyze_agent_task(task: &str) -> Result<AgentPlan> {
@@ -548,8 +536,6 @@ impl CliApp {
         }
     }
 
-
-
     fn default_system_info_path() -> PathBuf {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
         let mut path = PathBuf::from(home);
@@ -558,8 +544,6 @@ impl CliApp {
         path.push("system_info.txt");
         path
     }
-
-
 
     fn load_or_collect_system_info(path: &PathBuf) -> String {
         if let Ok(existing) = std::fs::read_to_string(path) {
@@ -577,12 +561,6 @@ impl CliApp {
 
         detected
     }
-
-
-
-
-
-
 
     async fn handle_ai_agent(&mut self, goal: &str) -> Result<()> {
         use domain::models::AgentRequest;
@@ -2382,8 +2360,6 @@ impl CliApp {
         }
     }
 
-
-
     async fn handle_chat(&self) -> Result<()> {
         use dialoguer::{theme::ColorfulTheme, Input};
 
@@ -2672,8 +2648,7 @@ impl CliApp {
                 println!(); // New line after streaming
                 result
             } else {
-                self
-                    .rag_service
+                self.rag_service
                     .as_ref()
                     .unwrap()
                     .query_with_feedback(question, &feedback)
@@ -2784,7 +2759,8 @@ impl CliApp {
 
         // Ultra-fast cached command lookup with performance monitoring
         GLOBAL_METRICS.start_operation("cache_lookup").await;
-        let cache_hit = load_cached(&self.cache_path, &effective_query).is_ok_and(|opt| opt.is_some());
+        let cache_hit =
+            load_cached(&self.cache_path, &effective_query).is_ok_and(|opt| opt.is_some());
         GLOBAL_METRICS.end_operation("cache_lookup").await;
 
         if let Ok(Some(cached_command)) = load_cached(&self.cache_path, &effective_query) {
@@ -2825,19 +2801,27 @@ impl CliApp {
                             println!("{}", String::from_utf8_lossy(&output.stdout));
                             if !output.status.success() {
                                 let stderr = String::from_utf8_lossy(&output.stderr);
-                            // Check if this is an expected non-error exit code
+                                // Check if this is an expected non-error exit code
                                 if is_expected_exit_code(
                                     &effective_command,
                                     output.status.code(),
                                     &stderr,
                                 ) {
-                                let _ = save_cached(&self.cache_path, &effective_query, &effective_command);
+                                    let _ = save_cached(
+                                        &self.cache_path,
+                                        &effective_query,
+                                        &effective_command,
+                                    );
                                 } else {
                                     println!("{}", format!("Command failed: {}", stderr).red());
                                 }
-                                } else {
-                                    let _ = save_cached(&self.cache_path, &effective_query, &effective_command);
-                                }
+                            } else {
+                                let _ = save_cached(
+                                    &self.cache_path,
+                                    &effective_query,
+                                    &effective_command,
+                                );
+                            }
                         }
                         Err(e) => {
                             eprintln!("{}", format!("Direct execution failed: {}", e).red());
@@ -2868,12 +2852,16 @@ impl CliApp {
                                         if !output.status.success() {
                                             let stderr = String::from_utf8_lossy(&output.stderr);
                                             // Check if this is an expected non-error exit code
-                                if is_expected_exit_code(
-                                    &effective_command,
-                                    output.status.code(),
-                                    &stderr,
-                                ) {
-                                                let _ = save_cached(&self.cache_path, &effective_query, &effective_command);
+                                            if is_expected_exit_code(
+                                                &effective_command,
+                                                output.status.code(),
+                                                &stderr,
+                                            ) {
+                                                let _ = save_cached(
+                                                    &self.cache_path,
+                                                    &effective_query,
+                                                    &effective_command,
+                                                );
                                             } else {
                                                 println!(
                                                     "{}",
@@ -2881,7 +2869,11 @@ impl CliApp {
                                                 );
                                             }
                                         } else {
-                                            let _ = save_cached(&self.cache_path, &effective_query, &effective_command);
+                                            let _ = save_cached(
+                                                &self.cache_path,
+                                                &effective_query,
+                                                &effective_command,
+                                            );
                                         }
                                     }
                                     Err(e) => {
@@ -2998,12 +2990,14 @@ OUTPUT ONLY THE COMMAND:"#,
         let response = if enable_streaming {
             println!("🤖 Generating command...");
             let mut streamed_response = String::new();
-            let result = client.generate_response_streaming(&prompt, |chunk| {
-                // Real-time streaming display
-                print!("{}", chunk);
-                let _ = std::io::stdout().flush(); // Ignore flush errors for streaming
-                streamed_response.push_str(chunk);
-            }).await?;
+            let result = client
+                .generate_response_streaming(&prompt, |chunk| {
+                    // Real-time streaming display
+                    print!("{}", chunk);
+                    let _ = std::io::stdout().flush(); // Ignore flush errors for streaming
+                    streamed_response.push_str(chunk);
+                })
+                .await?;
             println!(); // New line after streaming
             result
         } else {
@@ -3031,7 +3025,7 @@ OUTPUT ONLY THE COMMAND:"#,
         }
 
         // Check if this is a system command that might need sudo
-                let needs_sudo = command_needs_sudo(&command);
+        let needs_sudo = command_needs_sudo(&command);
         let effective_command = if needs_sudo {
             format!("sudo {}", command)
         } else {
@@ -3066,17 +3060,22 @@ OUTPUT ONLY THE COMMAND:"#,
                         if !output.status.success() {
                             let stderr = String::from_utf8_lossy(&output.stderr);
                             // Check if this is an expected non-error exit code
-                                if is_expected_exit_code(
+                            if is_expected_exit_code(
+                                &effective_command,
+                                output.status.code(),
+                                &stderr,
+                            ) {
+                                let _ = save_cached(
+                                    &self.cache_path,
+                                    &effective_query,
                                     &effective_command,
-                                    output.status.code(),
-                                    &stderr,
-                                ) {
-                                    let _ = save_cached(&self.cache_path, &effective_query, &effective_command);
-                                } else {
+                                );
+                            } else {
                                 println!("{}", format!("Command failed: {}", stderr).red());
                             }
                         } else {
-                            let _ = save_cached(&self.cache_path, &effective_query, &effective_command);
+                            let _ =
+                                save_cached(&self.cache_path, &effective_query, &effective_command);
                         }
                     }
                     Err(e) => {
@@ -3104,12 +3103,16 @@ OUTPUT ONLY THE COMMAND:"#,
                                     if !output.status.success() {
                                         let stderr = String::from_utf8_lossy(&output.stderr);
                                         // Check if this is an expected non-error exit code
-                                            if is_expected_exit_code(
+                                        if is_expected_exit_code(
+                                            &effective_command,
+                                            output.status.code(),
+                                            &stderr,
+                                        ) {
+                                            let _ = save_cached(
+                                                &self.cache_path,
+                                                &effective_query,
                                                 &effective_command,
-                                                output.status.code(),
-                                                &stderr,
-                                            ) {
-                                            let _ = save_cached(&self.cache_path, &effective_query, &effective_command);
+                                            );
                                         } else {
                                             println!(
                                                 "{}",
@@ -3117,8 +3120,11 @@ OUTPUT ONLY THE COMMAND:"#,
                                             );
                                         }
                                     } else {
-                                        let _ =
-                                            save_cached(&self.cache_path, &effective_query, &effective_command);
+                                        let _ = save_cached(
+                                            &self.cache_path,
+                                            &effective_query,
+                                            &effective_command,
+                                        );
                                     }
                                 }
                                 Err(e) => {
@@ -3373,7 +3379,7 @@ COMMAND:"#,
         match validate_command_syntax(&command) {
             Ok(_) => {
                 // Prepare the effective command (with sudo if needed)
-        let needs_sudo = command_needs_sudo(&command);
+                let needs_sudo = command_needs_sudo(&command);
                 let effective_command = if needs_sudo {
                     format!("sudo {}", command)
                 } else {
@@ -3700,10 +3706,6 @@ COMMAND:"#,
         }
     }
 
-
-
-
-
     fn load_cached_explain(&self, prompt: &str) -> Result<Option<String>> {
         let cache_path = explain_cache_path();
         if !cache_path.exists() {
@@ -3763,10 +3765,6 @@ COMMAND:"#,
 
         Ok(())
     }
-
-
-
-
 
     /// Handle streaming agent mode - demonstrates real-time execution
     async fn handle_stream_mode(&mut self, goal: &str) -> Result<()> {
