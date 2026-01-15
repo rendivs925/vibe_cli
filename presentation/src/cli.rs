@@ -29,6 +29,40 @@ use tokio::time::{self, Duration};
 
 use crate::editor;
 
+/// Classification of user query intent
+#[derive(Debug, Clone, PartialEq)]
+pub enum CommandIntent {
+    InfoQuery,      // "what's my GPU", "how much RAM"
+    Installation,   // "install python", "setup nginx"
+    Configuration,  // "configure nginx", "enable firewall"
+    ServiceControl, // "start apache", "restart mysql"
+    SystemQuery,    // "show disk usage", "list processes"
+    Unknown,        // Unclassified queries
+}
+
+/// Risk assessment for commands
+#[derive(Debug, Clone, PartialEq)]
+pub enum CommandRisk {
+    InfoOnly,       // Read-only queries, no system changes
+    SafeSetup,      // Package installs, basic service setup
+    SystemChanges,  // Configuration changes, user creation
+    HighRisk,       // Destructive operations, system-wide changes
+    Unknown,        // Cannot assess risk
+}
+
+/// Installation option for user selection
+#[derive(Debug, Clone)]
+pub struct InstallationOption {
+    pub name: String,
+    pub description: String,
+    pub pros: Vec<String>,
+    pub cons: Vec<String>,
+    pub risk_level: CommandRisk,
+    pub commands: Vec<String>,
+    pub estimated_time: Option<String>,
+    pub disk_space: Option<String>,
+}
+
 fn find_project_root() -> Option<String> {
     let mut current = std::env::current_dir().ok()?;
     loop {
@@ -364,6 +398,259 @@ fn extract_command_from_response(response: &str) -> String {
     }
 
     trimmed.to_string()
+}
+
+/// Analyze user query to determine intent
+fn analyze_query_intent(query: &str) -> CommandIntent {
+    let query_lower = query.to_lowercase();
+
+    // Installation keywords
+    let install_keywords = [
+        "install", "setup", "add", "create", "build", "compile",
+        "download", "get", "fetch", "deploy", "configure"
+    ];
+
+    // Configuration keywords
+    let config_keywords = [
+        "configure", "config", "enable", "disable", "set", "update",
+        "modify", "change", "edit", "tune", "optimize"
+    ];
+
+    // Service control keywords
+    let service_keywords = [
+        "start", "stop", "restart", "reload", "enable", "disable",
+        "status", "systemctl", "service", "daemon"
+    ];
+
+    // Information query patterns
+    let info_patterns = [
+        "what's", "what is", "how much", "how many", "show", "list",
+        "display", "check", "verify", "info", "information"
+    ];
+
+    // Check for installation intent
+    if install_keywords.iter().any(|&kw| query_lower.contains(kw)) {
+        return CommandIntent::Installation;
+    }
+
+    // Check for configuration intent
+    if config_keywords.iter().any(|&kw| query_lower.contains(kw)) {
+        return CommandIntent::Configuration;
+    }
+
+    // Check for service control intent
+    if service_keywords.iter().any(|&kw| query_lower.contains(kw)) {
+        return CommandIntent::ServiceControl;
+    }
+
+    // Check for information queries
+    if info_patterns.iter().any(|&pat| query_lower.contains(pat)) {
+        return CommandIntent::InfoQuery;
+    }
+
+    // Default to system query for general queries
+    if query_lower.contains("disk") || query_lower.contains("memory") ||
+       query_lower.contains("cpu") || query_lower.contains("gpu") ||
+       query_lower.contains("network") || query_lower.contains("process") {
+        return CommandIntent::SystemQuery;
+    }
+
+    CommandIntent::Unknown
+}
+
+/// Assess risk level of a command
+fn assess_command_risk(command: &str) -> CommandRisk {
+    let cmd_lower = command.to_lowercase();
+
+    // High-risk commands
+    let high_risk_patterns = [
+        "rm -rf", "format", "mkfs", "fdisk", "dd if=", "shutdown",
+        "reboot", "halt", "poweroff", "systemctl stop", "killall"
+    ];
+
+    // System-changing commands
+    let system_change_patterns = [
+        "usermod", "userdel", "groupmod", "chmod 777", "chown root",
+        "systemctl enable", "systemctl disable", "ufw", "firewall",
+        "iptables", "mount", "umount"
+    ];
+
+    // Safe setup commands
+    let safe_setup_commands = [
+        "apt install", "apt-get install", "yum install", "dnf install",
+        "pacman -S", "brew install", "pip install", "npm install",
+        "gem install", "cargo install"
+    ];
+
+    // Info-only commands (read-only)
+    let info_only_commands = [
+        "ls", "df", "free", "ps", "top", "htop", "uname", "whoami",
+        "pwd", "cat", "grep", "find", "which", "whereis", "type"
+    ];
+
+    // Check high risk first
+    if high_risk_patterns.iter().any(|&pat| cmd_lower.contains(pat)) {
+        return CommandRisk::HighRisk;
+    }
+
+    // Check system changes
+    if system_change_patterns.iter().any(|&pat| cmd_lower.contains(pat)) {
+        return CommandRisk::SystemChanges;
+    }
+
+    // Check safe setup
+    if safe_setup_commands.iter().any(|&cmd| cmd_lower.contains(cmd)) {
+        return CommandRisk::SafeSetup;
+    }
+
+    // Check info-only
+    if info_only_commands.iter().any(|&cmd| cmd_lower.starts_with(cmd)) {
+        return CommandRisk::InfoOnly;
+    }
+
+    // Default to unknown
+    CommandRisk::Unknown
+}
+
+/// Present confirmation dialog for data collection commands
+fn prompt_data_collection_confirmation(
+    command: &str,
+    query: &str,
+    risk: CommandRisk,
+) -> Result<bool> {
+    println!("DATA COLLECTION REQUIRED");
+    println!();
+    println!("This query needs to run: {}", command);
+
+    // Determine purpose based on query content
+    let purpose = if query.to_lowercase().contains("gpu") || query.to_lowercase().contains("graphics") {
+        "Gather GPU information for analysis"
+    } else if query.to_lowercase().contains("cpu") || query.to_lowercase().contains("processor") {
+        "Gather CPU information for analysis"
+    } else if query.to_lowercase().contains("ram") || query.to_lowercase().contains("memory") {
+        "Gather memory information for analysis"
+    } else if query.to_lowercase().contains("disk") || query.to_lowercase().contains("storage") {
+        "Gather disk usage information for analysis"
+    } else if query.to_lowercase().contains("network") {
+        "Gather network information for analysis"
+    } else {
+        "Gather system information for analysis"
+    };
+
+    println!("Purpose: {}", purpose);
+
+    // Show safety level
+    let safety_desc = match risk {
+        CommandRisk::InfoOnly => "Read-only, no system modifications",
+        CommandRisk::SafeSetup => "Safe system query with minimal impact",
+        CommandRisk::SystemChanges => "May modify system configuration",
+        CommandRisk::HighRisk => "High-risk operation requiring careful review",
+        CommandRisk::Unknown => "Risk level cannot be determined",
+    };
+
+    println!("Safety: {}", safety_desc);
+    println!();
+
+    ask_confirmation("Allow command execution?", risk == CommandRisk::InfoOnly)
+}
+
+/// Present confirmation dialog for installation commands
+fn prompt_installation_confirmation(
+    command: &str,
+    intent: CommandIntent,
+    packages: Vec<String>,
+    services: Vec<String>,
+    disk_space: Option<String>,
+) -> Result<bool> {
+    println!("INSTALLATION COMMAND DETECTED");
+    println!();
+    println!("Command: {}", command);
+
+    if !packages.is_empty() {
+        println!();
+        println!("Packages to install:");
+        for package in &packages {
+            println!("  - {}", package);
+        }
+    }
+
+    if !services.is_empty() {
+        println!();
+        println!("System changes:");
+        for service in &services {
+            println!("  - New service: {}", service);
+        }
+    }
+
+    if let Some(space) = &disk_space {
+        println!("  - Disk space: {}", space);
+    }
+
+    // Check if sudo is needed
+    let needs_sudo = command.contains("sudo") || assess_command_risk(command) != CommandRisk::InfoOnly;
+    if needs_sudo {
+        println!("  - Requires: sudo privileges");
+    }
+
+    println!();
+
+    // Default to 'No' for installations unless it's very safe
+    ask_confirmation("Execute installation?", false)
+}
+
+/// Analyze installation command to extract details
+fn analyze_installation_command(command: &str) -> (Vec<String>, Vec<String>, Option<String>) {
+    let mut packages = Vec::new();
+    let mut services = Vec::new();
+    let mut disk_space = None;
+
+    // Extract package names from common install commands
+    let cmd_lower = command.to_lowercase();
+
+    if cmd_lower.contains("apt install") || cmd_lower.contains("apt-get install") {
+        // Extract package names after "install"
+        if let Some(install_pos) = cmd_lower.find("install") {
+            let package_part = &command[install_pos + 7..].trim();
+            packages = package_part.split_whitespace()
+                .map(|s| s.to_string())
+                .collect();
+        }
+    } else if cmd_lower.contains("pip install") {
+        if let Some(install_pos) = cmd_lower.find("install") {
+            let package_part = &command[install_pos + 7..].trim();
+            packages = package_part.split_whitespace()
+                .take(3) // Limit to first few packages
+                .map(|s| format!("{} (Python package)", s))
+                .collect();
+        }
+    }
+
+    // Estimate disk space based on packages
+    if !packages.is_empty() {
+        if packages.len() == 1 {
+            disk_space = Some("~50MB".to_string());
+        } else if packages.len() <= 3 {
+            disk_space = Some("~100MB".to_string());
+        } else {
+            disk_space = Some("~250MB".to_string());
+        }
+    }
+
+    // Identify services that might be started
+    for package in &packages {
+        let pkg_lower = package.to_lowercase();
+        if pkg_lower.contains("nginx") || pkg_lower == "nginx" {
+            services.push("nginx".to_string());
+        } else if pkg_lower.contains("apache") || pkg_lower.contains("httpd") {
+            services.push("apache2".to_string());
+        } else if pkg_lower.contains("mysql") || pkg_lower.contains("mariadb") {
+            services.push("mysql".to_string());
+        } else if pkg_lower.contains("postgresql") {
+            services.push("postgresql".to_string());
+        }
+    }
+
+    (packages, services, disk_space)
 }
 
 /// Validate that a command has basic syntactical correctness
@@ -732,7 +1019,7 @@ impl CliApp {
 
         // First try exact match
         let mut entries_to_remove = Vec::new();
-        let mut exact_match = None;
+        let mut exact_match: Option<&CacheEntry> = None;
 
         for entry in &cache.entries {
             if entry.prompt == prompt {
@@ -3041,15 +3328,25 @@ OUTPUT:"#,
             query.to_string()
         };
 
+        // Analyze query intent for enhanced handling
+        let query_intent = analyze_query_intent(&effective_query);
+
         // Check if this is a system information query that should use dynamic processing
         let is_system_query = if let Some(classifier) = &self.input_classifier {
             match classifier.classify_input(&effective_query).await {
-                Ok(result) => result.input_type == InputType::SystemQuery,
+                Ok(result) => result.input_type == InputType::SystemQuery ||
+                             query_intent == CommandIntent::InfoQuery ||
+                             query_intent == CommandIntent::SystemQuery,
                 Err(_) => false,
             }
         } else {
             false
         };
+
+        // Handle installation/setup commands with special confirmation
+        if query_intent == CommandIntent::Installation {
+            return self.handle_installation_query(&effective_query).await;
+        }
 
         // Check for plugin commands first
         if let Some(plugin_manager) = &self.config.plugin_manager {
@@ -3068,29 +3365,29 @@ OUTPUT:"#,
             }
         }
 
-        // Handle cached commands with streamlined confirmation
+        // Handle cached commands with enhanced confirmation
         if let Ok(Some(cached_command)) = self.load_cached(&effective_query) {
-            println!("{}", format!("Found cached command: {}", cached_command).green());
-
-            // Check if command is safe
-            let needs_sudo = Self::command_needs_sudo(&cached_command);
-            let effective_command = if needs_sudo {
-                format!("sudo {}", cached_command)
-            } else {
-                cached_command.clone()
-            };
-            let is_safe = power_config.is_command_allowed(&effective_command);
-            let prompt = if is_safe {
-                if needs_sudo {
-                    format!("Execute cached command with admin privileges: {}", cached_command)
-                } else {
-                    format!("Execute cached command: {}", cached_command)
+            // Use enhanced confirmation system based on intent
+            let confirmed = match query_intent {
+                CommandIntent::Installation => {
+                    let (packages, services, disk_space) = analyze_installation_command(&cached_command);
+                    let risk = assess_command_risk(&cached_command);
+                    prompt_installation_confirmation(
+                        &cached_command,
+                        query_intent,
+                        packages,
+                        services,
+                        disk_space,
+                    )?
                 }
-            } else {
-                format!("Execute cached command (requires elevated permissions): {}", effective_command)
+                _ => {
+                    // For info queries, use data collection confirmation
+                    let risk = assess_command_risk(&cached_command);
+                    prompt_data_collection_confirmation(&cached_command, &effective_query, risk)?
+                }
             };
 
-            if ask_confirmation(&prompt, is_safe)? {
+            if confirmed {
                 // Check if this cached command needs sudo
                 let needs_sudo = Self::command_needs_sudo(&cached_command);
                 let effective_command = if needs_sudo {
@@ -3405,6 +3702,15 @@ OUTPUT ONLY THE COMMAND:"#,
         command: &str,
     ) -> Result<()> {
         let power_config = self.get_power_config();
+
+        // Use enhanced confirmation for data collection
+        let risk = assess_command_risk(command);
+        let confirmed = prompt_data_collection_confirmation(command, query, risk)?;
+
+        if !confirmed {
+            println!("Query cancelled.");
+            return Ok(());
+        }
         // Check if command is safe
         let needs_sudo = Self::command_needs_sudo(command);
         let effective_command = if needs_sudo {
@@ -3648,6 +3954,164 @@ Use the system context to better understand the output format and provide more a
         }
 
         Ok(())
+    }
+
+    async fn handle_installation_query(&mut self, query: &str) -> Result<()> {
+        let power_config = self.get_power_config();
+
+        // Generate installation command using AI
+        let system_context = infrastructure::config::SystemContext::gather();
+
+        let prompt = format!(
+            r#"Generate a safe installation command for the user's request.
+
+SYSTEM INFO:
+- OS: {} ({})
+- Package Manager: {}
+
+USER REQUEST: {}
+
+Generate a single, safe command for this installation request.
+Return only the command, no explanations or markdown.
+
+Examples:
+- "install python" → "sudo apt install python3 python3-pip"
+- "setup nginx web server" → "sudo apt install nginx"
+- "install development tools" → "sudo apt install build-essential git"
+
+COMMAND:"#,
+            system_context.distro,
+            system_context.package_manager,
+            system_context.package_manager,
+            query
+        );
+
+        let client = infrastructure::ollama_client::OllamaClient::new()?;
+        let response = client.generate_response(&prompt).await?;
+        let command = extract_command_from_response(&response);
+
+        println!("{}", format!("Generated command: {}", command).green());
+
+        // Validate command syntax
+        match validate_command_syntax(&command) {
+            Ok(_) => {
+                // Check if command is allowed by safety policy BEFORE asking for confirmation
+                let needs_sudo = Self::command_needs_sudo(&command);
+                let effective_command = if needs_sudo {
+                    format!("sudo {}", command)
+                } else {
+                    command.clone()
+                };
+
+                let is_allowed = power_config.is_command_allowed(&effective_command);
+                if !is_allowed {
+                    eprintln!("Command not allowed by safety policy: {}", effective_command);
+                    return Ok(());
+                }
+
+                // Analyze the installation command
+                let (packages, services, disk_space) = analyze_installation_command(&command);
+                let risk = assess_command_risk(&command);
+
+                // Present installation confirmation
+                let confirmed = prompt_installation_confirmation(
+                    &command,
+                    CommandIntent::Installation,
+                    packages,
+                    services,
+                    disk_space,
+                )?;
+
+                if !confirmed {
+                    println!("Installation cancelled.");
+                    return Ok(());
+                }
+
+                // Execute the installation command
+                println!("Executing installation...");
+
+                // Execute with progress feedback
+                if needs_sudo {
+                    match std::process::Command::new("sudo")
+                        .arg("bash")
+                        .arg("-c")
+                        .arg(&command)
+                        .status()
+                    {
+                        Ok(status) => {
+                            if status.success() {
+                                println!("Installation completed successfully");
+                                self.show_post_installation_steps(&command, query);
+                            } else {
+                                eprintln!("Installation failed");
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("Installation execution failed: {}", e);
+                        }
+                    }
+                } else {
+                    let sandbox = Sandbox::new();
+                    match sandbox.execute_command_string(&command).await {
+                        Ok(output) => {
+                            println!("{}", output);
+                            println!("Installation completed successfully");
+                            self.show_post_installation_steps(&command, query);
+                        }
+                        Err(e) => {
+                            eprintln!("Installation failed: {}", e);
+                        }
+                    }
+                }
+
+                // Cache successful installations
+                let _ = self.save_cached(query, &command);
+            }
+            Err(error_msg) => {
+                eprintln!("Generated command has syntax issues: {}", error_msg);
+            }
+        }
+
+        Ok(())
+    }
+
+    fn show_post_installation_steps(&self, command: &str, original_query: &str) {
+        let cmd_lower = command.to_lowercase();
+        let query_lower = original_query.to_lowercase();
+
+        println!();
+        println!("Next steps suggested:");
+
+        if cmd_lower.contains("nginx") {
+            println!("  - Configure nginx: sudo nano /etc/nginx/sites-available/default");
+            println!("  - Test installation: curl http://localhost");
+            println!("  - Enable SSL: sudo certbot --nginx (if certbot is installed)");
+        } else if cmd_lower.contains("apache") || cmd_lower.contains("httpd") {
+            println!("  - Configure apache: sudo nano /etc/apache2/sites-available/000-default.conf");
+            println!("  - Test installation: curl http://localhost");
+            println!("  - Enable SSL: sudo a2enmod ssl && sudo a2ensite default-ssl");
+        } else if cmd_lower.contains("mysql") || cmd_lower.contains("mariadb") {
+            println!("  - Secure installation: sudo mysql_secure_installation");
+            println!("  - Start service: sudo systemctl start mysql");
+            println!("  - Connect to database: sudo mysql -u root");
+        } else if cmd_lower.contains("postgresql") {
+            println!("  - Start service: sudo systemctl start postgresql");
+            println!("  - Create user: sudo -u postgres createuser --interactive --pwprompt your_username");
+            println!("  - Create database: sudo -u postgres createdb your_database");
+        } else if cmd_lower.contains("python") && cmd_lower.contains("pip") {
+            println!("  - Verify installation: python3 --version && pip3 --version");
+            println!("  - Install virtualenv: pip3 install virtualenv");
+        } else if cmd_lower.contains("git") {
+            println!("  - Configure git: git config --global user.name \"Your Name\"");
+            println!("  - Configure git: git config --global user.email \"your.email@example.com\"");
+        } else if cmd_lower.contains("docker") {
+            println!("  - Start service: sudo systemctl start docker");
+            println!("  - Add user to docker group: sudo usermod -aG docker $USER");
+            println!("  - Test installation: docker run hello-world");
+        } else {
+            println!("  - Verify installation by running the installed command");
+            println!("  - Check service status if applicable");
+        }
     }
 
     fn keywords_from_text(text: &str) -> Vec<String> {
