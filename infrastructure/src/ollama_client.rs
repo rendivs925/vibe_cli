@@ -4,6 +4,7 @@ use shared::types::Result;
 use std::env;
 use std::sync::Arc;
 use std::time::Duration;
+use futures::future::join_all;
 
 #[derive(Serialize)]
 struct EmbeddingRequest {
@@ -48,12 +49,15 @@ impl OllamaClient {
             env::var("OLLAMA_BASE_URL").unwrap_or_else(|_| "http://localhost:11434".to_string());
         let model = env::var("BASE_MODEL").unwrap_or_else(|_| "qwen2.5:1.5b-instruct".to_string());
 
-        // Ultra-high performance HTTP client with connection pooling
+        // Ultra-high performance HTTP client with HTTP/2 and connection pooling
         let client = ClientBuilder::new()
-            .pool_max_idle_per_host(10) // Connection pool for concurrent requests
-            .pool_idle_timeout(Duration::from_secs(30)) // Keep connections alive
+            .pool_max_idle_per_host(20) // Increased connection pool for HTTP/2 multiplexing
+            .pool_idle_timeout(Duration::from_secs(60)) // Keep connections alive longer for HTTP/2
             .tcp_nodelay(true) // Disable Nagle's algorithm for low latency
             .timeout(Duration::from_secs(300)) // 5 minute timeout for long inferences
+            .http2_prior_knowledge() // Enable HTTP/2 with prior knowledge
+            .http2_max_frame_size(Some(32768)) // Larger frames for better throughput
+            .http2_adaptive_window(true) // Adaptive window sizing
             .build()?;
 
         Ok(Self {
@@ -202,4 +206,92 @@ impl OllamaClient {
         }
         Ok(full_content)
     }
+
+    /// Generate multiple embeddings concurrently with HTTP/2 pipelining
+    pub async fn generate_embeddings_pipelined(
+        &self,
+        texts: Vec<String>,
+    ) -> Result<Vec<Vec<f32>>> {
+        if texts.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Create futures for all embedding requests
+        let futures: Vec<_> = texts
+            .into_iter()
+            .map(|text| {
+                let client = Arc::clone(&self.client);
+                let base_url = self.base_url.clone();
+                let model = self.model.clone();
+
+                async move {
+                    let url = format!("{}/api/embeddings", base_url);
+                    let request = EmbeddingRequest {
+                        model: model.clone(),
+                        prompt: text,
+                    };
+
+                    let response = client.post(&url).json(&request).send().await?;
+                    let embedding_response: EmbeddingResponse = response.json().await?;
+                    Ok(embedding_response.embedding)
+                }
+            })
+            .collect();
+
+        // Execute all requests concurrently with HTTP/2 multiplexing
+        let results: Vec<Result<Vec<f32>>> = join_all(futures).await;
+
+        // Collect results, maintaining order
+        let mut embeddings = Vec::with_capacity(results.len());
+        for result in results {
+            embeddings.push(result?);
+        }
+
+        Ok(embeddings)
+    }
+
+    /// Execute multiple inference requests in parallel with HTTP/2 pipelining
+    pub async fn generate_responses_pipelined(
+        &self,
+        requests: Vec<InferenceRequest>,
+    ) -> Result<Vec<String>> {
+        if requests.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        // Create futures for all requests
+        let futures: Vec<_> = requests
+            .into_iter()
+            .map(|req| async move {
+                match req {
+                    InferenceRequest::Embedding { text } => {
+                        // For embeddings, generate and return as string representation
+                        let embedding = self.generate_embedding(&text).await?;
+                        Ok(serde_json::to_string(&embedding)?)
+                    }
+                    InferenceRequest::Chat { prompt, system } => {
+                        self.generate_response_with_system(&prompt, &system).await
+                    }
+                }
+            })
+            .collect();
+
+        // Execute all requests concurrently with HTTP/2 multiplexing
+        let results = join_all(futures).await;
+
+        // Collect results, maintaining order
+        let mut responses = Vec::with_capacity(results.len());
+        for result in results {
+            responses.push(result?);
+        }
+
+        Ok(responses)
+    }
+}
+
+/// Request types for pipelined inference
+#[derive(Clone)]
+pub enum InferenceRequest {
+    Embedding { text: String },
+    Chat { prompt: String, system: String },
 }
