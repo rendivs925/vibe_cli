@@ -761,7 +761,7 @@ impl CliApp {
             }
         }
 
-        if let Some(entry) = best_match {
+        let result = if let Some(entry) = best_match {
             let cleaned_command = Self::clean_command_output(&entry.command);
             // Validate semantically similar cached command syntax before returning
             if validate_command_syntax(&cleaned_command).is_ok() {
@@ -774,14 +774,16 @@ impl CliApp {
             }
         } else {
             Ok(None)
-        }
+        };
 
-        // Remove invalid entries from cache after the loop
+        // Remove invalid entries from cache after determining result
         if !entries_to_remove.is_empty() {
             cache.entries.retain(|e| !entries_to_remove.contains(&e.prompt));
             let serialized = serde_json::to_string_pretty(&cache)?;
             std::fs::write(&self.cache_path, serialized)?;
         }
+
+        result
     }
 
     fn save_cached(&self, prompt: &str, command: &str) -> Result<()> {
