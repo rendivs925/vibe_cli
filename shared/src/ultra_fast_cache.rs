@@ -180,6 +180,8 @@ impl UltraFastCache {
         {
             let mut encoder = EncoderBuilder::new().build(&mut compressed)?;
             std::io::copy(&mut std::io::Cursor::new(data), &mut encoder)?;
+            let (_writer, result) = encoder.finish(); // Important: finish the encoder
+            result?;
         }
         Ok(compressed)
     }
@@ -282,7 +284,13 @@ mod tests {
 
         // Test put and get
         cache.put(key.clone(), test_data.clone()).await.unwrap();
-        let retrieved = cache.get(&key).await.unwrap().unwrap();
+
+        // Give a small delay for async operations to complete
+        tokio::time::sleep(tokio::time::Duration::from_millis(10)).await;
+
+        let retrieved_option = cache.get(&key).await.unwrap();
+        assert!(retrieved_option.is_some(), "Cache should contain the stored data");
+        let retrieved = retrieved_option.unwrap();
 
         assert_eq!(retrieved, test_data);
 
