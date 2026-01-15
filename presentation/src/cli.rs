@@ -4021,12 +4021,16 @@ COMMAND:"#,
                     return Ok(());
                 }
 
-                // Check safety policy, but allow user override if they explicitly confirmed
+                // Check safety policy - require additional confirmation for blocked commands
                 let is_allowed = power_config.is_command_allowed(&effective_command);
                 if !is_allowed {
-                    // User explicitly confirmed, so show warning but allow execution
-                    eprintln!("Warning: Command '{}' is normally blocked by safety policy.", effective_command);
-                    eprintln!("Executing anyway due to explicit user confirmation.");
+                    // Command is blocked by safety policy - ask for override confirmation
+                    eprintln!("Command '{}' is blocked by safety policy.", effective_command);
+                    if !ask_confirmation("Execute anyway?", false)? {
+                        println!("Command cancelled due to safety policy.");
+                        return Ok(());
+                    }
+                    // User explicitly confirmed override
                 }
 
                 println!("Executing installation...");
