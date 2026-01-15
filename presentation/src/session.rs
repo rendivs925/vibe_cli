@@ -1,5 +1,5 @@
 use anyhow::Result;
-use std::path::PathBuf;
+use colored::Colorize;
 
 /// Handle listing all sessions
 pub async fn handle_list_sessions(session_store: &Option<infrastructure::session_store::SessionStore>) -> Result<()> {

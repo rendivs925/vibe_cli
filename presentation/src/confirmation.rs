@@ -6,7 +6,7 @@ pub fn prompt_data_collection_confirmation(
     command: &str,
     query: &str,
     risk: CommandRisk,
-) -> Result<bool> {
+) -> anyhow::Result<bool> {
     println!("DATA COLLECTION REQUIRED");
     println!();
     println!("This query needs to run: {}", command);

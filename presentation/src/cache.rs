@@ -1,6 +1,7 @@
 use crate::types::{CacheFile, CacheEntry, ExplainCacheFile, ExplainCacheEntry, RagCacheFile, RagCacheEntry};
 use crate::utils::clean_command_output;
 use crate::analysis::validate_command_syntax;
+use colored::Colorize;
 use std::path::PathBuf;
 use anyhow::Result;
 

@@ -1,7 +1,8 @@
 use crate::types::{AgentPlan, AgentStep, AgentCommandRisk};
+use anyhow::{anyhow, Result};
 use crate::analysis::assess_agent_command_risk;
 use crate::utils::{extract_last_json, clean_command_output};
-use anyhow::Result;
+use shared::confirmation;
 
 /// Analyze agent task and generate execution plan
 pub async fn analyze_agent_task(task: &str) -> Result<AgentPlan> {
@@ -332,7 +333,7 @@ pub async fn execute_dry_run(plan: &AgentPlan) -> Result<()> {
         }
 
         // Check if command would be allowed
-        let power_config = self.get_power_config();
+        let power_config = infrastructure::config::Config::load().power_user;
         let is_allowed = power_config.is_command_allowed(&step.command);
         if is_allowed {
             println!("  Safety: Command allowed");
@@ -352,14 +353,14 @@ pub async fn execute_dry_run(plan: &AgentPlan) -> Result<()> {
 
 /// Execute individual agent step
 pub async fn execute_agent_step(step: &AgentStep) -> Result<()> {
-    let power_config = self.get_power_config();
+    let power_config = infrastructure::config::Config::load().power_user;
 
     // Check safety policy - allow user override if they confirmed
     let is_allowed = power_config.is_command_allowed(&step.command);
     if !is_allowed {
         // Ask for override confirmation like installation commands
         eprintln!("Command '{}' is blocked by safety policy.", step.command);
-        if !ask_confirmation("Execute anyway?", false)? {
+        if !confirmation::ask_confirmation("Execute anyway?", false)? {
             return Err(anyhow!("Command cancelled due to safety policy."));
         }
         // User explicitly confirmed override
