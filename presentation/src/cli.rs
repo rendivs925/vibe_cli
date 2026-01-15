@@ -3373,66 +3373,6 @@ impl CliApp {
         Ok(())
     }
 
-        println!("\n{}", "Proposed plan:".green());
-        for (i, cmd) in commands.iter().enumerate() {
-            println!("  {} {}", format!("[{}]", i + 1).blue(), cmd);
-        }
-
-        for (i, cmd) in commands.iter().enumerate() {
-            println!(
-                "\n{} {}",
-                "Step".green().bold(),
-                format!("{}:", i + 1).green().bold()
-            );
-            println!("{} {}", "Suggested command:".green(), cmd.yellow());
-            let accept = ask_confirmation("Run this command?", false)?;
-            if !accept {
-                println!("{}", "Skipping this step.".yellow());
-                continue;
-            }
-            let sandbox = Sandbox::new();
-            match sandbox
-                .execute_safe("bash", vec!["-c".to_string(), cmd.clone()])
-                .await
-            {
-                Ok(output) => {
-                    println!("{}", output);
-                    println!("{}", "Command completed successfully.".green());
-                }
-                Err(e) => {
-                    println!("{} (sandbox error: {})", "Command failed.".red(), e);
-                    if ask_confirmation("Try running without sandboxing?", false)? {
-                        match std::process::Command::new("bash")
-                            .arg("-c")
-                            .arg(cmd)
-                            .status()
-                        {
-                            Ok(status) => {
-                                if status.success() {
-                                    println!("{}", "Command completed successfully.".green());
-                                } else {
-                                    println!(
-                                        "{} (exit status: {:?})",
-                                        "Command failed.".red(),
-                                        status.code()
-                                    );
-                                }
-                            }
-                            Err(e) => {
-                                println!(
-                                    "{} (direct execution error: {})",
-                                    "Command failed.".red(),
-                                    e
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        Ok(())
-    }
-
     async fn handle_explain(&self, file: &str) -> Result<()> {
         let path = std::path::Path::new(file);
         let content = if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
