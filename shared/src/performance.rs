@@ -259,6 +259,7 @@ impl Default for MemoryTracker {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
 
     #[test]
     fn test_profiler_basic() {

@@ -268,12 +268,14 @@ impl Clone for UltraFastCache {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use tempfile::tempdir;
+    use std::path::PathBuf;
 
     #[tokio::test]
     async fn test_ultra_fast_cache() {
-        let temp_dir = tempdir().unwrap();
-        let cache = UltraFastCache::new(temp_dir.path().to_path_buf(), 10, 3600).await.unwrap();
+        // Use a temporary directory in the current working directory for testing
+        let temp_dir = std::env::temp_dir().join("ultra_fast_cache_test");
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let cache = UltraFastCache::new(temp_dir, 10, 3600).await.unwrap();
 
         let test_data = b"Hello, World! This is test data for compression.".to_vec();
         let key = "test_key".to_string();
