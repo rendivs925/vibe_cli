@@ -3995,19 +3995,13 @@ COMMAND:"#,
         // Validate command syntax
         match validate_command_syntax(&command) {
             Ok(_) => {
-                // Check if command is allowed by safety policy BEFORE asking for confirmation
+                // Prepare the effective command (with sudo if needed)
                 let needs_sudo = Self::command_needs_sudo(&command);
                 let effective_command = if needs_sudo {
                     format!("sudo {}", command)
                 } else {
                     command.clone()
                 };
-
-                let is_allowed = power_config.is_command_allowed(&effective_command);
-                if !is_allowed {
-                    eprintln!("Command not allowed by safety policy: {}", effective_command);
-                    return Ok(());
-                }
 
                 // Analyze the installation command
                 let (packages, services, disk_space) = analyze_installation_command(&command);
@@ -4027,7 +4021,14 @@ COMMAND:"#,
                     return Ok(());
                 }
 
-                // Execute the installation command
+                // Check safety policy, but allow user override if they explicitly confirmed
+                let is_allowed = power_config.is_command_allowed(&effective_command);
+                if !is_allowed {
+                    // User explicitly confirmed, so show warning but allow execution
+                    eprintln!("Warning: Command '{}' is normally blocked by safety policy.", effective_command);
+                    eprintln!("Executing anyway due to explicit user confirmation.");
+                }
+
                 println!("Executing installation...");
 
                 // Execute with progress feedback
