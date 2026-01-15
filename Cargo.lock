@@ -4375,14 +4375,18 @@ name = "shared"
 version = "2.0.0"
 dependencies = [
  "anyhow",
+ "bumpalo",
  "colored",
  "crossterm",
  "dialoguer",
+ "fxhash",
+ "lazy_static",
  "num_cpus",
  "rayon",
  "regex",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]

@@ -2417,7 +2417,7 @@ impl CliApp {
         } else if cli.context {
             self.handle_context(&args_str).await
         } else {
-            // Default: general query
+            // Default: general query with ultra-fast processing
             self.handle_query(&args_str).await
         }
     }
@@ -3717,7 +3717,100 @@ impl CliApp {
         self.handle_chat().await
     }
 
+    /// Ultra-fast query handler with maximum performance optimizations
     async fn handle_query(&mut self, query: &str) -> Result<()> {
+        use shared::performance_monitor::GLOBAL_METRICS;
+
+        GLOBAL_METRICS.start_operation("query_total").await;
+
+        let power_config = self.get_power_config();
+
+        // Check for command aliases first (ultra-fast lookup)
+        let effective_query = if let Some(alias_expansion) = power_config.get_alias(query) {
+            println!("Using alias '{}' -> '{}'", query, alias_expansion);
+            alias_expansion.clone()
+        } else {
+            query.to_string()
+        };
+
+        // Analyze query intent for enhanced handling (optimized)
+        let query_intent = analyze_query_intent(&effective_query);
+
+        // Handle installation/setup commands with special confirmation
+        if query_intent == CommandIntent::Installation {
+            GLOBAL_METRICS.end_operation("query_total").await;
+            return self.handle_installation_query(&effective_query).await;
+        }
+
+        // Check for plugin commands first (ultra-fast)
+        if let Some(plugin_manager) = &self.config.plugin_manager {
+            let manager = plugin_manager.read().await;
+            if let Some(result) = manager.execute_command(&effective_query, vec![]).await {
+                GLOBAL_METRICS.end_operation("query_total").await;
+                match result {
+                    Ok(output) => {
+                        println!("{}", output);
+                        return Ok(());
+                    }
+                    Err(e) => {
+                        eprintln!("Plugin error: {}", e);
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
+        // Ultra-fast cached command lookup with performance monitoring
+        GLOBAL_METRICS.start_operation("cache_lookup").await;
+        let cache_hit = self.load_cached(&effective_query).await.is_some();
+        GLOBAL_METRICS.end_operation("cache_lookup").await;
+
+        if let Ok(Some(cached_command)) = self.load_cached(&effective_query) {
+            // Use enhanced confirmation system based on intent
+            let confirmed = match query_intent {
+                CommandIntent::Installation => {
+                    let (packages, services, disk_space) =
+                        analyze_installation_command(&cached_command);
+                    let risk = assess_command_risk(&cached_command);
+                    prompt_data_collection_confirmation(&cached_command, &effective_query, risk)?
+                }
+                _ => {
+                    // For info queries, use data collection confirmation
+                    let risk = assess_command_risk(&cached_command);
+                    prompt_data_collection_confirmation(&cached_command, &effective_query, risk)?
+                }
+            };
+
+            if confirmed {
+                // Check if this cached command needs sudo
+                let needs_sudo = Self::command_needs_sudo(&cached_command);
+                let effective_command = if needs_sudo {
+                    format!("sudo {}", cached_command)
+                } else {
+                    cached_command.clone()
+                };
+
+                if needs_sudo {
+                    // For sudo commands, skip sandbox and execute directly
+                    GLOBAL_METRICS.start_operation("command_execution").await;
+                    match std::process::Command::new("bash")
+                        .arg("-c")
+                        .arg(&effective_command)
+                        .output()
+                    {
+                        Ok(output) => {
+                            GLOBAL_METRICS.end_operation("command_execution").await;
+                            println!("{}", String::from_utf8_lossy(&output.stdout));
+                            if !output.status.success() {
+                                let stderr = String::from_utf8_lossy(&output.stderr);
+                                // Check if this is an expected non-error exit code
+                                if Self::is_expected_exit_code(
+                                    &effective_command,
+                                    output.status.code(),
+                                    &stderr,
+                                ) {
+                                    let _ = self.save_cached(&effective_query, &effective_command);
+                                } else {
         let power_config = self.get_power_config();
 
         // Check for command aliases first

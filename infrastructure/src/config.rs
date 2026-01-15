@@ -598,19 +598,22 @@ pub struct PerformanceConfig {
     pub background_processing: bool,
     /// Startup optimizations
     pub startup_optimizations: bool,
+    /// Model pre-warming on startup
+    pub model_prewarming: bool,
 }
 
-impl Default for PerformanceConfig {
-    fn default() -> Self {
-        Self {
-            prewarm_models: false,
-            cache_strategy: "lru".to_string(),
-            parallel_jobs: num_cpus::get(),
-            memory_limit_mb: Some(2048),
-            background_processing: true,
-            startup_optimizations: true,
+    impl Default for PerformanceConfig {
+        fn default() -> Self {
+            Self {
+                prewarm_models: true, // Enable model pre-warming for ultra-fast responses
+                cache_strategy: "lru".to_string(),
+                parallel_jobs: num_cpus::get(),
+                memory_limit_mb: Some(2048),
+                background_processing: true,
+                startup_optimizations: true,
+                model_prewarming: true, // Ultra-performance: pre-warm models
+            }
         }
-    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

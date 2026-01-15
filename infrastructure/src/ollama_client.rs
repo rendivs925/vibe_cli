@@ -1,8 +1,9 @@
-use reqwest::Client;
+use reqwest::{Client, ClientBuilder};
 use serde::{Deserialize, Serialize};
 use shared::types::Result;
 use std::env;
 use std::sync::Arc;
+use std::time::Duration;
 
 #[derive(Serialize)]
 struct EmbeddingRequest {
@@ -46,8 +47,17 @@ impl OllamaClient {
         let base_url =
             env::var("OLLAMA_BASE_URL").unwrap_or_else(|_| "http://localhost:11434".to_string());
         let model = env::var("BASE_MODEL").unwrap_or_else(|_| "qwen2.5:1.5b-instruct".to_string());
+
+        // Ultra-high performance HTTP client with connection pooling
+        let client = ClientBuilder::new()
+            .pool_max_idle_per_host(10) // Connection pool for concurrent requests
+            .pool_idle_timeout(Duration::from_secs(30)) // Keep connections alive
+            .tcp_nodelay(true) // Disable Nagle's algorithm for low latency
+            .timeout(Duration::from_secs(300)) // 5 minute timeout for long inferences
+            .build()?;
+
         Ok(Self {
-            client: Arc::new(Client::new()),
+            client: Arc::new(client),
             base_url,
             model,
         })
@@ -55,6 +65,13 @@ impl OllamaClient {
 
     pub fn model(&self) -> &str {
         &self.model
+    }
+
+    /// Pre-warm the model by sending a minimal request to ensure it's loaded
+    pub async fn prewarm_model(&self) -> Result<()> {
+        // Send a minimal request to load the model into memory
+        let _ = self.generate_response_with_system("ping", "").await?;
+        Ok(())
     }
 
     pub async fn generate_embedding(&self, text: &str) -> Result<Vec<f32>> {
@@ -100,7 +117,9 @@ impl OllamaClient {
         if !status.is_success() {
             return Err(anyhow::anyhow!("Ollama API error: {}", text));
         }
-        let mut full_content = String::new();
+
+        // Ultra-fast response parsing with minimal allocations
+        let mut full_content = String::with_capacity(4096); // Pre-allocate for performance
         for line in text.lines() {
             if line.trim().is_empty() {
                 continue;
