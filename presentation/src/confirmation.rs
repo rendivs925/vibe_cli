@@ -52,7 +52,7 @@ pub fn prompt_installation_confirmation(
     packages: Vec<String>,
     services: Vec<String>,
     disk_space: Option<String>,
-) -> Result<bool> {
+) -> anyhow::Result<bool> {
     println!("INSTALLATION COMMAND DETECTED");
     println!();
     println!("Command: {}", command);

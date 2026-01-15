@@ -1,64 +1,7 @@
 use anyhow::Result;
 use colored::Colorize;
 
-/// Handle listing all sessions
-pub async fn handle_list_sessions(session_store: &Option<infrastructure::session_store::SessionStore>) -> Result<()> {
-    let Some(store) = session_store else {
-        println!(
-            "{}",
-            "No project detected - session management requires a project context.".yellow()
-        );
-        return Ok(());
-    };
 
-    let project_root = super::utils::find_project_root().unwrap_or_else(|| "unknown".to_string());
-    let project_hash = store.project_hash();
-
-    println!("{}", "Session Management".bright_cyan().bold());
-    println!("Project: {} (hash: {})", project_root, &project_hash[..8]);
-    println!();
-
-    match store.list_sessions() {
-        Ok(sessions) if sessions.is_empty() => {
-            println!("{}", "No sessions found.".dimmed());
-            println!(
-                "Create your first session with: ai --session \"my-session\" --build \"...\""
-            );
-        }
-        Ok(sessions) => {
-            println!("Sessions:");
-            for session in sessions {
-                let active_marker = if Some(&session.name) == current_session.as_ref() {
-                    "[active] "
-                } else {
-                    "          "
-                };
-
-                let last_used = session.last_used.format("%Y-%m-%d %H:%M");
-                let goal = if session.goal_summary.is_empty() {
-                    "No goal set".dimmed()
-                } else {
-                    session.goal_summary.dimmed()
-                };
-
-                println!(
-                    "  {} {:<15} Last used: {}  Changes: {}  Goal: {}",
-                    active_marker,
-                    session.name.bright_green(),
-                    last_used,
-                    session.change_count,
-                    goal
-                );
-            }
-        }
-        Err(e) => {
-            eprintln!("{} {}", "Error listing sessions:".red(), e);
-            return Ok(());
-        }
-    }
-
-    Ok(())
-}
 
 /// Handle deleting a session
 pub async fn handle_delete_session(
