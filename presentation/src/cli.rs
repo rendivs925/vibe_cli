@@ -4657,9 +4657,18 @@ COMMAND:"#,
     }
 
     async fn execute_agent_step(&self, step: &AgentStep) -> Result<()> {
-        // Skip safety check for agent steps since user has already explicitly confirmed
-        // The safety policy is advisory during the planning phase, but user confirmation
-        // provides explicit override for execution
+        let power_config = self.get_power_config();
+
+        // Check safety policy - allow user override if they confirmed
+        let is_allowed = power_config.is_command_allowed(&step.command);
+        if !is_allowed {
+            // Ask for override confirmation like installation commands
+            eprintln!("Command '{}' is blocked by safety policy.", step.command);
+            if !ask_confirmation("Execute anyway?", false)? {
+                return Err(anyhow!("Command cancelled due to safety policy."));
+            }
+            // User explicitly confirmed override
+        }
 
         // Execute the command
         let sandbox = Sandbox::new();
