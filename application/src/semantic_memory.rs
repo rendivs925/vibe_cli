@@ -165,41 +165,59 @@ impl SemanticMemoryService {
     pub async fn delete_embeddings_for_path(&self, path: &str) -> Result<()> {
         self.qdrant.delete_embeddings_for_path(path).await
     }
-}
 
-/// Delete conversation memory for a specific conversation
-pub async fn delete_conversation(&self, conversation_id: &str) -> Result<()> {
-    // Get all memories for this conversation and delete them
-    let memories = self.get_conversation_history(conversation_id).await?;
+    /// Get conversation history for a specific conversation
+    pub async fn get_conversation_history(&self, conversation_id: &str) -> Result<Vec<ConversationMemory>> {
+        // Use Qdrant filtering to get all messages for this conversation
+        // For now, we'll retrieve with a dummy query and filter by conversation_id
+        // TODO: Implement proper metadata filtering in QdrantStorage
 
-    let ids_to_delete = memories
-        .into_iter()
-        .map(|m| format!("{}_{}", m.conversation_id, m.message_index))
-        .collect::<Vec<_>>();
+        let dummy_query = "conversation"; // This will match all conversation memories
+        let all_memories = self.retrieve_relevant_memories(dummy_query, Some(conversation_id), 1000).await?;
 
-    if !ids_to_delete.is_empty() {
-        self.qdrant
-            .delete_embeddings_for_path(&format!("conversation/{}/", conversation_id))
-            .await?;
+        // Sort by message index to maintain chronological order
+        let mut conversation_memories = all_memories.into_iter()
+            .filter(|m| m.conversation_id == conversation_id)
+            .collect::<Vec<_>>();
+
+        conversation_memories.sort_by_key(|m| m.message_index);
+
+        Ok(conversation_memories)
     }
 
-    Ok(())
-}
+    /// Delete conversation memory for a specific conversation
+    pub async fn delete_conversation(&self, conversation_id: &str) -> Result<()> {
+        // Get all memories for this conversation and delete them
+        let memories = self.get_conversation_history(conversation_id).await?;
 
-/// Get memory statistics
-pub async fn get_memory_stats(&self) -> Result<(usize, usize)> {
-    // Get total count from Qdrant
-    let all_embeddings = self.get_all_embeddings().await?;
-    let total_memories = all_embeddings.len();
+        let ids_to_delete = memories
+            .into_iter()
+            .map(|m| format!("{}_{}", m.conversation_id, m.message_index))
+            .collect::<Vec<_>>();
 
-    // Count unique conversations
-    let mut conversation_ids = std::collections::HashSet::new();
-    for embedding in all_embeddings {
-        if let Ok(memory) = serde_json::from_str::<ConversationMemory>(&embedding.text) {
-            conversation_ids.insert(memory.conversation_id);
+        if !ids_to_delete.is_empty() {
+            self.qdrant
+                .delete_embeddings_for_path(&format!("conversation/{}/", conversation_id))
+                .await?;
         }
+
+        Ok(())
     }
 
-    Ok((total_memories, conversation_ids.len()))
-}
+    /// Get memory statistics
+    pub async fn get_memory_stats(&self) -> Result<(usize, usize)> {
+        // Get total count from Qdrant
+        let all_embeddings = self.get_all_embeddings().await?;
+        let total_memories = all_embeddings.len();
 
+        // Count unique conversations
+        let mut conversation_ids = std::collections::HashSet::new();
+        for embedding in all_embeddings {
+            if let Ok(memory) = serde_json::from_str::<ConversationMemory>(&embedding.text) {
+                conversation_ids.insert(memory.conversation_id);
+            }
+        }
+
+        Ok((total_memories, conversation_ids.len()))
+    }
+}
