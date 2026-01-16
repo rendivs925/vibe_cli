@@ -57,7 +57,10 @@ mod cli_session;
 mod cli_utils;
 
 // Re-export for use in this file
-use cli_cache::{CommandCacheFile, CommandCacheEntry, ExplainCacheFile, ExplainCacheEntry, RagCacheFile, RagCacheEntry};
+use cli_cache::{
+    CommandCacheEntry, CommandCacheFile, ExplainCacheEntry, ExplainCacheFile, RagCacheEntry,
+    RagCacheFile,
+};
 
 /// Analyze agent task and generate execution plan
 async fn analyze_agent_task(task: &str) -> Result<AgentPlan> {
@@ -2627,7 +2630,7 @@ impl CliApp {
 
         if self.rag_service.is_none() {
             eprintln!("Analyzing query and scanning codebase...");
-        let _client = OllamaClient::new()?;
+            let _client = OllamaClient::new()?;
             let project_root = find_project_root().unwrap_or_else(|| ".".to_string());
             self.rag_service =
                 Some(application::create_rag_service(&project_root, &self.config.db_path).await?);
@@ -2818,12 +2821,20 @@ impl CliApp {
                                     output.status.code(),
                                     &stderr,
                                 ) {
-                                    let _ = Self::save_cached(&self.cache_path, &effective_query, &effective_command);
+                                    let _ = Self::save_cached(
+                                        &self.cache_path,
+                                        &effective_query,
+                                        &effective_command,
+                                    );
                                 } else {
                                     println!("{}", format!("Command failed: {}", stderr).red());
                                 }
                             } else {
-                                let _ = Self::save_cached(&self.cache_path, &effective_query, &effective_command);
+                                let _ = Self::save_cached(
+                                    &self.cache_path,
+                                    &effective_query,
+                                    &effective_command,
+                                );
                             }
                         }
                         Err(e) => {
@@ -2860,7 +2871,11 @@ impl CliApp {
                                                 output.status.code(),
                                                 &stderr,
                                             ) {
-                                let _ = Self::save_cached(&self.cache_path, &effective_query, &effective_command);
+                                                let _ = Self::save_cached(
+                                                    &self.cache_path,
+                                                    &effective_query,
+                                                    &effective_command,
+                                                );
                                             } else {
                                                 println!(
                                                     "{}",
@@ -3004,7 +3019,6 @@ OUTPUT ONLY THE COMMAND:"#,
         };
 
         let command = extract_command_from_response(&response);
-        println!("{}", format!("Command: {}", command).green());
 
         // Validate command syntax before caching
         match validate_command_syntax(&command) {
@@ -3031,20 +3045,11 @@ OUTPUT ONLY THE COMMAND:"#,
             command.clone()
         };
 
+        println!("{}", format!("Command: {}", effective_command).green());
+
         // Single confirmation for new commands
         let is_safe = power_config.is_command_allowed(&effective_command);
-        let prompt = if is_safe {
-            if needs_sudo {
-                format!("Execute with admin privileges: {}", command)
-            } else {
-                format!("Execute: {}", command)
-            }
-        } else {
-            format!(
-                "Execute (requires elevated permissions): {}",
-                effective_command
-            )
-        };
+        let prompt = "Allow command execution?";
 
         if ask_confirmation(&prompt, is_safe)? {
             if needs_sudo {
@@ -3063,14 +3068,21 @@ OUTPUT ONLY THE COMMAND:"#,
                                 &effective_command,
                                 output.status.code(),
                                 &stderr,
-                             ) {
-                                let _ = Self::save_cached(&self.cache_path, &effective_query, &effective_command);
+                            ) {
+                                let _ = Self::save_cached(
+                                    &self.cache_path,
+                                    &effective_query,
+                                    &effective_command,
+                                );
                             } else {
                                 println!("{}", format!("Command failed: {}", stderr).red());
                             }
                         } else {
-                            let _ =
-                                Self::save_cached(&self.cache_path, &effective_query, &effective_command);
+                            let _ = Self::save_cached(
+                                &self.cache_path,
+                                &effective_query,
+                                &effective_command,
+                            );
                         }
                     }
                     Err(e) => {
@@ -3103,7 +3115,11 @@ OUTPUT ONLY THE COMMAND:"#,
                                             output.status.code(),
                                             &stderr,
                                         ) {
-                                            let _ = Self::save_cached(&self.cache_path, &effective_query, &effective_command);
+                                            let _ = Self::save_cached(
+                                                &self.cache_path,
+                                                &effective_query,
+                                                &effective_command,
+                                            );
                                         } else {
                                             println!(
                                                 "{}",
@@ -3111,7 +3127,11 @@ OUTPUT ONLY THE COMMAND:"#,
                                             );
                                         }
                                     } else {
-                                            let _ = Self::save_cached(&self.cache_path, &effective_query, &effective_command);
+                                        let _ = Self::save_cached(
+                                            &self.cache_path,
+                                            &effective_query,
+                                            &effective_command,
+                                        );
                                     }
                                 }
                                 Err(e) => {

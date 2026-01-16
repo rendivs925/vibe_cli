@@ -1,5 +1,6 @@
 use crate::analysis::assess_command_risk;
 use crate::types::{CommandIntent, CommandRisk, InstallationOption};
+use colored::Colorize;
 
 /// Present confirmation dialog for data collection commands
 pub fn prompt_data_collection_confirmation(
@@ -8,8 +9,8 @@ pub fn prompt_data_collection_confirmation(
     risk: CommandRisk,
 ) -> anyhow::Result<bool> {
     // println!("DATA COLLECTION REQUIRED");
-    // println!();
-    println!("Cached command: {}", command);
+    println!();
+    println!("{}", format!("Command: {}", command).green());
 
     // Determine purpose based on query content
     // let purpose = if query.to_lowercase().contains("gpu")
@@ -40,7 +41,7 @@ pub fn prompt_data_collection_confirmation(
     };
 
     // println!("Safety: {}", safety_desc);
-    // println!();
+    println!();
 
     shared::confirmation::ask_confirmation(
         "Allow command execution?",
@@ -56,9 +57,9 @@ pub fn prompt_installation_confirmation(
     services: Vec<String>,
     disk_space: Option<String>,
 ) -> anyhow::Result<bool> {
-    println!("INSTALLATION COMMAND DETECTED");
+    // println!("INSTALLATION COMMAND DETECTED");
     println!();
-    println!("Command: {}", command);
+    println!("{}", format!("Command: {}", command).green());
 
     if !packages.is_empty() {
         println!();
