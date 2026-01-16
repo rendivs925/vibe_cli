@@ -1,5 +1,5 @@
-use crate::types::{CommandIntent, CommandRisk, InstallationOption};
 use crate::analysis::assess_command_risk;
+use crate::types::{CommandIntent, CommandRisk, InstallationOption};
 
 /// Present confirmation dialog for data collection commands
 pub fn prompt_data_collection_confirmation(
@@ -7,28 +7,28 @@ pub fn prompt_data_collection_confirmation(
     query: &str,
     risk: CommandRisk,
 ) -> anyhow::Result<bool> {
-    println!("DATA COLLECTION REQUIRED");
-    println!();
-    println!("This query needs to run: {}", command);
+    // println!("DATA COLLECTION REQUIRED");
+    // println!();
+    println!("Cached command: {}", command);
 
     // Determine purpose based on query content
-    let purpose = if query.to_lowercase().contains("gpu")
-        || query.to_lowercase().contains("graphics")
-    {
-        "Gather GPU information for analysis"
-    } else if query.to_lowercase().contains("cpu") || query.to_lowercase().contains("processor") {
-        "Gather CPU information for analysis"
-    } else if query.to_lowercase().contains("ram") || query.to_lowercase().contains("memory") {
-        "Gather memory information for analysis"
-    } else if query.to_lowercase().contains("disk") || query.to_lowercase().contains("storage") {
-        "Gather disk usage information for analysis"
-    } else if query.to_lowercase().contains("network") {
-        "Gather network information for analysis"
-    } else {
-        "Gather system information for analysis"
-    };
+    // let purpose = if query.to_lowercase().contains("gpu")
+    //     || query.to_lowercase().contains("graphics")
+    // {
+    //     "Gather GPU information for analysis"
+    // } else if query.to_lowercase().contains("cpu") || query.to_lowercase().contains("processor") {
+    //     "Gather CPU information for analysis"
+    // } else if query.to_lowercase().contains("ram") || query.to_lowercase().contains("memory") {
+    //     "Gather memory information for analysis"
+    // } else if query.to_lowercase().contains("disk") || query.to_lowercase().contains("storage") {
+    //     "Gather disk usage information for analysis"
+    // } else if query.to_lowercase().contains("network") {
+    //     "Gather network information for analysis"
+    // } else {
+    //     "Gather system information for analysis"
+    // };
 
-    println!("Purpose: {}", purpose);
+    // println!("Purpose: {}", purpose);
 
     // Show safety level
     let safety_desc = match risk {
@@ -39,10 +39,13 @@ pub fn prompt_data_collection_confirmation(
         CommandRisk::Unknown => "Risk level cannot be determined",
     };
 
-    println!("Safety: {}", safety_desc);
-    println!();
+    // println!("Safety: {}", safety_desc);
+    // println!();
 
-    shared::confirmation::ask_confirmation("Allow command execution?", risk == CommandRisk::InfoOnly)
+    shared::confirmation::ask_confirmation(
+        "Allow command execution?",
+        risk == CommandRisk::InfoOnly,
+    )
 }
 
 /// Present confirmation dialog for installation commands
@@ -146,3 +149,4 @@ pub fn analyze_installation_command(command: &str) -> (Vec<String>, Vec<String>,
 
     (packages, services, disk_space)
 }
+
