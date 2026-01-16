@@ -43,6 +43,8 @@ use crate::session::*;
 mod cli_agent;
 #[path = "cli/background.rs"]
 mod cli_background;
+#[path = "cli/build_helpers.rs"]
+mod cli_build_helpers;
 #[path = "cli/cache.rs"]
 mod cli_cache;
 #[path = "cli/chat.rs"]
