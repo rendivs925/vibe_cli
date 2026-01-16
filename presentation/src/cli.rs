@@ -1,5 +1,6 @@
 use anyhow::anyhow;
 use application::{agent_service::AgentService, build_service::BuildPlan, rag_service::RagService};
+use bincode;
 use chrono::Utc;
 use clap::Parser;
 use colored::Colorize;
@@ -34,43 +35,44 @@ use crate::confirmation::*;
 use crate::editor;
 use crate::types::*;
 use crate::utils::*;
-// Inline cache functions since module resolution is broken
-fn default_cache_path() -> PathBuf {
-    PathBuf::from("/tmp/cache.json")
-}
-
-fn load_cached(_cache_path: &PathBuf, _prompt: &str) -> Result<Option<String>> {
-    Ok(None)
-}
-
-fn save_cached(_cache_path: &PathBuf, _prompt: &str, _command: &str) -> Result<()> {
-    Ok(())
-}
-
-fn explain_cache_path() -> PathBuf {
-    PathBuf::from("/tmp/explain.bin")
-}
-
-fn load_cached_explain(_cache_path: &PathBuf, _prompt: &str) -> Result<Option<String>> {
-    Ok(None)
-}
-
-fn save_cached_explain(_cache_path: &PathBuf, _prompt: &str, _response: &str) -> Result<()> {
-    Ok(())
-}
-
-fn rag_cache_path() -> PathBuf {
-    PathBuf::from("/tmp/rag.bin")
-}
-
-fn load_cached_rag(_cache_path: &PathBuf, _question: &str) -> Result<Option<String>> {
-    Ok(None)
-}
-
-fn save_cached_rag(_cache_path: &PathBuf, _question: &str, _response: &str) -> Result<()> {
-    Ok(())
-}
+// Cache functions are now in the main Config struct
 use crate::session::*;
+
+#[derive(serde::Serialize, serde::Deserialize, Default)]
+struct ExplainCacheFile {
+    entries: Vec<ExplainCacheEntry>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct ExplainCacheEntry {
+    prompt: String,
+    response: String,
+    timestamp: u64,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Default)]
+struct RagCacheFile {
+    entries: Vec<RagCacheEntry>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct RagCacheEntry {
+    question: String,
+    response: String,
+    timestamp: u64,
+}
+
+#[derive(serde::Serialize, serde::Deserialize, Default)]
+struct CommandCacheFile {
+    entries: Vec<CommandCacheEntry>,
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct CommandCacheEntry {
+    query: String,
+    command: String,
+    timestamp: u64,
+}
 
 /// Analyze agent task and generate execution plan
 async fn analyze_agent_task(task: &str) -> Result<AgentPlan> {
@@ -489,7 +491,12 @@ impl CliApp {
         Ok(input.trim_end().to_string())
     }
     pub fn new() -> Self {
-        let cache_path = default_cache_path();
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let mut cache_path = PathBuf::from(home);
+        cache_path.push(".local");
+        cache_path.push("share");
+        cache_path.push("vibe_cli");
+        cache_path.push("commands_cache.bin");
         let system_info_path = Self::default_system_info_path();
         let system_info = Self::load_or_collect_system_info(&system_info_path);
         let config = Config::load();
@@ -560,6 +567,26 @@ impl CliApp {
         let _ = std::fs::write(path, &detected);
 
         detected
+    }
+
+    fn explain_cache_path() -> PathBuf {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let mut path = PathBuf::from(home);
+        path.push(".local");
+        path.push("share");
+        path.push("vibe_cli");
+        path.push("explain_cache.bin");
+        path
+    }
+
+    fn rag_cache_path() -> PathBuf {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let mut path = PathBuf::from(home);
+        path.push(".local");
+        path.push("share");
+        path.push("vibe_cli");
+        path.push("rag_cache.bin");
+        path
     }
 
     async fn handle_ai_agent(&mut self, goal: &str) -> Result<()> {
@@ -790,7 +817,7 @@ impl CliApp {
 
                         // Show minimal tool usage
                         if step_count == 2 && verbose {
-                            let (scanned, analyzed, keywords, _, _) = planner.context_stats();
+                            let (scanned, _analyzed, keywords, _, _) = planner.context_stats();
                             println!("[CONTEXT] Scanned {} files, {} keywords", scanned, keywords);
                         }
 
@@ -2588,7 +2615,7 @@ impl CliApp {
         let prompt = format!("Explain this content in detail:\n\n{}", content);
 
         // Check cache first
-        if let Some(cached_response) = load_cached_explain(&explain_cache_path(), &prompt)? {
+        if let Some(cached_response) = self.load_cached_explain(&prompt)? {
             println!("{}", cached_response);
             if ask_confirmation("Use this cached explanation?", true)? {
                 return Ok(());
@@ -2600,14 +2627,14 @@ impl CliApp {
         let response = client.generate_response(&prompt).await?;
 
         // Cache the response
-        save_cached_explain(&explain_cache_path(), &prompt, &response)?;
+        self.save_cached_explain(&prompt, &response)?;
 
         println!("{}", response);
         Ok(())
     }
 
     async fn handle_rag(&mut self, question: &str, enable_streaming: bool) -> Result<()> {
-        if let Some(cached_response) = load_cached_rag(&rag_cache_path(), question)? {
+        if let Some(cached_response) = self.load_cached_rag(question)? {
             println!("{}", cached_response);
             if ask_confirmation("Use this cached answer?", true)? {
                 return Ok(());
@@ -2616,7 +2643,7 @@ impl CliApp {
 
         if self.rag_service.is_none() {
             eprintln!("Analyzing query and scanning codebase...");
-            let client = OllamaClient::new()?;
+        let _client = OllamaClient::new()?;
             let project_root = find_project_root().unwrap_or_else(|| ".".to_string());
             self.rag_service =
                 Some(application::create_rag_service(&project_root, &self.config.db_path).await?);
@@ -2678,7 +2705,7 @@ impl CliApp {
             }
 
             if ask_confirmation("Satisfied with this response?", true)? {
-                save_cached_rag(&rag_cache_path(), question, &response)?;
+                self.save_cached_rag(question, &response)?;
                 break;
             } else {
                 feedback.clear();
@@ -2760,10 +2787,10 @@ impl CliApp {
         // Ultra-fast cached command lookup with performance monitoring
         GLOBAL_METRICS.start_operation("cache_lookup").await;
         let cache_hit =
-            load_cached(&self.cache_path, &effective_query).is_ok_and(|opt| opt.is_some());
+            Self::load_cached(&self.cache_path, &effective_query).is_ok_and(|opt| opt.is_some());
         GLOBAL_METRICS.end_operation("cache_lookup").await;
 
-        if let Ok(Some(cached_command)) = load_cached(&self.cache_path, &effective_query) {
+        if let Ok(Some(cached_command)) = Self::load_cached(&self.cache_path, &effective_query) {
             // Use enhanced confirmation system based on intent
             let confirmed = match query_intent {
                 CommandIntent::Installation => {
@@ -2807,20 +2834,12 @@ impl CliApp {
                                     output.status.code(),
                                     &stderr,
                                 ) {
-                                    let _ = save_cached(
-                                        &self.cache_path,
-                                        &effective_query,
-                                        &effective_command,
-                                    );
+                                    let _ = Self::save_cached(&self.cache_path, &effective_query, &effective_command);
                                 } else {
                                     println!("{}", format!("Command failed: {}", stderr).red());
                                 }
                             } else {
-                                let _ = save_cached(
-                                    &self.cache_path,
-                                    &effective_query,
-                                    &effective_command,
-                                );
+                                let _ = Self::save_cached(&self.cache_path, &effective_query, &effective_command);
                             }
                         }
                         Err(e) => {
@@ -2857,11 +2876,7 @@ impl CliApp {
                                                 output.status.code(),
                                                 &stderr,
                                             ) {
-                                                let _ = save_cached(
-                                                    &self.cache_path,
-                                                    &effective_query,
-                                                    &effective_command,
-                                                );
+                                let _ = Self::save_cached(&self.cache_path, &effective_query, &effective_command);
                                             } else {
                                                 println!(
                                                     "{}",
@@ -2869,7 +2884,7 @@ impl CliApp {
                                                 );
                                             }
                                         } else {
-                                            let _ = save_cached(
+                                            let _ = Self::save_cached(
                                                 &self.cache_path,
                                                 &effective_query,
                                                 &effective_command,
@@ -3010,7 +3025,7 @@ OUTPUT ONLY THE COMMAND:"#,
         // Validate command syntax before caching
         match validate_command_syntax(&command) {
             Ok(_) => {
-                let _ = save_cached(&self.cache_path, &effective_query, &command);
+                let _ = Self::save_cached(&self.cache_path, &effective_query, &command);
             }
             Err(error_msg) => {
                 eprintln!(
@@ -3064,18 +3079,14 @@ OUTPUT ONLY THE COMMAND:"#,
                                 &effective_command,
                                 output.status.code(),
                                 &stderr,
-                            ) {
-                                let _ = save_cached(
-                                    &self.cache_path,
-                                    &effective_query,
-                                    &effective_command,
-                                );
+                             ) {
+                                let _ = Self::save_cached(&self.cache_path, &effective_query, &effective_command);
                             } else {
                                 println!("{}", format!("Command failed: {}", stderr).red());
                             }
                         } else {
                             let _ =
-                                save_cached(&self.cache_path, &effective_query, &effective_command);
+                                Self::save_cached(&self.cache_path, &effective_query, &effective_command);
                         }
                     }
                     Err(e) => {
@@ -3108,11 +3119,7 @@ OUTPUT ONLY THE COMMAND:"#,
                                             output.status.code(),
                                             &stderr,
                                         ) {
-                                            let _ = save_cached(
-                                                &self.cache_path,
-                                                &effective_query,
-                                                &effective_command,
-                                            );
+                                            let _ = Self::save_cached(&self.cache_path, &effective_query, &effective_command);
                                         } else {
                                             println!(
                                                 "{}",
@@ -3120,11 +3127,7 @@ OUTPUT ONLY THE COMMAND:"#,
                                             );
                                         }
                                     } else {
-                                        let _ = save_cached(
-                                            &self.cache_path,
-                                            &effective_query,
-                                            &effective_command,
-                                        );
+                                            let _ = Self::save_cached(&self.cache_path, &effective_query, &effective_command);
                                     }
                                 }
                                 Err(e) => {
@@ -3456,7 +3459,7 @@ COMMAND:"#,
                 }
 
                 // Cache successful installations
-                let _ = save_cached(&self.cache_path, query, &command);
+                let _ = Self::save_cached(&self.cache_path, query, &command);
             }
             Err(error_msg) => {
                 eprintln!("Generated command has syntax issues: {}", error_msg);
@@ -3707,7 +3710,7 @@ COMMAND:"#,
     }
 
     fn load_cached_explain(&self, prompt: &str) -> Result<Option<String>> {
-        let cache_path = explain_cache_path();
+        let cache_path = Self::explain_cache_path();
         if !cache_path.exists() {
             return Ok(None);
         }
@@ -3739,7 +3742,7 @@ COMMAND:"#,
     }
 
     fn save_cached_explain(&self, prompt: &str, response: &str) -> Result<()> {
-        let cache_path = explain_cache_path();
+        let cache_path = Self::explain_cache_path();
         let mut cache = if cache_path.exists() {
             let data = std::fs::read(&cache_path).unwrap_or_default();
             bincode::deserialize::<ExplainCacheFile>(&data).unwrap_or_default()
@@ -3762,6 +3765,110 @@ COMMAND:"#,
 
         let serialized = serde_json::to_string_pretty(&cache)?;
         std::fs::write(&cache_path, serialized)?;
+
+        Ok(())
+    }
+
+    fn load_cached_rag(&self, question: &str) -> Result<Option<String>> {
+        let cache_path = Self::rag_cache_path();
+        if !cache_path.exists() {
+            return Ok(None);
+        }
+
+        let data = std::fs::read(&cache_path)?;
+        let mut cache: RagCacheFile = bincode::deserialize(&data).unwrap_or_default();
+
+        // Remove expired entries (7 days)
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        cache.entries.retain(|entry| now - entry.timestamp < 604800);
+
+        // Find exact match
+        for entry in &cache.entries {
+            if entry.question == question {
+                return Ok(Some(entry.response.clone()));
+            }
+        }
+        Ok(None)
+    }
+
+    fn save_cached_rag(&self, question: &str, response: &str) -> Result<()> {
+        let cache_path = Self::rag_cache_path();
+        let mut cache = if cache_path.exists() {
+            let data = std::fs::read(&cache_path).unwrap_or_default();
+            bincode::deserialize::<RagCacheFile>(&data).unwrap_or_default()
+        } else {
+            RagCacheFile::default()
+        };
+
+        cache.entries.push(RagCacheEntry {
+            question: question.to_string(),
+            response: response.to_string(),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        });
+
+        if let Some(parent) = cache_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let serialized = bincode::serialize(&cache)?;
+        std::fs::write(&cache_path, serialized)?;
+
+        Ok(())
+    }
+
+    fn load_cached(cache_path: &PathBuf, query: &str) -> Result<Option<String>> {
+        if !cache_path.exists() {
+            return Ok(None);
+        }
+
+        let data = std::fs::read(cache_path)?;
+        let mut cache: CommandCacheFile = bincode::deserialize(&data).unwrap_or_default();
+
+        // Remove expired entries (7 days)
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        cache.entries.retain(|entry| now - entry.timestamp < 604800);
+
+        // Find exact match
+        for entry in &cache.entries {
+            if entry.query == query {
+                return Ok(Some(entry.command.clone()));
+            }
+        }
+        Ok(None)
+    }
+
+    fn save_cached(cache_path: &PathBuf, query: &str, command: &str) -> Result<()> {
+        let mut cache = if cache_path.exists() {
+            let data = std::fs::read(cache_path).unwrap_or_default();
+            bincode::deserialize::<CommandCacheFile>(&data).unwrap_or_default()
+        } else {
+            CommandCacheFile::default()
+        };
+
+        cache.entries.push(CommandCacheEntry {
+            query: query.to_string(),
+            command: command.to_string(),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_secs(),
+        });
+
+        if let Some(parent) = cache_path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+
+        let serialized = bincode::serialize(&cache)?;
+        std::fs::write(cache_path, serialized)?;
 
         Ok(())
     }
@@ -4046,7 +4153,7 @@ COMMAND:"#,
                     target_session
                 );
                 match store.get_or_create_session(&target_session) {
-                    Ok(session) => {
+                    Ok(_session) => {
                         self.current_session = Some(target_session.clone());
                         println!(
                             "{} Created and activated session '{}'",
@@ -4076,7 +4183,7 @@ COMMAND:"#,
     }
 
     /// Handle background events and display them in the UI
-    async fn handle_background_events(mut event_receiver: Receiver<BackgroundEvent>) {
+    async fn handle_background_events(event_receiver: Receiver<BackgroundEvent>) {
         while let Ok(event) = event_receiver.recv_async().await {
             match event {
                 BackgroundEvent::FileChanged { path, change_type } => {
@@ -4093,7 +4200,7 @@ COMMAND:"#,
                     status,
                     output,
                 } => {
-                    let (status_icon, status_str) = match status {
+                    let (status_icon, _status_str) = match status {
                         TestStatus::Started => ("▶️", "started"),
                         TestStatus::Passed => ("✅", "passed"),
                         TestStatus::Failed { .. } => ("❌", "failed"),
@@ -4296,7 +4403,7 @@ COMMAND:"#,
         // Reset to parent commit
         let parent_commit = head_commit.parents().next();
         if let Some(parent) = parent_commit {
-            let parent_oid = parent.id();
+            let _parent_oid = parent.id();
             repo.reset(parent.as_object(), git2::ResetType::Hard, None)
                 .map_err(|e| anyhow::anyhow!("Failed to reset to parent commit: {}", e))?;
             Ok(true)

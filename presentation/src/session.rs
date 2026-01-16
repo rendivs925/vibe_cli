@@ -114,7 +114,7 @@ pub async fn handle_continue_session(
                 target_session
             );
             match store.get_or_create_session(&target_session) {
-                Ok(session) => {
+                Ok(_session) => {
                     *current_session = Some(target_session.clone());
                     println!(
                         "{} Created and activated session '{}'",
@@ -228,7 +228,7 @@ pub async fn git_undo_last_commit() -> Result<bool> {
     // Reset to parent commit
     let parent_commit = head_commit.parents().next();
     if let Some(parent) = parent_commit {
-        let parent_oid = parent.id();
+        let _parent_oid = parent.id();
         repo.reset(parent.as_object(), git2::ResetType::Hard, None)
             .map_err(|e| anyhow::anyhow!("Failed to reset to parent commit: {}", e))?;
         Ok(true)
