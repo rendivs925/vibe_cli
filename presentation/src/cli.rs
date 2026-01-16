@@ -38,41 +38,20 @@ use crate::utils::*;
 // Cache functions are now in the main Config struct
 use crate::session::*;
 
-#[derive(serde::Serialize, serde::Deserialize, Default)]
-struct ExplainCacheFile {
-    entries: Vec<ExplainCacheEntry>,
-}
+// Import refactored CLI modules from cli/ subdirectory
+#[path = "cli/agent.rs"]
+mod cli_agent;
+#[path = "cli/background.rs"]
+mod cli_background;
+#[path = "cli/cache.rs"]
+mod cli_cache;
+#[path = "cli/session.rs"]
+mod cli_session;
+#[path = "cli/utils.rs"]
+mod cli_utils;
 
-#[derive(serde::Serialize, serde::Deserialize)]
-struct ExplainCacheEntry {
-    prompt: String,
-    response: String,
-    timestamp: u64,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Default)]
-struct RagCacheFile {
-    entries: Vec<RagCacheEntry>,
-}
-
-#[derive(serde::Serialize, serde::Deserialize)]
-struct RagCacheEntry {
-    question: String,
-    response: String,
-    timestamp: u64,
-}
-
-#[derive(serde::Serialize, serde::Deserialize, Default)]
-struct CommandCacheFile {
-    entries: Vec<CommandCacheEntry>,
-}
-
-#[derive(serde::Serialize, serde::Deserialize)]
-struct CommandCacheEntry {
-    query: String,
-    command: String,
-    timestamp: u64,
-}
+// Re-export for use in this file
+use cli_cache::{CommandCacheFile, CommandCacheEntry, ExplainCacheFile, ExplainCacheEntry, RagCacheFile, RagCacheEntry};
 
 /// Analyze agent task and generate execution plan
 async fn analyze_agent_task(task: &str) -> Result<AgentPlan> {

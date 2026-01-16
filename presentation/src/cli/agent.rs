@@ -1,8 +1,8 @@
 //! Agent functionality for task analysis and execution planning
 
 use anyhow::{anyhow, Result};
-use crate::agent::{AgentCommandRisk, AgentPlan};
-use crate::analysis::assess_agent_command_risk;
+use super::super::types::{AgentCommandRisk, AgentPlan};
+use super::super::analysis::assess_agent_command_risk;
 
 /// Analyze agent task and generate execution plan
 pub async fn analyze_agent_task(task: &str) -> Result<AgentPlan> {
