@@ -1,7 +1,9 @@
 use domain::models::Embedding;
 use qdrant_client::Qdrant;
 use qdrant_client::qdrant::{
-    PointId, Vectors, PointStruct, Value,
+    PointId, Vectors, PointStruct, Value, CollectionStatus,
+    SearchPoints, UpsertPointsBuilder, ScrollPoints, DeletePointsBuilder,
+    point_id, vectors, value, vectors_output,
 };
 use shared::types::Result;
 use std::collections::HashMap;
@@ -124,33 +126,48 @@ impl QdrantStorage {
             return Ok(());
         }
 
+        let embeddings_len = embeddings.len();
+
         // Convert embeddings to Qdrant points
         let mut points = Vec::new();
 
         for embedding in embeddings {
             // Create payload with metadata
             let mut payload = std::collections::HashMap::new();
-            payload.insert("text".to_string(), Value::String(embedding.text.clone()));
-            payload.insert("path".to_string(), Value::String(embedding.path.clone()));
+            payload.insert("text".to_string(), Value {
+                kind: Some(value::Kind::StringValue(embedding.text.clone())),
+            });
+            payload.insert("path".to_string(), Value {
+                kind: Some(value::Kind::StringValue(embedding.path.clone())),
+            });
 
             let point = PointStruct {
-                id: Some(PointId::Num(embedding.id.parse().unwrap_or(0))),
-                vectors: Some(Vectors::Vector(embedding.vector)),
+                id: Some(PointId {
+                    point_id_options: Some(point_id::PointIdOptions::Num(embedding.id.parse().unwrap_or(0))),
+                }),
+                vectors: Some(Vectors {
+                    vectors_options: Some(vectors::VectorsOptions::Vector(
+                        qdrant_client::qdrant::Vector {
+                            data: embedding.vector,
+                            ..Default::default()
+                        }
+                    )),
+                }),
                 payload,
             };
 
             points.push(point);
         }
 
-        // Use the upsert builder pattern
+        // Use the new upsert API
         let result = self.client
-            .upsert_points_builder(&self.collection_name, points)
+            .upsert_points(UpsertPointsBuilder::new(&self.collection_name, points))
             .await;
 
         match result {
             Ok(_) => {
                 eprintln!("Successfully inserted {} embeddings into Qdrant collection '{}'",
-                         embeddings.len(), self.collection_name);
+                         embeddings_len, self.collection_name);
                 Ok(())
             }
             Err(e) => {
@@ -167,25 +184,33 @@ impl QdrantStorage {
         limit: usize,
     ) -> Result<Vec<Embedding>> {
         let search_result = self.client
-            .search_points_builder(&self.collection_name, query_vector.to_vec())
-            .limit(limit as u64)
-            .build()
+            .search_points(SearchPoints {
+                collection_name: self.collection_name.clone(),
+                vector: query_vector.to_vec(),
+                limit: limit as u64,
+                with_payload: Some(true.into()),
+                with_vectors: Some(true.into()),
+                ..Default::default()
+            })
             .await
             .map_err(|e| anyhow::anyhow!("Failed to search points in Qdrant: {}", e))?;
 
         let mut results = Vec::new();
 
-        for point in search_result {
+        for point in search_result.result {
             let id = match &point.id {
-                Some(PointId::Num(id)) => id.to_string(),
-                Some(PointId::Uuid(id)) => id.to_string(),
-                _ => continue,
+                Some(id) => match &id.point_id_options {
+                    Some(point_id::PointIdOptions::Num(n)) => n.to_string(),
+                    Some(point_id::PointIdOptions::Uuid(u)) => u.to_string(),
+                    None => continue,
+                },
+                None => continue,
             };
 
             let text = point.payload
                 .get("text")
-                .and_then(|v| match v {
-                    Value::String(s) => Some(s.as_str()),
+                .and_then(|v| match &v.kind {
+                    Some(value::Kind::StringValue(s)) => Some(s.as_str()),
                     _ => None,
                 })
                 .unwrap_or("")
@@ -193,16 +218,19 @@ impl QdrantStorage {
 
             let path = point.payload
                 .get("path")
-                .and_then(|v| match v {
-                    Value::String(s) => Some(s.as_str()),
+                .and_then(|v| match &v.kind {
+                    Some(value::Kind::StringValue(s)) => Some(s.as_str()),
                     _ => None,
                 })
                 .unwrap_or("")
                 .to_string();
 
             let vector = match &point.vectors {
-                Some(Vectors::Vector(vec)) => vec.clone(),
-                _ => continue,
+                Some(vectors) => match &vectors.vectors_options {
+                    Some(vectors_output::VectorsOptions::Vector(vec)) => vec.data.clone(),
+                    _ => continue,
+                },
+                None => continue,
             };
 
             results.push(Embedding {
@@ -239,25 +267,32 @@ impl QdrantStorage {
         // Use scroll API to get all points in batches
         loop {
             let scroll_result = self.client
-                .scroll_builder(&self.collection_name)
-                .limit(1000)
-                .offset(offset.clone())
-                .build()
+                .scroll(ScrollPoints {
+                    collection_name: self.collection_name.clone(),
+                    limit: Some(1000),
+                    offset,
+                    with_payload: Some(true.into()),
+                    with_vectors: Some(true.into()),
+                    ..Default::default()
+                })
                 .await
                 .map_err(|e| anyhow::anyhow!("Failed to scroll points in Qdrant: {}", e))?;
 
             // Convert scroll results to embeddings
-            for point in &scroll_result {
+            for point in &scroll_result.result {
                 let id = match &point.id {
-                    Some(PointId::Num(id)) => id.to_string(),
-                    Some(PointId::Uuid(id)) => id.to_string(),
-                    _ => continue,
+                    Some(id) => match &id.point_id_options {
+                        Some(point_id::PointIdOptions::Num(n)) => n.to_string(),
+                        Some(point_id::PointIdOptions::Uuid(u)) => u.to_string(),
+                        None => continue,
+                    },
+                    None => continue,
                 };
 
                 let text = point.payload
                     .get("text")
-                    .and_then(|v| match v {
-                        Value::String(s) => Some(s.as_str()),
+                    .and_then(|v| match &v.kind {
+                        Some(value::Kind::StringValue(s)) => Some(s.as_str()),
                         _ => None,
                     })
                     .unwrap_or("")
@@ -265,16 +300,19 @@ impl QdrantStorage {
 
                 let path = point.payload
                     .get("path")
-                    .and_then(|v| match v {
-                        Value::String(s) => Some(s.as_str()),
+                    .and_then(|v| match &v.kind {
+                        Some(value::Kind::StringValue(s)) => Some(s.as_str()),
                         _ => None,
                     })
                     .unwrap_or("")
                     .to_string();
 
                 let vector = match &point.vectors {
-                    Some(Vectors::Vector(vec)) => vec.clone(),
-                    _ => continue,
+                    Some(vectors) => match &vectors.vectors_options {
+                        Some(vectors_output::VectorsOptions::Vector(vec)) => vec.data.clone(),
+                        _ => continue,
+                    },
+                    None => continue,
                 };
 
                 all_embeddings.push(Embedding {
@@ -300,11 +338,30 @@ impl QdrantStorage {
 
     /// Delete embeddings for a specific path using filter
     pub async fn delete_embeddings_for_path(&self, path: &str) -> Result<()> {
-        // Use delete by filter builder
+        use qdrant_client::qdrant::{Condition, Filter, FieldCondition, Match, r#match};
+
+        // Create a filter for the path field
+        let filter = Filter {
+            must: vec![Condition {
+                condition_one_of: Some(qdrant_client::qdrant::condition::ConditionOneOf::Field(
+                    FieldCondition {
+                        key: "path".to_string(),
+                        r#match: Some(Match {
+                            match_value: Some(r#match::MatchValue::Keyword(path.to_string())),
+                        }),
+                        ..Default::default()
+                    }
+                )),
+            }],
+            ..Default::default()
+        };
+
+        // Use delete by filter
         let result = self.client
-            .delete_points_builder(&self.collection_name)
-            .filter(format!("path == \"{}\"", path))
-            .build()
+            .delete_points(
+                DeletePointsBuilder::new(&self.collection_name)
+                    .points(filter)
+            )
             .await;
 
         match result {
@@ -331,10 +388,11 @@ impl QdrantStorage {
             Ok(info) => {
                 if let Some(result) = info.result {
                     let point_count = result.points_count.unwrap_or(0);
-                    let status = match result.status {
-                        i if i == CollectionStatus::Green as i32 => "healthy",
-                        i if i == CollectionStatus::Yellow as i32 => "degraded",
-                        i if i == CollectionStatus::Red as i32 => "unhealthy",
+                    let status = match CollectionStatus::try_from(result.status) {
+                        Ok(CollectionStatus::Green) => "healthy",
+                        Ok(CollectionStatus::Yellow) => "degraded",
+                        Ok(CollectionStatus::Red) => "unhealthy",
+                        Ok(CollectionStatus::Grey) => "unknown",
                         _ => "unknown",
                     };
 
