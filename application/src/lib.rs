@@ -1,10 +1,13 @@
 pub mod advanced_scheduler;
+pub mod advanced_qdrant;
 pub mod agent_service;
 pub mod build_service;
 pub mod context_aware_validator;
 pub mod dynamic_scaling;
 pub mod explain_service;
 pub mod hallucination_detector;
+pub mod health_monitor;
+pub mod memory_cleanup;
 pub mod parallel_agent;
 pub mod rag_service;
 pub mod result_aggregator;
@@ -89,4 +92,33 @@ pub async fn create_agent_service_with_semantic_memory(
         inference_engine,
         Some(semantic_memory),
     ))
+}
+
+/// Create health monitor for production monitoring
+pub fn create_health_monitor(
+    qdrant_url: &str,
+    semantic_memory: Option<std::sync::Arc<semantic_memory::SemanticMemoryService>>,
+) -> health_monitor::HealthMonitor {
+    health_monitor::HealthMonitor::new(qdrant_url.to_string(), semantic_memory)
+}
+
+/// Create memory cleanup service with default policies
+pub fn create_memory_cleanup_service(
+    semantic_memory: std::sync::Arc<semantic_memory::SemanticMemoryService>,
+) -> memory_cleanup::MemoryCleanupService {
+    let policy = memory_cleanup::CleanupPolicy::default();
+    memory_cleanup::MemoryCleanupService::new(semantic_memory, policy)
+}
+
+/// Create memory cleanup service with custom policies
+pub fn create_memory_cleanup_service_with_policy(
+    semantic_memory: std::sync::Arc<semantic_memory::SemanticMemoryService>,
+    policy: memory_cleanup::CleanupPolicy,
+) -> memory_cleanup::MemoryCleanupService {
+    memory_cleanup::MemoryCleanupService::new(semantic_memory, policy)
+}
+
+/// Create advanced Qdrant manager for production optimization
+pub fn create_advanced_qdrant_manager(qdrant_url: &str) -> advanced_qdrant::AdvancedQdrantManager {
+    advanced_qdrant::AdvancedQdrantManager::new(qdrant_url)
 }
