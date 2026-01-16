@@ -201,7 +201,7 @@ impl MemoryCleanupService {
     async fn get_all_memories_with_timestamps(&self) -> Result<Vec<(String, SystemTime)>> {
         // This is a simplified implementation
         // In production, you'd use Qdrant's scroll API for efficient pagination
-        let all_embeddings = self.semantic_memory.qdrant.get_all_embeddings().await?;
+        let all_embeddings = self.semantic_memory.get_all_embeddings().await?;
 
         let mut memories_with_timestamps = Vec::new();
 
@@ -218,7 +218,7 @@ impl MemoryCleanupService {
 
     /// Helper: Get conversation sizes
     async fn get_conversation_sizes(&self) -> Result<HashMap<String, usize>> {
-        let all_embeddings = self.semantic_memory.qdrant.get_all_embeddings().await?;
+        let all_embeddings = self.semantic_memory.get_all_embeddings().await?;
         let mut sizes = HashMap::new();
 
         for embedding in all_embeddings {
@@ -232,7 +232,7 @@ impl MemoryCleanupService {
 
     /// Helper: Get conversation last activity times
     async fn get_conversation_ages(&self) -> Result<HashMap<String, SystemTime>> {
-        let all_embeddings = self.semantic_memory.qdrant.get_all_embeddings().await?;
+        let all_embeddings = self.semantic_memory.get_all_embeddings().await?;
         let mut ages = HashMap::new();
 
         for embedding in all_embeddings {
@@ -298,7 +298,7 @@ impl MemoryCleanupService {
     async fn delete_memory_by_id(&self, id: &str) -> Result<()> {
         // This is a simplified deletion - in production you'd implement proper deletion
         // For now, we'll use a placeholder path that matches the memory
-        self.semantic_memory.qdrant.delete_embeddings_for_path(&format!("memory/{}", id)).await
+        self.semantic_memory.delete_embeddings_for_path(&format!("memory/{}", id)).await
     }
 }
 
