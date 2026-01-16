@@ -245,6 +245,197 @@ impl QdrantStorage {
         Ok(results)
     }
 
+    /// Search for similar embeddings with metadata filtering
+    pub async fn search_with_filter(
+        &self,
+        query_vector: &[f32],
+        limit: usize,
+        filter_key: &str,
+        filter_value: &str,
+    ) -> Result<Vec<Embedding>> {
+        use qdrant_client::qdrant::{Condition, Filter, FieldCondition, Match, r#match};
+
+        // Create a filter for the specified field
+        let filter = Filter {
+            must: vec![Condition {
+                condition_one_of: Some(qdrant_client::qdrant::condition::ConditionOneOf::Field(
+                    FieldCondition {
+                        key: filter_key.to_string(),
+                        r#match: Some(Match {
+                            match_value: Some(r#match::MatchValue::Keyword(filter_value.to_string())),
+                        }),
+                        ..Default::default()
+                    }
+                )),
+            }],
+            ..Default::default()
+        };
+
+        let search_result = self.client
+            .search_points(SearchPoints {
+                collection_name: self.collection_name.clone(),
+                vector: query_vector.to_vec(),
+                limit: limit as u64,
+                filter: Some(filter),
+                with_payload: Some(true.into()),
+                with_vectors: Some(true.into()),
+                ..Default::default()
+            })
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to search points with filter in Qdrant: {}", e))?;
+
+        let mut results = Vec::new();
+
+        for point in search_result.result {
+            let id = match &point.id {
+                Some(id) => match &id.point_id_options {
+                    Some(point_id::PointIdOptions::Num(n)) => n.to_string(),
+                    Some(point_id::PointIdOptions::Uuid(u)) => u.to_string(),
+                    None => continue,
+                },
+                None => continue,
+            };
+
+            let text = point.payload
+                .get("text")
+                .and_then(|v| match &v.kind {
+                    Some(value::Kind::StringValue(s)) => Some(s.as_str()),
+                    _ => None,
+                })
+                .unwrap_or("")
+                .to_string();
+
+            let path = point.payload
+                .get("path")
+                .and_then(|v| match &v.kind {
+                    Some(value::Kind::StringValue(s)) => Some(s.as_str()),
+                    _ => None,
+                })
+                .unwrap_or("")
+                .to_string();
+
+            let vector = match &point.vectors {
+                Some(vectors) => match &vectors.vectors_options {
+                    Some(vectors_output::VectorsOptions::Vector(vec)) => vec.data.clone(),
+                    _ => continue,
+                },
+                None => continue,
+            };
+
+            results.push(Embedding {
+                id,
+                vector,
+                text,
+                path,
+            });
+        }
+
+        eprintln!("Qdrant filtered search completed - found {} embeddings", results.len());
+        Ok(results)
+    }
+
+    /// Get embeddings by path prefix (useful for retrieving all conversation memories)
+    pub async fn get_embeddings_by_path_prefix(&self, path_prefix: &str, limit: usize) -> Result<Vec<Embedding>> {
+        use qdrant_client::qdrant::{Condition, Filter, FieldCondition, Match, r#match};
+
+        // Create a filter for path prefix matching
+        let filter = Filter {
+            must: vec![Condition {
+                condition_one_of: Some(qdrant_client::qdrant::condition::ConditionOneOf::Field(
+                    FieldCondition {
+                        key: "path".to_string(),
+                        r#match: Some(Match {
+                            match_value: Some(r#match::MatchValue::Text(path_prefix.to_string())),
+                        }),
+                        ..Default::default()
+                    }
+                )),
+            }],
+            ..Default::default()
+        };
+
+        let mut all_embeddings = Vec::new();
+        let mut offset = None;
+
+        // Use scroll API with filter to get matching points in batches
+        loop {
+            let scroll_result = self.client
+                .scroll(ScrollPoints {
+                    collection_name: self.collection_name.clone(),
+                    limit: Some(limit.min(1000) as u32),
+                    offset,
+                    filter: Some(filter.clone()),
+                    with_payload: Some(true.into()),
+                    with_vectors: Some(true.into()),
+                    ..Default::default()
+                })
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to scroll points with filter in Qdrant: {}", e))?;
+
+            // Convert scroll results to embeddings
+            for point in &scroll_result.result {
+                let id = match &point.id {
+                    Some(id) => match &id.point_id_options {
+                        Some(point_id::PointIdOptions::Num(n)) => n.to_string(),
+                        Some(point_id::PointIdOptions::Uuid(u)) => u.to_string(),
+                        None => continue,
+                    },
+                    None => continue,
+                };
+
+                let text = point.payload
+                    .get("text")
+                    .and_then(|v| match &v.kind {
+                        Some(value::Kind::StringValue(s)) => Some(s.as_str()),
+                        _ => None,
+                    })
+                    .unwrap_or("")
+                    .to_string();
+
+                let path = point.payload
+                    .get("path")
+                    .and_then(|v| match &v.kind {
+                        Some(value::Kind::StringValue(s)) => Some(s.as_str()),
+                        _ => None,
+                    })
+                    .unwrap_or("")
+                    .to_string();
+
+                // Additional client-side filtering for prefix matching
+                if path.starts_with(path_prefix) {
+                    let vector = match &point.vectors {
+                        Some(vectors) => match &vectors.vectors_options {
+                            Some(vectors_output::VectorsOptions::Vector(vec)) => vec.data.clone(),
+                            _ => continue,
+                        },
+                        None => continue,
+                    };
+
+                    all_embeddings.push(Embedding {
+                        id,
+                        vector,
+                        text,
+                        path,
+                    });
+                }
+
+                if all_embeddings.len() >= limit {
+                    break;
+                }
+            }
+
+            // Check if we have enough results or no more pages
+            if all_embeddings.len() >= limit || scroll_result.next_page_offset.is_none() {
+                break;
+            }
+
+            offset = scroll_result.next_page_offset;
+        }
+
+        eprintln!("Retrieved {} embeddings with path prefix '{}'", all_embeddings.len(), path_prefix);
+        Ok(all_embeddings)
+    }
+
     /// Get file hash (not implemented - would need separate metadata collection)
     pub async fn get_file_hash(&self, _path: &str) -> Result<Option<String>> {
         // File hash management would require a separate collection or metadata storage

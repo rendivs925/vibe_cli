@@ -168,18 +168,25 @@ impl SemanticMemoryService {
 
     /// Get conversation history for a specific conversation
     pub async fn get_conversation_history(&self, conversation_id: &str) -> Result<Vec<ConversationMemory>> {
-        // Use Qdrant filtering to get all messages for this conversation
-        // For now, we'll retrieve with a dummy query and filter by conversation_id
-        // TODO: Implement proper metadata filtering in QdrantStorage
+        // Use Qdrant path prefix filtering to get all messages for this conversation
+        let path_prefix = format!("conversation/{}/", conversation_id);
+        let results = self.qdrant.get_embeddings_by_path_prefix(&path_prefix, 1000).await?;
 
-        let dummy_query = "conversation"; // This will match all conversation memories
-        let all_memories = self.retrieve_relevant_memories(dummy_query, Some(conversation_id), 1000).await?;
+        let mut conversation_memories = Vec::new();
+
+        for result in results {
+            // Parse the stored memory data
+            match serde_json::from_str::<ConversationMemory>(&result.text) {
+                Ok(memory) => {
+                    conversation_memories.push(memory);
+                }
+                Err(e) => {
+                    eprintln!("Failed to parse conversation memory: {}", e);
+                }
+            }
+        }
 
         // Sort by message index to maintain chronological order
-        let mut conversation_memories = all_memories.into_iter()
-            .filter(|m| m.conversation_id == conversation_id)
-            .collect::<Vec<_>>();
-
         conversation_memories.sort_by_key(|m| m.message_index);
 
         Ok(conversation_memories)
@@ -204,20 +211,41 @@ impl SemanticMemoryService {
         Ok(())
     }
 
-    /// Get memory statistics
-    pub async fn get_memory_stats(&self) -> Result<(usize, usize)> {
+    /// Get memory statistics including age tracking
+    pub async fn get_memory_stats(&self) -> Result<(usize, usize, Option<i64>, Option<i64>)> {
         // Get total count from Qdrant
         let all_embeddings = self.get_all_embeddings().await?;
         let total_memories = all_embeddings.len();
 
-        // Count unique conversations
+        // Count unique conversations and track timestamps
         let mut conversation_ids = std::collections::HashSet::new();
+        let mut oldest_timestamp: Option<i64> = None;
+        let mut newest_timestamp: Option<i64> = None;
+
         for embedding in all_embeddings {
             if let Ok(memory) = serde_json::from_str::<ConversationMemory>(&embedding.text) {
                 conversation_ids.insert(memory.conversation_id);
+
+                // Track oldest timestamp
+                if let Some(current_oldest) = oldest_timestamp {
+                    if memory.timestamp < current_oldest {
+                        oldest_timestamp = Some(memory.timestamp);
+                    }
+                } else {
+                    oldest_timestamp = Some(memory.timestamp);
+                }
+
+                // Track newest timestamp
+                if let Some(current_newest) = newest_timestamp {
+                    if memory.timestamp > current_newest {
+                        newest_timestamp = Some(memory.timestamp);
+                    }
+                } else {
+                    newest_timestamp = Some(memory.timestamp);
+                }
             }
         }
 
-        Ok((total_memories, conversation_ids.len()))
+        Ok((total_memories, conversation_ids.len(), oldest_timestamp, newest_timestamp))
     }
 }

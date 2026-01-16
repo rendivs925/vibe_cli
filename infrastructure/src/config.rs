@@ -1072,21 +1072,134 @@ impl PluginManager {
 
     /// Load external plugins from configured paths
     pub async fn load_external(&mut self) -> Result<(), Box<dyn std::error::Error>> {
-        // TODO: Implement loading external plugins (shared libraries, WASM, etc.)
-        // For now, this is a placeholder
+        use std::fs;
 
-        for path in &self.config.paths {
+        // Clone paths to avoid borrow checker issues
+        let paths = self.config.paths.clone();
+
+        for path in &paths {
             let expanded_path = shellexpand::tilde(path).to_string();
-            let plugin_dir = PathBuf::from(expanded_path);
+            let plugin_dir = PathBuf::from(&expanded_path);
 
-            if plugin_dir.exists() && plugin_dir.is_dir() {
-                // Look for plugin files in the directory
-                // This would load .so, .dll, .wasm files, etc.
-                // Implementation depends on the plugin format chosen
+            if !plugin_dir.exists() {
+                eprintln!("Plugin directory does not exist: {}", expanded_path);
+                continue;
+            }
+
+            if !plugin_dir.is_dir() {
+                eprintln!("Plugin path is not a directory: {}", expanded_path);
+                continue;
+            }
+
+            // Scan directory for plugin manifest files
+            // We look for .plugin.toml files that describe external plugins
+            match fs::read_dir(&plugin_dir) {
+                Ok(entries) => {
+                    for entry in entries.flatten() {
+                        let path = entry.path();
+
+                        // Look for plugin manifest files
+                        if let Some(file_name) = path.file_name() {
+                            if let Some(name_str) = file_name.to_str() {
+                                if name_str.ends_with(".plugin.toml") {
+                                    match self.load_external_plugin_from_manifest(&path).await {
+                                        Ok(plugin_name) => {
+                                            println!("Loaded external plugin: {}", plugin_name);
+                                        }
+                                        Err(e) => {
+                                            eprintln!("Failed to load plugin from {}: {}", path.display(), e);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Failed to read plugin directory {}: {}", expanded_path, e);
+                }
             }
         }
 
         Ok(())
+    }
+
+    /// Load an external plugin from a manifest file
+    async fn load_external_plugin_from_manifest(&mut self, manifest_path: &PathBuf) -> Result<String, Box<dyn std::error::Error>> {
+        use std::fs;
+
+        // Read the manifest file
+        let manifest_content = fs::read_to_string(manifest_path)?;
+
+        // Parse the manifest as TOML
+        let manifest: toml::Value = toml::from_str(&manifest_content)?;
+
+        // Extract plugin metadata
+        let plugin_table = manifest.as_table()
+            .ok_or("Invalid manifest: root must be a table")?;
+
+        let name = plugin_table.get("name")
+            .and_then(|v| v.as_str())
+            .ok_or("Plugin manifest missing 'name' field")?;
+
+        let version = plugin_table.get("version")
+            .and_then(|v| v.as_str())
+            .unwrap_or("0.0.0");
+
+        let description = plugin_table.get("description")
+            .and_then(|v| v.as_str())
+            .unwrap_or("No description");
+
+        let plugin_type = plugin_table.get("type")
+            .and_then(|v| v.as_str())
+            .ok_or("Plugin manifest missing 'type' field")?;
+
+        // For now, we support script-based plugins (shell, python, etc.)
+        // Future: Add support for native libraries (.so, .dll, .dylib) and WASM
+        match plugin_type {
+            "script" => {
+                let script_path = plugin_table.get("script")
+                    .and_then(|v| v.as_str())
+                    .ok_or("Script plugin missing 'script' field")?;
+
+                let commands = plugin_table.get("commands")
+                    .and_then(|v| v.as_array())
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|v| v.as_str())
+                            .map(String::from)
+                            .collect::<Vec<_>>()
+                    })
+                    .unwrap_or_default();
+
+                // Create a script-based plugin wrapper
+                let plugin = ScriptPlugin::new(
+                    name.to_string(),
+                    version.to_string(),
+                    description.to_string(),
+                    script_path.to_string(),
+                    commands,
+                );
+
+                self.plugins.insert(name.to_string(), Arc::new(plugin));
+                Ok(name.to_string())
+            }
+            "native" => {
+                // Future: Implement native library loading using libloading crate
+                // This would require:
+                // 1. Loading the shared library (.so, .dll, .dylib)
+                // 2. Looking up the plugin entry point function
+                // 3. Creating a wrapper that implements the Plugin trait
+                Err("Native plugins not yet supported. Use script plugins instead.".into())
+            }
+            "wasm" => {
+                // Future: Implement WASM plugin loading using wasmer or wasmtime
+                Err("WASM plugins not yet supported. Use script plugins instead.".into())
+            }
+            _ => {
+                Err(format!("Unknown plugin type: {}", plugin_type).into())
+            }
+        }
     }
 
     /// Initialize all loaded plugins
@@ -1127,6 +1240,109 @@ impl PluginManager {
     /// List all loaded plugins
     pub fn list_plugins(&self) -> Vec<String> {
         self.plugins.keys().cloned().collect()
+    }
+}
+
+/// Script-based plugin wrapper for external plugins
+struct ScriptPlugin {
+    name: String,
+    version: String,
+    description: String,
+    script_path: String,
+    commands: Vec<String>,
+}
+
+impl ScriptPlugin {
+    fn new(
+        name: String,
+        version: String,
+        description: String,
+        script_path: String,
+        commands: Vec<String>,
+    ) -> Self {
+        Self {
+            name,
+            version,
+            description,
+            script_path,
+            commands,
+        }
+    }
+}
+
+#[async_trait::async_trait]
+impl Plugin for ScriptPlugin {
+    fn name(&self) -> &str {
+        &self.name
+    }
+
+    fn version(&self) -> &str {
+        &self.version
+    }
+
+    fn description(&self) -> &str {
+        &self.description
+    }
+
+    async fn initialize(
+        &mut self,
+        _config: &HashMap<String, String>,
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        // Verify script exists and is executable
+        let script_path = PathBuf::from(&self.script_path);
+        if !script_path.exists() {
+            return Err(format!("Script not found: {}", self.script_path).into());
+        }
+
+        // On Unix systems, check if executable
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let metadata = std::fs::metadata(&script_path)?;
+            let permissions = metadata.permissions();
+            if permissions.mode() & 0o111 == 0 {
+                return Err(format!("Script is not executable: {}", self.script_path).into());
+            }
+        }
+
+        Ok(())
+    }
+
+    async fn execute(
+        &self,
+        command: &str,
+        args: Vec<String>,
+    ) -> Result<String, Box<dyn std::error::Error>> {
+        use std::process::Command;
+
+        // Execute the script with the command and arguments
+        let mut cmd = Command::new(&self.script_path);
+        cmd.arg(command);
+        cmd.args(&args);
+
+        let output = cmd.output()?;
+
+        if output.status.success() {
+            let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+            Ok(stdout)
+        } else {
+            let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+            Err(format!("Script execution failed: {}", stderr).into())
+        }
+    }
+
+    fn can_handle(&self, command: &str) -> bool {
+        self.commands.contains(&command.to_string())
+    }
+
+    fn help(&self) -> String {
+        format!(
+            "{} (v{}) - {}\nCommands: {}",
+            self.name,
+            self.version,
+            self.description,
+            self.commands.join(", ")
+        )
     }
 }
 

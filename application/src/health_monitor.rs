@@ -91,19 +91,39 @@ impl HealthMonitor {
         // Check semantic memory if available
         if let Some(memory) = &self.semantic_memory {
             match memory.get_memory_stats().await {
-                Ok((total_memories, total_conversations)) => {
+                Ok((total_memories, total_conversations, oldest_timestamp, newest_timestamp)) => {
                     let avg_memories = if total_conversations > 0 {
                         total_memories as f64 / total_conversations as f64
                     } else {
                         0.0
                     };
 
+                    // Calculate age in days for oldest memory
+                    let oldest_memory_age_days = oldest_timestamp.map(|ts| {
+                        let current_time = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs() as i64;
+                        let age_seconds = current_time - ts;
+                        age_seconds as f64 / 86400.0 // Convert seconds to days
+                    });
+
+                    // Calculate age in seconds for newest memory
+                    let newest_memory_age_seconds = newest_timestamp.map(|ts| {
+                        let current_time = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .unwrap_or_default()
+                            .as_secs() as i64;
+                        let age_seconds = current_time - ts;
+                        age_seconds as f64
+                    });
+
                     status.memory_stats = Some(MemoryStats {
                         total_memories,
                         total_conversations,
                         average_memories_per_conversation: avg_memories,
-                        oldest_memory_age_days: None, // TODO: implement age tracking
-                        newest_memory_age_seconds: None,
+                        oldest_memory_age_days,
+                        newest_memory_age_seconds,
                     });
 
                     // Degrade health if memory stats look concerning
