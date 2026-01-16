@@ -36,6 +36,7 @@ pub type RagService = crate::rag_service::RagService;
 pub struct AgentService {
     pub inference_engine: infrastructure::InferenceEngine,
     pub rag_service: Option<Arc<RagService>>,
+    pub semantic_memory: Option<Arc<crate::semantic_memory::SemanticMemoryService>>,
     pub config: Config,
     pub agent_controller: AgentController,
     pub failure_handler: SafeFailureHandler,
@@ -1056,6 +1057,26 @@ impl AgentService {
         Self {
             inference_engine,
             rag_service: None,
+            semantic_memory: None,
+            config: Config::load(),
+            agent_controller: AgentController::new(),
+            failure_handler: SafeFailureHandler::new(),
+            system_context,
+        }
+    }
+
+    /// Create agent service with semantic memory support
+    pub fn new_with_semantic_memory(
+        inference_engine: infrastructure::InferenceEngine,
+        semantic_memory: Option<Arc<crate::semantic_memory::SemanticMemoryService>>,
+    ) -> Self {
+        println!("📊 Gathering system context...");
+        let system_context = infrastructure::config::SystemContext::gather();
+
+        Self {
+            inference_engine,
+            rag_service: None,
+            semantic_memory,
             config: Config::load(),
             agent_controller: AgentController::new(),
             failure_handler: SafeFailureHandler::new(),
@@ -1088,7 +1109,8 @@ impl AgentService {
 
         Self {
             inference_engine,
-            rag_service: Some(rag_service),
+            rag_service: None,
+            semantic_memory: None,
             config: Config::load(),
             agent_controller: AgentController::new(),
             failure_handler: SafeFailureHandler::new(),
@@ -2446,8 +2468,57 @@ Respond now."#,
             working_memory: std::collections::HashMap::new(),
         };
 
-        // Seed conversation with request context if you have it.
-        // If `AgentRequest` has history/messages, adapt this block accordingly.
+        // Retrieve relevant conversation memories if semantic memory is available
+        if let Some(semantic_memory) = &self.semantic_memory {
+            if let Some(conversation_id) = &request.conversation_id {
+                println!("🧠 Retrieving conversation history for: {}", conversation_id);
+                match semantic_memory.get_conversation_history(conversation_id).await {
+                    Ok(memories) => {
+                        println!("📚 Retrieved {} conversation memories", memories.len());
+                        // Convert memories back to conversation messages
+                        for memory in memories {
+                            agent_context.conversation_history.push(ConversationMessage {
+                                role: memory.role,
+                                content: memory.content,
+                                tool_calls: memory.tool_calls,
+                                tool_call_id: memory.tool_call_id,
+                            });
+                        }
+                    }
+                    Err(e) => {
+                        println!("⚠️ Failed to retrieve conversation history: {}", e);
+                    }
+                }
+            } else {
+                // No conversation ID, try to find relevant past conversations
+                println!("🧠 Searching for relevant conversation context...");
+                match semantic_memory.retrieve_relevant_memories(goal, None, 5).await {
+                    Ok(memories) => {
+                        if !memories.is_empty() {
+                            println!("📚 Found {} relevant conversation memories", memories.len());
+                            // Add relevant memories as system context
+                            for memory in memories {
+                                let context_message = format!(
+                                    "Previous conversation context ({}): {}",
+                                    memory.role, memory.content
+                                );
+                                agent_context.conversation_history.push(ConversationMessage {
+                                    role: "system".to_string(),
+                                    content: context_message,
+                                    tool_calls: None,
+                                    tool_call_id: None,
+                                });
+                            }
+                        }
+                    }
+                    Err(e) => {
+                        println!("⚠️ Failed to search conversation memories: {}", e);
+                    }
+                }
+            }
+        }
+
+        // Seed conversation with current user request
         agent_context
             .conversation_history
             .push(ConversationMessage {
@@ -2545,6 +2616,15 @@ Respond now."#,
                 resource_usage: infrastructure::agent_control::ResourceUsageStats::default(),
             });
 
+            // Store complete conversation in semantic memory if available
+            if let Some(semantic_memory) = &self.semantic_memory {
+                if let Some(conversation_id) = &request.conversation_id {
+                    if let Err(e) = semantic_memory.store_conversation(&agent_context, conversation_id).await {
+                        println!("⚠️ Failed to store complete conversation in semantic memory: {}", e);
+                    }
+                }
+            }
+
             // Check convergence - for now, always continue if we have iterations left
             if execution_state.iteration_count >= max_iters {
                 return Ok((
@@ -2579,6 +2659,27 @@ Respond now."#,
                     tool_calls: None,
                     tool_call_id: None,
                 });
+
+            // Store conversation messages in semantic memory if available
+            if let Some(semantic_memory) = &self.semantic_memory {
+                if let Some(conversation_id) = &request.conversation_id {
+                    let message_index = agent_context.conversation_history.len() - 1;
+                    if let Some(message) = agent_context.conversation_history.last() {
+                        if let Err(e) = semantic_memory.store_message(conversation_id, message_index, message).await {
+                            println!("⚠️ Failed to store conversation message in semantic memory: {}", e);
+                        }
+                    }
+                }
+            }
+        }
+
+        // Store complete conversation in semantic memory if available
+        if let Some(semantic_memory) = &self.semantic_memory {
+            if let Some(conversation_id) = &request.conversation_id {
+                if let Err(e) = semantic_memory.store_conversation(&agent_context, conversation_id).await {
+                    println!("⚠️ Failed to store complete conversation in semantic memory: {}", e);
+                }
+            }
         }
 
         // Max iteration hit: return best-effort

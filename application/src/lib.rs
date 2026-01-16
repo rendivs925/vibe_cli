@@ -9,6 +9,7 @@ pub mod parallel_agent;
 pub mod rag_service;
 pub mod result_aggregator;
 pub mod safety_service;
+pub mod semantic_memory;
 pub mod streaming_agent;
 pub mod task_decomposer;
 pub mod transaction;
@@ -62,4 +63,30 @@ pub async fn create_rag_service_with_qdrant(
         rag_service::RagService::new(root_path, db_path, qdrant_url, inference_engine, config).await?;
 
     Ok(rag_service)
+}
+
+/// Create agent service with semantic memory support
+pub async fn create_agent_service_with_semantic_memory(
+    qdrant_url: &str,
+) -> shared::types::Result<agent_service::AgentService> {
+    use infrastructure::{ollama_client::OllamaClient, InferenceEngine, embedder::Embedder};
+    use std::sync::Arc;
+
+    // Create Ollama inference engine
+    let ollama_client = OllamaClient::new()?;
+    let inference_engine = InferenceEngine::Ollama(ollama_client);
+
+    // Create embedder for semantic memory
+    let embedder = Arc::new(Embedder::new_with_inference_engine(inference_engine.clone()));
+
+    // Create semantic memory service
+    let semantic_memory = Arc::new(
+        semantic_memory::SemanticMemoryService::new(qdrant_url, embedder).await?
+    );
+
+    // Create agent service with semantic memory
+    Ok(agent_service::AgentService::new_with_semantic_memory(
+        inference_engine,
+        Some(semantic_memory),
+    ))
 }
