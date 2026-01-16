@@ -9,7 +9,6 @@ pub fn prompt_data_collection_confirmation(
     risk: CommandRisk,
 ) -> anyhow::Result<bool> {
     // println!("DATA COLLECTION REQUIRED");
-    println!();
     println!("{}", format!("Command: {}", command).green());
 
     // Determine purpose based on query content
@@ -41,7 +40,6 @@ pub fn prompt_data_collection_confirmation(
     };
 
     // println!("Safety: {}", safety_desc);
-    println!();
 
     shared::confirmation::ask_confirmation(
         "Allow command execution?",
@@ -150,4 +148,3 @@ pub fn analyze_installation_command(command: &str) -> (Vec<String>, Vec<String>,
 
     (packages, services, disk_space)
 }
-
