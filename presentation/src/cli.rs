@@ -45,6 +45,10 @@ mod cli_agent;
 mod cli_background;
 #[path = "cli/cache.rs"]
 mod cli_cache;
+#[path = "cli/chat.rs"]
+mod cli_chat;
+#[path = "cli/rag.rs"]
+mod cli_rag;
 #[path = "cli/session.rs"]
 mod cli_session;
 #[path = "cli/utils.rs"]
