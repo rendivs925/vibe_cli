@@ -1,7 +1,6 @@
 pub mod agent_control;
 pub mod ast_parser;
 pub mod background_supervisor;
-pub mod candle_inference;
 pub mod chatgpt_browser;
 pub mod chatgpt_ocr;
 pub mod command_interpreter;
@@ -36,11 +35,10 @@ pub mod test_watcher;
 pub mod tools;
 pub mod web_search;
 
-/// Common inference enum for different backends (Candle, Ollama, etc.)
+/// Common inference enum for different backends (Ollama, etc.)
 #[derive(Clone)]
 pub enum InferenceEngine {
     Ollama(ollama_client::OllamaClient),
-    Candle(candle_inference::CandleInferenceService),
 }
 
 impl InferenceEngine {
@@ -48,7 +46,6 @@ impl InferenceEngine {
     pub async fn generate(&self, prompt: &str) -> shared::types::Result<String> {
         match self {
             InferenceEngine::Ollama(client) => client.generate_response(prompt).await,
-            InferenceEngine::Candle(service) => service.generate(prompt).await,
         }
     }
 
@@ -56,7 +53,6 @@ impl InferenceEngine {
     pub async fn generate_embeddings(&self, text: &str) -> shared::types::Result<Vec<f32>> {
         match self {
             InferenceEngine::Ollama(client) => client.generate_embedding(text).await,
-            InferenceEngine::Candle(service) => service.generate_embeddings(text).await,
         }
     }
 
@@ -71,11 +67,6 @@ impl InferenceEngine {
     {
         match self {
             InferenceEngine::Ollama(client) => client.generate_response_streaming(prompt, on_chunk).await,
-            InferenceEngine::Candle(service) => {
-                // For Candle, we fall back to non-streaming for now
-                // TODO: Implement streaming for Candle inference
-                service.generate(prompt).await
-            }
         }
     }
 
@@ -88,19 +79,6 @@ impl InferenceEngine {
                 backend: "Ollama".to_string(),
                 device: "Remote".to_string(),
             },
-            InferenceEngine::Candle(service) => {
-                let info = service.get_model_info().await;
-                ModelInfo {
-                    model_id: info.model_id,
-                    architecture: format!("{:?}", info.architecture),
-                    backend: "Candle".to_string(),
-                    device: if service.config().use_gpu {
-                        "GPU".to_string()
-                    } else {
-                        "CPU".to_string()
-                    },
-                }
-            }
         }
     }
 }

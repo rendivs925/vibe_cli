@@ -663,7 +663,6 @@ impl CliApp {
 
         // Initialize enhanced agent for planning
         let client = OllamaClient::new()?;
-        // Use Candle by default instead of Ollama
         let agent_service = application::create_agent_service().await?;
 
         // Create agent request for planning with full context
