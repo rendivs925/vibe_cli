@@ -18,14 +18,14 @@ The system prioritizes security while offering powerful automation features for 
 
 ## Key Features
 
-### 🔒 Security First
+### Security First
 - **Ultra-safe execution**: Blocks dangerous commands while allowing essential system operations
 - **Content sanitization**: Prevents prompt injection and malicious input
 - **Secrets detection**: Automatically masks sensitive information
 - **Sandbox isolation**: Controlled command execution environment
 - **Two-level confirmations**: Separate approval for intent and safety overrides
 
-### 🤖 AI-Powered Intelligence
+### AI-Powered Intelligence
 - **Natural language processing**: Convert descriptions to precise shell commands
 - **System information processing**: AI-processed answers for "what's my GPU?", "how much RAM?"
 - **Installation capabilities**: Safe package and service installation with dependency analysis
@@ -33,7 +33,7 @@ The system prioritizes security while offering powerful automation features for 
 - **Context-aware responses**: RAG system with codebase embeddings
 - **Intelligent caching**: Semantic similarity matching with bincode optimization
 
-### ⚡ High Performance
+### High Performance
 - **Async architecture**: Non-blocking operations throughout
 - **Memory-mapped I/O**: Efficient file processing
 - **Parallel processing**: Concurrent scanning and embedding generation
@@ -513,32 +513,32 @@ spec:
 
 ### v2.0 Features
 
-#### 🤖 Enhanced Multi-Step Agent Workflow
+#### Enhanced Multi-Step Agent Workflow
 - **Intelligent task planning** with dependency analysis
 - **Safety assessment** for each execution step
 - **Progress tracking** with real-time status updates
 - **Error recovery** with automated retry strategies
 - **Execution modes**: Complete, step-by-step, and dry-run
 
-#### 📊 System Information Processing
+#### System Information Processing
 - **AI-powered answers** to system queries ("what's my GPU?", "how much RAM?")
 - **Human-readable output** instead of raw command results
 - **Confidence scoring** with progressive detail disclosure
 - **Safety-first execution** with user confirmations
 
-#### 📦 Installation & Setup System
+#### Installation & Setup System
 - **Package installation** with dependency analysis
 - **Service configuration** with safety checks
 - **Post-installation guidance** and next-step suggestions
 - **Safety policy integration** with override capabilities
 
-#### 🔒 Advanced Security Features
+#### Advanced Security Features
 - **Two-level confirmations** for intent and safety override
 - **Command risk classification** (Info, Safe, Network, System, Destructive)
 - **Safety policy system** with customizable rules
 - **Audit logging** for compliance and debugging
 
-#### 🎨 Clean Interface Design
+#### Clean Interface Design
 - **Text-only interface** with no emoji dependencies
 - **Universal terminal compatibility** across all environments
 - **Structured output** with clear visual hierarchy
