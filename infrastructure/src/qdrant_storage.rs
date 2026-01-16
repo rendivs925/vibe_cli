@@ -1,8 +1,7 @@
 use domain::models::Embedding;
 use qdrant_client::Qdrant;
 use qdrant_client::qdrant::{
-    Distance, PointStruct, SearchPoints, Filter, FieldCondition, Match, Condition,
-    CollectionStatus,
+    PointId, Vectors, PointStruct, Value,
 };
 use shared::types::Result;
 use std::collections::HashMap;
@@ -120,24 +119,102 @@ impl QdrantStorage {
     }
 
     /// Insert embeddings into Qdrant with batch operations
-    pub async fn insert_embeddings(&self, _embeddings: Vec<Embedding>) -> Result<()> {
-        // TODO: Implement full Qdrant batch insertion
-        // For now, log that we're using Qdrant (when ready)
-        eprintln!("Qdrant insertion ready - {} embeddings prepared for batch insert",
-                 _embeddings.len());
-        Ok(())
+    pub async fn insert_embeddings(&self, embeddings: Vec<Embedding>) -> Result<()> {
+        if embeddings.is_empty() {
+            return Ok(());
+        }
+
+        // Convert embeddings to Qdrant points
+        let mut points = Vec::new();
+
+        for embedding in embeddings {
+            // Create payload with metadata
+            let mut payload = std::collections::HashMap::new();
+            payload.insert("text".to_string(), Value::String(embedding.text.clone()));
+            payload.insert("path".to_string(), Value::String(embedding.path.clone()));
+
+            let point = PointStruct {
+                id: Some(PointId::Num(embedding.id.parse().unwrap_or(0))),
+                vectors: Some(Vectors::Vector(embedding.vector)),
+                payload,
+            };
+
+            points.push(point);
+        }
+
+        // Use the upsert builder pattern
+        let result = self.client
+            .upsert_points_builder(&self.collection_name, points)
+            .await;
+
+        match result {
+            Ok(_) => {
+                eprintln!("Successfully inserted {} embeddings into Qdrant collection '{}'",
+                         embeddings.len(), self.collection_name);
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("Failed to insert embeddings: {}", e);
+                Err(anyhow::anyhow!("Failed to upsert points to Qdrant: {}", e))
+            }
+        }
     }
 
     /// Search for similar embeddings using vector similarity
     pub async fn search_similar(
         &self,
-        _query_vector: &[f32],
-        _limit: usize,
+        query_vector: &[f32],
+        limit: usize,
     ) -> Result<Vec<Embedding>> {
-        // TODO: Implement full Qdrant vector search
-        // For now, return empty results to maintain API compatibility
-        eprintln!("Qdrant search ready - vector similarity search prepared");
-        Ok(vec![])
+        let search_result = self.client
+            .search_points_builder(&self.collection_name, query_vector.to_vec())
+            .limit(limit as u64)
+            .build()
+            .await
+            .map_err(|e| anyhow::anyhow!("Failed to search points in Qdrant: {}", e))?;
+
+        let mut results = Vec::new();
+
+        for point in search_result {
+            let id = match &point.id {
+                Some(PointId::Num(id)) => id.to_string(),
+                Some(PointId::Uuid(id)) => id.to_string(),
+                _ => continue,
+            };
+
+            let text = point.payload
+                .get("text")
+                .and_then(|v| match v {
+                    Value::String(s) => Some(s.as_str()),
+                    _ => None,
+                })
+                .unwrap_or("")
+                .to_string();
+
+            let path = point.payload
+                .get("path")
+                .and_then(|v| match v {
+                    Value::String(s) => Some(s.as_str()),
+                    _ => None,
+                })
+                .unwrap_or("")
+                .to_string();
+
+            let vector = match &point.vectors {
+                Some(Vectors::Vector(vec)) => vec.clone(),
+                _ => continue,
+            };
+
+            results.push(Embedding {
+                id,
+                vector,
+                text,
+                path,
+            });
+        }
+
+        eprintln!("Qdrant search completed - found {} similar embeddings", results.len());
+        Ok(results)
     }
 
     /// Get file hash (not implemented - would need separate metadata collection)
@@ -156,18 +233,91 @@ impl QdrantStorage {
 
     /// Get all embeddings from the collection (use with caution for large collections)
     pub async fn get_all_embeddings(&self) -> Result<Vec<Embedding>> {
-        // TODO: Implement full Qdrant bulk retrieval
-        // For now, return empty results to maintain API compatibility
-        eprintln!("Qdrant bulk retrieval ready - prepared for large-scale embedding access");
-        Ok(vec![])
+        let mut all_embeddings = Vec::new();
+        let mut offset = None;
+
+        // Use scroll API to get all points in batches
+        loop {
+            let scroll_result = self.client
+                .scroll_builder(&self.collection_name)
+                .limit(1000)
+                .offset(offset.clone())
+                .build()
+                .await
+                .map_err(|e| anyhow::anyhow!("Failed to scroll points in Qdrant: {}", e))?;
+
+            // Convert scroll results to embeddings
+            for point in &scroll_result {
+                let id = match &point.id {
+                    Some(PointId::Num(id)) => id.to_string(),
+                    Some(PointId::Uuid(id)) => id.to_string(),
+                    _ => continue,
+                };
+
+                let text = point.payload
+                    .get("text")
+                    .and_then(|v| match v {
+                        Value::String(s) => Some(s.as_str()),
+                        _ => None,
+                    })
+                    .unwrap_or("")
+                    .to_string();
+
+                let path = point.payload
+                    .get("path")
+                    .and_then(|v| match v {
+                        Value::String(s) => Some(s.as_str()),
+                        _ => None,
+                    })
+                    .unwrap_or("")
+                    .to_string();
+
+                let vector = match &point.vectors {
+                    Some(Vectors::Vector(vec)) => vec.clone(),
+                    _ => continue,
+                };
+
+                all_embeddings.push(Embedding {
+                    id,
+                    vector,
+                    text,
+                    path,
+                });
+            }
+
+            // Check if we have more results
+            if scroll_result.next_page_offset.is_none() {
+                break;
+            }
+
+            offset = scroll_result.next_page_offset;
+        }
+
+        eprintln!("Retrieved {} embeddings from Qdrant collection '{}'",
+                 all_embeddings.len(), self.collection_name);
+        Ok(all_embeddings)
     }
 
     /// Delete embeddings for a specific path using filter
-    pub async fn delete_embeddings_for_path(&self, _path: &str) -> Result<()> {
-        // TODO: Implement full Qdrant filtered deletion
-        // For now, maintain API compatibility
-        eprintln!("Qdrant filtered deletion ready - prepared for selective embedding removal");
-        Ok(())
+    pub async fn delete_embeddings_for_path(&self, path: &str) -> Result<()> {
+        // Use delete by filter builder
+        let result = self.client
+            .delete_points_builder(&self.collection_name)
+            .filter(format!("path == \"{}\"", path))
+            .build()
+            .await;
+
+        match result {
+            Ok(_) => {
+                eprintln!("Deleted embeddings matching path '{}' from Qdrant collection '{}'",
+                         path, self.collection_name);
+                Ok(())
+            }
+            Err(e) => {
+                eprintln!("Failed to delete embeddings: {}", e);
+                Err(anyhow::anyhow!("Failed to delete points from Qdrant: {}", e))
+            }
+        }
     }
 
     /// Get storage statistics from Qdrant collection
