@@ -1,7 +1,7 @@
 use infrastructure::{
     config::Config,
     embedder::{Embedder, EmbeddingInput},
-    embedding_storage::EmbeddingStorage,
+    hybrid_storage::HybridStorage,
     file_scanner::FileScanner,
     search::SearchEngine,
 };
@@ -13,7 +13,7 @@ use std::path::PathBuf;
 
 pub struct RagService {
     scanner: FileScanner,
-    storage: EmbeddingStorage,
+    storage: HybridStorage,
     embedder: Embedder,
     inference_engine: infrastructure::InferenceEngine,
     config: Config,
@@ -25,12 +25,13 @@ impl RagService {
     pub async fn new(
         root_path: &str,
         db_path: &str,
+        qdrant_url: Option<String>,
         inference_engine: infrastructure::InferenceEngine,
         config: Config,
     ) -> Result<Self> {
         Ok(Self {
             scanner: FileScanner::new(root_path),
-            storage: EmbeddingStorage::new(db_path).await?,
+            storage: HybridStorage::new(qdrant_url, db_path, "vibe_rag".to_string(), 768).await?,
             embedder: Embedder::new_with_inference_engine(inference_engine.clone()),
             inference_engine,
             config,
