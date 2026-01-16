@@ -150,6 +150,7 @@ name = "application"
 version = "2.0.0"
 dependencies = [
  "anyhow",
+ "chrono",
  "colored",
  "criterion",
  "domain",

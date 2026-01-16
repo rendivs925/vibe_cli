@@ -2,12 +2,16 @@ pub mod advanced_scheduler;
 pub mod advanced_qdrant;
 pub mod agent_service;
 pub mod build_service;
+pub mod collection_partitioner;
 pub mod context_aware_validator;
 pub mod dynamic_scaling;
 pub mod explain_service;
 pub mod hallucination_detector;
 pub mod health_monitor;
 pub mod memory_cleanup;
+pub mod memory_dashboard;
+pub mod memory_summarizer;
+pub mod metrics_collector;
 pub mod parallel_agent;
 pub mod rag_service;
 pub mod result_aggregator;
@@ -116,6 +120,48 @@ pub fn create_memory_cleanup_service_with_policy(
     policy: memory_cleanup::CleanupPolicy,
 ) -> memory_cleanup::MemoryCleanupService {
     memory_cleanup::MemoryCleanupService::new(semantic_memory, policy)
+}
+
+/// Create memory summarizer for conversation compression
+pub fn create_memory_summarizer(
+    semantic_memory: std::sync::Arc<semantic_memory::SemanticMemoryService>,
+    inference_engine: std::sync::Arc<infrastructure::InferenceEngine>,
+) -> memory_summarizer::MemorySummarizer {
+    memory_summarizer::MemorySummarizer::new(semantic_memory, inference_engine)
+}
+
+/// Create metrics collector for real-time monitoring
+pub fn create_metrics_collector(
+    semantic_memory: std::sync::Arc<semantic_memory::SemanticMemoryService>,
+    health_monitor: std::sync::Arc<std::sync::Mutex<health_monitor::HealthMonitor>>,
+) -> metrics_collector::MetricsCollector {
+    metrics_collector::MetricsCollector::new(semantic_memory, health_monitor)
+}
+
+/// Create memory dashboard for visualization
+pub fn create_memory_dashboard(
+    metrics_collector: std::sync::Arc<std::sync::Mutex<metrics_collector::MetricsCollector>>,
+    semantic_memory: std::sync::Arc<semantic_memory::SemanticMemoryService>,
+) -> memory_dashboard::MemoryDashboard {
+    memory_dashboard::MemoryDashboard::new(metrics_collector, semantic_memory)
+}
+
+/// Create collection partitioner for multi-language organization
+pub fn create_collection_partitioner(
+    qdrant_manager: std::sync::Arc<advanced_qdrant::AdvancedQdrantManager>,
+    semantic_memory: std::sync::Arc<semantic_memory::SemanticMemoryService>,
+) -> collection_partitioner::CollectionPartitioner {
+    let config = collection_partitioner::PartitionConfig::default();
+    collection_partitioner::CollectionPartitioner::new(qdrant_manager, semantic_memory, config)
+}
+
+/// Create collection partitioner with custom config
+pub fn create_collection_partitioner_with_config(
+    qdrant_manager: std::sync::Arc<advanced_qdrant::AdvancedQdrantManager>,
+    semantic_memory: std::sync::Arc<semantic_memory::SemanticMemoryService>,
+    config: collection_partitioner::PartitionConfig,
+) -> collection_partitioner::CollectionPartitioner {
+    collection_partitioner::CollectionPartitioner::new(qdrant_manager, semantic_memory, config)
 }
 
 /// Create advanced Qdrant manager for production optimization
