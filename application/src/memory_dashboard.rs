@@ -179,7 +179,7 @@ impl MemoryDashboard {
         println!("===========================\n");
 
         // Get memory statistics
-        let (total_memories, total_conversations) = self.semantic_memory.get_memory_stats().await?;
+        let (total_memories, total_conversations, _, _) = self.semantic_memory.get_memory_stats().await?;
 
         println!("📈 Overall Statistics:");
         println!("   Total Memories:     {}", self.format_number(total_memories));

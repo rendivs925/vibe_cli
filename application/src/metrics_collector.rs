@@ -307,7 +307,7 @@ impl MetricsCollector {
 
     // Helper methods for collecting specific metrics
     async fn collect_memory_metrics(&self) -> Result<MemoryMetrics> {
-        let (total_memories, total_conversations) = self.semantic_memory.get_memory_stats().await?;
+        let (total_memories, total_conversations, _, _) = self.semantic_memory.get_memory_stats().await?;
 
         // Calculate growth rate (simplified)
         let growth_rate = if self.metrics_history.len() >= 2 {
@@ -360,7 +360,7 @@ impl MetricsCollector {
     }
 
     async fn collect_conversation_stats(&self) -> Result<ConversationStats> {
-        let (total_memories, total_conversations) = self.semantic_memory.get_memory_stats().await?;
+        let (total_memories, total_conversations, _, _) = self.semantic_memory.get_memory_stats().await?;
 
         let average_length = if total_conversations > 0 {
             total_memories as f64 / total_conversations as f64

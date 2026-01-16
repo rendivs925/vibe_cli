@@ -194,7 +194,7 @@ impl CollectionPartitioner {
         }
 
         // Get total memory (simplified - would need to query each partition)
-        let (total_memories, _) = self.semantic_memory.get_memory_stats().await?;
+        let (total_memories, _, _, _) = self.semantic_memory.get_memory_stats().await?;
         stats.total_memory_across_partitions = total_memories;
 
         Ok(stats)

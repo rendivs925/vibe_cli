@@ -183,7 +183,7 @@ impl MemoryCleanupService {
 
     /// Enforce global memory limits
     async fn enforce_global_limits(&self) -> Result<usize> {
-        let (total_memories, _) = self.semantic_memory.get_memory_stats().await?;
+        let (total_memories, _, _, _) = self.semantic_memory.get_memory_stats().await?;
 
         if total_memories > self.policy.max_total_memories {
             let to_delete = total_memories - self.policy.max_total_memories;
