@@ -52,6 +52,26 @@ impl PromptEngineer {
         })
     }
 
+    /// Gather relevant context for the request
+    async fn gather_context(&mut self, request_type: &RequestType, goal: &str) -> Result<PromptContext> {
+        let mut context = PromptContext::default();
+
+        // Add project context
+        if let Some(root) = &self.project_root {
+            // Gather project structure
+            context.project_info = self.get_project_info(root)?;
+
+            // Gather relevant files based on request type
+            context.file_contents = self.gather_relevant_files(root, request_type, goal).await?;
+        }
+
+        // Add request-specific context
+        context.request_type = request_type.clone();
+        context.original_goal = goal.to_string();
+
+        Ok(context)
+    }
+
     /// Classify the type of request to tailor the prompt
     fn classify_request(&self, goal: &str) -> RequestType {
         let goal_lower = goal.to_lowercase();
@@ -73,22 +93,11 @@ impl PromptEngineer {
         }
     }
 
-    /// Gather relevant context for the request
-    async fn gather_context(&mut self, request_type: &RequestType, goal: &str) -> Result<PromptContext> {
-        let mut context = PromptContext::default();
 
-        if let Some(root) = &self.project_root {
-            // Gather project structure
-            context.project_info = self.get_project_info(root)?;
-
-            // Gather relevant files based on request type
-            context.file_contents = self.gather_relevant_files(root, request_type, goal).await?;
-        }
 
         // Add request-specific context
         context.request_type = request_type.clone();
         context.original_goal = goal.to_string();
-
         Ok(context)
     }
 
@@ -326,7 +335,7 @@ impl PromptEngineer {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 enum RequestType {
     Analysis,
     BugFix,
@@ -334,6 +343,7 @@ enum RequestType {
     Optimization,
     Testing,
     Documentation,
+    #[default]
     General,
 }
 
