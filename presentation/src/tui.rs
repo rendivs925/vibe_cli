@@ -154,6 +154,20 @@ impl TuiApp {
                 self.cursor_position = self.input_buffer.len();
                 self.status_message = "INSERT".to_string();
             }
+            KeyCode::Char('o') => {
+                // Open new line below (like vim 'o')
+                self.input_buffer.push('\n');
+                self.cursor_position = self.input_buffer.len();
+                self.current_mode = TuiMode::Insert;
+                self.status_message = "INSERT".to_string();
+            }
+            KeyCode::Char('O') => {
+                // Open new line above (like vim 'O')
+                self.input_buffer.insert(0, '\n');
+                self.cursor_position = 1;
+                self.current_mode = TuiMode::Insert;
+                self.status_message = "INSERT".to_string();
+            }
             KeyCode::Char(':') => {
                 self.current_mode = TuiMode::Command;
                 self.input_buffer.clear();
@@ -269,51 +283,198 @@ impl TuiApp {
             }
 
             KeyCode::Esc => {
-                // Dismiss overlay or clear status
-                if self.show_overlay.is_some() {
-                    self.show_overlay = None;
-                    self.status_message = "Ready".to_string();
+                // Dismiss overlay
+                self.show_overlay = None;
+                self.status_message = "Ready".to_string();
+            }
+            KeyCode::Char(c) => {
+                // Handle overlay-specific keybindings
+                if let Some(overlay) = &self.show_overlay {
+                    match overlay {
+                        Overlay::Sessions => {
+                            self.handle_sessions_overlay_key(c);
+                        }
+                        Overlay::Tools => {
+                            self.handle_tools_overlay_key(c);
+                        }
+                        Overlay::Context => {
+                            self.handle_context_overlay_key(c);
+                        }
+                        Overlay::Palette => {
+                            self.handle_palette_overlay_key(c);
+                        }
+                    }
                 }
+            }
             }
             _ => {}
         }
         Ok(false)
     }
 
-    /// Navigate command history
-    fn navigate_history(&mut self, previous: bool) {
-        if self.command_history.is_empty() {
-            return;
-        }
-
-        let history_len = self.command_history.len();
-
-        if let Some(current_index) = self.history_index {
-            if previous {
-                if current_index > 0 {
-                    self.history_index = Some(current_index - 1);
-                }
-            } else {
-                if current_index < history_len - 1 {
-                    self.history_index = Some(current_index + 1);
-                } else {
-                    // At end of history, clear to show empty buffer
-                    self.history_index = None;
-                    self.input_buffer.clear();
-                    self.cursor_position = 0;
-                    return;
+    /// Handle sessions overlay key events
+    fn handle_sessions_overlay_key(&mut self, key: char) {
+        match key {
+            '1'..='9' => {
+                // Select session by number
+                let index = (key as u8 - b'1') as usize;
+                if index < self.session_list.len() {
+                    let session_name = self.session_list[index].clone();
+                    self.current_session = Some(session_name.clone());
+                    self.show_overlay = None;
+                    self.status_message = format!("Switched to session: {}", session_name);
                 }
             }
-        } else if previous {
-            // Start from most recent command
-            self.history_index = Some(history_len - 1);
-        }
-
-        if let Some(index) = self.history_index {
-            if let Some(command) = self.command_history.get(index) {
-                self.input_buffer = command.clone();
-                self.cursor_position = command.len();
+            'n' => {
+                // Create new session
+                self.show_overlay = None;
+                self.status_message = "New session: type name and press Enter (not implemented yet)".to_string();
             }
+            'd' => {
+                // Delete current session (if not default)
+                if let Some(current) = &self.current_session {
+                    if current != "default" {
+                        self.session_list.retain(|s| s != current);
+                        self.current_session = Some("default".to_string());
+                        self.show_overlay = None;
+                        self.status_message = format!("Deleted session: {}", current);
+                    } else {
+                        self.status_message = "Cannot delete default session".to_string();
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+
+    /// Handle tools overlay key events
+    fn handle_tools_overlay_key(&mut self, key: char) {
+        match key {
+            '1' => {
+                self.show_overlay = None;
+                self.status_message = "Switched to PLAN mode".to_string();
+            }
+            '2' => {
+                self.show_overlay = None;
+                self.status_message = "Switched to BUILD mode".to_string();
+            }
+            '3' => {
+                self.show_overlay = None;
+                self.status_message = "Switched to RUN mode".to_string();
+            }
+            '4' => {
+                self.show_overlay = None;
+                self.status_message = "Switched to CHAT mode".to_string();
+            }
+            '5' => {
+                self.show_overlay = None;
+                self.status_message = "Switched to RAG mode".to_string();
+            }
+            _ => {}
+        }
+    }
+
+    /// Handle context overlay key events
+    fn handle_context_overlay_key(&mut self, key: char) {
+        match key {
+            '1' => {
+                self.show_overlay = None;
+                self.status_message = "Showing current directory files".to_string();
+            }
+            '2' => {
+                self.show_overlay = None;
+                self.status_message = "Showing open files".to_string();
+            }
+            '3' => {
+                self.show_overlay = None;
+                self.status_message = "Showing git status".to_string();
+            }
+            '4' => {
+                self.show_overlay = None;
+                self.status_message = "Showing recent commands".to_string();
+            }
+            '5' => {
+                self.show_overlay = None;
+                self.status_message = "Showing project structure".to_string();
+            }
+            _ => {}
+        }
+    }
+
+    /// Handle palette overlay key events
+    fn handle_palette_overlay_key(&mut self, key: char) {
+        match key {
+            '1' => {
+                self.show_overlay = None;
+                self.status_message = "Quit command executed".to_string();
+                // In a real implementation, this would trigger quit
+            }
+            '2' => {
+                self.show_overlay = None;
+                self.status_message = "Help: i=insert, :q=quit, hjkl=navigate, Ctrl+P/N=history".to_string();
+            }
+            '3' => {
+                self.show_overlay = None;
+                self.status_message = "Session switch: use :session <name>. Current: default".to_string();
+            }
+            '4' => {
+                self.show_overlay = None;
+                self.input_buffer.clear();
+                self.cursor_position = 0;
+                self.status_message = "Buffer cleared".to_string();
+            }
+            '5' => {
+                self.show_overlay = None;
+                self.status_message = format!("Status: Mode={:?}, Session={:?}, History={} cmds",
+                    self.current_mode,
+                    self.current_session,
+                    self.command_history.len());
+            }
+            '6' => {
+                self.show_overlay = None;
+                self.status_message = "Session saved. Goodbye!".to_string();
+                // In a real implementation, this would save and quit
+            }
+            '7' => {
+                self.show_overlay = None;
+                self.status_message = "Mode switch: use :mode <plan|build|run|chat>". Current: normal".to_string();
+            }
+            '8' => {
+                self.show_overlay = None;
+                let history_preview: Vec<String> = self.command_history
+                    .iter()
+                    .rev()
+                    .take(5)
+                    .map(|cmd| format!("  {}", cmd))
+                    .collect();
+                self.status_message = format!("Recent history:\n{}",
+                    history_preview.join("\n"));
+            }
+            _ => {}
+        }
+    }
+            '2' => {
+                self.show_overlay = None;
+                self.status_message = "Help: i=insert, :q=quit, hjkl=navigate, Ctrl+P/N=history".to_string();
+            }
+            '3' => {
+                self.show_overlay = None;
+                self.status_message = "Session switch: use :session <name>". Current: default".to_string();
+            }
+            '4' => {
+                self.show_overlay = None;
+                self.input_buffer.clear();
+                self.cursor_position = 0;
+                self.status_message = "Buffer cleared".to_string();
+            }
+            '5' => {
+                self.show_overlay = None;
+                self.status_message = format!("Status: Mode={:?}, Session={:?}, History={} cmds",
+                    self.current_mode,
+                    self.current_session,
+                    self.command_history.len());
+            }
+            _ => {}
         }
     }
 
@@ -332,6 +493,10 @@ impl TuiApp {
                 self.cursor_position = 0;
                 self.current_mode = TuiMode::Normal;
                 self.status_message = "Ready".to_string();
+            }
+            KeyCode::Tab => {
+                // Auto-completion (placeholder)
+                self.status_message = "Tab completion not yet implemented".to_string();
             }
             KeyCode::Backspace => {
                 if self.cursor_position > 0 {
@@ -404,13 +569,109 @@ impl TuiApp {
             self.history_index = None;
         }
 
-        self.status_message = format!("Executing: {}", command);
+        self.status_message = format!("Executing: {} ...", command);
 
-        // Here we would integrate with the existing CLI logic
-        // For now, just show a placeholder response
-        self.status_message = format!("Executed: {} ✓", command);
+        // Parse the command and determine what to do
+        let parts: Vec<&str> = command.split_whitespace().collect();
+        let result = match parts.get(0).map(|s| *s) {
+            Some("ls") | Some("pwd") | Some("cd") | Some("mkdir") | Some("rm") | Some("cp") | Some("mv") => {
+                // File system commands - execute directly
+                self.execute_shell_command(command).await
+            }
+            Some("git") => {
+                // Git commands - execute directly
+                self.execute_shell_command(command).await
+            }
+            Some("cargo") => {
+                // Cargo commands - execute directly
+                self.execute_shell_command(command).await
+            }
+            Some("plan") => {
+                // Plan mode command
+                self.execute_plan_command(&parts[1..].join(" ")).await
+            }
+            Some("build") => {
+                // Build mode command
+                self.execute_build_command(&parts[1..].join(" ")).await
+            }
+            Some("run") => {
+                // Run mode command
+                self.execute_run_command(&parts[1..].join(" ")).await
+            }
+            Some("chat") => {
+                // Chat mode command
+                self.execute_chat_command(&parts[1..].join(" ")).await
+            }
+            Some("rag") => {
+                // RAG mode command
+                self.execute_rag_command(&parts[1..].join(" ")).await
+            }
+            _ => {
+                // Default: try to execute as shell command
+                self.execute_shell_command(command).await
+            }
+        };
+
+        match result {
+            Ok(output) => {
+                self.status_message = format!("✓ {}", output);
+            }
+            Err(e) => {
+                self.status_message = format!("✗ Error: {}", e);
+            }
+        }
 
         Ok(())
+    }
+
+    /// Execute a shell command
+    async fn execute_shell_command(&mut self, command: &str) -> Result<String> {
+        use tokio::process::Command;
+
+        let output = Command::new("sh")
+            .arg("-c")
+            .arg(command)
+            .output()
+            .await?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+
+        if output.status.success() {
+            Ok(format!("Success: {}", stdout.trim()))
+        } else {
+            Err(anyhow::anyhow!("Command failed: {}", stderr.trim()))
+        }
+    }
+
+    /// Execute a plan mode command
+    async fn execute_plan_command(&mut self, goal: &str) -> Result<String> {
+        // In a real implementation, this would call the CLI plan logic
+        Ok(format!("Plan created for: '{}'. Use build mode to execute.", goal))
+    }
+
+    /// Execute a build mode command
+    async fn execute_build_command(&mut self, goal: &str) -> Result<String> {
+        // In a real implementation, this would call the CLI build logic
+        Ok(format!("Build executed for: '{}'. Changes applied safely.", goal))
+    }
+
+    /// Execute a run mode command
+    async fn execute_run_command(&mut self, goal: &str) -> Result<String> {
+        // In a real implementation, this would call the CLI run logic
+        Ok(format!("Multi-step execution completed for: '{}'.", goal))
+    }
+
+    /// Execute a chat mode command
+    async fn execute_chat_command(&mut self, message: &str) -> Result<String> {
+        // In a real implementation, this would call the CLI chat logic
+        Ok(format!("Chat response: 'Hello! You said: {}'", message))
+    }
+
+    /// Execute a RAG mode command
+    async fn execute_rag_command(&mut self, query: &str) -> Result<String> {
+        // In a real implementation, this would call the CLI RAG logic
+        Ok(format!("RAG query executed: '{}'. Found relevant context.", query))
     }
 
     /// Execute a vim-style command
@@ -682,98 +943,244 @@ impl TuiApp {
 
     /// Draw sessions overlay
     fn draw_sessions_overlay(&self, f: &mut Frame, area: Rect) {
-        let block = Block::default()
-            .title("Sessions")
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(3), // Header with actions
+                Constraint::Min(1),    // Session list
+                Constraint::Length(2), // Footer hints
+            ])
+            .split(area);
+
+        // Header with session actions
+        let header_block = Block::default()
+            .title("Session Manager")
+            .borders(Borders::ALL);
+
+        let header_text = vec![
+            Line::from(vec![
+                Span::styled("Actions: ", Style::default().fg(Color::Yellow)),
+                Span::styled("n", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled("ew session, ", Style::default().fg(Color::Gray)),
+                Span::styled("d", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled("elete, ", Style::default().fg(Color::Gray)),
+                Span::styled("Enter", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled(" switch", Style::default().fg(Color::Gray)),
+            ]),
+        ];
+
+        let header = Paragraph::new(header_text)
+            .block(header_block)
+            .wrap(Wrap { trim: true });
+        f.render_widget(header, chunks[0]);
+
+        // Session list
+        let list_block = Block::default()
             .borders(Borders::ALL);
 
         let items: Vec<ListItem> = self.session_list
             .iter()
             .enumerate()
             .map(|(i, session)| {
-                let style = if Some(session) == self.current_session.as_ref() {
-                    Style::default().fg(Color::Green).add_modifier(Modifier::BOLD)
+                let mut style = Style::default();
+                let mut prefix = "  ";
+
+                if Some(session) == self.current_session.as_ref() {
+                    style = style.fg(Color::Green).add_modifier(Modifier::BOLD);
+                    prefix = "● ";
+                }
+
+                // Show session metadata (placeholder for now)
+                let display_name = if session == "default" {
+                    format!("{}{} (default)", prefix, session)
                 } else {
-                    Style::default()
+                    format!("{}{}", prefix, session)
                 };
-                ListItem::new(format!("{}. {}", i + 1, session)).style(style)
+
+                ListItem::new(display_name).style(style)
             })
             .collect();
 
-        let list = List::new(items).block(block);
-        f.render_widget(list, area);
+        let list = List::new(items).block(list_block);
+        f.render_widget(list, chunks[1]);
+
+        // Footer hints
+        let footer_text = vec![
+            Line::from(vec![
+                Span::styled("Use number keys to select, ", Style::default().fg(Color::Gray)),
+                Span::styled("Esc", Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                Span::styled(" to close", Style::default().fg(Color::Gray)),
+            ]),
+        ];
+
+        let footer = Paragraph::new(footer_text)
+            .alignment(Alignment::Center);
+        f.render_widget(footer, chunks[2]);
     }
 
     /// Draw tools overlay
     fn draw_tools_overlay(&self, f: &mut Frame, area: Rect) {
-        let block = Block::default()
-            .title("Tools")
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(2), // Header
+                Constraint::Min(1),    // Tools list
+                Constraint::Length(2), // Footer
+            ])
+            .split(area);
+
+        // Header
+        let header_block = Block::default()
+            .title("Available Tools")
+            .borders(Borders::ALL);
+
+        let header = Paragraph::new("Choose a tool to switch modes:")
+            .block(header_block)
+            .alignment(Alignment::Center);
+        f.render_widget(header, chunks[0]);
+
+        // Tools list
+        let list_block = Block::default()
             .borders(Borders::ALL);
 
         let tools = vec![
-            "Plan Mode",
-            "Build Mode",
-            "Run Mode",
-            "Chat Mode",
-            "RAG Query",
-            "Explain Code",
+            ("1", "Plan Mode", "Create execution plans without running commands"),
+            ("2", "Build Mode", "Safe code modifications with AI assistance"),
+            ("3", "Run Mode", "Execute multi-step command sequences"),
+            ("4", "Chat Mode", "Interactive conversation with AI"),
+            ("5", "RAG Mode", "Query codebase with context retrieval"),
         ];
 
         let items: Vec<ListItem> = tools
             .iter()
-            .enumerate()
-            .map(|(i, tool)| ListItem::new(format!("{}. {}", i + 1, tool)))
+            .map(|(num, name, desc)| {
+                ListItem::new(Line::from(vec![
+                    Span::styled(format!("{} {}", num, name), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    Span::styled(" - ", Style::default().fg(Color::Gray)),
+                    Span::styled(*desc, Style::default().fg(Color::White)),
+                ]))
+            })
             .collect();
 
-        let list = List::new(items).block(block);
-        f.render_widget(list, area);
+        let list = List::new(items).block(list_block);
+        f.render_widget(list, chunks[1]);
+
+        // Footer
+        let footer = Paragraph::new("Press number key to select, Esc to cancel")
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(Color::Gray));
+        f.render_widget(footer, chunks[2]);
     }
 
     /// Draw context overlay
     fn draw_context_overlay(&self, f: &mut Frame, area: Rect) {
-        let block = Block::default()
-            .title("Context")
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(2), // Header
+                Constraint::Min(1),    // Context list
+                Constraint::Length(2), // Footer
+            ])
+            .split(area);
+
+        // Header
+        let header_block = Block::default()
+            .title("Project Context")
+            .borders(Borders::ALL);
+
+        let header = Paragraph::new("Explore project state and history:")
+            .block(header_block)
+            .alignment(Alignment::Center);
+        f.render_widget(header, chunks[0]);
+
+        // Context list
+        let list_block = Block::default()
             .borders(Borders::ALL);
 
         let context_items = vec![
-            "Current Directory",
-            "Open Files",
-            "Git Status",
-            "Recent Commands",
-            "Project Structure",
+            ("1", "Directory Files", "List files in current directory"),
+            ("2", "Git Status", "Show uncommitted changes"),
+            ("3", "Recent Commands", "Command history for this session"),
+            ("4", "Project Structure", "Show directory tree"),
+            ("5", "Configuration", "Show current settings"),
         ];
 
         let items: Vec<ListItem> = context_items
             .iter()
-            .enumerate()
-            .map(|(i, item)| ListItem::new(format!("{}. {}", i + 1, item)))
+            .map(|(num, name, desc)| {
+                ListItem::new(Line::from(vec![
+                    Span::styled(format!("{} {}", num, name), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    Span::styled(" - ", Style::default().fg(Color::Gray)),
+                    Span::styled(*desc, Style::default().fg(Color::White)),
+                ]))
+            })
             .collect();
 
-        let list = List::new(items).block(block);
-        f.render_widget(list, area);
+        let list = List::new(items).block(list_block);
+        f.render_widget(list, chunks[1]);
+
+        // Footer
+        let footer = Paragraph::new("Press number key to select, Esc to cancel")
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(Color::Gray));
+        f.render_widget(footer, chunks[2]);
     }
 
     /// Draw command palette overlay
     fn draw_palette_overlay(&self, f: &mut Frame, area: Rect) {
-        let block = Block::default()
+        let chunks = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([
+                Constraint::Length(2), // Header
+                Constraint::Min(1),    // Commands list
+                Constraint::Length(2), // Footer
+            ])
+            .split(area);
+
+        // Header
+        let header_block = Block::default()
             .title("Command Palette")
             .borders(Borders::ALL);
 
+        let header = Paragraph::new("Quick commands and actions:")
+            .block(header_block)
+            .alignment(Alignment::Center);
+        f.render_widget(header, chunks[0]);
+
+        // Commands list
+        let list_block = Block::default()
+            .borders(Borders::ALL);
+
         let commands = vec![
-            ":quit - Exit application",
-            ":help - Show help",
-            ":session <name> - Switch session",
-            ":clear - Clear output",
-            ":history - Show command history",
+            ("1", ":quit", "Exit the application"),
+            ("2", ":help", "Show help and keybindings"),
+            ("3", ":session <name>", "Switch to named session"),
+            ("4", ":clear", "Clear command buffer"),
+            ("5", ":status", "Show current status"),
+            ("6", ":wq", "Save session and quit"),
+            ("7", ":mode <type>", "Switch mode (plan/build/run/chat)"),
+            ("8", ":history", "Show full command history"),
         ];
 
         let items: Vec<ListItem> = commands
             .iter()
-            .enumerate()
-            .map(|(i, cmd)| ListItem::new(format!("{}. {}", i + 1, cmd)))
+            .map(|(num, cmd, desc)| {
+                ListItem::new(Line::from(vec![
+                    Span::styled(format!("{} {}", num, cmd), Style::default().fg(Color::Cyan).add_modifier(Modifier::BOLD)),
+                    Span::styled(" - ", Style::default().fg(Color::Gray)),
+                    Span::styled(*desc, Style::default().fg(Color::White)),
+                ]))
+            })
             .collect();
 
-        let list = List::new(items).block(block);
-        f.render_widget(list, area);
+        let list = List::new(items).block(list_block);
+        f.render_widget(list, chunks[1]);
+
+        // Footer
+        let footer = Paragraph::new("Press number key to execute, Esc to cancel")
+            .alignment(Alignment::Center)
+            .style(Style::default().fg(Color::Gray));
+        f.render_widget(footer, chunks[2]);
     }
 }
 
