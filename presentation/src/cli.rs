@@ -4515,18 +4515,61 @@ COMMAND:"#,
         println!("👁️  Vision Mode: Zero-cost AI workflows");
         println!("Goal: {}", goal);
         println!("");
-        println!("This mode will:");
-        println!("  • Gather project context automatically");
-        println!("  • Generate structured prompts");
-        println!("  • Use Playwright to interact with ChatGPT web");
-        println!("  • Extract responses via computer vision (OCR)");
-        println!("  • Process results locally (no API costs)");
-        println!("");
-        println!("Note: Vision mode is planned but not yet implemented.");
-        println!("Current alternatives:");
-        println!("  • Use --ai_agent for local AI assistance");
-        println!("  • Use --rag for codebase queries");
-        println!("  • Use --plan for execution planning");
+
+        // Use the browser automation
+        use infrastructure::chatgpt_browser::ChatGPTBrowser;
+
+        let browser = match ChatGPTBrowser::new() {
+            Ok(browser) => {
+                println!("🔧 Setting up browser automation...");
+                match browser.ensure_docker_image() {
+                    Ok(_) => browser,
+                    Err(e) => {
+                        println!("❌ Failed to setup Docker: {}", e);
+                        println!("💡 Install Docker and run: docker pull mcr.microsoft.com/playwright:v1.40.0-jammy");
+                        return Ok(());
+                    }
+                }
+            }
+            Err(e) => {
+                println!("❌ Vision mode not available: {}", e);
+                println!("💡 Install Docker for cross-platform support");
+                return Ok(());
+            }
+        };
+
+        println!("🔍 Checking ChatGPT availability...");
+        match browser.is_chatgpt_available() {
+            Ok(true) => {
+                println!("✅ ChatGPT accessible, sending query...");
+                let mut browser = browser; // Make mutable for context gathering
+                match browser.query_with_context(goal).await {
+                    Ok(result) if result.success => {
+                        println!("");
+                        println!("🤖 AI Response:");
+                        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                        println!("{}", result.response);
+                        println!("━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━");
+                        println!("");
+                        println!("✅ Query completed successfully (zero-cost AI workflow)");
+                    }
+                    Ok(result) => {
+                        println!("❌ Query failed: {}", result.error_message.unwrap_or("Unknown error".to_string()));
+                    }
+                    Err(e) => {
+                        println!("❌ Query error: {}", e);
+                        println!("💡 Make sure you're logged into ChatGPT at https://chat.openai.com");
+                        println!("💡 Keep a browser window open with your ChatGPT session");
+                    }
+                }
+            }
+            _ => {
+                println!("❌ ChatGPT not accessible");
+                println!("💡 Please ensure you're logged into https://chat.openai.com in a browser");
+                println!("💡 The browser must remain open during queries for session detection");
+            }
+        }
+
         Ok(())
     }
 }

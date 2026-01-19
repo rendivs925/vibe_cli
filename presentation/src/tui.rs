@@ -606,6 +606,10 @@ impl TuiApp {
                 // RAG mode command
                 self.execute_rag_command(&parts[1..].join(" ")).await
             }
+            Some("vision") => {
+                // Vision mode command
+                self.execute_vision_command(&parts[1..].join(" ")).await
+            }
             _ => {
                 // Default: try to execute as shell command
                 self.execute_shell_command(command).await
@@ -672,6 +676,41 @@ impl TuiApp {
     async fn execute_rag_command(&mut self, query: &str) -> Result<String> {
         // In a real implementation, this would call the CLI RAG logic
         Ok(format!("RAG query executed: '{}'. Found relevant context.", query))
+    }
+
+    /// Execute a vision mode command using ChatGPT browser automation
+    async fn execute_vision_command(&mut self, goal: &str) -> Result<String> {
+        use infrastructure::chatgpt_browser::ChatGPTBrowser;
+
+        // Initialize browser automation
+        let browser = match ChatGPTBrowser::new() {
+            Ok(browser) => {
+                // Ensure Docker image is available
+                if let Err(e) = browser.ensure_docker_image() {
+                    return Ok(format!("Vision mode setup failed: {}. Install Docker and run: docker pull mcr.microsoft.com/playwright:v1.40.0-jammy", e));
+                }
+                browser
+            }
+            Err(e) => return Ok(format!("Vision mode not available: {}. Install Docker for cross-platform support.", e)),
+        };
+
+        // Check if ChatGPT is accessible
+        match browser.is_chatgpt_available() {
+            Ok(true) => {
+                // Proceed with structured query
+                let mut browser = browser; // Make mutable for context gathering
+                match browser.query_with_context(goal).await {
+                    Ok(result) if result.success => {
+                        Ok(format!("🤖 AI Response: {}", result.response))
+                    }
+                    Ok(result) => {
+                        Ok(format!("❌ Vision query failed: {}", result.error_message.unwrap_or("Unknown error".to_string())))
+                    }
+                    Err(e) => Ok(format!("❌ Vision query error: {}. Make sure you're logged into ChatGPT in a browser.", e)),
+                }
+            }
+            _ => Ok("❌ ChatGPT not accessible. Please ensure you're logged into https://chat.openai.com in a browser.".to_string()),
+        }
     }
 
     /// Execute a vim-style command

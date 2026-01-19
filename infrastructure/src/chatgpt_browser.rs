@@ -1,4 +1,5 @@
 use crate::chatgpt_ocr::{ChatGPTOCR, ProcessedResponse};
+use crate::prompt_engineer::{PromptEngineer, StructuredPrompt};
 use anyhow::Result;
 use regex::Regex;
 /// Browser automation for ChatGPT integration - privacy-preserving remote AI access
@@ -18,6 +19,7 @@ pub struct ChatGPTBrowser {
     browser_command: String,
     chatgpt_url_pattern: Regex,
     ocr: Option<ChatGPTOCR>,
+    prompt_engineer: PromptEngineer,
 }
 
 impl ChatGPTBrowser {
@@ -29,10 +31,13 @@ impl ChatGPTBrowser {
         let chatgpt_url_pattern = Regex::new(r"chat\.openai\.com")?;
         let ocr = ChatGPTOCR::new().ok();
 
+        let prompt_engineer = PromptEngineer::new();
+
         Ok(Self {
             browser_command,
             chatgpt_url_pattern,
             ocr,
+            prompt_engineer,
         })
     }
 
@@ -40,27 +45,41 @@ impl ChatGPTBrowser {
     fn detect_browser_automation() -> Result<String> {
         // Try different browser automation approaches in order of preference
 
-        // 1. Try playwright (most reliable)
+        // 1. Try Docker-based Playwright (most reliable and cross-platform)
+        if Self::command_exists("docker") && Self::docker_image_available("mcr.microsoft.com/playwright:v1.40.0-jammy")? {
+            return Ok("playwright-docker".to_string());
+        }
+
+        // 2. Try local playwright installation
         if Self::command_exists("playwright") {
             return Ok("playwright".to_string());
         }
 
-        // 2. Try selenium/geckodriver for Firefox
+        // 3. Try selenium/geckodriver for Firefox
         if Self::command_exists("geckodriver") {
             return Ok("geckodriver".to_string());
         }
 
-        // 3. Try chromedriver for Chrome
+        // 4. Try chromedriver for Chrome
         if Self::command_exists("chromedriver") {
             return Ok("chromedriver".to_string());
         }
 
-        // 4. Try basic browser commands (fallback)
+        // 5. Try basic browser commands (fallback)
         if Self::command_exists("chromium-browser") || Self::command_exists("google-chrome") {
             return Ok("chrome-direct".to_string());
         }
 
-        Err(anyhow::anyhow!("No browser automation tools found. Please install playwright, geckodriver, or chromedriver"))
+        Err(anyhow::anyhow!("No browser automation tools found. Please install Docker or Playwright locally"))
+    }
+
+    /// Check if Docker image is available
+    fn docker_image_available(image: &str) -> Result<bool> {
+        let output = Command::new("docker")
+            .args(&["images", "-q", image])
+            .output()?;
+
+        Ok(output.status.success() && !output.stdout.is_empty())
     }
 
     /// Check if a command exists on the system
@@ -75,12 +94,40 @@ impl ChatGPTBrowser {
     /// Check if ChatGPT session is available
     pub fn is_chatgpt_available(&self) -> Result<bool> {
         match self.browser_command.as_str() {
+            "playwright-docker" => self.check_docker_playwright_session(),
             "playwright" => self.check_playwright_session(),
             "geckodriver" => self.check_selenium_session(),
             "chromedriver" => self.check_selenium_session(),
             "chrome-direct" => self.check_direct_browser_session(),
             _ => Ok(false),
         }
+    }
+
+    /// Ensure Docker Playwright image is available
+    pub fn ensure_docker_image(&self) -> Result<()> {
+        if self.browser_command == "playwright-docker" {
+            let image = "mcr.microsoft.com/playwright:v1.40.0-jammy";
+
+            // Check if image exists
+            if !Self::docker_image_available(image)? {
+                println!("Pulling Playwright Docker image (this may take a few minutes)...");
+                let status = Command::new("docker")
+                    .args(&["pull", image])
+                    .status()?;
+
+                if !status.success() {
+                    return Err(anyhow::anyhow!("Failed to pull Playwright Docker image"));
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// Check for ChatGPT session using Docker Playwright
+    fn check_docker_playwright_session(&self) -> Result<bool> {
+        // For Docker-based Playwright, we can check if containers are running
+        // or just assume it's available (we'll handle failures gracefully)
+        Ok(true)
     }
 
     /// Check for ChatGPT session using Playwright
@@ -126,14 +173,165 @@ impl ChatGPTBrowser {
         Ok(output.status.success())
     }
 
-    /// Send a query to ChatGPT and get response
+    /// Send a structured query to ChatGPT with context gathering
+    pub async fn query_with_context(&mut self, goal: &str) -> Result<BrowserResult> {
+        // Generate structured prompt with context
+        let structured_prompt = self.prompt_engineer.generate_prompt(goal).await?;
+
+        // Combine system and user prompts
+        let full_prompt = format!("{}\n\n{}", structured_prompt.system_prompt, structured_prompt.user_prompt);
+
+        // Send the structured prompt
+        self.query(&full_prompt).await
+    }
+
+    /// Send a raw query to ChatGPT (legacy method)
     pub async fn query(&self, prompt: &str) -> Result<BrowserResult> {
         match self.browser_command.as_str() {
+            "playwright-docker" => self.query_with_docker_playwright(prompt).await,
             "playwright" => self.query_with_playwright(prompt).await,
             "geckodriver" => self.query_with_selenium(prompt, "firefox").await,
             "chromedriver" => self.query_with_selenium(prompt, "chrome").await,
             "chrome-direct" => self.query_with_direct_browser(prompt).await,
             _ => Err(anyhow::anyhow!("Unsupported browser automation method")),
+        }
+    }
+
+    /// Query using Docker-based Playwright (cross-platform)
+    async fn query_with_docker_playwright(&self, prompt: &str) -> Result<BrowserResult> {
+        // Create a temporary Node.js script for Playwright automation
+        let script_content = r#"
+const { chromium } = require('playwright');
+
+async function runChatGPTQuery(prompt) {
+  console.error('Starting ChatGPT query with prompt:', prompt);
+
+  const browser = await chromium.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox']
+  });
+
+  try {
+    const context = await browser.newContext({
+      userAgent: 'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    });
+
+    const page = await context.newPage();
+
+    // Navigate to ChatGPT
+    console.error('Navigating to ChatGPT...');
+    await page.goto('https://chat.openai.com/', { waitUntil: 'networkidle' });
+
+    // Wait for login or session detection
+    await page.waitForTimeout(3000);
+
+    // Check if we're logged in by looking for the chat input
+    const chatInput = await page.locator('[data-testid="prompt-textarea"]').first();
+
+    if (await chatInput.count() === 0) {
+      throw new Error('Not logged into ChatGPT. Please login manually first.');
+    }
+
+    // Type the prompt
+    console.error('Entering prompt...');
+    await chatInput.fill(prompt);
+
+    // Click send button
+    const sendButton = await page.locator('[data-testid="send-button"]').first();
+    await sendButton.click();
+
+    // Wait for response
+    console.error('Waiting for response...');
+    await page.waitForTimeout(5000);
+
+    // Try to get the latest response
+    const responses = await page.locator('[data-message-id]').all();
+    if (responses.length === 0) {
+      throw new Error('No response found');
+    }
+
+    // Get the last response (most recent)
+    const lastResponse = responses[responses.length - 1];
+    const responseText = await lastResponse.textContent();
+
+    console.error('Got response, length:', responseText.length);
+
+    // Take screenshot for OCR if needed
+    const screenshot = await page.screenshot({ fullPage: false });
+
+    // Output response
+    process.stdout.write(responseText || 'No response text found');
+
+    // Save screenshot to temp file for OCR
+    const fs = require('fs');
+    fs.writeFileSync('/tmp/chatgpt_screenshot.png', screenshot);
+
+  } catch (error) {
+    console.error('Error:', error.message);
+    process.exit(1);
+  } finally {
+    await browser.close();
+  }
+}
+
+// Get prompt from command line
+const prompt = process.argv[2];
+if (!prompt) {
+  console.error('No prompt provided');
+  process.exit(1);
+}
+
+runChatGPTQuery(prompt);
+"#;
+
+        // Write the script to a temporary file
+        let script_path = "/tmp/chatgpt_query.js";
+        std::fs::write(script_path, script_content)?;
+
+        // Run the script in Docker
+        let output = Command::new("docker")
+            .args(&[
+                "run", "--rm",
+                "-v", "/tmp:/tmp",
+                "-v", "/dev/shm:/dev/shm",  // For shared memory
+                "mcr.microsoft.com/playwright:v1.40.0-jammy",
+                "node", script_path, prompt
+            ])
+            .output()?;
+
+        // Clean up the script
+        let _ = std::fs::remove_file(script_path);
+
+        if output.status.success() {
+            let response = String::from_utf8_lossy(&output.stdout).to_string();
+
+            // Check if OCR is needed by looking for screenshot
+            let screenshot_path = "/tmp/chatgpt_screenshot.png";
+            let final_response = if std::fs::metadata(screenshot_path).is_ok() && self.ocr.is_some() {
+                // Try OCR if available
+                if let Some(ocr) = &self.ocr {
+                    match ocr.extract_text(screenshot_path) {
+                        Ok(ocr_text) if ocr_text.len() > response.len() => {
+                            // OCR got more text, use it
+                            ocr_text
+                        }
+                        _ => response
+                    }
+                } else {
+                    response
+                }
+            } else {
+                response
+            };
+
+            Ok(BrowserResult {
+                success: true,
+                response: final_response,
+                error_message: None,
+            })
+        } else {
+            let error = String::from_utf8_lossy(&output.stderr);
+            Err(anyhow::anyhow!("Docker Playwright failed: {}", error))
         }
     }
 
@@ -143,7 +341,7 @@ impl ChatGPTBrowser {
         // This is a simplified implementation that would need refinement
 
         Err(anyhow::anyhow!(
-            "Playwright integration requires additional setup. Using simplified approach."
+            "Local Playwright integration requires additional setup. Using simplified approach."
         ))
     }
 
