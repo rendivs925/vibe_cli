@@ -339,7 +339,11 @@ pub struct Cli {
     #[arg(long)]
     pub chat: bool,
 
-    /// Use multi-step agent mode
+    /// Execute multi-step command sequences (formerly --agent)
+    #[arg(long)]
+    pub run: bool,
+
+    /// DEPRECATED: Use --run instead
     #[arg(long)]
     pub agent: bool,
 
@@ -377,6 +381,14 @@ pub struct Cli {
         help = "Generate and execute build plans with AI assistance, RAG context retrieval, and transaction safety"
     )]
     pub build: bool,
+
+    /// Launch TUI interface for enhanced interaction
+    #[arg(long, help = "Launch the terminal user interface for sessions and chat history management")]
+    pub tui: bool,
+
+    /// Use computer vision for zero-cost AI workflows
+    #[arg(long, help = "Enable computer vision mode with Playwright browser automation for web AI tools")]
+    pub vision: bool,
 
     /// Run tests with real-time monitoring
     #[arg(
@@ -1400,6 +1412,50 @@ impl CliApp {
             self.current_session = Some(session_name.clone());
         }
 
+        // Handle deprecation warnings
+        if cli.agent {
+            eprintln!("⚠️  WARNING: --agent flag is deprecated. Use --run instead.");
+            eprintln!("   The --agent flag will be removed in a future version.");
+        }
+
+        // Check for conflicting flags
+        let mode_flags = [
+            ("chat", cli.chat),
+            ("run", cli.run || cli.agent), // agent is deprecated but still works
+            ("ai_agent", cli.ai_agent),
+            ("plan", cli.plan),
+            ("build", cli.build),
+            ("test", cli.test),
+            ("tui", cli.tui),
+            ("vision", cli.vision),
+            ("explain", cli.explain),
+            ("rag", cli.rag),
+            ("stream", cli.stream),
+            ("context", cli.context),
+        ];
+
+        let active_modes: Vec<&str> = mode_flags.iter()
+            .filter(|(_, active)| *active)
+            .map(|(name, _)| *name)
+            .collect();
+
+        if active_modes.len() > 1 {
+            eprintln!("❌ ERROR: Multiple conflicting modes specified: {}", active_modes.join(", "));
+            eprintln!("   Please specify only one mode at a time.");
+            eprintln!("   Use --help to see available options.");
+            return Ok(());
+        }
+
+        // Handle new TUI mode
+        if cli.tui {
+            return self.handle_tui_mode().await;
+        }
+
+        // Handle vision mode
+        if cli.vision {
+            return self.handle_vision_mode(&args_str).await;
+        }
+
         if cli.chat {
             if args_str.trim().is_empty() {
                 self.handle_chat().await
@@ -1412,7 +1468,7 @@ impl CliApp {
         } else if cli.build {
             self.handle_build(&args_str, cli.dry_run, cli.verbose, cli.show_diff)
                 .await
-        } else if cli.agent {
+        } else if cli.run || cli.agent {
             self.handle_agent(&args_str).await
         } else if cli.ai_agent {
             self.handle_ai_agent(&args_str).await
@@ -4421,6 +4477,49 @@ COMMAND:"#,
         self.power_config_override
             .as_ref()
             .unwrap_or(&self.config.power_user)
+    }
+
+    /// Handle TUI mode - launch terminal user interface
+    async fn handle_tui_mode(&mut self) -> Result<()> {
+        println!("🚀 Launching Vibe CLI TUI...");
+        println!("Note: TUI mode is not yet implemented.");
+        println!("Use CLI modes in the meantime:");
+        println!("  --plan    Create execution plans without running commands");
+        println!("  --build   Safe code modifications with user confirmation");
+        println!("  --run     Execute multi-step command sequences");
+        println!("  --chat    Interactive chat mode");
+        println!("");
+        println!("TUI will provide:");
+        println!("  • Session management and history");
+        println!("  • Vim-style keybindings (hjkl navigation)");
+        println!("  • Real-time mode switching");
+        println!("  • Enhanced visual feedback");
+        Ok(())
+    }
+
+    /// Handle vision mode - computer vision with browser automation
+    async fn handle_vision_mode(&mut self, goal: &str) -> Result<()> {
+        if goal.trim().is_empty() {
+            println!("❌ Vision mode requires a goal (e.g., vibe --vision \"analyze this code for bugs\")");
+            return Ok(());
+        }
+
+        println!("👁️  Vision Mode: Zero-cost AI workflows");
+        println!("Goal: {}", goal);
+        println!("");
+        println!("This mode will:");
+        println!("  • Gather project context automatically");
+        println!("  • Generate structured prompts");
+        println!("  • Use Playwright to interact with ChatGPT web");
+        println!("  • Extract responses via computer vision (OCR)");
+        println!("  • Process results locally (no API costs)");
+        println!("");
+        println!("Note: Vision mode is planned but not yet implemented.");
+        println!("Current alternatives:");
+        println!("  • Use --ai_agent for local AI assistance");
+        println!("  • Use --rag for codebase queries");
+        println!("  • Use --plan for execution planning");
+        Ok(())
     }
 }
 
