@@ -22,7 +22,6 @@ pub mod observability;
 pub mod ollama_client;
 pub mod policy_engine;
 pub mod privacy_controls;
-pub mod prompt_engineer;
 pub mod qdrant_advanced;
 pub mod qdrant_storage;
 pub mod resource_enforcement;

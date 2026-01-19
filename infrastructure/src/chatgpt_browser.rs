@@ -1,5 +1,4 @@
 use crate::chatgpt_ocr::{ChatGPTOCR, ProcessedResponse};
-use crate::prompt_engineer::{PromptEngineer, StructuredPrompt};
 use anyhow::Result;
 use regex::Regex;
 /// Browser automation for ChatGPT integration - privacy-preserving remote AI access
@@ -19,7 +18,6 @@ pub struct ChatGPTBrowser {
     browser_command: String,
     chatgpt_url_pattern: Regex,
     ocr: Option<ChatGPTOCR>,
-    prompt_engineer: PromptEngineer,
 }
 
 impl ChatGPTBrowser {
@@ -31,13 +29,10 @@ impl ChatGPTBrowser {
         let chatgpt_url_pattern = Regex::new(r"chat\.openai\.com")?;
         let ocr = ChatGPTOCR::new().ok();
 
-        let prompt_engineer = PromptEngineer::new();
-
         Ok(Self {
             browser_command,
             chatgpt_url_pattern,
             ocr,
-            prompt_engineer,
         })
     }
 
@@ -175,14 +170,11 @@ impl ChatGPTBrowser {
 
     /// Send a structured query to ChatGPT with context gathering
     pub async fn query_with_context(&mut self, goal: &str) -> Result<BrowserResult> {
-        // Generate structured prompt with context
-        let structured_prompt = self.prompt_engineer.generate_prompt(goal).await?;
+        // For now, use simple prompt (structured prompt engineering needs fixes)
+        let prompt = format!("Please help with the following request: {}", goal);
 
-        // Combine system and user prompts
-        let full_prompt = format!("{}\n\n{}", structured_prompt.system_prompt, structured_prompt.user_prompt);
-
-        // Send the structured prompt
-        self.query(&full_prompt).await
+        // Send the prompt
+        self.query(&prompt).await
     }
 
     /// Send a raw query to ChatGPT (legacy method)

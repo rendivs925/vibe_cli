@@ -98,6 +98,7 @@ impl PromptEngineer {
         // Add request-specific context
         context.request_type = request_type.clone();
         context.original_goal = goal.to_string();
+
         Ok(context)
     }
 
@@ -335,7 +336,7 @@ impl PromptEngineer {
     }
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 enum RequestType {
     Analysis,
     BugFix,
@@ -345,6 +346,12 @@ enum RequestType {
     Documentation,
     #[default]
     General,
+}
+
+impl Default for RequestType {
+    fn default() -> Self {
+        RequestType::General
+    }
 }
 
 #[derive(Debug, Default)]
