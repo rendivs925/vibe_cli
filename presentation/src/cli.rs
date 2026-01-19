@@ -1418,7 +1418,7 @@ impl CliApp {
             eprintln!("   The --agent flag will be removed in a future version.");
         }
 
-        // Check for conflicting flags
+        // Check for conflicting flags (TUI is special - it launches the interface)
         let mode_flags = [
             ("chat", cli.chat),
             ("run", cli.run || cli.agent), // agent is deprecated but still works
@@ -1426,7 +1426,6 @@ impl CliApp {
             ("plan", cli.plan),
             ("build", cli.build),
             ("test", cli.test),
-            ("tui", cli.tui),
             ("vision", cli.vision),
             ("explain", cli.explain),
             ("rag", cli.rag),
@@ -1439,7 +1438,9 @@ impl CliApp {
             .map(|(name, _)| *name)
             .collect();
 
-        if active_modes.len() > 1 {
+        // TUI can be combined with other modes (it launches the interface with that mode active)
+        // But other modes cannot be combined with each other
+        if active_modes.len() > 1 && !cli.tui {
             eprintln!("❌ ERROR: Multiple conflicting modes specified: {}", active_modes.join(", "));
             eprintln!("   Please specify only one mode at a time.");
             eprintln!("   Use --help to see available options.");
@@ -4486,8 +4487,19 @@ COMMAND:"#,
         // Import and run the TUI
         #[cfg(feature = "tui")]
         {
-            let mut tui_app = crate::tui::TuiApp::new(cli.clone())?;
-            tui_app.run().await?;
+            match crate::tui::TuiApp::new(cli.clone()) {
+                Ok(mut tui_app) => {
+                    if let Err(e) = tui_app.run().await {
+                        eprintln!("TUI error: {}", e);
+                        return Ok(());
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Failed to initialize TUI: {}", e);
+                    eprintln!("Falling back to CLI mode.");
+                    return Ok(());
+                }
+            }
         }
 
         #[cfg(not(feature = "tui"))]
@@ -4499,7 +4511,7 @@ COMMAND:"#,
             println!("  --run     Execute multi-step command sequences");
             println!("  --chat    Interactive chat mode");
             println!("");
-            println!("To enable TUI, build with: cargo build --features tui");
+            println!("To enable TUI, build with: cargo build --features presentation/tui");
         }
 
         Ok(())
