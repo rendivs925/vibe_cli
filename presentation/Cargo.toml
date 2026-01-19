@@ -5,6 +5,9 @@ edition.workspace = true
 license.workspace = true
 authors.workspace = true
 
+[features]
+tui = []
+
 [dependencies]
 application = { path = "../application" }
 infrastructure = { path = "../infrastructure" }
@@ -25,3 +28,5 @@ reqwest = { version = "0.12", features = ["blocking"] }
 tokio.workspace = true
 git2 = "0.18"
 flume = "0.11"
+ratatui.workspace = true
+crossterm.workspace = true

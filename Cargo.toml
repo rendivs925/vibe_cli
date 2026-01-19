@@ -50,6 +50,7 @@ lz4 = "1.24"
 dotenvy = "0.15"
 docx-rs = "0.4"
 crossterm = "0.27"
+ratatui = "0.26"
 uuid = { version = "1.8", features = ["v4"] }
 num_cpus = "1.16"
 bincode = "1.3"

@@ -7,3 +7,6 @@ pub mod cli;
 pub mod confirmation;
 pub mod editor;
 pub mod session;
+
+#[cfg(feature = "tui")]
+pub mod tui;

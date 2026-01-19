@@ -1448,7 +1448,7 @@ impl CliApp {
 
         // Handle new TUI mode
         if cli.tui {
-            return self.handle_tui_mode().await;
+            return self.handle_tui_mode(&cli).await;
         }
 
         // Handle vision mode
@@ -4480,20 +4480,28 @@ COMMAND:"#,
     }
 
     /// Handle TUI mode - launch terminal user interface
-    async fn handle_tui_mode(&mut self) -> Result<()> {
+    async fn handle_tui_mode(&mut self, cli: &Cli) -> Result<()> {
         println!("🚀 Launching Vibe CLI TUI...");
-        println!("Note: TUI mode is not yet implemented.");
-        println!("Use CLI modes in the meantime:");
-        println!("  --plan    Create execution plans without running commands");
-        println!("  --build   Safe code modifications with user confirmation");
-        println!("  --run     Execute multi-step command sequences");
-        println!("  --chat    Interactive chat mode");
-        println!("");
-        println!("TUI will provide:");
-        println!("  • Session management and history");
-        println!("  • Vim-style keybindings (hjkl navigation)");
-        println!("  • Real-time mode switching");
-        println!("  • Enhanced visual feedback");
+
+        // Import and run the TUI
+        #[cfg(feature = "tui")]
+        {
+            let mut tui_app = crate::tui::TuiApp::new(cli.clone())?;
+            tui_app.run().await?;
+        }
+
+        #[cfg(not(feature = "tui"))]
+        {
+            println!("Note: TUI mode requires the 'tui' feature to be enabled.");
+            println!("Use CLI modes in the meantime:");
+            println!("  --plan    Create execution plans without running commands");
+            println!("  --build   Safe code modifications with user confirmation");
+            println!("  --run     Execute multi-step command sequences");
+            println!("  --chat    Interactive chat mode");
+            println!("");
+            println!("To enable TUI, build with: cargo build --features tui");
+        }
+
         Ok(())
     }
 
