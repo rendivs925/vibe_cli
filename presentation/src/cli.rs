@@ -57,8 +57,16 @@ pub async fn request_command_stream_then_confirm(
             .join("commands.json"),
     );
 
+    // Check cache first
     if let Some(cached_candidates) = cache_manager.load_cached(user_query)? {
-        return handle_cached_candidates(cached_candidates, user_query);
+        match handle_cached_candidates(cached_candidates, user_query) {
+            Ok(Some(cmd)) => return Ok(Some(cmd)),
+            Ok(None) => return Ok(None), // User chose to quit
+            Err(_) => {
+                // User chose "g" to generate new, fall through to generation
+                println!("Generating new commands...");
+            }
+        }
     }
 
     let base_instruction = format!(
@@ -147,27 +155,28 @@ fn handle_cached_candidates(candidates: Vec<CommandCandidate>, user_query: &str)
     }
     println!();
 
-    print!("Choose [1-{}], (g)enerate new, (q)uit: ", candidates.len());
-    io::stdout().flush()?;
+    loop {
+        print!("Choose [1-{}], (g)enerate new, (q)uit: ", candidates.len());
+        io::stdout().flush()?;
 
-    let mut input = String::new();
-    io::stdin().read_line(&mut input)?;
-    let input = input.trim().to_lowercase();
+        let mut input = String::new();
+        io::stdin().read_line(&mut input)?;
+        let input = input.trim().to_lowercase();
 
-    if input == "q" {
-        return Ok(None);
-    } else if input == "g" {
-        return Ok(None); // Signal to generate new commands
-    } else if let Ok(choice) = input.parse::<usize>() {
-        if choice >= 1 && choice <= candidates.len() {
-            let candidate = &candidates[choice - 1];
-            println!("Selected: {}", candidate.command);
-            return confirm_and_run_command(&candidate.command);
+        if input == "q" {
+            return Ok(None);
+        } else if input == "g" {
+            return Err(anyhow::anyhow!("generate_new")); // Signal to generate new commands
+        } else if let Ok(choice) = input.parse::<usize>() {
+            if choice >= 1 && choice <= candidates.len() {
+                let candidate = &candidates[choice - 1];
+                println!("Selected: {}", candidate.command);
+                return confirm_and_run_command(&candidate.command);
+            }
         }
-    }
 
-    println!("Invalid choice. Please try again.");
-    handle_cached_candidates(candidates, user_query)
+        println!("Invalid choice. Please try again.");
+    }
 }
 
 fn handle_candidate_selection(candidates: Vec<CommandCandidate>) -> Result<Option<String>> {
