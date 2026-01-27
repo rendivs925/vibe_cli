@@ -109,16 +109,6 @@ async fn stream_assistant_content(
 
 /// Clean model output by removing markdown code fences.
 fn clean_command_output(raw: &str) -> String {
-    // 1) Prefer the COMMAND: marker (take the LAST one just in case)
-    for line in raw.lines().rev() {
-        let l = line.trim();
-        if let Some(rest) = l.strip_prefix("COMMAND:") {
-            // Return only the command part
-            return rest.trim().trim_matches('`').trim().to_string();
-        }
-    }
-
-    // 2) Fallback: fenced code blocks (old behavior)
     let trimmed = raw.trim();
     if trimmed.starts_with("```") && trimmed.ends_with("```") {
         let lines: Vec<&str> = trimmed.lines().collect();
@@ -129,14 +119,7 @@ fn clean_command_output(raw: &str) -> String {
             return lines[1..lines.len() - 1].join("\n").trim().to_string();
         }
     }
-
-    // 3) Final fallback: try to extract a single-line "command-like" last line
-    // (helps if model forgot COMMAND:)
-    if let Some(last_nonempty) = raw.lines().rev().find(|l| !l.trim().is_empty()) {
-        return last_nonempty.trim().trim_matches('`').to_string();
-    }
-
-    "".to_string()
+    trimmed.to_string()
 }
 
 /// Ask user for confirmation (y/yes to proceed).
