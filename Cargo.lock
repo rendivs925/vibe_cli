@@ -164,6 +164,15 @@ checksum = "72b3254f16251a8381aa12e40e3c4d2f0199f8c6508fbecb9d91f575e0fbb8c6"
 
 [[package]]
 name = "bincode"
+version = "1.3.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b1f45e9417d87227c7a56d22e471c6206462cba514c7590c09aff4cf6d1ddcad"
+dependencies = [
+ "serde",
+]
+
+[[package]]
+name = "bincode"
 version = "3.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "fd6a120d2e16b3e1b4a24bd70f23b12d3e16b81f113364a26935f8db7245452d"
@@ -1224,7 +1233,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "arrayvec",
- "bincode",
+ "bincode 3.0.0",
  "domain",
  "dotenvy",
  "futures",
@@ -1726,7 +1735,7 @@ dependencies = [
  "anyhow",
  "application",
  "arboard",
- "bincode",
+ "bincode 3.0.0",
  "clap",
  "colored",
  "dialoguer",
@@ -2719,7 +2728,7 @@ name = "vibe_cli"
 version = "0.1.0"
 dependencies = [
  "application",
- "bincode",
+ "bincode 1.3.3",
  "clap",
  "infrastructure",
  "presentation",
