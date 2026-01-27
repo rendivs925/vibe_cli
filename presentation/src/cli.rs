@@ -1,7 +1,9 @@
+use anyhow::Context;
 use application::rag_service::RagService;
 use clap::Parser;
 use colored::Colorize;
 use docx_rs::*;
+use futures_util::StreamExt;
 use infrastructure::{config::Config, ollama_client::OllamaClient};
 use serde::{Deserialize, Serialize};
 use shared::confirmation::ask_confirmation;
@@ -10,33 +12,205 @@ use std::collections::HashSet;
 use std::hash::{Hash, Hasher};
 use std::io::{self, Write};
 use std::path::PathBuf;
+use tokio::io::{AsyncBufReadExt, BufReader as AsyncBufReader};
+use tokio_util::io::StreamReader;
+
+#[derive(Serialize)]
+struct ChatRequest<'a> {
+    model: &'a str,
+    messages: &'a [Message],
+    stream: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct Message {
+    pub role: String,
+    pub content: String,
+}
+
+#[derive(Deserialize, Debug)]
+struct ChatResponse {
+    message: Message,
+    // If your Ollama returns `done`, keep it; otherwise remove.
+    #[serde(default)]
+    done: bool,
+}
+
+fn normalize_ollama_url(base: &str) -> String {
+    let b = base.trim_end_matches('/');
+    if b.ends_with("/api/chat") || b.ends_with("/api/generate") {
+        b.to_string()
+    } else {
+        format!("{}/api/chat", b)
+    }
+}
+
+/// Stream NDJSON from Ollama, print assistant text as it arrives,
+/// and return the final accumulated assistant content (raw).
+async fn stream_assistant_content(
+    client: &reqwest::Client,
+    config: &Config,
+    messages: &[Message],
+) -> Result<String> {
+    let req = ChatRequest {
+        model: &config.ollama_model,
+        messages,
+        stream: true,
+    };
+
+    let url = normalize_ollama_url(&config.ollama_base_url);
+
+    let resp = client
+        .post(url)
+        .json(&req)
+        .send()
+        .await
+        .context("Failed contacting Ollama")?
+        .error_for_status()
+        .context("Ollama returned non-2xx status")?;
+
+    // Convert the HTTP byte stream into an AsyncRead, then read line-by-line (NDJSON).
+    let byte_stream = resp
+        .bytes_stream()
+        .map(|r| r.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)));
+    let reader = StreamReader::new(byte_stream);
+    let mut lines = AsyncBufReader::new(reader).lines();
+
+    let mut full = String::new();
+
+    while let Some(line) = lines.next_line().await? {
+        let line = line.trim();
+        if line.is_empty() {
+            continue;
+        }
+
+        // Each line should be a JSON object.
+        if let Ok(v) = serde_json::from_str::<ChatResponse>(line) {
+            if v.message.role == "assistant" && !v.message.content.is_empty() {
+                // Print incrementally for “real-time” feel.
+                print!("{}", v.message.content);
+                io::stdout().flush().ok();
+
+                full.push_str(&v.message.content);
+            }
+            if v.done {
+                break;
+            }
+        }
+    }
+
+    // Ensure the terminal ends cleanly.
+    if !full.ends_with('\n') {
+        println!();
+    }
+
+    Ok(full)
+}
+
+/// Clean model output by removing markdown code fences.
+fn clean_command_output(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.starts_with("```") && trimmed.ends_with("```") {
+        let lines: Vec<&str> = trimmed.lines().collect();
+        if lines.len() >= 3
+            && lines[0].trim().starts_with("```")
+            && lines.last().unwrap().trim() == "```"
+        {
+            return lines[1..lines.len() - 1].join("\n").trim().to_string();
+        }
+    }
+    trimmed.to_string()
+}
+
+/// Ask user for confirmation (y/yes to proceed).
+fn confirm(prompt: &str) -> Result<bool> {
+    print!("{prompt} [y/N]: ");
+    io::stdout().flush().ok();
+
+    let mut s = String::new();
+    io::stdin().read_line(&mut s)?;
+    let ans = s.trim().to_ascii_lowercase();
+    Ok(ans == "y" || ans == "yes")
+}
+
+/// Example: request a single command, stream raw assistant response,
+/// then extract final command + ask confirmation.
+pub async fn request_command_stream_then_confirm(
+    config: &Config,
+    messages: &[Message],
+) -> Result<Option<String>> {
+    let client = reqwest::Client::new();
+
+    let cwd = std::env::current_dir()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| "/home/user".to_string());
+    let project_root = find_project_root().unwrap_or_else(|| cwd.clone());
+    let platform = if cfg!(target_os = "linux") {
+        "linux"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(target_os = "windows") {
+        "windows"
+    } else {
+        "unknown"
+    };
+
+    let instruction = format!(
+        r#"You are a command generator. Convert the user's LAST request into EXACTLY ONE POSIX shell command.
+
+Environment:
+- platform: {platform}
+- cwd: {cwd}
+- project_root: {project_root}
+
+Hard constraints:
+1) Output ONLY the command text. No markdown, no explanation, no surrounding quotes.
+2) Exactly one command line. (Pipes/&& allowed only if truly required.)
+3) Non-destructive by default. Never delete/overwrite unless explicitly asked.
+4) Do NOT assume files/tools/flags exist. If unsure, output a minimal discovery command instead of guessing.
+5) Avoid placeholders like /path/to. Use real paths (absolute or relative to project_root).
+6) No network access (curl/wget/git clone/package install) unless explicitly asked.
+7) Disk questions: df for filesystem usage, du for directory sizes."#
+    );
+
+    // IMPORTANT: system message first, then the actual conversation (ending in user's query)
+    let mut msgs = Vec::with_capacity(messages.len() + 1);
+    msgs.push(Message {
+        role: "system".into(),
+        content: instruction,
+    });
+    msgs.extend_from_slice(messages);
+
+    println!("--- Model (streaming) ---");
+    let raw = stream_assistant_content(&client, config, &msgs).await?;
+    let cmd = clean_command_output(&raw);
+
+    println!("\n--- Proposed command ---\n{cmd}\n");
+    Ok(Some(cmd))
+}
 
 fn find_project_root() -> Option<String> {
     let mut current = std::env::current_dir().ok()?;
+    let markers = [
+        "Cargo.toml",
+        "package.json",
+        "requirements.txt",
+        "Pipfile",
+        "pyproject.toml",
+        "setup.py",
+        "Makefile",
+        "CMakeLists.txt",
+        "configure.ac",
+        "go.mod",
+        "Gemfile",
+        "composer.json",
+        ".git",
+    ];
+
     loop {
-        // Check for various project indicators
-        let project_files = [
-            "Cargo.toml",      // Rust
-            "package.json",    // Node.js
-            "requirements.txt", // Python
-            "Pipfile",         // Python
-            "pyproject.toml",  // Python
-            "setup.py",        // Python
-            "Makefile",        // C/C++
-            "CMakeLists.txt",  // C/C++
-            "configure.ac",    // C/C++
-            "go.mod",          // Go
-            "Gemfile",         // Ruby
-            "composer.json",   // PHP
-            ".git",            // Git repo as fallback
-        ];
-
-        for file in &project_files {
-            if current.join(file).exists() {
-                return Some(current.display().to_string());
-            }
+        if markers.iter().any(|m| current.join(m).exists()) {
+            return Some(current.display().to_string());
         }
-
         if !current.pop() {
             break;
         }
@@ -164,23 +338,6 @@ struct RagCacheEntry {
     question: String,
     response: String,
     timestamp: u64,
-}
-
-/// Remove markdown code fences/backticks and surrounding quotes
-fn clean_command_output(raw: &str) -> String {
-    let trimmed = raw.trim();
-    if trimmed.starts_with("```") && trimmed.ends_with("```") {
-        let lines: Vec<&str> = trimmed.lines().collect();
-        if lines.len() >= 3 && lines.last().unwrap().trim() == "```" {
-            return lines[1..lines.len() - 1].join("\n").trim().to_string();
-        }
-    }
-    trimmed
-        .trim_matches('`')
-        .trim_matches('"')
-        .trim_matches('\'')
-        .trim()
-        .to_string()
 }
 
 /// Extract last JSON object/array from text
@@ -757,7 +914,9 @@ User request: {}",
         if self.rag_service.is_none() {
             eprintln!("Analyzing query and scanning codebase...");
             let client = OllamaClient::new()?;
-            self.rag_service = Some(RagService::new(".", &self.config.db_path, client, self.config.clone()).await?);
+            self.rag_service = Some(
+                RagService::new(".", &self.config.db_path, client, self.config.clone()).await?,
+            );
             let keywords = Self::keywords_from_text(question);
             self.rag_service
                 .as_ref()
@@ -797,7 +956,8 @@ User request: {}",
     async fn handle_context(&mut self, path: &str) -> Result<()> {
         eprintln!("Loading context from {}...", path);
         let client = OllamaClient::new()?;
-        self.rag_service = Some(RagService::new(path, &self.config.db_path, client, self.config.clone()).await?);
+        self.rag_service =
+            Some(RagService::new(path, &self.config.db_path, client, self.config.clone()).await?);
         self.rag_service.as_ref().unwrap().build_index().await?;
         eprintln!("Context loaded from {}", path);
         self.handle_chat().await
@@ -829,32 +989,40 @@ User request: {}",
             }
         }
 
-        let client = infrastructure::ollama_client::OllamaClient::new()?;
-        let system_info = detect_system_info();
-        let prompt = format!("You are on a system with: {}. Generate a bash command to: {}. Respond with only the exact command to run, without any formatting, backticks, quotes, or explanation. Ensure the command is complete, syntactically correct, and uses standard Unix tools. For size comparisons, use appropriate units like -BG for gigabytes in df.", system_info, query);
-        let response = client.generate_response(&prompt).await?;
-        let command = extract_command_from_response(&response);
-        println!("{}", format!("Command: {}", command).green());
-        if ask_confirmation("Run this command?", false)? {
-            let output = std::process::Command::new("bash")
-                .arg("-c")
-                .arg(&command)
-                .output()?;
-            println!("{}", String::from_utf8_lossy(&output.stdout));
-            if !output.status.success() {
-                println!(
-                    "{}",
-                    format!(
-                        "Command failed: {}",
-                        String::from_utf8_lossy(&output.stderr)
-                    )
-                    .red()
-                );
+        let _client = infrastructure::ollama_client::OllamaClient::new()?;
+        let _system_info = detect_system_info();
+
+        let messages = vec![Message {
+            role: "user".to_string(),
+            content: query.to_string(),
+        }];
+
+        let command = request_command_stream_then_confirm(&self.config, &messages).await?;
+        if let Some(cmd) = command {
+            println!("{}", format!("Command: {}", cmd).green());
+            if ask_confirmation("Run this command?", false)? {
+                let output = std::process::Command::new("bash")
+                    .arg("-c")
+                    .arg(&cmd)
+                    .output()?;
+                println!("{}", String::from_utf8_lossy(&output.stdout));
+                if !output.status.success() {
+                    println!(
+                        "{}",
+                        format!(
+                            "Command failed: {}",
+                            String::from_utf8_lossy(&output.stderr)
+                        )
+                        .red()
+                    );
+                } else {
+                    let _ = self.save_cached(query, &cmd);
+                }
             } else {
-                let _ = self.save_cached(query, &command);
+                println!("{}", "Command execution cancelled.".yellow());
             }
         } else {
-            println!("{}", "Command execution cancelled.".yellow());
+            println!("{}", "No command generated.".yellow());
         }
         Ok(())
     }
