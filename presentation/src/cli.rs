@@ -47,15 +47,41 @@ fn normalize_ollama_url(base: &str) -> String {
 
 /// Stream NDJSON from Ollama, print assistant text as it arrives (EXCEPT the command),
 /// and return the final accumulated assistant content (raw).
+fn clear_last_lines(lines: usize) {
+    if lines == 0 {
+        return;
+    }
+    // Clear `lines` terminal lines by moving up and erasing.
+    for _ in 0..lines {
+        print!("\x1b[1A"); // cursor up 1
+        print!("\x1b[2K"); // erase entire line
+    }
+    io::stdout().flush().ok();
+}
+
+fn save_cursor() {
+    use std::io::{self, Write};
+    // DEC save cursor
+    print!("\x1b7");
+    io::stdout().flush().ok();
+}
+
+fn restore_cursor_and_clear_to_end() {
+    use std::io::{self, Write};
+    // DEC restore cursor, then clear screen from cursor down
+    print!("\x1b8\x1b[J");
+    io::stdout().flush().ok();
+}
+
+/// Stream NDJSON from Ollama, print assistant text as it arrives (EXCEPT the command line and anything after),
+/// return (full_raw_text, did_print_anything).
 async fn stream_assistant_content(
     client: &reqwest::Client,
     config: &Config,
     messages: &[Message],
-) -> Result<String> {
-    use std::io::{self, Write};
-
-    use anyhow::Context;
+) -> anyhow::Result<(String, bool)> {
     use futures_util::StreamExt;
+    use std::io::{self, Write};
     use tokio::io::{AsyncBufReadExt, BufReader as AsyncBufReader};
     use tokio_util::io::StreamReader;
 
@@ -76,7 +102,6 @@ async fn stream_assistant_content(
         .error_for_status()
         .context("Ollama returned non-2xx status")?;
 
-    // Convert the HTTP byte stream into an AsyncRead, then read line-by-line (NDJSON).
     let byte_stream = resp
         .bytes_stream()
         .map(|r| r.map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e)));
@@ -84,13 +109,38 @@ async fn stream_assistant_content(
     let mut lines = AsyncBufReader::new(reader).lines();
 
     let mut full = String::new();
+    let mut printed_anything = false;
 
-    // Suppress printing once we detect "COMMAND:" (can be split across chunks)
-    let keyword = "COMMAND:";
-    let keep_tail = keyword.len().saturating_sub(1);
+    // Accept common model mistakes too
+    const PREFIXES: [&str; 4] = ["COMMAND:", "Command:", "CMD:", "BATTERY:"];
+
+    // Keep enough tail to detect split prefixes across chunk boundaries
+    let keep_tail = PREFIXES
+        .iter()
+        .map(|p| p.len())
+        .max()
+        .unwrap_or(8)
+        .saturating_sub(1);
 
     let mut suppress_print = false;
-    let mut print_buf = String::new();
+    let mut buf = String::new();
+
+    let mut print_now = |s: &str| {
+        if s.is_empty() {
+            return;
+        }
+        printed_anything = true;
+        print!("{s}");
+        io::stdout().flush().ok();
+    };
+
+    // Helper: find earliest occurrence of any prefix
+    let find_any_prefix = |s: &str| -> Option<usize> {
+        PREFIXES
+            .iter()
+            .filter_map(|p| s.find(p).map(|idx| idx))
+            .min()
+    };
 
     while let Some(line) = lines.next_line().await? {
         let line = line.trim();
@@ -98,46 +148,30 @@ async fn stream_assistant_content(
             continue;
         }
 
-        // Each line should be a JSON object.
         if let Ok(v) = serde_json::from_str::<ChatResponse>(line) {
             if v.message.role == "assistant" && !v.message.content.is_empty() {
                 let chunk = &v.message.content;
-
-                // Always accumulate raw output for later parsing
                 full.push_str(chunk);
 
-                // Streaming print (but suppress the COMMAND line and anything after it)
                 if !suppress_print {
-                    print_buf.push_str(chunk);
+                    buf.push_str(chunk);
 
-                    if let Some(pos) = print_buf.find(keyword) {
-                        // Print everything BEFORE "COMMAND:"
-                        let before = &print_buf[..pos];
-                        if !before.is_empty() {
-                            print!("{before}");
-                            io::stdout().flush().ok();
-                        }
+                    if let Some(pos) = find_any_prefix(&buf) {
+                        // Print only before the prefix, suppress everything after
+                        let before = &buf[..pos];
+                        print_now(before);
 
-                        // Discard everything from COMMAND: onward
                         suppress_print = true;
-                        print_buf.clear();
-                    } else {
-                        // No keyword found yet — print most of buffer but keep a small tail
-                        // so "COMMAND:" can be detected even if split across chunks
-                        if print_buf.len() > keep_tail {
-                            let cut = print_buf.len() - keep_tail;
-                            let to_print = &print_buf[..cut];
+                        buf.clear();
+                    } else if buf.len() > keep_tail {
+                        // Print most of buffer, keep a tail for cross-chunk matching
+                        let cut = buf.len() - keep_tail;
+                        let to_print = &buf[..cut];
+                        print_now(to_print);
 
-                            if !to_print.is_empty() {
-                                print!("{to_print}");
-                                io::stdout().flush().ok();
-                            }
-
-                            // keep the tail
-                            let tail = print_buf[cut..].to_string();
-                            print_buf.clear();
-                            print_buf.push_str(&tail);
-                        }
+                        let tail = buf[cut..].to_string();
+                        buf.clear();
+                        buf.push_str(&tail);
                     }
                 }
             }
@@ -148,96 +182,185 @@ async fn stream_assistant_content(
         }
     }
 
-    // Flush any remaining buffered text (only if we never saw COMMAND:)
-    if !suppress_print && !print_buf.is_empty() {
-        print!("{print_buf}");
-        io::stdout().flush().ok();
+    // Flush remaining buffer only if we never saw a command prefix
+    if !suppress_print && !buf.is_empty() {
+        print_now(&buf);
     }
 
-    Ok(full)
+    Ok((full, printed_anything))
 }
 
-/// Extract exactly one command.
-/// Priority:
-/// 1) strict: last occurrence of `COMMAND:`
-/// 2) fallback: last occurrence of `Command:`
-/// 3) fallback: last non-empty line inside the last markdown code fence block
-/// 4) fallback: last non-empty line that looks like a shell command
-fn extract_command(raw: &str) -> Option<String> {
-    // 1) strict COMMAND:
-    let mut cmd: Option<String> = None;
+fn extract_command(raw: &str, user_query: &str) -> Option<String> {
+    let raw = raw.trim();
+
+    fn normalize(cmd: &str) -> String {
+        cmd.trim()
+            .trim_matches('`')
+            .trim()
+            .trim_end_matches(';')
+            .trim()
+            .to_string()
+    }
+
+    fn is_forbidden(cmd: &str) -> bool {
+        let c = cmd.to_ascii_lowercase();
+
+        // forbid installs / package managers
+        if c.contains("pacman") || c.contains("apt ") || c.contains("dnf ") || c.contains("yum ") {
+            return true;
+        }
+        // forbid destructive / privilege escalation as a hard block (you can relax this if you want)
+        if c.starts_with("sudo ") {
+            return true;
+        }
+        let bad = [
+            " rm ", "rm -", " dd ", "mkfs", ":(){", "shutdown", "reboot", "poweroff",
+        ];
+        bad.iter().any(|b| c.contains(b))
+    }
+
+    fn looks_like_command(s: &str) -> bool {
+        let t = s.trim();
+        if t.is_empty() {
+            return false;
+        }
+        if t.starts_with("```") {
+            return false;
+        }
+        let first = t.split_whitespace().next().unwrap_or("");
+        if first.is_empty() {
+            return false;
+        }
+        first
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || "_-./".contains(c))
+    }
+
+    fn score(cmd: &str, q: &str) -> i32 {
+        let c = cmd.to_ascii_lowercase();
+        let q = q.to_ascii_lowercase();
+        let mut s = 0;
+
+        // Prefer GPU-introspection commands
+        if c.contains("lspci") {
+            s += 100;
+        }
+        if c.contains(" -k") && c.contains("lspci") {
+            s += 30;
+        }
+        if c.contains("vga") || c.contains("3d") || c.contains("display") {
+            s += 20;
+        }
+
+        if c.contains("lshw") && c.contains("class") && c.contains("display") {
+            s += 70;
+        }
+        if c.contains("inxi") && c.contains("-g") {
+            s += 60;
+        }
+        if c.contains("glxinfo") {
+            s += 50;
+        }
+
+        // Penalize brittle/vendor-specific greps (unless user asked)
+        if c.contains("nvidia") && !q.contains("nvidia") {
+            s -= 15;
+        }
+
+        // Penalize log scraping / less reliable
+        if c.contains("/var/log/xorg") {
+            s -= 80;
+        }
+        if c.starts_with("cat ") {
+            s -= 10;
+        }
+
+        // Penalize pipelines a bit (preference for simplest)
+        if c.contains("&&") {
+            s -= 10;
+        }
+        if c.matches('|').count() >= 2 {
+            s -= 5;
+        }
+
+        s
+    }
+
+    // ---------- collect candidates ----------
+    let mut cands: Vec<String> = Vec::new();
+
+    // A) prefixed lines (COMMAND / Command / CMD)
     for line in raw.lines() {
         let l = line.trim();
-        if let Some(rest) = l.strip_prefix("COMMAND:") {
-            let c = rest.trim();
-            if !c.is_empty() {
-                cmd = Some(c.to_string());
-            }
-        }
-    }
-    if cmd.is_some() {
-        return cmd;
-    }
-
-    // 2) fallback Command:
-    for line in raw.lines() {
-        let l = line.trim();
-        if let Some(rest) = l.strip_prefix("Command:") {
-            let c = rest.trim();
-            if !c.is_empty() {
-                cmd = Some(c.to_string());
-            }
-        }
-    }
-    if cmd.is_some() {
-        return cmd;
-    }
-
-    // 3) fallback: last fenced code block content
-    let mut in_fence = false;
-    let mut last_block: Vec<String> = Vec::new();
-    let mut cur_block: Vec<String> = Vec::new();
-
-    for line in raw.lines() {
-        let t = line.trim_end();
-        if t.trim_start().starts_with("```") {
-            if in_fence {
-                // closing fence
-                in_fence = false;
-                if !cur_block.is_empty() {
-                    last_block = cur_block.clone();
+        for p in ["COMMAND:", "Command:", "CMD:"] {
+            if let Some(rest) = l.strip_prefix(p) {
+                let cmd = normalize(rest);
+                if looks_like_command(&cmd) && !is_forbidden(&cmd) {
+                    cands.push(cmd);
                 }
-                cur_block.clear();
-            } else {
-                // opening fence
-                in_fence = true;
-                cur_block.clear();
             }
-            continue;
-        }
-        if in_fence {
-            cur_block.push(t.to_string());
         }
     }
 
-    if !last_block.is_empty() {
-        if let Some(last) = last_block
-            .into_iter()
-            .map(|s| s.trim().to_string())
-            .filter(|s| !s.is_empty())
-            .last()
-        {
-            return Some(last);
+    // B) fenced code blocks: take all lines inside fences as candidates
+    {
+        let mut in_fence = false;
+        for line in raw.lines() {
+            let t = line.trim_end();
+            if t.trim_start().starts_with("```") {
+                in_fence = !in_fence;
+                continue;
+            }
+            if in_fence {
+                let cmd = normalize(t);
+                if looks_like_command(&cmd) && !is_forbidden(&cmd) {
+                    cands.push(cmd);
+                }
+            }
         }
     }
 
-    // 4) fallback: last non-empty line that looks like a command
-    raw.lines()
-        .map(|s| s.trim())
-        .filter(|s| !s.is_empty())
-        .rev()
-        .find(|s| looks_like_shell_command(s))
-        .map(|s| s.to_string())
+    // C) inline backticks
+    {
+        let mut start = None;
+        for (i, ch) in raw.char_indices() {
+            if ch == '`' {
+                if let Some(st) = start {
+                    let snippet = &raw[st..i];
+                    let cmd = normalize(snippet);
+                    if looks_like_command(&cmd) && !is_forbidden(&cmd) {
+                        cands.push(cmd);
+                    }
+                    start = None;
+                } else {
+                    start = Some(i + 1);
+                }
+            }
+        }
+    }
+
+    // D) last resort: shell-looking lines from whole output
+    for line in raw.lines() {
+        let cmd = normalize(line);
+        if looks_like_command(&cmd) && !is_forbidden(&cmd) {
+            cands.push(cmd);
+        }
+    }
+
+    // de-dupe
+    cands.sort();
+    cands.dedup();
+
+    // ---------- pick best ----------
+    cands
+        .into_iter()
+        .map(|cmd| {
+            let sc = score(&cmd, user_query);
+            (sc, cmd)
+        })
+        .filter(|(sc, _)| *sc > 0) // require some positive relevance
+        .max_by_key(|(sc, _)| *sc)
+        .map(|(_, cmd)| cmd)
 }
 
 /// Heuristic: excludes obvious prose / list items, keeps typical command characters.
@@ -329,77 +452,66 @@ Environment:
 - project_root: {project_root}
 
 OUTPUT FORMAT (STRICT):
-- First: 1–3 short sentences of plain text explanation (no lists).
+- First: 1–3 short plain-text sentences (no lists).
 - Last line: exactly `COMMAND: <one command>`
 - After the `COMMAND:` line, output NOTHING else.
 
 ABSOLUTE RULES:
-- Do NOT use Markdown/backticks/code fences/bullets/numbered lists.
+- No Markdown/backticks/code fences/bullets/numbered lists.
 - Do NOT output `Command:` or any other prefix. Only `COMMAND:`.
 - The LAST line must start with `COMMAND:` and contain exactly one command.
-- If you cannot produce a valid command, output:
+- If you cannot comply, output ONLY:
   COMMAND: echo "ERROR: no safe command"
 
-SAFETY / BEHAVIOR:
+SAFETY:
 - Non-destructive by default. Never delete/overwrite/move/edit unless explicitly asked.
 - No network access or installs unless explicitly asked.
 - Do not use sudo unless explicitly asked.
 
-PLATFORM GUIDANCE (Linux):
-- Battery status: prefer `acpi -b` if available; otherwise use `/sys/class/power_supply`.
+GUIDANCE (Linux):
+- Battery: `acpi -b` (if available) else read `/sys/class/power_supply`.
 - GPU: `lspci -k | grep -A3 -Ei 'vga|3d|display'`.
 - RAM: `free -h`.
+- CPU: `lscpu`.
 - Disk: filesystem -> `df -h`; directory -> `du -sh <path>`.
 
 Now follow OUTPUT FORMAT (STRICT)."#
     );
 
     let mut last_raw = String::new();
+    let mut last_printed_lines: usize = 0;
 
     for attempt in 1..=MAX_TRIES {
-        // Build messages: base system + (optional) repair system + conversation
-        let mut msgs = Vec::with_capacity(messages.len() + 2);
-
-        msgs.push(Message {
-            role: "system".into(),
-            content: base_instruction.clone(),
-        });
-
-        // On retries, add a "repair" system message that forces strict output,
-        // and shows the model what it did wrong.
         if attempt > 1 {
-            let repair = format!(
-                r#"RETRY #{attempt}: Your previous response violated the required format.
-
-You MUST output:
-- 1–3 plain text sentences (no lists)
-- then a FINAL line starting with exactly `COMMAND: `
-- output nothing after that line
-- do NOT use Markdown/backticks.
-
-Previous invalid output (for reference, do not repeat it):
-{last_raw}"#
-            );
-
-            msgs.push(Message {
-                role: "system".into(),
-                content: repair,
-            });
+            restore_cursor_and_clear_to_end();
         }
 
-        msgs.extend_from_slice(messages);
+        // Mark where this attempt starts so we can overwrite it next retry
+        save_cursor();
 
         println!("--- Model (streaming) [attempt {attempt}/{MAX_TRIES}] ---");
-        let raw = stream_assistant_content(&client, config, &msgs).await?;
+
+        let (raw, printed_anything) = stream_assistant_content(&client, config, &messages).await?;
         last_raw = raw.clone();
 
-        // Prefer strict, but you can swap to extract_command_robust if you want.
-        if let Some(cmd) = extract_command(&raw) {
+        if printed_anything {
+            println!();
+        }
+
+        let user_query = messages
+            .iter()
+            .rev()
+            .find(|m| m.role == "user")
+            .map(|m| m.content.as_str())
+            .unwrap_or("");
+
+        if let Some(cmd) = extract_command(&raw, user_query) {
             return Ok(Some(cmd));
         }
+
+        eprintln!("(Format invalid, retrying...)");
     }
 
-    // After retries, return a helpful error
     anyhow::bail!(
         "Model did not produce a COMMAND: line with a command after {MAX_TRIES} attempts.\nLast output:\n{last_raw}"
     );
