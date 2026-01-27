@@ -154,29 +154,120 @@ async fn stream_assistant_content(
         io::stdout().flush().ok();
     }
 
-    // Ensure the terminal ends cleanly.
-    if !full.ends_with('\n') {
-        println!();
-    }
-
     Ok(full)
 }
 
-/// Extract EXACTLY ONE command: the content after the LAST line that starts with `COMMAND:`.
+/// Extract exactly one command.
+/// Priority:
+/// 1) strict: last occurrence of `COMMAND:`
+/// 2) fallback: last occurrence of `Command:`
+/// 3) fallback: last non-empty line inside the last markdown code fence block
+/// 4) fallback: last non-empty line that looks like a shell command
 fn extract_command(raw: &str) -> Option<String> {
-    let mut last_cmd: Option<String> = None;
-
+    // 1) strict COMMAND:
+    let mut cmd: Option<String> = None;
     for line in raw.lines() {
         let l = line.trim();
         if let Some(rest) = l.strip_prefix("COMMAND:") {
-            let cmd = rest.trim();
-            if !cmd.is_empty() {
-                last_cmd = Some(cmd.to_string());
+            let c = rest.trim();
+            if !c.is_empty() {
+                cmd = Some(c.to_string());
             }
         }
     }
+    if cmd.is_some() {
+        return cmd;
+    }
 
-    last_cmd
+    // 2) fallback Command:
+    for line in raw.lines() {
+        let l = line.trim();
+        if let Some(rest) = l.strip_prefix("Command:") {
+            let c = rest.trim();
+            if !c.is_empty() {
+                cmd = Some(c.to_string());
+            }
+        }
+    }
+    if cmd.is_some() {
+        return cmd;
+    }
+
+    // 3) fallback: last fenced code block content
+    let mut in_fence = false;
+    let mut last_block: Vec<String> = Vec::new();
+    let mut cur_block: Vec<String> = Vec::new();
+
+    for line in raw.lines() {
+        let t = line.trim_end();
+        if t.trim_start().starts_with("```") {
+            if in_fence {
+                // closing fence
+                in_fence = false;
+                if !cur_block.is_empty() {
+                    last_block = cur_block.clone();
+                }
+                cur_block.clear();
+            } else {
+                // opening fence
+                in_fence = true;
+                cur_block.clear();
+            }
+            continue;
+        }
+        if in_fence {
+            cur_block.push(t.to_string());
+        }
+    }
+
+    if !last_block.is_empty() {
+        if let Some(last) = last_block
+            .into_iter()
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .last()
+        {
+            return Some(last);
+        }
+    }
+
+    // 4) fallback: last non-empty line that looks like a command
+    raw.lines()
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+        .rev()
+        .find(|s| looks_like_shell_command(s))
+        .map(|s| s.to_string())
+}
+
+/// Heuristic: excludes obvious prose / list items, keeps typical command characters.
+fn looks_like_shell_command(s: &str) -> bool {
+    // Reject common prose starters
+    let lower = s.to_ascii_lowercase();
+    if lower.starts_with("to ") || lower.starts_with("run ") || lower.starts_with("then ") {
+        return false;
+    }
+    if s.starts_with('-')
+        || s.starts_with('*')
+        || s.chars().next().is_some_and(|c| c.is_ascii_digit())
+    {
+        return false;
+    }
+
+    // Accept typical command patterns
+    let has_cmd_chars = s.contains('|')
+        || s.contains("&&")
+        || s.contains(';')
+        || s.contains('/')
+        || s.contains('-');
+
+    // Or starts with a common binary name-ish token (very lightweight)
+    let first = s.split_whitespace().next().unwrap_or("");
+    let starts_ok = first
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || "_-./".contains(c));
+
+    starts_ok && (has_cmd_chars || s.split_whitespace().count() >= 1)
 }
 
 /// Clean model output by removing markdown code fences.
@@ -211,6 +302,8 @@ pub async fn request_command_stream_then_confirm(
     config: &Config,
     messages: &[Message],
 ) -> Result<Option<String>> {
+    const MAX_TRIES: usize = 3;
+
     let client = reqwest::Client::new();
 
     let cwd = std::env::current_dir()
@@ -227,45 +320,89 @@ pub async fn request_command_stream_then_confirm(
         "unknown"
     };
 
-    let instruction = format!(
-        r#"You are a CLI assistant.
+    let base_instruction = format!(
+        r#"You are a CLI assistant that returns ONE safe shell command.
 
 Environment:
 - platform: {platform}
 - cwd: {cwd}
 - project_root: {project_root}
 
-Your job:
-1) Briefly explain what you will do in 1-3 sentences (plain text).
-2) Then output EXACTLY ONE POSIX shell command on the LAST line, prefixed exactly with:
-COMMAND:
+OUTPUT FORMAT (STRICT):
+- First: 1–3 short sentences of plain text explanation (no lists).
+- Last line: exactly `COMMAND: <one command>`
+- After the `COMMAND:` line, output NOTHING else.
 
-Hard constraints for the command:
-- The LAST line must start with: COMMAND:
-- After "COMMAND:" put exactly one command line (pipes/&& allowed only if necessary).
-- Non-destructive by default. Never delete/overwrite unless explicitly asked.
-- Do NOT assume files/tools/flags exist. If unsure, output a minimal discovery command instead of guessing.
-- Avoid placeholders like /path/to. Use real paths (absolute or relative to project_root).
-- No network access (curl/wget/git clone/package install) unless explicitly asked.
-- Disk questions: df for filesystem usage, du for directory sizes.
+ABSOLUTE RULES:
+- Do NOT use Markdown/backticks/code fences/bullets/numbered lists.
+- Do NOT output `Command:` or any other prefix. Only `COMMAND:`.
+- The LAST line must start with `COMMAND:` and contain exactly one command.
+- If you cannot produce a valid command, output:
+  COMMAND: echo "ERROR: no safe command"
 
-Do not use markdown fences. Do not output anything after the COMMAND line."#
+SAFETY / BEHAVIOR:
+- Non-destructive by default. Never delete/overwrite/move/edit unless explicitly asked.
+- No network access or installs unless explicitly asked.
+- Do not use sudo unless explicitly asked.
+
+PLATFORM GUIDANCE (Linux):
+- Battery status: prefer `acpi -b` if available; otherwise use `/sys/class/power_supply`.
+- GPU: `lspci -k | grep -A3 -Ei 'vga|3d|display'`.
+- RAM: `free -h`.
+- Disk: filesystem -> `df -h`; directory -> `du -sh <path>`.
+
+Now follow OUTPUT FORMAT (STRICT)."#
     );
 
-    // IMPORTANT: system message first, then the actual conversation (ending in user's query)
-    let mut msgs = Vec::with_capacity(messages.len() + 1);
-    msgs.push(Message {
-        role: "system".into(),
-        content: instruction,
-    });
-    msgs.extend_from_slice(messages);
+    let mut last_raw = String::new();
 
-    println!("--- Model (streaming) ---");
-    let raw = stream_assistant_content(&client, config, &msgs).await?;
-    let cmd =
-        extract_command(&raw).context("Model did not produce a COMMAND: line with a command")?;
+    for attempt in 1..=MAX_TRIES {
+        // Build messages: base system + (optional) repair system + conversation
+        let mut msgs = Vec::with_capacity(messages.len() + 2);
 
-    Ok(Some(cmd))
+        msgs.push(Message {
+            role: "system".into(),
+            content: base_instruction.clone(),
+        });
+
+        // On retries, add a "repair" system message that forces strict output,
+        // and shows the model what it did wrong.
+        if attempt > 1 {
+            let repair = format!(
+                r#"RETRY #{attempt}: Your previous response violated the required format.
+
+You MUST output:
+- 1–3 plain text sentences (no lists)
+- then a FINAL line starting with exactly `COMMAND: `
+- output nothing after that line
+- do NOT use Markdown/backticks.
+
+Previous invalid output (for reference, do not repeat it):
+{last_raw}"#
+            );
+
+            msgs.push(Message {
+                role: "system".into(),
+                content: repair,
+            });
+        }
+
+        msgs.extend_from_slice(messages);
+
+        println!("--- Model (streaming) [attempt {attempt}/{MAX_TRIES}] ---");
+        let raw = stream_assistant_content(&client, config, &msgs).await?;
+        last_raw = raw.clone();
+
+        // Prefer strict, but you can swap to extract_command_robust if you want.
+        if let Some(cmd) = extract_command(&raw) {
+            return Ok(Some(cmd));
+        }
+    }
+
+    // After retries, return a helpful error
+    anyhow::bail!(
+        "Model did not produce a COMMAND: line with a command after {MAX_TRIES} attempts.\nLast output:\n{last_raw}"
+    );
 }
 
 fn find_project_root() -> Option<String> {
