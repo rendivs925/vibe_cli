@@ -109,6 +109,16 @@ async fn stream_assistant_content(
 
 /// Clean model output by removing markdown code fences.
 fn clean_command_output(raw: &str) -> String {
+    // 1) Prefer the COMMAND: marker (take the LAST one just in case)
+    for line in raw.lines().rev() {
+        let l = line.trim();
+        if let Some(rest) = l.strip_prefix("COMMAND:") {
+            // Return only the command part
+            return rest.trim().trim_matches('`').trim().to_string();
+        }
+    }
+
+    // 2) Fallback: fenced code blocks (old behavior)
     let trimmed = raw.trim();
     if trimmed.starts_with("```") && trimmed.ends_with("```") {
         let lines: Vec<&str> = trimmed.lines().collect();
@@ -119,7 +129,14 @@ fn clean_command_output(raw: &str) -> String {
             return lines[1..lines.len() - 1].join("\n").trim().to_string();
         }
     }
-    trimmed.to_string()
+
+    // 3) Final fallback: try to extract a single-line "command-like" last line
+    // (helps if model forgot COMMAND:)
+    if let Some(last_nonempty) = raw.lines().rev().find(|l| !l.trim().is_empty()) {
+        return last_nonempty.trim().trim_matches('`').to_string();
+    }
+
+    "".to_string()
 }
 
 /// Ask user for confirmation (y/yes to proceed).
@@ -156,21 +173,28 @@ pub async fn request_command_stream_then_confirm(
     };
 
     let instruction = format!(
-        r#"You are a command generator. Convert the user's LAST request into EXACTLY ONE POSIX shell command.
+        r#"You are a CLI assistant.
 
 Environment:
 - platform: {platform}
 - cwd: {cwd}
 - project_root: {project_root}
 
-Hard constraints:
-1) Output ONLY the command text. No markdown, no explanation, no surrounding quotes.
-2) Exactly one command line. (Pipes/&& allowed only if truly required.)
-3) Non-destructive by default. Never delete/overwrite unless explicitly asked.
-4) Do NOT assume files/tools/flags exist. If unsure, output a minimal discovery command instead of guessing.
-5) Avoid placeholders like /path/to. Use real paths (absolute or relative to project_root).
-6) No network access (curl/wget/git clone/package install) unless explicitly asked.
-7) Disk questions: df for filesystem usage, du for directory sizes."#
+Your job:
+1) Briefly explain what you will do in 1-3 sentences (plain text).
+2) Then output EXACTLY ONE POSIX shell command on the LAST line, prefixed exactly with:
+COMMAND:
+
+Hard constraints for the command:
+- The LAST line must start with: COMMAND:
+- After "COMMAND:" put exactly one command line (pipes/&& allowed only if necessary).
+- Non-destructive by default. Never delete/overwrite unless explicitly asked.
+- Do NOT assume files/tools/flags exist. If unsure, output a minimal discovery command instead of guessing.
+- Avoid placeholders like /path/to. Use real paths (absolute or relative to project_root).
+- No network access (curl/wget/git clone/package install) unless explicitly asked.
+- Disk questions: df for filesystem usage, du for directory sizes.
+
+Do not use markdown fences. Do not output anything after the COMMAND line."#
     );
 
     // IMPORTANT: system message first, then the actual conversation (ending in user's query)
@@ -185,7 +209,6 @@ Hard constraints:
     let raw = stream_assistant_content(&client, config, &msgs).await?;
     let cmd = clean_command_output(&raw);
 
-    println!("\n--- Proposed command ---\n{cmd}\n");
     Ok(Some(cmd))
 }
 
