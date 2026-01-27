@@ -44,16 +44,79 @@ pub fn extract_commands(raw: &str, user_query: &str) -> Vec<CommandCandidate> {
         if t.is_empty() {
             return false;
         }
+
+        // Reject code fence markers
         if t.starts_with("```") {
             return false;
         }
+
+        // Reject common markdown / prose starters
+        let lower = t.to_ascii_lowercase();
+        let bad_prefixes = [
+            "to ",
+            "run ",
+            "then ",
+            "next ",
+            "this command",
+            "these commands",
+            "you can",
+            "if you",
+            "similarly",
+            "check ",
+            "open a terminal",
+        ];
+        if bad_prefixes.iter().any(|p| lower.starts_with(p)) {
+            return false;
+        }
+
+        // Reject numbered/bulleted markdown lines
+        if t.starts_with('-') || t.starts_with('*') || t.starts_with('•') {
+            return false;
+        }
+        if t.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+            // "1.", "2)" etc
+            let rest = t
+                .chars()
+                .skip_while(|c| c.is_ascii_digit())
+                .collect::<String>();
+            if rest.trim_start().starts_with('.') || rest.trim_start().starts_with(')') {
+                return false;
+            }
+        }
+
+        // Reject obvious non-commands
+        if t.ends_with(':') {
+            return false;
+        }
+
+        // Reject bare fence language tags
+        if matches!(lower.as_str(), "bash" | "sh" | "zsh" | "shell" | "console") {
+            return false;
+        }
+
+        // First token must look like an executable/command
         let first = t.split_whitespace().next().unwrap_or("");
         if first.is_empty() {
             return false;
         }
-        first
+        if !first
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || "_-./".contains(c))
+        {
+            return false;
+        }
+
+        // Must have some "command-ish" signal:
+        // either arguments, operators, or a path/flag.
+        let has_signal = t.split_whitespace().count() >= 2
+            || t.contains('|')
+            || t.contains("&&")
+            || t.contains(';')
+            || t.contains('/')
+            || t.contains(" -")
+            || t.contains("--");
+
+        has_signal
     }
 
     fn score(cmd: &str, q: &str) -> i32 {
