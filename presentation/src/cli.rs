@@ -9,12 +9,12 @@ pub use handlers::CliHandlers;
 pub use streaming::{restore_cursor_and_clear_to_end, save_cursor, stream_assistant_content};
 pub use utils::{detect_system_info, find_project_root, floor_char_boundary, project_cache_suffix};
 
+use cache::{CacheManager, CommandCandidate};
 use clap::Parser;
 use infrastructure::config::Config;
 use serde::{Deserialize, Serialize};
 use shared::types::Result;
 use std::io::{self, Write};
-use cache::{CommandCandidate, CacheManager};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Message {
@@ -26,14 +26,13 @@ pub async fn request_command_stream_then_confirm(
     config: &Config,
     messages: &[Message],
 ) -> Result<Option<String>> {
-    const MAX_TRIES: usize = 3;
-
     let client = reqwest::Client::new();
 
     let cwd = std::env::current_dir()
         .map(|p| p.display().to_string())
         .unwrap_or_else(|_| "/home/user".to_string());
     let project_root = utils::find_project_root().unwrap_or_else(|| cwd.clone());
+
     let platform = if cfg!(target_os = "linux") {
         "linux"
     } else if cfg!(target_os = "macos") {
@@ -69,74 +68,68 @@ pub async fn request_command_stream_then_confirm(
         }
     }
 
-    let base_instruction = format!(
-        r#"You are a CLI assistant that returns ONE safe shell command.
+    // Flexible instructions: do NOT require COMMAND:.
+    // We rely on extract_commands() to find commands in fenced blocks, inline backticks,
+    // $ prompts, "bash ..." lines, operator-heavy lines, etc.
+    let instruction = format!(
+        r#"You are a CLI assistant.
+
+Goal:
+- Provide 1–3 safe, relevant shell command options for the user’s request (prefer 1 if possible).
 
 Environment:
 - platform: {platform}
 - cwd: {cwd}
 - project_root: {project_root}
 
-OUTPUT FORMAT (STRICT):
-- First: 1–3 short plain-text sentences (no lists).
-- Last line: exactly `COMMAND: <one command>`
-- After the `COMMAND:` line, output NOTHING else.
+Rules:
+- Do NOT include destructive commands unless explicitly asked.
+- No installs, no sudo, no network unless explicitly asked.
+- Prefer read-only inspection commands.
+- Output commands plainly (one per line is fine). No need to use any special prefix like COMMAND:.
 
-ABSOLUTE RULES:
-- No Markdown/backticks/code fences/bullets/numbered lists.
-- Do NOT output `Command:` or any other prefix. Only `COMMAND:`.
-- The LAST line must start with `COMMAND:` and contain exactly one command.
-- If you cannot comply, output ONLY:
-  COMMAND: echo "ERROR: no safe command"
-
-SAFETY:
-- Non-destructive by default. Never delete/overwrite/move/edit unless explicitly asked.
-- No network access or installs unless explicitly asked.
-- Do not use sudo unless explicitly asked.
-
-GUIDANCE (Linux):
-- Battery: `acpi -b` (if available) else read `/sys/class/power_supply`.
-- GPU: `lspci -k | grep -A3 -Ei 'vga|3d|display'`.
-- RAM: `free -h`.
-- CPU: `lscpu`.
-- Disk: filesystem -> `df -h`; directory -> `du -sh <path>`.
-
-Now follow OUTPUT FORMAT (STRICT)."#
+Examples of good output:
+free -h
+cat /proc/meminfo | grep MemTotal
+"#
     );
 
-    let mut last_raw = String::new();
+    // Build messages to send: inject as system message for this request.
+    let mut req_messages: Vec<Message> = Vec::with_capacity(messages.len() + 1);
+    req_messages.push(Message {
+        role: "system".to_string(),
+        content: instruction,
+    });
+    req_messages.extend_from_slice(messages);
 
-    for attempt in 1..=MAX_TRIES {
-        if attempt > 1 {
-            restore_cursor_and_clear_to_end();
-        }
+    // Optional: keep your cursor UX (no retries, but still cleanly prints one attempt)
+    save_cursor();
+    println!("--- [attempt 1/1] ---");
 
-        save_cursor();
+    let (raw, printed_anything) = stream_assistant_content(&client, config, &req_messages).await?;
 
-        println!("--- [attempt {attempt}/{MAX_TRIES}] ---");
-
-        let (raw, printed_anything) = stream_assistant_content(&client, config, &messages).await?;
-        last_raw = raw.clone();
-
-        if printed_anything {
-            println!();
-        }
-
-        let candidates = extract_commands(&raw, user_query);
-        if !candidates.is_empty() {
-            cache_manager.save_cached(user_query, candidates.clone())?;
-            return handle_candidate_selection(candidates);
-        }
-
-        eprintln!("(Format invalid, retrying...)");
+    if printed_anything {
+        println!();
     }
 
-    anyhow::bail!(
-        "Model did not produce a COMMAND: line with a command after {MAX_TRIES} attempts.\nLast output:\n{last_raw}"
-    );
+    // Extract command candidates flexibly
+    let candidates = extract_commands(&raw, user_query);
+
+    if candidates.is_empty() {
+        // No retry; just return a useful error that includes raw output for debugging.
+        // (You could also return Ok(None) if you want “no command found” to be non-fatal.)
+        anyhow::bail!("No valid command candidates found in model output.\nRaw output:\n{raw}");
+    }
+
+    // Cache and prompt user to choose
+    cache_manager.save_cached(user_query, candidates.clone())?;
+    handle_candidate_selection(candidates)
 }
 
-fn handle_cached_candidates(candidates: Vec<CommandCandidate>, user_query: &str) -> Result<Option<String>> {
+fn handle_cached_candidates(
+    candidates: Vec<CommandCandidate>,
+    user_query: &str,
+) -> Result<Option<String>> {
     if candidates.len() == 1 {
         let candidate = &candidates[0];
         println!("Found cached command: {}", candidate.command);
@@ -148,9 +141,13 @@ fn handle_cached_candidates(candidates: Vec<CommandCandidate>, user_query: &str)
 
     println!("Found cached commands for: \"{}\"", user_query);
     println!();
-    
+
     for (i, candidate) in candidates.iter().enumerate() {
-        let label_text = candidate.label.as_ref().map(|l| format!(" ({})", l)).unwrap_or_default();
+        let label_text = candidate
+            .label
+            .as_ref()
+            .map(|l| format!(" ({})", l))
+            .unwrap_or_default();
         println!("  [{}] {}{}", i + 1, candidate.command, label_text);
     }
     println!();
@@ -195,9 +192,13 @@ fn handle_candidate_selection(candidates: Vec<CommandCandidate>) -> Result<Optio
 
     println!("Generated command options:");
     println!();
-    
+
     for (i, candidate) in candidates.iter().enumerate() {
-        let label_text = candidate.label.as_ref().map(|l| format!(" ({})", l)).unwrap_or_default();
+        let label_text = candidate
+            .label
+            .as_ref()
+            .map(|l| format!(" ({})", l))
+            .unwrap_or_default();
         println!("  [{}] {}{}", i + 1, candidate.command, label_text);
     }
     println!();
@@ -300,3 +301,4 @@ impl CliApp {
         }
     }
 }
+

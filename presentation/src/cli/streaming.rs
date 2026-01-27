@@ -81,75 +81,30 @@ pub async fn stream_assistant_content(
     let mut full = String::new();
     let mut printed_anything = false;
 
-    const PREFIXES: [&str; 4] = ["COMMAND:", "Command:", "CMD:", "BATTERY:"];
-
-    let keep_tail = PREFIXES
-        .iter()
-        .map(|p| p.len())
-        .max()
-        .unwrap_or(8)
-        .saturating_sub(1);
-
-    let mut suppress_print = false;
-    let mut buf = String::new();
-
-    let mut print_now = |s: &str| {
-        if s.is_empty() {
-            return;
-        }
-        printed_anything = true;
-        print!("{s}");
-        io::stdout().flush().ok();
-    };
-
-    let find_any_prefix = |s: &str| -> Option<usize> {
-        PREFIXES
-            .iter()
-            .filter_map(|p| s.find(p).map(|idx| idx))
-            .min()
-    };
-
     while let Some(line) = lines.next_line().await? {
         let line = line.trim();
-
         if line.is_empty() {
             continue;
         }
 
-        if let Ok(v) = serde_json::from_str::<ChatResponse>(&line) {
-            if v.message.role == "assistant" && !v.message.content.is_empty() {
-                let chunk = &v.message.content;
-                full.push_str(chunk);
+        // Ollama streams JSON lines
+        let Ok(v) = serde_json::from_str::<ChatResponse>(line) else {
+            continue;
+        };
 
-                if !suppress_print {
-                    buf.push_str(chunk);
+        if v.message.role == "assistant" && !v.message.content.is_empty() {
+            let chunk = &v.message.content;
 
-                    if let Some(pos) = find_any_prefix(&buf) {
-                        let before = &buf[..pos];
-                        print_now(before);
+            full.push_str(chunk);
 
-                        suppress_print = true;
-                        buf.clear();
-                    } else if buf.len() > keep_tail {
-                        let cut = super::utils::floor_char_boundary(&buf, keep_tail);
-                        let to_print = &buf[..cut];
-                        print_now(to_print);
-
-                        let tail = buf[cut..].to_string();
-                        buf.clear();
-                        buf.push_str(&tail);
-                    }
-                }
-            }
-
-            if v.done {
-                break;
-            }
+            printed_anything = true;
+            print!("{chunk}");
+            io::stdout().flush().ok();
         }
-    }
 
-    if !suppress_print && !buf.is_empty() {
-        print_now(&buf);
+        if v.done {
+            break;
+        }
     }
 
     Ok((full, printed_anything))
