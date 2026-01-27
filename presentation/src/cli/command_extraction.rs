@@ -1,4 +1,18 @@
+use crate::cli::cache::CommandCandidate;
+
 pub fn extract_command(raw: &str, user_query: &str) -> Option<String> {
+    extract_commands(raw, user_query)
+        .into_iter()
+        .max_by(|a, b| {
+            a.confidence
+                .unwrap_or(0.0)
+                .partial_cmp(&b.confidence.unwrap_or(0.0))
+                .unwrap_or(std::cmp::Ordering::Equal)
+        })
+        .map(|candidate| candidate.command)
+}
+
+pub fn extract_commands(raw: &str, user_query: &str) -> Vec<CommandCandidate> {
     let raw = raw.trim();
 
     fn normalize(cmd: &str) -> String {
@@ -88,7 +102,7 @@ pub fn extract_command(raw: &str, user_query: &str) -> Option<String> {
         s
     }
 
-    let mut cands: Vec<String> = Vec::new();
+    let mut candidates: Vec<CommandCandidate> = Vec::new();
 
     for line in raw.lines() {
         let l = line.trim();
@@ -96,7 +110,7 @@ pub fn extract_command(raw: &str, user_query: &str) -> Option<String> {
             if let Some(rest) = l.strip_prefix(p) {
                 let cmd = normalize(rest);
                 if looks_like_command(&cmd) && !is_forbidden(&cmd) {
-                    cands.push(cmd);
+                    candidates.push(CommandCandidate::new(cmd));
                 }
             }
         }
@@ -113,7 +127,7 @@ pub fn extract_command(raw: &str, user_query: &str) -> Option<String> {
             if in_fence {
                 let cmd = normalize(t);
                 if looks_like_command(&cmd) && !is_forbidden(&cmd) {
-                    cands.push(cmd);
+                    candidates.push(CommandCandidate::new(cmd));
                 }
             }
         }
@@ -127,7 +141,7 @@ pub fn extract_command(raw: &str, user_query: &str) -> Option<String> {
                     let snippet = &raw[st..i];
                     let cmd = normalize(snippet);
                     if looks_like_command(&cmd) && !is_forbidden(&cmd) {
-                        cands.push(cmd);
+                        candidates.push(CommandCandidate::new(cmd));
                     }
                     start = None;
                 } else {
@@ -140,22 +154,31 @@ pub fn extract_command(raw: &str, user_query: &str) -> Option<String> {
     for line in raw.lines() {
         let cmd = normalize(line);
         if looks_like_command(&cmd) && !is_forbidden(&cmd) {
-            cands.push(cmd);
+            candidates.push(CommandCandidate::new(cmd));
         }
     }
 
-    cands.sort();
-    cands.dedup();
+    candidates.sort_by(|a, b| a.command.cmp(&b.command));
+    candidates.dedup_by(|a, b| a.command == b.command);
 
-    cands
+    let mut scored_candidates: Vec<CommandCandidate> = candidates
         .into_iter()
-        .map(|cmd| {
-            let sc = score(&cmd, user_query);
-            (sc, cmd)
+        .map(|mut candidate| {
+            let sc = score(&candidate.command, user_query);
+            candidate.confidence = Some(sc as f32);
+            candidate
         })
-        .filter(|(sc, _)| *sc > 0)
-        .max_by_key(|(sc, _)| *sc)
-        .map(|(_, cmd)| cmd)
+        .filter(|candidate| candidate.confidence.unwrap_or(0.0) > 0.0)
+        .collect();
+
+    scored_candidates.sort_by(|a, b| {
+        b.confidence
+            .unwrap_or(0.0)
+            .partial_cmp(&a.confidence.unwrap_or(0.0))
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+
+    scored_candidates
 }
 
 pub fn looks_like_shell_command(s: &str) -> bool {

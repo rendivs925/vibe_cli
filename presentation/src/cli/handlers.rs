@@ -331,12 +331,12 @@ User request: {}",
         if let Ok(Some(cached_command)) = self.cache_manager.load_cached(query) {
             println!(
                 "{}",
-                format!("Found cached command: {}", cached_command).green()
+                format!("Found cached commands").green()
             );
             if ask_confirmation("Use cached command?", true)? {
                 let output = Command::new("bash")
                     .arg("-c")
-                    .arg(&cached_command)
+                    .arg(&cached_command[0].command)
                     .output()?;
                 println!("{}", String::from_utf8_lossy(&output.stdout));
                 if !output.status.success() {
@@ -361,27 +361,19 @@ User request: {}",
         let command =
             crate::cli::request_command_stream_then_confirm(&self.config, &messages).await?;
         if let Some(cmd) = command {
-            println!("{}", format!("Command: {}", cmd).green());
-            if ask_confirmation("Run this command?", false)? {
-                let output = Command::new("bash").arg("-c").arg(&cmd).output()?;
-                println!("{}", String::from_utf8_lossy(&output.stdout));
-                if !output.status.success() {
-                    println!(
-                        "{}",
-                        format!(
-                            "Command failed: {}",
-                            String::from_utf8_lossy(&output.stderr)
-                        )
-                        .red()
-                    );
-                } else {
-                    let _ = self.cache_manager.save_cached(query, &cmd);
+            let output = Command::new("bash").arg("-c").arg(&cmd).output()?;
+            println!("{}", String::from_utf8_lossy(&output.stdout));
+            if !output.status.success() {
+                println!(
+                    "{}",
+                    format!("Command failed with exit code: {:?}", output.status.code()).red()
+                );
+                if !output.stderr.is_empty() {
+                    println!("{}", String::from_utf8_lossy(&output.stderr).red());
                 }
-            } else {
-                println!("{}", "Command execution cancelled.".yellow());
             }
         } else {
-            println!("{}", "No command generated.".yellow());
+            println!("{}", "No command generated or cancelled.".yellow());
         }
         Ok(())
     }

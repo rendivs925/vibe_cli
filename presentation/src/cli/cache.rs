@@ -3,6 +3,40 @@ use shared::types::Result;
 use std::collections::HashSet;
 use std::path::PathBuf;
 
+#[derive(Serialize, Deserialize, Debug, Clone)]
+pub struct CommandCandidate {
+    pub command: String,
+    pub label: Option<String>,
+    pub requires: Vec<String>,
+    pub confidence: Option<f32>,
+}
+
+impl CommandCandidate {
+    pub fn new(command: String) -> Self {
+        Self {
+            command,
+            label: None,
+            requires: Vec::new(),
+            confidence: None,
+        }
+    }
+
+    pub fn with_label(mut self, label: String) -> Self {
+        self.label = Some(label);
+        self
+    }
+
+    pub fn with_requires(mut self, requires: Vec<String>) -> Self {
+        self.requires = requires;
+        self
+    }
+
+    pub fn with_confidence(mut self, confidence: f32) -> Self {
+        self.confidence = Some(confidence);
+        self
+    }
+}
+
 const CACHE_TTL_SECONDS: u64 = 604800;
 const SEMANTIC_SIMILARITY_THRESHOLD: f64 = 0.7;
 
@@ -11,10 +45,28 @@ pub struct CacheFile {
     pub entries: Vec<CacheEntry>,
 }
 
+// Legacy cache entry for backward compatibility
+#[derive(Serialize, Deserialize)]
+pub struct LegacyCacheEntry {
+    pub prompt: String,
+    pub command: String,
+    pub timestamp: u64,
+}
+
+impl From<LegacyCacheEntry> for CacheEntry {
+    fn from(legacy: LegacyCacheEntry) -> Self {
+        Self {
+            prompt: legacy.prompt,
+            candidates: vec![CommandCandidate::new(legacy.command)],
+            timestamp: legacy.timestamp,
+        }
+    }
+}
+
 #[derive(Serialize, Deserialize)]
 pub struct CacheEntry {
     pub prompt: String,
-    pub command: String,
+    pub candidates: Vec<CommandCandidate>,
     pub timestamp: u64,
 }
 
@@ -95,13 +147,24 @@ impl CacheManager {
         trimmed.to_string()
     }
 
-    pub fn load_cached(&self, prompt: &str) -> Result<Option<String>> {
+    pub fn load_cached(&self, prompt: &str) -> Result<Option<Vec<CommandCandidate>>> {
         if !self.cache_path.exists() {
             return Ok(None);
         }
 
         let data = std::fs::read_to_string(&self.cache_path)?;
-        let mut cache: CacheFile = serde_json::from_str(&data).unwrap_or_default();
+
+        // Try to parse as new format first
+        let mut cache: CacheFile = if let Ok(new_cache) = serde_json::from_str::<CacheFile>(&data) {
+            new_cache
+        } else {
+            // Try legacy format and convert
+            let legacy_cache: Vec<LegacyCacheEntry> =
+                serde_json::from_str(&data).unwrap_or_default();
+            CacheFile {
+                entries: legacy_cache.into_iter().map(Into::into).collect(),
+            }
+        };
 
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -119,7 +182,7 @@ impl CacheManager {
 
         for entry in &cache.entries {
             if entry.prompt == prompt {
-                return Ok(Some(Self::clean_command_output(&entry.command)));
+                return Ok(Some(entry.candidates.clone()));
             }
         }
 
@@ -135,13 +198,13 @@ impl CacheManager {
         }
 
         if let Some(entry) = best_match {
-            Ok(Some(Self::clean_command_output(&entry.command)))
+            Ok(Some(entry.candidates.clone()))
         } else {
             Ok(None)
         }
     }
 
-    pub fn save_cached(&self, prompt: &str, command: &str) -> Result<()> {
+    pub fn save_cached(&self, prompt: &str, candidates: Vec<CommandCandidate>) -> Result<()> {
         let mut cache = if self.cache_path.exists() {
             let data = std::fs::read_to_string(&self.cache_path).unwrap_or_default();
             serde_json::from_str::<CacheFile>(&data).unwrap_or_default()
@@ -151,7 +214,7 @@ impl CacheManager {
 
         cache.entries.push(CacheEntry {
             prompt: prompt.to_string(),
-            command: Self::clean_command_output(command),
+            candidates,
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()

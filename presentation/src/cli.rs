@@ -4,7 +4,7 @@ mod handlers;
 mod streaming;
 mod utils;
 
-pub use command_extraction::{extract_command, extract_command_from_response};
+pub use command_extraction::{extract_command, extract_command_from_response, extract_commands};
 pub use handlers::CliHandlers;
 pub use streaming::{restore_cursor_and_clear_to_end, save_cursor, stream_assistant_content};
 pub use utils::{detect_system_info, find_project_root, floor_char_boundary, project_cache_suffix};
@@ -13,6 +13,8 @@ use clap::Parser;
 use infrastructure::config::Config;
 use serde::{Deserialize, Serialize};
 use shared::types::Result;
+use std::io::{self, Write};
+use cache::{CommandCandidate, CacheManager};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Message {
@@ -31,7 +33,7 @@ pub async fn request_command_stream_then_confirm(
     let cwd = std::env::current_dir()
         .map(|p| p.display().to_string())
         .unwrap_or_else(|_| "/home/user".to_string());
-    let project_root = find_project_root().unwrap_or_else(|| cwd.clone());
+    let project_root = utils::find_project_root().unwrap_or_else(|| cwd.clone());
     let platform = if cfg!(target_os = "linux") {
         "linux"
     } else if cfg!(target_os = "macos") {
@@ -42,7 +44,24 @@ pub async fn request_command_stream_then_confirm(
         "unknown"
     };
 
-    let _base_instruction = format!(
+    let user_query = messages
+        .iter()
+        .rev()
+        .find(|m| m.role == "user")
+        .map(|m| m.content.as_str())
+        .unwrap_or("");
+
+    let cache_manager = CacheManager::new(
+        std::path::PathBuf::from(".cache")
+            .join("vibe_cli")
+            .join("commands.json"),
+    );
+
+    if let Some(cached_candidates) = cache_manager.load_cached(user_query)? {
+        return handle_cached_candidates(cached_candidates, user_query);
+    }
+
+    let base_instruction = format!(
         r#"You are a CLI assistant that returns ONE safe shell command.
 
 Environment:
@@ -78,7 +97,6 @@ Now follow OUTPUT FORMAT (STRICT)."#
     );
 
     let mut last_raw = String::new();
-    let _last_printed_lines: usize = 0;
 
     for attempt in 1..=MAX_TRIES {
         if attempt > 1 {
@@ -96,15 +114,10 @@ Now follow OUTPUT FORMAT (STRICT)."#
             println!();
         }
 
-        let user_query = messages
-            .iter()
-            .rev()
-            .find(|m| m.role == "user")
-            .map(|m| m.content.as_str())
-            .unwrap_or("");
-
-        if let Some(cmd) = extract_command(&raw, user_query) {
-            return Ok(Some(cmd));
+        let candidates = extract_commands(&raw, user_query);
+        if !candidates.is_empty() {
+            cache_manager.save_cached(user_query, candidates.clone())?;
+            return handle_candidate_selection(candidates);
         }
 
         eprintln!("(Format invalid, retrying...)");
@@ -113,6 +126,110 @@ Now follow OUTPUT FORMAT (STRICT)."#
     anyhow::bail!(
         "Model did not produce a COMMAND: line with a command after {MAX_TRIES} attempts.\nLast output:\n{last_raw}"
     );
+}
+
+fn handle_cached_candidates(candidates: Vec<CommandCandidate>, user_query: &str) -> Result<Option<String>> {
+    if candidates.len() == 1 {
+        let candidate = &candidates[0];
+        println!("Found cached command: {}", candidate.command);
+        if let Some(label) = &candidate.label {
+            println!("Label: {}", label);
+        }
+        return confirm_and_run_command(&candidate.command);
+    }
+
+    println!("Found cached commands for: \"{}\"", user_query);
+    println!();
+    
+    for (i, candidate) in candidates.iter().enumerate() {
+        let label_text = candidate.label.as_ref().map(|l| format!(" ({})", l)).unwrap_or_default();
+        let confidence_text = candidate.confidence.map(|c| format!(" confidence: {:.1}", c)).unwrap_or_default();
+        println!("  [{}] {}{}{}", i + 1, candidate.command, label_text, confidence_text);
+    }
+    println!();
+
+    print!("Choose [1-{}], (g)enerate new, (q)uit: ", candidates.len());
+    io::stdout().flush()?;
+
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    let input = input.trim().to_lowercase();
+
+    if input == "q" {
+        return Ok(None);
+    } else if input == "g" {
+        return Ok(None); // Signal to generate new commands
+    } else if let Ok(choice) = input.parse::<usize>() {
+        if choice >= 1 && choice <= candidates.len() {
+            let candidate = &candidates[choice - 1];
+            println!("Selected: {}", candidate.command);
+            return confirm_and_run_command(&candidate.command);
+        }
+    }
+
+    println!("Invalid choice. Please try again.");
+    handle_cached_candidates(candidates, user_query)
+}
+
+fn handle_candidate_selection(candidates: Vec<CommandCandidate>) -> Result<Option<String>> {
+    if candidates.is_empty() {
+        return Ok(None);
+    }
+
+    if candidates.len() == 1 {
+        let candidate = &candidates[0];
+        println!("Generated command: {}", candidate.command);
+        if let Some(label) = &candidate.label {
+            println!("Label: {}", label);
+        }
+        return confirm_and_run_command(&candidate.command);
+    }
+
+    println!("Generated command options:");
+    println!();
+    
+    for (i, candidate) in candidates.iter().enumerate() {
+        let label_text = candidate.label.as_ref().map(|l| format!(" ({})", l)).unwrap_or_default();
+        let confidence_text = candidate.confidence.map(|c| format!(" confidence: {:.1}", c)).unwrap_or_default();
+        println!("  [{}] {}{}{}", i + 1, candidate.command, label_text, confidence_text);
+    }
+    println!();
+
+    print!("Choose [1-{}], (q)uit: ", candidates.len());
+    io::stdout().flush()?;
+
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    let input = input.trim().to_lowercase();
+
+    if input == "q" {
+        return Ok(None);
+    } else if let Ok(choice) = input.parse::<usize>() {
+        if choice >= 1 && choice <= candidates.len() {
+            let candidate = &candidates[choice - 1];
+            println!("Selected: {}", candidate.command);
+            return confirm_and_run_command(&candidate.command);
+        }
+    }
+
+    println!("Invalid choice. Please try again.");
+    handle_candidate_selection(candidates)
+}
+
+fn confirm_and_run_command(command: &str) -> Result<Option<String>> {
+    print!("Run this command? [y/N]: ");
+    io::stdout().flush()?;
+
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    let input = input.trim().to_lowercase();
+
+    if input == "y" || input == "yes" {
+        Ok(Some(command.to_string()))
+    } else {
+        println!("Command cancelled.");
+        Ok(None)
+    }
 }
 
 #[derive(Parser)]
