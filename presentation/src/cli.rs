@@ -489,7 +489,7 @@ Now follow OUTPUT FORMAT (STRICT)."#
         // Mark where this attempt starts so we can overwrite it next retry
         save_cursor();
 
-        println!("--- Model (streaming) [attempt {attempt}/{MAX_TRIES}] ---");
+        println!("--- [attempt {attempt}/{MAX_TRIES}] ---");
 
         let (raw, printed_anything) = stream_assistant_content(&client, config, &messages).await?;
         last_raw = raw.clone();
