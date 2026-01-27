@@ -79,27 +79,6 @@ Environment:
 - platform: {platform}
 - cwd: {cwd}
 - project_root: {project_root}
-
-Output style:
-- Start with 1–2 short plain-text sentences explaining the approach.
-- Then list the command(s), one per line, with no prefixes.
-- No markdown, no code fences, no bullets, no numbering.
-
-Rules:
-- Do NOT include destructive commands unless explicitly asked.
-- No installs, no sudo, no network unless explicitly asked.
-- Prefer read-only inspection commands.
-- Keep explanations concise and practical.
-
-Example output:
-
-Shows current memory usage in a human-readable format.
-free -h
-
-Another example:
-
-Displays total physical RAM available on the system.
-cat /proc/meminfo | grep MemTotal
 "#
     );
 

@@ -31,13 +31,16 @@ pub fn extract_commands(raw: &str, user_query: &str) -> Vec<CommandCandidate> {
             }
         }
 
-        // Strip "bash " prefixes (with or without newlines)
-        // Handle cases like "bash cmd" and "bash\ncmd"
-        if let Some(rest) = s.strip_prefix("bash") {
-            let rest_trim = rest.trim_start();
-            // Only strip if next token doesn't start with '-' (to preserve "bash -lc" etc)
-            if !rest_trim.starts_with('-') {
-                s = rest_trim;
+        // Strip shell wrapper prefixes (with or without newlines/spaces)
+        // Handles: "bash cmd", "bash\ncmd", "sh cmd", "sh\ncmd", "zsh cmd", "zsh\ncmd"
+        for shell in ["bash", "sh", "zsh"] {
+            if let Some(rest) = s.strip_prefix(shell) {
+                let rest_trim = rest.trim_start();
+                // Only strip if it's NOT a real shell invocation like: "bash -lc ..."
+                if !rest_trim.starts_with('-') {
+                    s = rest_trim;
+                    break; // strip at most one wrapper
+                }
             }
         }
 
