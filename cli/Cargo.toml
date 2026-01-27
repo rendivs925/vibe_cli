@@ -13,4 +13,4 @@ application = { path = "../application" }
 infrastructure = { path = "../infrastructure" }
 clap = { version = "4.5", features = ["derive"] }
 tokio.workspace = true
-bincode = "1.3"
+bincode = "1.3.3"

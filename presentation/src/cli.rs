@@ -165,7 +165,7 @@ async fn stream_assistant_content(
                         buf.clear();
                     } else if buf.len() > keep_tail {
                         // Print most of buffer, keep a tail for cross-chunk matching
-                        let cut = buf.len() - keep_tail;
+                        let cut = floor_char_boundary(&buf, keep_tail);
                         let to_print = &buf[..cut];
                         print_now(to_print);
 
@@ -188,6 +188,16 @@ async fn stream_assistant_content(
     }
 
     Ok((full, printed_anything))
+}
+
+fn floor_char_boundary(s: &str, mut i: usize) -> usize {
+    if i > s.len() {
+        i = s.len();
+    }
+    while i > 0 && !s.is_char_boundary(i) {
+        i -= 1;
+    }
+    i
 }
 
 fn extract_command(raw: &str, user_query: &str) -> Option<String> {
