@@ -1,3 +1,5 @@
 target/
 debug/
 docs/vibe_cli_local_agent_roadmap.md
+embedding.db
+embeddings.db
