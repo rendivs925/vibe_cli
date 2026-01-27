@@ -21,3 +21,4 @@ reqwest = { version = "0.13", features = ["blocking", "stream"] }
 tokio.workspace = true
 tokio-util = "0.7.18"
 futures-util = "0.3.31"
+regex = "1.10"
