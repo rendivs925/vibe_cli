@@ -8,7 +8,6 @@ pub struct CommandCandidate {
     pub command: String,
     pub label: Option<String>,
     pub requires: Vec<String>,
-    pub confidence: Option<f32>,
 }
 
 impl CommandCandidate {
@@ -17,7 +16,6 @@ impl CommandCandidate {
             command,
             label: None,
             requires: Vec::new(),
-            confidence: None,
         }
     }
 
@@ -28,11 +26,6 @@ impl CommandCandidate {
 
     pub fn with_requires(mut self, requires: Vec<String>) -> Self {
         self.requires = requires;
-        self
-    }
-
-    pub fn with_confidence(mut self, confidence: f32) -> Self {
-        self.confidence = Some(confidence);
         self
     }
 }

@@ -143,8 +143,7 @@ fn handle_cached_candidates(candidates: Vec<CommandCandidate>, user_query: &str)
     
     for (i, candidate) in candidates.iter().enumerate() {
         let label_text = candidate.label.as_ref().map(|l| format!(" ({})", l)).unwrap_or_default();
-        let confidence_text = candidate.confidence.map(|c| format!(" confidence: {:.1}", c)).unwrap_or_default();
-        println!("  [{}] {}{}{}", i + 1, candidate.command, label_text, confidence_text);
+        println!("  [{}] {}{}", i + 1, candidate.command, label_text);
     }
     println!();
 
@@ -190,8 +189,7 @@ fn handle_candidate_selection(candidates: Vec<CommandCandidate>) -> Result<Optio
     
     for (i, candidate) in candidates.iter().enumerate() {
         let label_text = candidate.label.as_ref().map(|l| format!(" ({})", l)).unwrap_or_default();
-        let confidence_text = candidate.confidence.map(|c| format!(" confidence: {:.1}", c)).unwrap_or_default();
-        println!("  [{}] {}{}{}", i + 1, candidate.command, label_text, confidence_text);
+        println!("  [{}] {}{}", i + 1, candidate.command, label_text);
     }
     println!();
 

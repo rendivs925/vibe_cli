@@ -3,16 +3,11 @@ use crate::cli::cache::CommandCandidate;
 pub fn extract_command(raw: &str, user_query: &str) -> Option<String> {
     extract_commands(raw, user_query)
         .into_iter()
-        .max_by(|a, b| {
-            a.confidence
-                .unwrap_or(0.0)
-                .partial_cmp(&b.confidence.unwrap_or(0.0))
-                .unwrap_or(std::cmp::Ordering::Equal)
-        })
+        .next()
         .map(|candidate| candidate.command)
 }
 
-pub fn extract_commands(raw: &str, user_query: &str) -> Vec<CommandCandidate> {
+pub fn extract_commands(raw: &str, _user_query: &str) -> Vec<CommandCandidate> {
     let raw = raw.trim();
 
     fn normalize(cmd: &str) -> String {
@@ -119,52 +114,6 @@ pub fn extract_commands(raw: &str, user_query: &str) -> Vec<CommandCandidate> {
         has_signal
     }
 
-    fn score(cmd: &str, q: &str) -> i32 {
-        let c = cmd.to_ascii_lowercase();
-        let q = q.to_ascii_lowercase();
-        let mut s = 0;
-
-        if c.contains("lspci") {
-            s += 100;
-        }
-        if c.contains(" -k") && c.contains("lspci") {
-            s += 30;
-        }
-        if c.contains("vga") || c.contains("3d") || c.contains("display") {
-            s += 20;
-        }
-
-        if c.contains("lshw") && c.contains("class") && c.contains("display") {
-            s += 70;
-        }
-        if c.contains("inxi") && c.contains("-g") {
-            s += 60;
-        }
-        if c.contains("glxinfo") {
-            s += 50;
-        }
-
-        if c.contains("nvidia") && !q.contains("nvidia") {
-            s -= 15;
-        }
-
-        if c.contains("/var/log/xorg") {
-            s -= 80;
-        }
-        if c.starts_with("cat ") {
-            s -= 10;
-        }
-
-        if c.contains("&&") {
-            s -= 10;
-        }
-        if c.matches('|').count() >= 2 {
-            s -= 5;
-        }
-
-        s
-    }
-
     let mut candidates: Vec<CommandCandidate> = Vec::new();
 
     for line in raw.lines() {
@@ -224,24 +173,7 @@ pub fn extract_commands(raw: &str, user_query: &str) -> Vec<CommandCandidate> {
     candidates.sort_by(|a, b| a.command.cmp(&b.command));
     candidates.dedup_by(|a, b| a.command == b.command);
 
-    let mut scored_candidates: Vec<CommandCandidate> = candidates
-        .into_iter()
-        .map(|mut candidate| {
-            let sc = score(&candidate.command, user_query);
-            candidate.confidence = Some(sc as f32);
-            candidate
-        })
-        .filter(|candidate| candidate.confidence.unwrap_or(0.0) > 0.0)
-        .collect();
-
-    scored_candidates.sort_by(|a, b| {
-        b.confidence
-            .unwrap_or(0.0)
-            .partial_cmp(&a.confidence.unwrap_or(0.0))
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-
-    scored_candidates
+    candidates
 }
 
 pub fn looks_like_shell_command(s: &str) -> bool {
