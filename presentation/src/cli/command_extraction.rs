@@ -1,4 +1,5 @@
 use crate::cli::cache::CommandCandidate;
+use std::collections::HashSet;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Source {
@@ -30,10 +31,11 @@ pub fn extract_commands(raw: &str, user_query: &str) -> Vec<CommandCandidate> {
             }
         }
 
-        // Strip single-line "bash <cmd>" wrappers commonly emitted by UIs.
-        // Keep "bash -lc ..." and other real bash invocations.
-        if let Some(rest) = s.strip_prefix("bash ") {
+        // Strip "bash " prefixes (with or without newlines)
+        // Handle cases like "bash cmd" and "bash\ncmd"
+        if let Some(rest) = s.strip_prefix("bash") {
             let rest_trim = rest.trim_start();
+            // Only strip if next token doesn't start with '-' (to preserve "bash -lc" etc)
             if !rest_trim.starts_with('-') {
                 s = rest_trim;
             }
@@ -225,18 +227,10 @@ pub fn extract_commands(raw: &str, user_query: &str) -> Vec<CommandCandidate> {
         q_keywords: &[String],
     ) {
         let cmd = normalize(raw_cmd);
-        println!(
-            "push_candidate: raw_cmd='{}', normalized='{}'",
-            raw_cmd, cmd
-        );
         if cmd.is_empty() {
             return;
         }
-        if !looks_like_command(&cmd) {
-            println!("Command '{}' rejected by looks_like_command", cmd);
-            return;
-        }
-        if is_forbidden(&cmd) {
+        if !looks_like_command(&cmd) || is_forbidden(&cmd) {
             return;
         }
 
@@ -247,13 +241,7 @@ pub fn extract_commands(raw: &str, user_query: &str) -> Vec<CommandCandidate> {
             src,
             Source::ExplicitPrefix | Source::CodeFence | Source::InlineBackticks
         );
-        println!(
-            "high_conf: {}, matches_query: {}",
-            high_conf,
-            matches_query(&cmd, q_keywords)
-        );
         if !high_conf && !matches_query(&cmd, q_keywords) {
-            println!("Command '{}' rejected by relevance filter", cmd);
             return;
         }
 
@@ -300,7 +288,22 @@ pub fn extract_commands(raw: &str, user_query: &str) -> Vec<CommandCandidate> {
             if ch == '`' {
                 if let Some(st) = start {
                     let snippet = &raw[st..i];
-                    push_candidate(&mut found, Source::InlineBackticks, snippet, &q_keywords);
+                    // Skip single-word inline backticks that look like command mentions in prose
+                    // Only allow multi-word commands or commands with shell signals
+                    let normalized = normalize(snippet);
+                    let token_count = normalized.split_whitespace().count();
+                    let has_shell_signal = normalized.contains('|')
+                        || normalized.contains("&&")
+                        || normalized.contains("||")
+                        || normalized.contains(';')
+                        || normalized.contains(" -")
+                        || normalized.contains("--")
+                        || normalized.contains(">/")
+                        || normalized.contains("</");
+
+                    if token_count > 1 || has_shell_signal {
+                        push_candidate(&mut found, Source::InlineBackticks, snippet, &q_keywords);
+                    }
                     start = None;
                 } else {
                     start = Some(i + 1);
@@ -331,11 +334,13 @@ pub fn extract_commands(raw: &str, user_query: &str) -> Vec<CommandCandidate> {
     found.sort_by(|(sa, a), (sb, b)| sa.cmp(sb).then_with(|| a.command.cmp(&b.command)));
 
     // Dedup by command string, keeping best-ranked (lowest Source)
+    let mut seen_commands = std::collections::HashSet::new();
     let mut out: Vec<CommandCandidate> = Vec::new();
     for (_src, cand) in found {
-        if out.last().is_some_and(|p| p.command == cand.command) {
+        if seen_commands.contains(&cand.command) {
             continue;
         }
+        seen_commands.insert(cand.command.clone());
         out.push(cand);
     }
 
@@ -626,6 +631,22 @@ Choose the method that best fits your needs and environment.
 "#;
         let cmds = extract_commands(input, "ram memory");
         assert!(cmds.is_empty());
+    }
+
+    #[test]
+    fn test_dedup_bash_prefix() {
+        // Test that duplicates with "bash " prefix are properly deduplicated
+        let input = r#"
+bash lshw -short | grep memory
+lshw -short | grep memory
+```bash
+lshw -short | grep memory
+```
+"#;
+        let cmds = extract_commands(input, "memory hardware");
+        // Should only have one command, not duplicates
+        assert_eq!(cmds.len(), 1);
+        assert_eq!(cmds[0].command, "lshw -short | grep memory");
     }
 
     #[test]
