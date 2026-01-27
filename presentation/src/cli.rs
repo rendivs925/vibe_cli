@@ -45,13 +45,20 @@ fn normalize_ollama_url(base: &str) -> String {
     }
 }
 
-/// Stream NDJSON from Ollama, print assistant text as it arrives,
+/// Stream NDJSON from Ollama, print assistant text as it arrives (EXCEPT the command),
 /// and return the final accumulated assistant content (raw).
 async fn stream_assistant_content(
     client: &reqwest::Client,
     config: &Config,
     messages: &[Message],
 ) -> Result<String> {
+    use std::io::{self, Write};
+
+    use anyhow::Context;
+    use futures_util::StreamExt;
+    use tokio::io::{AsyncBufReadExt, BufReader as AsyncBufReader};
+    use tokio_util::io::StreamReader;
+
     let req = ChatRequest {
         model: &config.ollama_model,
         messages,
@@ -78,6 +85,13 @@ async fn stream_assistant_content(
 
     let mut full = String::new();
 
+    // Suppress printing once we detect "COMMAND:" (can be split across chunks)
+    let keyword = "COMMAND:";
+    let keep_tail = keyword.len().saturating_sub(1);
+
+    let mut suppress_print = false;
+    let mut print_buf = String::new();
+
     while let Some(line) = lines.next_line().await? {
         let line = line.trim();
         if line.is_empty() {
@@ -87,16 +101,57 @@ async fn stream_assistant_content(
         // Each line should be a JSON object.
         if let Ok(v) = serde_json::from_str::<ChatResponse>(line) {
             if v.message.role == "assistant" && !v.message.content.is_empty() {
-                // Print incrementally for “real-time” feel.
-                print!("{}", v.message.content);
-                io::stdout().flush().ok();
+                let chunk = &v.message.content;
 
-                full.push_str(&v.message.content);
+                // Always accumulate raw output for later parsing
+                full.push_str(chunk);
+
+                // Streaming print (but suppress the COMMAND line and anything after it)
+                if !suppress_print {
+                    print_buf.push_str(chunk);
+
+                    if let Some(pos) = print_buf.find(keyword) {
+                        // Print everything BEFORE "COMMAND:"
+                        let before = &print_buf[..pos];
+                        if !before.is_empty() {
+                            print!("{before}");
+                            io::stdout().flush().ok();
+                        }
+
+                        // Discard everything from COMMAND: onward
+                        suppress_print = true;
+                        print_buf.clear();
+                    } else {
+                        // No keyword found yet — print most of buffer but keep a small tail
+                        // so "COMMAND:" can be detected even if split across chunks
+                        if print_buf.len() > keep_tail {
+                            let cut = print_buf.len() - keep_tail;
+                            let to_print = &print_buf[..cut];
+
+                            if !to_print.is_empty() {
+                                print!("{to_print}");
+                                io::stdout().flush().ok();
+                            }
+
+                            // keep the tail
+                            let tail = print_buf[cut..].to_string();
+                            print_buf.clear();
+                            print_buf.push_str(&tail);
+                        }
+                    }
+                }
             }
+
             if v.done {
                 break;
             }
         }
+    }
+
+    // Flush any remaining buffered text (only if we never saw COMMAND:)
+    if !suppress_print && !print_buf.is_empty() {
+        print!("{print_buf}");
+        io::stdout().flush().ok();
     }
 
     // Ensure the terminal ends cleanly.
@@ -105,6 +160,23 @@ async fn stream_assistant_content(
     }
 
     Ok(full)
+}
+
+/// Extract EXACTLY ONE command: the content after the LAST line that starts with `COMMAND:`.
+fn extract_command(raw: &str) -> Option<String> {
+    let mut last_cmd: Option<String> = None;
+
+    for line in raw.lines() {
+        let l = line.trim();
+        if let Some(rest) = l.strip_prefix("COMMAND:") {
+            let cmd = rest.trim();
+            if !cmd.is_empty() {
+                last_cmd = Some(cmd.to_string());
+            }
+        }
+    }
+
+    last_cmd
 }
 
 /// Clean model output by removing markdown code fences.
@@ -190,7 +262,8 @@ Do not use markdown fences. Do not output anything after the COMMAND line."#
 
     println!("--- Model (streaming) ---");
     let raw = stream_assistant_content(&client, config, &msgs).await?;
-    let cmd = clean_command_output(&raw);
+    let cmd =
+        extract_command(&raw).context("Model did not produce a COMMAND: line with a command")?;
 
     Ok(Some(cmd))
 }
