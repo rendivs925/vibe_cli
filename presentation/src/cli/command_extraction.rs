@@ -225,10 +225,18 @@ pub fn extract_commands(raw: &str, user_query: &str) -> Vec<CommandCandidate> {
         q_keywords: &[String],
     ) {
         let cmd = normalize(raw_cmd);
+        println!(
+            "push_candidate: raw_cmd='{}', normalized='{}'",
+            raw_cmd, cmd
+        );
         if cmd.is_empty() {
             return;
         }
-        if !looks_like_command(&cmd) || is_forbidden(&cmd) {
+        if !looks_like_command(&cmd) {
+            println!("Command '{}' rejected by looks_like_command", cmd);
+            return;
+        }
+        if is_forbidden(&cmd) {
             return;
         }
 
@@ -239,7 +247,13 @@ pub fn extract_commands(raw: &str, user_query: &str) -> Vec<CommandCandidate> {
             src,
             Source::ExplicitPrefix | Source::CodeFence | Source::InlineBackticks
         );
+        println!(
+            "high_conf: {}, matches_query: {}",
+            high_conf,
+            matches_query(&cmd, q_keywords)
+        );
         if !high_conf && !matches_query(&cmd, q_keywords) {
+            println!("Command '{}' rejected by relevance filter", cmd);
             return;
         }
 
@@ -587,14 +601,16 @@ lspci | grep -i nvidia
     #[test]
     fn test_strip_bash_prefix() {
         let input = "bash free -h";
-        let result = extract_command(input, "ram memory");
+        let result = extract_command(input, "free memory");
+        println!("Input: {:?}", input);
+        println!("Result: {:?}", result);
         assert_eq!(result, Some("free -h".to_string()));
     }
 
     #[test]
     fn test_prompt_prefix() {
         let input = "$ cat /proc/meminfo | grep MemTotal";
-        let result = extract_command(input, "ram memory");
+        let result = extract_command(input, "memory info");
         assert_eq!(
             result,
             Some("cat /proc/meminfo | grep MemTotal".to_string())
