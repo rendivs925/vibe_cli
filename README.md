@@ -51,16 +51,16 @@ Supported file types: Rust (.rs), Markdown (.md), TOML (.toml), JSON (.json), Gr
 
 ```bash
 ollama serve
-ollama pull qwen2.5:1.5b-instruct
+ollama pull qwen2.5-coder:3b
 ```
 
 Or configure via environment:
 ```bash
 export OLLAMA_BASE_URL=http://localhost:11434
-export BASE_MODEL=qwen2.5:1.5b-instruct
+export BASE_MODEL=qwen2.5-coder:3b
 ```
 
-**Note**: Default model changed to `qwen2.5:1.5b-instruct` for better performance.
+**Note**: Default model changed to `qwen2.5-coder:3b` for better performance.
 
 ## Build
 
@@ -150,7 +150,7 @@ Create a `.env` file in the project root:
 
 ```env
 OLLAMA_BASE_URL=http://localhost:11434
-BASE_MODEL=qwen2.5:1.5b-instruct
+BASE_MODEL=qwen2.5-coder:3b
 DB_PATH=~/.local/share/vibe_cli/embeddings.db
 ```
 
