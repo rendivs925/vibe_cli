@@ -232,7 +232,8 @@ impl FileScanner {
                     });
                 }
                 current_chunk.clear();
-                start_offset += paragraph.as_ptr() as usize - text.as_ptr() as usize + paragraph.len();
+                start_offset +=
+                    paragraph.as_ptr() as usize - text.as_ptr() as usize + paragraph.len();
             }
         }
 

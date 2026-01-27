@@ -21,8 +21,11 @@ impl EmbeddingStorage {
             let conn = Connection::open(&db_path)?;
             Self::setup_db(&conn)?;
             Ok(conn)
-        }).await??;
-        Ok(Self { conn: Arc::new(Mutex::new(conn)) })
+        })
+        .await??;
+        Ok(Self {
+            conn: Arc::new(Mutex::new(conn)),
+        })
     }
 
     fn setup_db(conn: &Connection) -> SqlResult<()> {
@@ -100,8 +103,7 @@ impl EmbeddingStorage {
         let conn = Arc::clone(&self.conn);
         task::spawn_blocking(move || {
             let conn = conn.blocking_lock();
-            let mut stmt = conn
-                .prepare("SELECT id, vector, text, path FROM embeddings")?;
+            let mut stmt = conn.prepare("SELECT id, vector, text, path FROM embeddings")?;
             let mut rows = stmt.query([])?;
             let mut embeddings = Vec::new();
             while let Some(row) = rows.next()? {
@@ -118,22 +120,23 @@ impl EmbeddingStorage {
                 });
             }
             Ok(embeddings)
-        }).await?
+        })
+        .await?
     }
 
     pub async fn get_file_hash(&self, path: String) -> Result<Option<String>> {
         let conn = Arc::clone(&self.conn);
         task::spawn_blocking(move || {
             let conn = conn.blocking_lock();
-            let mut stmt = conn
-                .prepare("SELECT hash FROM file_meta WHERE path = ?1")?;
+            let mut stmt = conn.prepare("SELECT hash FROM file_meta WHERE path = ?1")?;
             let mut rows = stmt.query([path])?;
             if let Some(row) = rows.next()? {
                 let hash: String = row.get(0)?;
                 return Ok(Some(hash));
             }
             Ok(None)
-        }).await?
+        })
+        .await?
     }
 
     pub async fn upsert_file_hash(&self, path: String, hash: String) -> Result<()> {
@@ -145,7 +148,8 @@ impl EmbeddingStorage {
                 params![path, hash],
             )?;
             Ok(())
-        }).await?
+        })
+        .await?
     }
 
     pub async fn delete_embeddings_for_path(&self, path: String) -> Result<()> {
@@ -154,6 +158,7 @@ impl EmbeddingStorage {
             let conn = conn.blocking_lock();
             conn.execute("DELETE FROM embeddings WHERE path = ?1", params![path])?;
             Ok(())
-        }).await?
+        })
+        .await?
     }
 }

@@ -19,7 +19,12 @@ pub struct RagService {
 }
 
 impl RagService {
-    pub async fn new(root_path: &str, db_path: &str, client: OllamaClient, config: Config) -> Result<Self> {
+    pub async fn new(
+        root_path: &str,
+        db_path: &str,
+        client: OllamaClient,
+        config: Config,
+    ) -> Result<Self> {
         Ok(Self {
             scanner: FileScanner::new(root_path),
             storage: EmbeddingStorage::new(db_path).await?,
@@ -44,7 +49,8 @@ impl RagService {
         if !keywords.is_empty() {
             let filtered_keywords = self.filter_relevant_keywords(keywords);
             if !filtered_keywords.is_empty() {
-                let keyword_lower: Vec<String> = filtered_keywords.iter().map(|k| k.to_lowercase()).collect();
+                let keyword_lower: Vec<String> =
+                    filtered_keywords.iter().map(|k| k.to_lowercase()).collect();
                 let filtered: Vec<PathBuf> = files
                     .iter()
                     .filter(|p| {
@@ -70,7 +76,8 @@ impl RagService {
                         1
                     } else {
                         let path_str = p.to_string_lossy().to_lowercase();
-                        keywords.iter()
+                        keywords
+                            .iter()
                             .filter(|k| path_str.contains(&k.to_lowercase()))
                             .count()
                     };
@@ -79,7 +86,11 @@ impl RagService {
                 .collect();
 
             files_with_scores.sort_by(|a, b| b.1.cmp(&a.1));
-            files = files_with_scores.into_iter().take(MAX_FILES).map(|(p, _)| p).collect();
+            files = files_with_scores
+                .into_iter()
+                .take(MAX_FILES)
+                .map(|(p, _)| p)
+                .collect();
         }
 
         self.build_index_with_files(&files).await
@@ -96,7 +107,9 @@ impl RagService {
             SearchEngine::find_relevant_chunks(&query_embedding, &all_embeddings, 50);
 
         // For project-level questions, include README and directory tree if available
-        if question.to_lowercase().contains("project") || question.to_lowercase().contains("what is") {
+        if question.to_lowercase().contains("project")
+            || question.to_lowercase().contains("what is")
+        {
             if let Ok(readme_content) = std::fs::read_to_string("README.md") {
                 relevant_chunks.insert(0, format!("FILE: README.md\n{}", readme_content));
             }
@@ -120,7 +133,8 @@ impl RagService {
     }
 
     fn filter_files_by_patterns(&self, files: &[PathBuf]) -> Vec<PathBuf> {
-        files.iter()
+        files
+            .iter()
             .filter(|path| {
                 let path_str = path.to_string_lossy();
 
@@ -170,18 +184,111 @@ impl RagService {
     fn filter_relevant_keywords(&self, keywords: &[String]) -> Vec<String> {
         // Filter out common stop words and very short words
         let stop_words = [
-            "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for", "of", "with", "by",
-            "is", "are", "was", "were", "be", "been", "being", "have", "has", "had", "do", "does",
-            "did", "will", "would", "could", "should", "may", "might", "must", "can", "shall",
-            "this", "that", "these", "those", "i", "you", "he", "she", "it", "we", "they", "me",
-            "him", "her", "us", "them", "my", "your", "his", "its", "our", "their", "what", "which",
-            "who", "when", "where", "why", "how", "all", "any", "both", "each", "few", "more",
-            "most", "other", "some", "such", "no", "nor", "not", "only", "own", "same", "so",
-            "than", "too", "very", "just", "now", "here", "there", "then", "once", "also",
-            "explain", "available", "list", "show", "get", "find", "search", "query", "select"
+            "the",
+            "a",
+            "an",
+            "and",
+            "or",
+            "but",
+            "in",
+            "on",
+            "at",
+            "to",
+            "for",
+            "of",
+            "with",
+            "by",
+            "is",
+            "are",
+            "was",
+            "were",
+            "be",
+            "been",
+            "being",
+            "have",
+            "has",
+            "had",
+            "do",
+            "does",
+            "did",
+            "will",
+            "would",
+            "could",
+            "should",
+            "may",
+            "might",
+            "must",
+            "can",
+            "shall",
+            "this",
+            "that",
+            "these",
+            "those",
+            "i",
+            "you",
+            "he",
+            "she",
+            "it",
+            "we",
+            "they",
+            "me",
+            "him",
+            "her",
+            "us",
+            "them",
+            "my",
+            "your",
+            "his",
+            "its",
+            "our",
+            "their",
+            "what",
+            "which",
+            "who",
+            "when",
+            "where",
+            "why",
+            "how",
+            "all",
+            "any",
+            "both",
+            "each",
+            "few",
+            "more",
+            "most",
+            "other",
+            "some",
+            "such",
+            "no",
+            "nor",
+            "not",
+            "only",
+            "own",
+            "same",
+            "so",
+            "than",
+            "too",
+            "very",
+            "just",
+            "now",
+            "here",
+            "there",
+            "then",
+            "once",
+            "also",
+            "explain",
+            "available",
+            "list",
+            "show",
+            "get",
+            "find",
+            "search",
+            "query",
+            "select",
         ];
 
-        keywords.iter()
+        keywords
+            .iter()
             .filter(|k| {
                 let k_lower = k.to_lowercase();
                 k.len() >= 3 && !stop_words.contains(&k_lower.as_str())
@@ -198,17 +305,22 @@ impl RagService {
         let dir_overview = self.scanner.directory_overview(4, 400);
         if !dir_overview.is_empty() {
             let dir_hash = format!("{:x}", md5::compute(dir_overview.as_bytes()));
-            let meta = self.storage.get_file_hash("__dir_overview__".to_string()).await?;
+            let meta = self
+                .storage
+                .get_file_hash("__dir_overview__".to_string())
+                .await?;
             if meta.as_deref() != Some(dir_hash.as_str()) {
                 self.storage
-                    .delete_embeddings_for_path("__dir_overview__".to_string()).await?;
+                    .delete_embeddings_for_path("__dir_overview__".to_string())
+                    .await?;
                 inputs.push(EmbeddingInput {
                     id: format!("__dir_overview__:{dir_hash}"),
                     path: "__dir_overview__".to_string(),
                     text: format!("DIRECTORY TREE:\n{}", dir_overview),
                 });
                 self.storage
-                    .upsert_file_hash("__dir_overview__".to_string(), dir_hash).await?;
+                    .upsert_file_hash("__dir_overview__".to_string(), dir_hash)
+                    .await?;
             }
         }
 
@@ -225,7 +337,9 @@ impl RagService {
             }
 
             // File changed; drop old embeddings for this path.
-            self.storage.delete_embeddings_for_path(scan.path.clone()).await?;
+            self.storage
+                .delete_embeddings_for_path(scan.path.clone())
+                .await?;
 
             for chunk in scan.chunks {
                 let id = format!("{}:{}", chunk.path, chunk.start_offset);

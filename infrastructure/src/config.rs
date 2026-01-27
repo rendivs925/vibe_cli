@@ -9,19 +9,19 @@ fn find_project_root() -> Option<String> {
     loop {
         // Check for various project indicators
         let project_files = [
-            "Cargo.toml",      // Rust
-            "package.json",    // Node.js
+            "Cargo.toml",       // Rust
+            "package.json",     // Node.js
             "requirements.txt", // Python
-            "Pipfile",         // Python
-            "pyproject.toml",  // Python
-            "setup.py",        // Python
-            "Makefile",        // C/C++
-            "CMakeLists.txt",  // C/C++
-            "configure.ac",    // C/C++
-            "go.mod",          // Go
-            "Gemfile",         // Ruby
-            "composer.json",   // PHP
-            ".git",            // Git repo as fallback
+            "Pipfile",          // Python
+            "pyproject.toml",   // Python
+            "setup.py",         // Python
+            "Makefile",         // C/C++
+            "CMakeLists.txt",   // C/C++
+            "configure.ac",     // C/C++
+            "go.mod",           // Go
+            "Gemfile",          // Ruby
+            "composer.json",    // PHP
+            ".git",             // Git repo as fallback
         ];
 
         for file in &project_files {
@@ -87,8 +87,7 @@ impl Config {
         Self {
             ollama_base_url: env::var("OLLAMA_BASE_URL")
                 .unwrap_or_else(|_| "http://localhost:11434".to_string()),
-            ollama_model: env::var("BASE_MODEL")
-                .unwrap_or_else(|_| "qwen2.5-coder:3b".to_string()),
+            ollama_model: env::var("BASE_MODEL").unwrap_or_else(|_| "qwen2.5-coder:3b".to_string()),
             db_path,
             rag_include_patterns,
             rag_exclude_patterns,
