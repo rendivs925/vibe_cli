@@ -26,7 +26,25 @@ pub struct ChatResponse {
     done: bool,
 }
 
-fn confirm_and_run_command(command: &str) -> anyhow::Result<Option<String>> {
+fn confirm_and_run_cached_command(command: &str) -> anyhow::Result<Option<String>> {
+    print!("Run this command? [y/N/g(enerate new)]: ");
+    io::stdout().flush()?;
+
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    let input = input.trim().to_lowercase();
+
+    if input == "y" || input == "yes" {
+        Ok(Some(command.to_string()))
+    } else if input == "g" || input == "generate" {
+        Err(anyhow::anyhow!("generate_new")) // Signal to generate new commands
+    } else {
+        println!("Command cancelled.");
+        Ok(None)
+    }
+}
+
+fn confirm_and_run_generated_command(command: &str) -> anyhow::Result<Option<String>> {
     print!("Run this command? [y/N]: ");
     io::stdout().flush()?;
 
@@ -52,7 +70,7 @@ fn handle_cached_candidates(
         if let Some(label) = &candidate.label {
             println!("Label: {}", label);
         }
-        return confirm_and_run_command(&candidate.command);
+        return confirm_and_run_cached_command(&candidate.command);
     }
 
     println!("Found cached commands for: \"{}\"", user_query);
@@ -84,7 +102,7 @@ fn handle_cached_candidates(
             if choice >= 1 && choice <= candidates.len() {
                 let candidate = &candidates[choice - 1];
                 println!("Selected: {}", candidate.command);
-                return confirm_and_run_command(&candidate.command);
+                return confirm_and_run_cached_command(&candidate.command);
             }
         }
 
@@ -103,7 +121,7 @@ fn handle_candidate_selection(candidates: Vec<CommandCandidate>) -> anyhow::Resu
         if let Some(label) = &candidate.label {
             println!("Label: {}", label);
         }
-        return confirm_and_run_command(&candidate.command);
+        return confirm_and_run_generated_command(&candidate.command);
     }
 
     println!("Generated command options:");
@@ -132,7 +150,7 @@ fn handle_candidate_selection(candidates: Vec<CommandCandidate>) -> anyhow::Resu
         if choice >= 1 && choice <= candidates.len() {
             let candidate = &candidates[choice - 1];
             println!("Selected: {}", candidate.command);
-            return confirm_and_run_command(&candidate.command);
+        return confirm_and_run_generated_command(&candidate.command);
         }
     }
 
