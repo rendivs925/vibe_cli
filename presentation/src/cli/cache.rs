@@ -175,6 +175,9 @@ impl CacheManager {
 
         for entry in &cache.entries {
             if entry.prompt == prompt {
+                if entry.candidates.is_empty() {
+                    return Ok(None);
+                }
                 return Ok(Some(entry.candidates.clone()));
             }
         }
@@ -191,7 +194,11 @@ impl CacheManager {
         }
 
         if let Some(entry) = best_match {
-            Ok(Some(entry.candidates.clone()))
+            if entry.candidates.is_empty() {
+                Ok(None)
+            } else {
+                Ok(Some(entry.candidates.clone()))
+            }
         } else {
             Ok(None)
         }
