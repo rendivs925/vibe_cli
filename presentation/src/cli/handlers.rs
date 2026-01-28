@@ -3,7 +3,7 @@ use crate::cli::streaming::request_command_stream_then_confirm;
 use super::cache::{CacheManager, ExplainCacheManager, RagCacheManager};
 use super::command_extraction::{extract_command_from_response, parse_agent_plan};
 use super::utils::{detect_system_info, project_cache_suffix};
-use application::rag_service::RagService;
+use application::services::rag_service::RagService;
 use colored::Colorize;
 use infrastructure::{config::Config, ollama_client::OllamaClient};
 use shared::confirmation::ask_confirmation;

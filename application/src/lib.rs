@@ -5,9 +5,9 @@
 
 pub mod ports;
 pub mod rag_service;
+pub mod services;
 pub mod use_cases;
 
 // Re-export main types
 pub use ports::*;
-pub use rag_service::*;
-pub use use_cases::*;
+
