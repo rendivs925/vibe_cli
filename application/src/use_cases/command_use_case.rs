@@ -96,6 +96,9 @@ impl CommandUseCase {
             chrono::Utc::now(),
         );
 
+        // Save execution to storage
+        self.storage.save_execution(&execution).await?;
+
         Ok(execution)
     }
 

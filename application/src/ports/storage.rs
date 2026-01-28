@@ -1,13 +1,13 @@
 use async_trait::async_trait;
 use shared::error::AppError;
-use domain::repositories::{EmbeddingRepository, DocumentRepository, SessionRepository, CommandRepository};
+use domain::repositories::{EmbeddingRepository, DocumentRepository, SessionRepository, CommandRepository, ExecutionRepository};
 use domain::value_objects::embedding::{Embedding, SearchResult};
 use domain::EmbeddingStats;
 use domain::value_objects::query::Query;
 use domain::entities::document::Document;
 use domain::entities::session::Session;
 use domain::entities::command::Command;
-use crate::use_cases::command_use_case::CommandExecution;
+use domain::repositories::execution_repository::CommandExecution;
 
 /// Storage port for all repository operations
 pub struct StorageService {
@@ -15,6 +15,7 @@ pub struct StorageService {
     document_repository: Box<dyn DocumentRepository>,
     session_repository: Box<dyn SessionRepository>,
     command_repository: Box<dyn CommandRepository>,
+    execution_repository: Box<dyn ExecutionRepository>,
 }
 
 impl StorageService {
@@ -23,12 +24,14 @@ impl StorageService {
         document_repository: Box<dyn DocumentRepository>,
         session_repository: Box<dyn SessionRepository>,
         command_repository: Box<dyn CommandRepository>,
+        execution_repository: Box<dyn ExecutionRepository>,
     ) -> Self {
         Self {
             embedding_repository,
             document_repository,
             session_repository,
             command_repository,
+            execution_repository,
         }
     }
 
@@ -85,9 +88,11 @@ impl StorageService {
     }
 
     pub async fn get_all_executions(&self) -> Result<Vec<CommandExecution>, AppError> {
-        // For now, return empty vec as executions are tracked in CommandUseCase
-        // In a full implementation, this would query an execution repository
-        Ok(vec![])
+        self.execution_repository.get_all().await
+    }
+
+    pub async fn save_execution(&self, execution: &CommandExecution) -> Result<(), AppError> {
+        self.execution_repository.save(execution).await
     }
 }
 
