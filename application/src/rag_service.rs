@@ -305,7 +305,7 @@ impl RagService {
         let dir_overview = self.scanner.directory_overview(4, 400);
         if !dir_overview.is_empty() {
             let dir_hash = format!("{:x}", md5::compute(dir_overview.as_bytes()));
-            let meta = self
+            let meta: Option<String> = self
                 .storage
                 .get_file_hash("__dir_overview__".to_string())
                 .await?;
@@ -331,7 +331,7 @@ impl RagService {
             }
 
             eprintln!("Processing {}...", scan.path);
-            let previous_hash = self.storage.get_file_hash(scan.path.clone()).await?;
+            let previous_hash: Option<String> = self.storage.get_file_hash(scan.path.clone()).await?;
             if previous_hash.as_deref() == Some(scan.hash.as_str()) {
                 continue;
             }

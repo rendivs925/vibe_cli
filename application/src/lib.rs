@@ -4,8 +4,10 @@
 // that orchestrate business logic and define interfaces for external systems.
 
 pub mod ports;
+pub mod rag_service;
 pub mod use_cases;
 
 // Re-export main types
 pub use ports::*;
+pub use rag_service::*;
 pub use use_cases::*;

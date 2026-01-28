@@ -111,6 +111,7 @@ dependencies = [
  "chrono",
  "domain",
  "futures",
+ "infrastructure",
  "md5",
  "serde_json",
  "shared",
