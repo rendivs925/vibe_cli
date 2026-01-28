@@ -32,3 +32,36 @@ pub fn ask_confirmation(prompt: &str, default_yes: bool) -> Result<bool> {
 
     Ok(result)
 }
+
+/// Confirmation prompt with optional "generate new" choice for cached commands.
+/// Returns Some(true) for yes, Some(false) for no, None for generate new.
+pub fn ask_command_confirmation(prompt: &str, allow_generate: bool) -> Result<Option<bool>> {
+    let term = Term::stdout();
+    let hint = if allow_generate { "[y/N/g]" } else { "[y/N]" };
+    term.write_str(&format!("{prompt} {hint} "))?;
+    term.flush()?;
+
+    enable_raw_mode()?;
+    let result = loop {
+        match read()? {
+            Event::Key(key) => match key.code {
+                KeyCode::Char('y') | KeyCode::Char('Y') => break Some(true),
+                KeyCode::Char('n') | KeyCode::Char('N') | KeyCode::Enter => break Some(false),
+                KeyCode::Char('g') | KeyCode::Char('G') if allow_generate => break None,
+                _ => continue,
+            },
+            _ => continue,
+        }
+    };
+    disable_raw_mode()?;
+
+    // Echo selection with color for clarity.
+    let selection = match result {
+        Some(true) => "y".green().to_string(),
+        Some(false) => "n".red().to_string(),
+        None => "g".yellow().to_string(),
+    };
+    term.write_line(&selection)?;
+
+    Ok(result)
+}

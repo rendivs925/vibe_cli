@@ -1,4 +1,6 @@
+use shared::confirmation::ask_command_confirmation;
 use shared::types::Message;
+use std::io::{self, Write};
 
 use crate::cli::cache::CacheManager;
 use crate::cli::cache::CommandCandidate;
@@ -8,7 +10,6 @@ use anyhow::Context;
 use futures_util::StreamExt;
 use infrastructure::config::Config;
 use serde::{Deserialize, Serialize};
-use std::io::{self, Write};
 use tokio::io::{AsyncBufReadExt, BufReader as AsyncBufReader};
 use tokio_util::io::StreamReader;
 
@@ -27,36 +28,24 @@ pub struct ChatResponse {
 }
 
 fn confirm_and_run_cached_command(command: &str) -> anyhow::Result<Option<String>> {
-    print!("Run this command? [y/N/g(enerate new)]: ");
-    io::stdout().flush()?;
-
-    let mut input = String::new();
-    io::stdin().read_line(&mut input)?;
-    let input = input.trim().to_lowercase();
-
-    if input == "y" || input == "yes" {
-        Ok(Some(command.to_string()))
-    } else if input == "g" || input == "generate" {
-        Err(anyhow::anyhow!("generate_new")) // Signal to generate new commands
-    } else {
-        println!("Command cancelled.");
-        Ok(None)
+    match ask_command_confirmation("Run this command?", true)? {
+        Some(true) => Ok(Some(command.to_string())),
+        Some(false) => {
+            println!("Command cancelled.");
+            Ok(None)
+        }
+        None => Err(anyhow::anyhow!("generate_new")), // Signal to generate new commands
     }
 }
 
 fn confirm_and_run_generated_command(command: &str) -> anyhow::Result<Option<String>> {
-    print!("Run this command? [y/N]: ");
-    io::stdout().flush()?;
-
-    let mut input = String::new();
-    io::stdin().read_line(&mut input)?;
-    let input = input.trim().to_lowercase();
-
-    if input == "y" || input == "yes" {
-        Ok(Some(command.to_string()))
-    } else {
-        println!("Command cancelled.");
-        Ok(None)
+    match ask_command_confirmation("Run this command?", false)? {
+        Some(true) => Ok(Some(command.to_string())),
+        Some(false) => {
+            println!("Command cancelled.");
+            Ok(None)
+        }
+        None => Ok(None), // This shouldn't happen with allow_generate=false, but handle gracefully
     }
 }
 
