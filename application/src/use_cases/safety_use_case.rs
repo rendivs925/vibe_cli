@@ -1,7 +1,7 @@
 use async_trait::async_trait;
-use shared::error::AppError;
-use domain::value_objects::safety_policy::{SafetyPolicy, SafetyResult};
 use domain::entities::command::{Command, SafetyCheck, SafetyCheckType};
+use domain::value_objects::safety_policy::{SafetyPolicy, SafetyResult};
+use shared::error::AppError;
 
 /// Use case for safety validation and policy enforcement
 pub struct SafetyUseCase {
@@ -24,10 +24,10 @@ impl SafetyUseCase {
     /// Validate a command against safety policy
     pub fn validate_command(&self, command_line: &str) -> SafetyValidationResult {
         let safety_result = self.safety_policy.validate_command(command_line);
-        
+
         SafetyValidationResult::new(
             command_line.to_string(),
-            safety_result,
+            safety_result.clone(),
             self.get_recommendations(&safety_result),
         )
     }
@@ -35,7 +35,7 @@ impl SafetyUseCase {
     /// Validate a command entity
     pub fn validate_command_entity(&self, command: &Command) -> SafetyValidationResult {
         let safety_result = self.safety_policy.validate_command_entity(command);
-        
+
         SafetyValidationResult::new(
             command.command_line().to_string(),
             safety_result,
@@ -46,7 +46,7 @@ impl SafetyUseCase {
     /// Check if a file path is safe to access
     pub fn validate_file_access(&self, file_path: &str) -> FileAccessValidationResult {
         let path = std::path::Path::new(file_path);
-        
+
         // Check for dangerous patterns
         let dangerous_patterns = vec![
             "/etc/",
@@ -57,19 +57,22 @@ impl SafetyUseCase {
             "~/.ssh/",
             "~/.gnupg/",
         ];
-        
+
         let path_str = file_path.to_lowercase();
-        let is_dangerous = dangerous_patterns.iter().any(|pattern| path_str.contains(pattern));
-        
+        let is_dangerous = dangerous_patterns
+            .iter()
+            .any(|pattern| path_str.contains(pattern));
+
         // Check for absolute paths
         let is_absolute = path.is_absolute();
-        
+
         // Check for hidden files
-        let is_hidden = path.file_name()
+        let is_hidden = path
+            .file_name()
             .and_then(|name| name.to_str())
             .map(|name| name.starts_with('.'))
             .unwrap_or(false);
-        
+
         let safety_result = SafetyResult::new(
             !is_dangerous && !is_hidden,
             vec![
@@ -77,7 +80,7 @@ impl SafetyUseCase {
                 SafetyCheck::new(SafetyCheckType::FileSystemWrite, false), // Read access
             ],
         );
-        
+
         FileAccessValidationResult::new(
             file_path.to_string(),
             safety_result,
@@ -107,7 +110,7 @@ impl SafetyUseCase {
         if !safety_result.is_safe() {
             recommendations.push("Consider using a safer alternative".to_string());
             recommendations.push("Review the command before execution".to_string());
-            
+
             for check in safety_result.failed_checks() {
                 match check.check_type() {
                     SafetyCheckType::FileSystemWrite => {
@@ -117,10 +120,12 @@ impl SafetyUseCase {
                         recommendations.push("Verify network endpoints are trusted".to_string());
                     }
                     SafetyCheckType::SystemCommand => {
-                        recommendations.push("Use specific commands instead of system calls".to_string());
+                        recommendations
+                            .push("Use specific commands instead of system calls".to_string());
                     }
                     SafetyCheckType::DestructiveOperation => {
-                        recommendations.push("Backup data before destructive operations".to_string());
+                        recommendations
+                            .push("Backup data before destructive operations".to_string());
                     }
                     SafetyCheckType::SensitiveFileAccess => {
                         recommendations.push("Use proper file permissions".to_string());
@@ -138,7 +143,7 @@ impl SafetyUseCase {
     /// Analyze command for potential risks
     pub fn analyze_command_risks(&self, command_line: &str) -> CommandRiskAnalysis {
         let validation = self.validate_command(command_line);
-        
+
         let risk_level = if validation.safety_result().is_safe() {
             RiskLevel::Low
         } else {
@@ -170,11 +175,7 @@ pub struct SafetyValidationResult {
 }
 
 impl SafetyValidationResult {
-    pub fn new(
-        command: String,
-        safety_result: SafetyResult,
-        recommendations: Vec<String>,
-    ) -> Self {
+    pub fn new(command: String, safety_result: SafetyResult, recommendations: Vec<String>) -> Self {
         Self {
             command,
             safety_result,
@@ -201,7 +202,7 @@ impl SafetyValidationResult {
     pub fn risk_score(&self) -> f32 {
         let total_checks = self.safety_result.checks().len();
         let failed_checks = self.safety_result.failed_checks().len();
-        
+
         if total_checks == 0 {
             0.0
         } else {
@@ -363,5 +364,9 @@ impl RiskLevel {
 #[async_trait]
 pub trait AsyncSafetyService: Send + Sync {
     async fn validate_command(&self, command: &str) -> Result<SafetyValidationResult, AppError>;
-    async fn validate_file_access(&self, file_path: &str) -> Result<FileAccessValidationResult, AppError>;
+    async fn validate_file_access(
+        &self,
+        file_path: &str,
+    ) -> Result<FileAccessValidationResult, AppError>;
 }
+

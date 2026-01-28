@@ -27,7 +27,7 @@ impl RagUseCase {
     /// Process a query using RAG
     pub async fn process_query(&self, query_text: &str) -> Result<RagResponse, AppError> {
         // Check cache first
-        let cache_key = format!("rag:{}", md5::compute(query_text.as_bytes()));
+        let cache_key = format!("rag:{:x}", md5::compute(query_text.as_bytes()));
         if let Some(cached_result) = self.cache.get(&cache_key).await? {
             return Ok(RagResponse::cached(cached_result));
         }
@@ -121,7 +121,7 @@ impl RagUseCase {
     /// Get RAG statistics
     pub async fn get_stats(&self) -> Result<RagStats, AppError> {
         // This would fetch statistics from storage and cache
-        Ok(RagStats::new(100, 50, 25, 0.8))
+        Ok(RagStats::new(100, 50, 25.0, 0.8))
     }
 
     // Private helper methods

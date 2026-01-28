@@ -19,7 +19,7 @@ impl Embedder {
         Self { client }
     }
 
-    pub async fn generate_embeddings(&self, inputs: &[EmbeddingInput]) -> Result<Vec<Embedding>> {
+    pub async fn generate_embeddings(&self, inputs: &[EmbeddingInput]) -> Result<Vec<Embedding>, AppError> {
         const BATCH_SIZE: usize = 32;
         let mut embeddings = Vec::with_capacity(inputs.len());
 
@@ -31,24 +31,24 @@ impl Embedder {
         Ok(embeddings)
     }
 
-    async fn generate_batch_embeddings(&self, inputs: &[EmbeddingInput]) -> Result<Vec<Embedding>> {
+    async fn generate_batch_embeddings(&self, inputs: &[EmbeddingInput]) -> Result<Vec<Embedding>, AppError> {
         let futures: Vec<_> = inputs
             .iter()
             .map(|input| {
                 let client = &self.client;
                 async move {
                     let vector = client.generate_embedding(&input.text).await?;
-                    Ok(Embedding {
-                        id: input.id.clone(),
+                    Ok(Embedding::new(
+                        input.id.clone(),
                         vector,
-                        text: input.text.clone(),
-                        path: input.path.clone(),
-                    }) as Result<Embedding>
+                        input.text.clone(),
+                        input.path.clone(),
+                    )) as Result<Embedding, AppError>
                 }
             })
             .collect();
 
-        let results = stream::iter(futures)
+        let results: Vec<Result<Embedding, AppError>> = stream::iter(futures)
             .buffer_unordered(8)
             .collect::<Vec<_>>()
             .await;

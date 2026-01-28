@@ -1,7 +1,8 @@
 use async_trait::async_trait;
 use shared::error::AppError;
 use domain::repositories::{EmbeddingRepository, DocumentRepository, SessionRepository, CommandRepository};
-use domain::value_objects::embedding::{Embedding, EmbeddingStats};
+use domain::value_objects::embedding::{Embedding, SearchResult};
+use domain::EmbeddingStats;
 use domain::value_objects::query::Query;
 use domain::entities::document::Document;
 use domain::entities::session::Session;

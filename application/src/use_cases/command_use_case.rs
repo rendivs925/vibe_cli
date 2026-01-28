@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use shared::error::AppError;
-use domain::entities::command::{Command, CommandPlanResult};
+use domain::entities::command::Command;
+use domain::CommandPlanResult;
 use domain::services::command_planner::{CommandPlanner, CommandPlannerError};
 use crate::ports::{StorageService, Cache};
 
@@ -27,7 +28,7 @@ impl CommandUseCase {
     /// Generate a command from natural language
     pub async fn generate_command(&self, input: &str) -> Result<CommandExecutionPlan, AppError> {
         // Check cache first
-        let cache_key = format!("cmd:{}", md5::compute(input.as_bytes()));
+        let cache_key = format!("cmd:{:x}", md5::compute(input.as_bytes()));
         if let Some(cached_command) = self.cache.get(&cache_key).await? {
             return Ok(CommandExecutionPlan::cached(cached_command));
         }
@@ -37,7 +38,7 @@ impl CommandUseCase {
             .map_err(|e| AppError::domain(e.to_string()))?;
 
         if !plan_result.is_safe_to_execute() {
-            return Err(AppError::safety("Command failed safety validation"));
+            return Err(AppError::safety("Command failed safety validation".to_string()));
         }
 
         let command = plan_result.command();
@@ -62,7 +63,7 @@ impl CommandUseCase {
             .map_err(|e| AppError::domain(e.to_string()))?;
 
         if !plan_result.is_safe_to_execute() {
-            return Err(AppError::safety("One or more commands failed safety validation"));
+            return Err(AppError::safety("One or more commands failed safety validation".to_string()));
         }
 
         // Store all commands
@@ -86,7 +87,7 @@ impl CommandUseCase {
     /// Execute a command with confirmation
     pub async fn execute_command(&self, command: &Command, confirmed: bool) -> Result<CommandExecution, AppError> {
         if !confirmed && !command.is_safe() {
-            return Err(AppError::safety("Command requires confirmation"));
+            return Err(AppError::safety("Command requires confirmation".to_string()));
         }
 
         // Record execution

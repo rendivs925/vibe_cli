@@ -13,3 +13,7 @@ pub use entities::*;
 pub use value_objects::*;
 pub use services::*;
 pub use repositories::*;
+
+// Additional re-exports for specific types
+pub use repositories::embedding_repository::EmbeddingStats;
+pub use services::command_planner::CommandPlanResult;

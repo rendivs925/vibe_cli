@@ -39,7 +39,7 @@ impl EmbeddingStorage {
                 id TEXT PRIMARY KEY,
                 vector BLOB NOT NULL,
                 text TEXT NOT NULL,
-                path TEXT NOT NULL DEFAULT ''
+                document_path TEXT NOT NULL DEFAULT ''
             );
             CREATE INDEX IF NOT EXISTS idx_embeddings_vector ON embeddings(vector);
             CREATE TABLE IF NOT EXISTS file_meta (
@@ -88,7 +88,7 @@ impl EmbeddingStorage {
                         &embedding.id,
                         vector_bytes,
                         &embedding.text,
-                        &embedding.path
+                        &embedding.document_path
                     ])?;
                 }
             }
@@ -116,7 +116,7 @@ impl EmbeddingStorage {
                     id,
                     vector,
                     text,
-                    path,
+document_path: path,
                 });
             }
             Ok(embeddings)
