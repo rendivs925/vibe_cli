@@ -38,7 +38,7 @@ impl SafetyUseCase {
 
         SafetyValidationResult::new(
             command.command_line().to_string(),
-            safety_result,
+            safety_result.clone(),
             self.get_recommendations(&safety_result),
         )
     }
@@ -161,7 +161,7 @@ impl SafetyUseCase {
             command_line.to_string(),
             risk_level,
             validation.safety_result().checks().to_vec(),
-            validation.recommendations(),
+            validation.recommendations().to_vec(),
         )
     }
 }
