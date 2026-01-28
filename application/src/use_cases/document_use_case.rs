@@ -110,7 +110,7 @@ impl DocumentUseCase {
         match target_document {
             Some(target) => {
                 // Get all documents for comparison
-                let all_documents = self.storage.list_all().await?;
+                let all_documents = self.storage.list_all_documents().await?;
                 
                 // Find similar ones
                 let similar_scores = self.analyzer.find_similar_documents(&target, &all_documents);

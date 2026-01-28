@@ -49,6 +49,14 @@ impl StorageService {
         self.document_repository.find_by_path(path).await.map_err(|e| AppError::storage(e.to_string()))
     }
 
+    pub async fn find_document_by_id(&self, id: &str) -> Result<Option<Document>, AppError> {
+        self.document_repository.find_by_id(id).await.map_err(|e| AppError::storage(e.to_string()))
+    }
+
+    pub async fn list_all_documents(&self) -> Result<Vec<Document>, AppError> {
+        self.document_repository.list_all().await.map_err(|e| AppError::storage(e.to_string()))
+    }
+
     // Session operations
     pub async fn save_session(&self, session: &Session) -> Result<(), AppError> {
         self.session_repository.save(session).await.map_err(|e| AppError::storage(e.to_string()))
@@ -56,6 +64,10 @@ impl StorageService {
 
     pub async fn find_session_by_id(&self, id: &str) -> Result<Option<Session>, AppError> {
         self.session_repository.find_by_id(id).await.map_err(|e| AppError::storage(e.to_string()))
+    }
+
+    pub async fn delete_session(&self, id: &str) -> Result<(), AppError> {
+        self.session_repository.delete(id).await.map_err(|e| AppError::storage(e.to_string()))
     }
 
     // Command operations
