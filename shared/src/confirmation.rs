@@ -69,27 +69,18 @@ pub fn ask_command_confirmation(prompt: &str, allow_generate: bool) -> Result<Op
 
 /// Selection prompt for choosing from a list of numbered options.
 /// Returns the selected index (0-based) or None for quit.
-pub fn ask_selection(
-    prompt: &str,
-    options: &[String],
-    allow_generate_new: bool,
-) -> Result<Option<usize>> {
+pub fn ask_selection(options: &[String], allow_generate_new: bool) -> Result<Option<usize>> {
     let term = Term::stdout();
 
-    // Display options
-    for (i, option) in options.iter().enumerate() {
-        term.write_line(&format!("  [{}] {}", i + 1, option))?;
-    }
-
-    // Build hint based on available actions
-    let mut hint_parts = vec!["Choose [1-{}]".to_string()];
+    // Build prompt based on available actions
     if allow_generate_new {
-        hint_parts.push("(g)enerate new".to_string());
+        term.write_str(&format!(
+            "Choose [1-{}] (g)enerate new (q)uit: ",
+            options.len()
+        ))?;
+    } else {
+        term.write_str(&format!("Choose [1-{}] (q)uit: ", options.len()))?;
     }
-    hint_parts.push("(q)uit".to_string());
-    let hint = hint_parts.join(" ");
-
-    term.write_str(&format!("{}: ", hint))?;
     term.flush()?;
 
     let mut input = String::new();
@@ -109,7 +100,7 @@ pub fn ask_selection(
 
     term.write_line("Invalid choice. Please try again.")?;
     // Retry by calling again (recursive call with same parameters)
-    ask_selection(prompt, options, allow_generate_new)
+    ask_selection(options, allow_generate_new)
 }
 
 /// Simple text input prompt for collecting user feedback.

@@ -77,7 +77,13 @@ fn handle_cached_candidates(
         })
         .collect();
 
-    match ask_selection("", &options, true) {
+    // Display options
+    for (i, option) in options.iter().enumerate() {
+        println!("  [{}] {}", i + 1, option);
+    }
+    println!();
+
+    match ask_selection(&options, true) {
         Ok(Some(index)) => {
             let candidate = &candidates[index];
             confirm_and_run_cached_command(&candidate.command)
@@ -116,7 +122,13 @@ fn handle_candidate_selection(candidates: Vec<CommandCandidate>) -> anyhow::Resu
         })
         .collect();
 
-    match ask_selection("", &options, false) {
+    // Display options
+    for (i, option) in options.iter().enumerate() {
+        println!("  [{}] {}", i + 1, option);
+    }
+    println!();
+
+    match ask_selection(&options, false) {
         Ok(Some(index)) => {
             let candidate = &candidates[index];
             confirm_and_run_generated_command(&candidate.command)
