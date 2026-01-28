@@ -112,6 +112,7 @@ dependencies = [
  "domain",
  "futures",
  "md5",
+ "serde_json",
  "shared",
 ]
 
