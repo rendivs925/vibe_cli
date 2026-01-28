@@ -368,7 +368,7 @@ User request: {}",
                 }
             }
         } else {
-            println!("{}", "No command generated or cancelled.".yellow());
+            // println!("{}", "No command generated or cancelled.".yellow());
         }
         Ok(())
     }
