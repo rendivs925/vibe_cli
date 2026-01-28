@@ -131,10 +131,15 @@ impl DocumentUseCase {
             let content = doc.content();
             if content.to_lowercase().contains(&query.to_lowercase()) {
                 let relevance = self.calculate_relevance(query, content);
+                let title = std::path::Path::new(doc.path())
+                    .file_stem()
+                    .and_then(|s| s.to_str())
+                    .map(|s| s.to_string());
+
                 results.push(DocumentSearchResult::new(
                     doc.id().to_string(),
                     Some(doc.path().to_string()),
-                    doc.title().to_string(),
+                    title.unwrap_or_default(),
                     relevance,
                 ));
             }
