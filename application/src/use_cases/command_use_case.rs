@@ -201,61 +201,9 @@ impl MultiStepExecutionPlan {
     }
 }
 
-/// Command execution record
-#[derive(Debug, Clone)]
-pub struct CommandExecution {
-    id: String,
-    command_line: String,
-    executed_at: chrono::DateTime<chrono::Utc>,
-    exit_code: Option<i32>,
-    duration_ms: Option<u64>,
-}
+pub use domain::repositories::execution_repository::CommandExecution;
 
-impl CommandExecution {
-    pub fn new(
-        id: String,
-        command_line: String,
-        executed_at: chrono::DateTime<chrono::Utc>,
-    ) -> Self {
-        Self {
-            id,
-            command_line,
-            executed_at,
-            exit_code: None,
-            duration_ms: None,
-        }
-    }
 
-    pub fn with_result(mut self, exit_code: i32, duration_ms: u64) -> Self {
-        self.exit_code = Some(exit_code);
-        self.duration_ms = Some(duration_ms);
-        self
-    }
-
-    pub fn id(&self) -> &str {
-        &self.id
-    }
-
-    pub fn command_line(&self) -> &str {
-        &self.command_line
-    }
-
-    pub fn executed_at(&self) -> chrono::DateTime<chrono::Utc> {
-        self.executed_at
-    }
-
-    pub fn exit_code(&self) -> Option<i32> {
-        self.exit_code
-    }
-
-    pub fn duration_ms(&self) -> Option<u64> {
-        self.duration_ms
-    }
-
-    pub fn is_success(&self) -> bool {
-        self.exit_code.map_or(false, |code| code == 0)
-    }
-}
 
 #[async_trait]
 pub trait AsyncCommandService: Send + Sync {
