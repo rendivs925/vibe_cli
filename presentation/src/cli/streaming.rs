@@ -310,12 +310,6 @@ Environment:
     // Extract command candidates flexibly
     let candidates = extract_commands(&raw, user_query);
 
-    if candidates.is_empty() {
-        // No retry; just return a useful error that includes raw output for debugging.
-        // (You could also return Ok(None) if you want “no command found” to be non-fatal.)
-        anyhow::bail!("No valid command candidates found in model output.\nRaw output:\n{raw}");
-    }
-
     // Cache and prompt user to choose
     cache_manager.save_cached(user_query, candidates.clone())?;
     handle_candidate_selection(candidates)
