@@ -1,4 +1,4 @@
-use domain::models::Embedding;
+use domain::value_objects::embedding::Embedding;
 use rusqlite::{params, Connection, Result as SqlResult};
 use shared::types::Result;
 use std::fs;

@@ -6,7 +6,8 @@ edition = "2021"
 [dependencies]
 domain = { path = "../domain" }
 shared = { path = "../shared" }
-infrastructure = { path = "../infrastructure" }
 anyhow.workspace = true
-tokio.workspace = true
+async-trait = "0.1"
+chrono = { version = "0.4", features = ["serde"] }
+futures = "0.3"
 md5 = "0.8"

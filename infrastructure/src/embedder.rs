@@ -1,7 +1,7 @@
 use super::ollama_client::OllamaClient;
-use domain::models::Embedding;
+use domain::value_objects::embedding::Embedding;
 use futures::stream::{self, StreamExt};
-use shared::types::Result;
+use shared::error::AppError;
 
 pub struct Embedder {
     client: OllamaClient,

@@ -1,4 +1,11 @@
-pub mod agent_service;
-pub mod explain_service;
-pub mod rag_service;
-pub mod safety_service;
+// Application Layer
+//
+// This module contains use cases, application services, and ports
+// that orchestrate business logic and define interfaces for external systems.
+
+pub mod ports;
+pub mod use_cases;
+
+// Re-export main types
+pub use ports::*;
+pub use use_cases::*;

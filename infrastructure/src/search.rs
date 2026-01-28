@@ -1,4 +1,4 @@
-use domain::models::Embedding;
+use domain::value_objects::embedding::Embedding;
 use std::cmp::Ordering;
 
 pub struct SearchEngine;

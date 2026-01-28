@@ -1,13 +1,11 @@
-use crate::cli::streaming::request_command_stream_then_confirm;
-
 use super::cache::{CacheManager, ExplainCacheManager, RagCacheManager};
 use super::command_extraction::{extract_command_from_response, parse_agent_plan};
 use super::utils::{detect_system_info, project_cache_suffix};
+use super::Message;
 use application::rag_service::RagService;
 use colored::Colorize;
 use infrastructure::{config::Config, ollama_client::OllamaClient};
 use shared::confirmation::ask_confirmation;
-use shared::types::Message;
 use shared::types::Result;
 use std::io::Write;
 use std::path::PathBuf;
@@ -331,7 +329,10 @@ User request: {}",
 
     pub async fn handle_query(&mut self, query: &str) -> Result<()> {
         if let Ok(Some(cached_command)) = self.cache_manager.load_cached(query) {
-            println!("{}", format!("Found cached commands").green());
+            println!(
+                "{}",
+                format!("Found cached commands").green()
+            );
             if ask_confirmation("Use cached command?", true)? {
                 let output = Command::new("bash")
                     .arg("-c")
@@ -357,7 +358,8 @@ User request: {}",
             content: query.to_string(),
         }];
 
-        let command = request_command_stream_then_confirm(&self.config, &messages).await?;
+        let command =
+            crate::cli::request_command_stream_then_confirm(&self.config, &messages).await?;
         if let Some(cmd) = command {
             let output = Command::new("bash").arg("-c").arg(&cmd).output()?;
             println!("{}", String::from_utf8_lossy(&output.stdout));
