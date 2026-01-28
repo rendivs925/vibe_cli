@@ -130,7 +130,11 @@ impl DocumentUseCase {
     /// Get document statistics
     pub async fn get_document_stats(&self) -> Result<DocumentStats, AppError> {
         // This would fetch from storage
-        Ok(DocumentStats::new(100, 50, 25, 1000))
+        Ok(DocumentStats::new(100, 50, 25.0, std::collections::HashMap::from([
+            ("txt".to_string(), 40),
+            ("pdf".to_string(), 30),
+            ("doc".to_string(), 30)
+        ])))
     }
 }
 

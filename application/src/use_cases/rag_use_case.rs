@@ -129,8 +129,7 @@ impl RagUseCase {
         search_results
             .iter()
             .take(5) // Use top 5 results
-            .map(|result| result.embedding().text())
-            .cloned()
+            .map(|result| result.embedding().text().to_string())
             .collect()
     }
 
@@ -166,11 +165,11 @@ impl RagUseCase {
                 
                 // Add overlap
                 let overlap_words = words.iter().rev().take(overlap).rev().cloned().collect::<Vec<_>>();
-                current_chunk.extend(overlap_words);
+                current_chunk.extend(overlap_words.clone());
                 word_count = overlap_words.len();
             }
             
-            current_chunk.extend(words);
+            current_chunk.extend(words.clone());
             word_count += words.len();
         }
 
