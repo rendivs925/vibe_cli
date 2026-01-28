@@ -7,6 +7,7 @@ use domain::value_objects::query::Query;
 use domain::entities::document::Document;
 use domain::entities::session::Session;
 use domain::entities::command::Command;
+use crate::use_cases::command_use_case::CommandExecution;
 
 /// Storage port for all repository operations
 pub struct StorageService {
@@ -77,6 +78,16 @@ impl StorageService {
 
     pub async fn find_command_by_id(&self, id: &str) -> Result<Option<Command>, AppError> {
         self.command_repository.find_by_id(id).await.map_err(|e| AppError::storage(e.to_string()))
+    }
+
+    pub async fn get_all_commands(&self) -> Result<Vec<Command>, AppError> {
+        self.command_repository.list_all().await.map_err(|e| AppError::storage(e.to_string()))
+    }
+
+    pub async fn get_all_executions(&self) -> Result<Vec<CommandExecution>, AppError> {
+        // For now, return empty vec as executions are tracked in CommandUseCase
+        // In a full implementation, this would query an execution repository
+        Ok(vec![])
     }
 }
 

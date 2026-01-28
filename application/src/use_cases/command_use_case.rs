@@ -78,10 +78,9 @@ impl CommandUseCase {
     }
 
     /// Get similar commands for a query
-    pub async fn get_similar_commands(&self, query: &str, limit: usize) -> Result<Vec<Command>, AppError> {
-        // This would search the storage for similar commands
-        // For now, return recent commands
-        Ok(vec![])
+    pub async fn get_similar_commands(&self, _query: &str, _limit: usize) -> Result<Vec<Command>, AppError> {
+        // Get all commands from storage and return the most recent ones
+        self.storage.get_all_commands().await.map(|cmds| cmds.into_iter().take(_limit).collect())
     }
 
     /// Execute a command with confirmation
@@ -102,8 +101,8 @@ impl CommandUseCase {
 
     /// Get command execution history
     pub async fn get_execution_history(&self, limit: usize) -> Result<Vec<CommandExecution>, AppError> {
-        // This would fetch from storage
-        Ok(vec![])
+        // Get execution history from storage
+        self.storage.get_all_executions().await.map(|execs| execs.into_iter().take(limit).collect())
     }
 }
 

@@ -5,7 +5,7 @@ edition = "2021"
 
 [[bin]]
 name = "vibe_cli"
-path = "main.rs"
+path = "src/main.rs"
 
 [workspace]
 resolver = "2"

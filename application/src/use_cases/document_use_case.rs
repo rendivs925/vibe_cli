@@ -1,8 +1,8 @@
+use crate::ports::{DocumentReader, FileScanner, StorageService};
 use async_trait::async_trait;
-use shared::error::AppError;
 use domain::entities::document::{Document, DocumentType};
 use domain::services::document_analyzer::DocumentAnalyzer;
-use crate::ports::{DocumentReader, FileScanner, StorageService};
+use shared::error::AppError;
 
 /// Use case for document processing and analysis
 pub struct DocumentUseCase {
@@ -27,8 +27,35 @@ impl DocumentUseCase {
         }
     }
 
+    fn calculate_relevance(&self, query: &str, content: &str) -> f32 {
+        let query_lower = query.to_lowercase();
+        let query_words: Vec<&str> = query_lower.split_whitespace().collect();
+        let content_lower = content.to_lowercase();
+        let content_words: Vec<&str> = content_lower.split_whitespace().collect();
+
+        if query_words.is_empty() || content_words.is_empty() {
+            return 0.0;
+        }
+
+        let mut matches = 0;
+        for query_word in &query_words {
+            if content_lower.contains(query_word) {
+                matches += 1;
+            }
+        }
+
+        // Simple relevance calculation based on word matches and frequency
+        let word_match_ratio = matches as f32 / query_words.len() as f32;
+        let content_coverage = matches as f32 / content_words.len() as f32;
+
+        (word_match_ratio + content_coverage) / 2.0
+    }
+
     /// Process and index a single document
-    pub async fn process_document(&self, file_path: &str) -> Result<DocumentProcessingResult, AppError> {
+    pub async fn process_document(
+        &self,
+        file_path: &str,
+    ) -> Result<DocumentProcessingResult, AppError> {
         // Read document
         let document = self.document_reader.read_document(file_path).await?;
 
@@ -38,15 +65,14 @@ impl DocumentUseCase {
         // Store document
         self.storage.save_document(&document).await?;
 
-        Ok(DocumentProcessingResult::new(
-            document,
-            analysis,
-            false,
-        ))
+        Ok(DocumentProcessingResult::new(document, analysis, false))
     }
 
     /// Process and index multiple documents
-    pub async fn process_documents(&self, file_paths: &[String]) -> Result<Vec<DocumentProcessingResult>, AppError> {
+    pub async fn process_documents(
+        &self,
+        file_paths: &[String],
+    ) -> Result<Vec<DocumentProcessingResult>, AppError> {
         let mut results = Vec::new();
 
         for file_path in file_paths {
@@ -63,14 +89,24 @@ impl DocumentUseCase {
     }
 
     /// Scan directory and process all supported documents
-    pub async fn process_directory(&self, dir_path: &str, recursive: bool) -> Result<DirectoryProcessingResult, AppError> {
+    pub async fn process_directory(
+        &self,
+        dir_path: &str,
+        recursive: bool,
+    ) -> Result<DirectoryProcessingResult, AppError> {
         // Find all documents
-        let file_paths = self.file_scanner.scan_directory(dir_path, recursive).await?;
+        let file_paths = self
+            .file_scanner
+            .scan_directory(dir_path, recursive)
+            .await?;
 
         // Process documents
         let results = self.process_documents(&file_paths).await?;
 
-        let successful = results.iter().filter(|r| r.analysis().word_count() > 0).count();
+        let successful = results
+            .iter()
+            .filter(|r| r.analysis().word_count() > 0)
+            .count();
         let failed = results.len() - successful;
 
         Ok(DirectoryProcessingResult::new(
@@ -82,17 +118,46 @@ impl DocumentUseCase {
     }
 
     /// Search documents by content
-    pub async fn search_documents(&self, query: &str, limit: usize) -> Result<Vec<DocumentSearchResult>, AppError> {
-        // This would use the storage service to search
-        // For now, return empty results
-        Ok(vec![])
+    pub async fn search_documents(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<DocumentSearchResult>, AppError> {
+        // Get all documents and filter by content matching
+        let documents = self.storage.list_all_documents().await?;
+        let mut results = Vec::new();
+
+        for doc in documents.into_iter().take(limit) {
+            let content = doc.content();
+            if content.to_lowercase().contains(&query.to_lowercase()) {
+                let relevance = self.calculate_relevance(query, content);
+                results.push(DocumentSearchResult::new(
+                    doc.id().to_string(),
+                    Some(doc.path().to_string()),
+                    doc.title().to_string(),
+                    relevance,
+                ));
+            }
+        }
+
+        // Sort by relevance (descending)
+        results.sort_by(|a, b| {
+            b.relevance_score()
+                .partial_cmp(&a.relevance_score())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        Ok(results)
     }
 
     /// Get document analysis
-    pub async fn get_document_analysis(&self, document_id: &str) -> Result<Option<domain::services::document_analyzer::DocumentAnalysis>, AppError> {
+    pub async fn get_document_analysis(
+        &self,
+        document_id: &str,
+    ) -> Result<Option<domain::services::document_analyzer::DocumentAnalysis>, AppError> {
         // Find document
         let document = self.storage.find_document_by_id(document_id).await?;
-        
+
         match document {
             Some(doc) => {
                 let analysis = self.analyzer.analyze(&doc);
@@ -103,22 +168,33 @@ impl DocumentUseCase {
     }
 
     /// Find similar documents
-    pub async fn find_similar_documents(&self, document_id: &str, limit: usize) -> Result<Vec<DocumentSimilarityResult>, AppError> {
+    pub async fn find_similar_documents(
+        &self,
+        document_id: &str,
+        limit: usize,
+    ) -> Result<Vec<DocumentSimilarityResult>, AppError> {
         // Find target document
         let target_document = self.storage.find_document_by_id(document_id).await?;
-        
+
         match target_document {
             Some(target) => {
                 // Get all documents for comparison
                 let all_documents = self.storage.list_all_documents().await?;
-                
+
                 // Find similar ones
-                let similar_scores = self.analyzer.find_similar_documents(&target, &all_documents);
-                
+                let similar_scores = self
+                    .analyzer
+                    .find_similar_documents(&target, &all_documents);
+
                 let results: Vec<DocumentSimilarityResult> = similar_scores
                     .into_iter()
                     .take(limit)
-                    .map(|score| DocumentSimilarityResult::new(score.document_id().to_string(), score.similarity()))
+                    .map(|score| {
+                        DocumentSimilarityResult::new(
+                            score.document_id().to_string(),
+                            score.similarity(),
+                        )
+                    })
                     .collect();
 
                 Ok(results)
@@ -130,11 +206,16 @@ impl DocumentUseCase {
     /// Get document statistics
     pub async fn get_document_stats(&self) -> Result<DocumentStats, AppError> {
         // This would fetch from storage
-        Ok(DocumentStats::new(100, 50, 25.0, std::collections::HashMap::from([
-            ("txt".to_string(), 40),
-            ("pdf".to_string(), 30),
-            ("doc".to_string(), 30)
-        ])))
+        Ok(DocumentStats::new(
+            100,
+            50,
+            25.0,
+            std::collections::HashMap::from([
+                ("txt".to_string(), 40),
+                ("pdf".to_string(), 30),
+                ("doc".to_string(), 30),
+            ]),
+        ))
     }
 }
 
@@ -271,7 +352,10 @@ pub struct DocumentSimilarityResult {
 
 impl DocumentSimilarityResult {
     pub fn new(document_id: String, similarity: f32) -> Self {
-        Self { document_id, similarity }
+        Self {
+            document_id,
+            similarity,
+        }
     }
 
     pub fn document_id(&self) -> &str {
@@ -310,7 +394,16 @@ impl DocumentStats {
 
 #[async_trait]
 pub trait AsyncDocumentService: Send + Sync {
-    async fn process_document(&self, file_path: &str) -> Result<DocumentProcessingResult, AppError>;
-    async fn process_directory(&self, dir_path: &str, recursive: bool) -> Result<DirectoryProcessingResult, AppError>;
-    async fn search_documents(&self, query: &str, limit: usize) -> Result<Vec<DocumentSearchResult>, AppError>;
+    async fn process_document(&self, file_path: &str)
+        -> Result<DocumentProcessingResult, AppError>;
+    async fn process_directory(
+        &self,
+        dir_path: &str,
+        recursive: bool,
+    ) -> Result<DirectoryProcessingResult, AppError>;
+    async fn search_documents(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<DocumentSearchResult>, AppError>;
 }
