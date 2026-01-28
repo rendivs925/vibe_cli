@@ -6,10 +6,10 @@ use super::utils::{detect_system_info, project_cache_suffix};
 use application::services::rag_service::RagService;
 use colored::Colorize;
 use infrastructure::{config::Config, ollama_client::OllamaClient};
-use shared::confirmation::ask_confirmation;
+use shared::confirmation::{ask_confirmation, ask_feedback};
 use shared::types::Message;
 use shared::types::Result;
-use std::io::Write;
+
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -308,10 +308,7 @@ User request: {}",
                 break;
             } else {
                 feedback.clear();
-                eprint!("Provide feedback for improvement: ");
-                std::io::stdout().flush()?;
-                std::io::stdin().read_line(&mut feedback)?;
-                feedback = feedback.trim().to_string();
+                feedback = ask_feedback("Provide feedback for improvement: ")?;
                 eprintln!("Regenerating with feedback...");
             }
         }

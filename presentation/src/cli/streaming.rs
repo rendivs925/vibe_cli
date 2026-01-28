@@ -1,4 +1,4 @@
-use shared::confirmation::ask_command_confirmation;
+use shared::confirmation::{ask_command_confirmation, ask_selection};
 use shared::types::Message;
 use std::io::{self, Write};
 
@@ -65,37 +65,25 @@ fn handle_cached_candidates(
     println!("Found cached commands for: \"{}\"", user_query);
     println!();
 
-    for (i, candidate) in candidates.iter().enumerate() {
-        let label_text = candidate
-            .label
-            .as_ref()
-            .map(|l| format!(" ({})", l))
-            .unwrap_or_default();
-        println!("  [{}] {}{}", i + 1, candidate.command, label_text);
-    }
-    println!();
+    let options: Vec<String> = candidates
+        .iter()
+        .map(|candidate| {
+            let label_text = candidate
+                .label
+                .as_ref()
+                .map(|l| format!(" ({})", l))
+                .unwrap_or_default();
+            format!("{}{}", candidate.command, label_text)
+        })
+        .collect();
 
-    loop {
-        print!("Choose [1-{}], (g)enerate new, (q)uit: ", candidates.len());
-        io::stdout().flush()?;
-
-        let mut input = String::new();
-        io::stdin().read_line(&mut input)?;
-        let input = input.trim().to_lowercase();
-
-        if input == "q" {
-            return Ok(None);
-        } else if input == "g" {
-            return Err(anyhow::anyhow!("generate_new")); // Signal to generate new commands
-        } else if let Ok(choice) = input.parse::<usize>() {
-            if choice >= 1 && choice <= candidates.len() {
-                let candidate = &candidates[choice - 1];
-                println!("Selected: {}", candidate.command);
-                return confirm_and_run_cached_command(&candidate.command);
-            }
+    match ask_selection("", &options, true) {
+        Ok(Some(index)) => {
+            let candidate = &candidates[index];
+            confirm_and_run_cached_command(&candidate.command)
         }
-
-        println!("Invalid choice. Please try again.");
+        Ok(None) => Ok(None),
+        Err(_) => Err(anyhow::anyhow!("generate_new")), // Signal to generate new commands
     }
 }
 
@@ -116,35 +104,29 @@ fn handle_candidate_selection(candidates: Vec<CommandCandidate>) -> anyhow::Resu
     println!("Generated command options:");
     println!();
 
-    for (i, candidate) in candidates.iter().enumerate() {
-        let label_text = candidate
-            .label
-            .as_ref()
-            .map(|l| format!(" ({})", l))
-            .unwrap_or_default();
-        println!("  [{}] {}{}", i + 1, candidate.command, label_text);
-    }
-    println!();
+    let options: Vec<String> = candidates
+        .iter()
+        .map(|candidate| {
+            let label_text = candidate
+                .label
+                .as_ref()
+                .map(|l| format!(" ({})", l))
+                .unwrap_or_default();
+            format!("{}{}", candidate.command, label_text)
+        })
+        .collect();
 
-    print!("Choose [1-{}], (q)uit: ", candidates.len());
-    io::stdout().flush()?;
-
-    let mut input = String::new();
-    io::stdin().read_line(&mut input)?;
-    let input = input.trim().to_lowercase();
-
-    if input == "q" {
-        return Ok(None);
-    } else if let Ok(choice) = input.parse::<usize>() {
-        if choice >= 1 && choice <= candidates.len() {
-            let candidate = &candidates[choice - 1];
-            println!("Selected: {}", candidate.command);
-        return confirm_and_run_generated_command(&candidate.command);
+    match ask_selection("", &options, false) {
+        Ok(Some(index)) => {
+            let candidate = &candidates[index];
+            confirm_and_run_generated_command(&candidate.command)
+        }
+        Ok(None) => Ok(None),
+        Err(_) => {
+            println!("Invalid choice. Please try again.");
+            handle_candidate_selection(candidates)
         }
     }
-
-    println!("Invalid choice. Please try again.");
-    handle_candidate_selection(candidates)
 }
 
 pub fn normalize_ollama_url(base: &str) -> String {
@@ -285,10 +267,9 @@ pub async fn request_command_stream_then_confirm(
 
     let instruction = format!(
         r#"You are a CLI assistant.
-
-Goal:
-- Help the user by suggesting 1–3 safe, relevant shell commands (prefer 1 if possible).
-- Briefly explain what the command does and why it is useful.
+        
+STRICT OUTPUT CONTRACT:
+- No JSON
 
 Environment:
 - platform: {platform}
