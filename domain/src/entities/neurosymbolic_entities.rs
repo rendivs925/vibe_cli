@@ -115,6 +115,18 @@ pub enum Constraint {
         value: Box<SymbolicValue>,
         pattern: String,
     },
+    FileExists {
+        path: String,
+        required: bool,
+    },
+    SystemState {
+        property: String,
+        expected_value: SymbolicValue,
+    },
+    ResourceAvailable {
+        resource: ResourceType,
+        amount: u64,
+    },
 }
 
 /// Process state for Linux systems
@@ -473,4 +485,13 @@ pub enum ServiceStatus {
     Failed,
     Restarting,
     Unknown,
+}
+
+/// Partial solution during constraint solving
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PartialSolution {
+    pub variable_assignments: HashMap<String, SymbolicValue>,
+    pub satisfied_constraints: Vec<Constraint>,
+    pub unsatisfied_constraints: Vec<Constraint>,
+    pub quality_score: f32,
 }

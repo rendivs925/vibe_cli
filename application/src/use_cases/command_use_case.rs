@@ -30,11 +30,19 @@ impl CommandUseCase {
     }
 
     /// Generate a command using enhanced neurosymbolic reasoning
-    pub async fn generate_command(&self, input: &str) -> Result<CommandExecution, AppError> {
+    pub async fn generate_command(&mut self, input: &str) -> Result<CommandExecution, AppError> {
+        // Check cache first
+        let cache_key = format!("cmd:{:x}", md5::compute(input.as_bytes()));
+        if let Some(cached_command_str) = self.cache.get(&cache_key).await? {
+            let cached_command: Command = serde_json::from_str(&cached_command_str).map_err(|e| AppError::new(e.to_string()))?;
+            println!("📋 Using cached neurosymbolic solution");
+            return Ok(CommandExecution::from_command(&cached_command));
+        }
+
         println!("🧠 Neurosymbolic Analysis Started for: {}", input);
 
         // Use neurosymbolic service for enhanced reasoning
-        let neurosymbolic_response = match self.neurosymbolic_service.process_query(input).await {
+        match self.neurosymbolic_service.process_query(input).await {
             Ok(response) => {
                 println!("✅ Neurosymbolic Processing Complete");
                 println!("🎯 Intent: {}", response.intent.id);
@@ -47,11 +55,11 @@ impl CommandUseCase {
                     );
                     println!(
                         "🧠 Neural Score: {:.1}",
-                        response.ranked_solutions[0].solution.neural_score
+                        response.ranked_solutions[0].neural_score
                     );
                     println!(
                         "⚙️ Symbolic Score: {:.1}",
-                        response.ranked_solutions[0].solution.symbolic_score
+                        response.ranked_solutions[0].symbolic_score
                     );
 
                     // Convert to command using simplified approach
@@ -62,35 +70,25 @@ impl CommandUseCase {
                             .solution
                             .command_sequence
                             .first()
-                            .unwrap_or(&"")
+                            .unwrap_or(&"".to_string())
                             .clone(),
                         vec![],
-                        response.ranked_solutions[0].solution.confidence,
+                        response.ranked_solutions[0].combined_score,
                     );
 
                     println!("🔧 Generated Command: {}", command.command_line());
-
-                    let plan_result = domain::neurosymbolic_entities::command_plan::CommandPlan {
-                        id: format!("neuro_{}", response.ranked_solutions[0].solution.id),
-                        description: response.ranked_solutions[0].solution.description.clone(),
-                        steps: vec![command.command_line()],
-                        safety_checks: vec![],
-                    };
-
-                    CommandExecution::new(
-                        command,
-                        domain::value_objects::safety_policy::SafetyResult::new(true, vec![]),
-                        false,
-                    )
+                    self.cache.set(&cache_key, &serde_json::to_string(&command).unwrap()).await?;
+                    Ok(CommandExecution::from_command(&command))
                 } else {
                     println!("⚠️ No viable neurosymbolic solutions found");
-                    CommandExecution::cached(domain::entities::command::Command::new(
+                    let command = domain::entities::command::Command::new(
                         "fallback".to_string(),
                         "No solution found".to_string(),
                         "echo 'No neurosymbolic solution available'".to_string(),
                         vec![],
                         0.5,
-                    ))
+                    );
+                    Ok(CommandExecution::from_command(&command))
                 }
             }
             Err(e) => {
@@ -100,16 +98,7 @@ impl CommandUseCase {
                     e
                 )))
             }
-        };
-
-        // Check cache first
-        let cache_key = format!("cmd:{:x}", md5::compute(input.as_bytes()));
-        if let Some(cached_command) = self.cache.get(&cache_key).await? {
-            println!("📋 Using cached neurosymbolic solution");
-            return Ok(CommandExecution::cached(cached_command));
         }
-
-        plan_result
     }
 
     /// Generate multiple commands from complex input
@@ -131,10 +120,9 @@ impl CommandUseCase {
             self.storage.save_command(command).await?;
         }
 
-        Ok(CommandExecution::new(
-            plan_result.commands().to_vec(),
-            plan_result.safety_result().clone(),
-        ))
+        let first_command = plan_result.commands().first().ok_or_else(|| AppError::domain("No commands in plan".to_string()))?;
+
+        Ok(CommandExecution::from_command(first_command))
     }
 
     /// Get similar commands for a query

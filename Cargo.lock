@@ -112,7 +112,9 @@ dependencies = [
  "domain",
  "futures",
  "infrastructure",
+ "log",
  "md5",
+ "serde",
  "serde_json",
  "shared",
 ]
@@ -2826,6 +2828,7 @@ dependencies = [
  "anyhow",
  "application",
  "arboard",
+ "chrono",
  "clap",
  "colored",
  "dialoguer",

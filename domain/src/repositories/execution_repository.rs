@@ -1,3 +1,4 @@
+use crate::entities::command::Command;
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use shared::error::AppError;
@@ -6,9 +7,10 @@ use shared::error::AppError;
 pub struct CommandExecution {
     id: String,
     command_line: String,
-    executed_at: DateTime<Utc>,
+    executed_at: Option<DateTime<Utc>>,
     exit_code: Option<i32>,
     duration_ms: Option<u64>,
+    executed: bool,
 }
 
 impl CommandExecution {
@@ -16,9 +18,21 @@ impl CommandExecution {
         Self {
             id,
             command_line,
-            executed_at,
+            executed_at: Some(executed_at),
             exit_code: None,
             duration_ms: None,
+            executed: true,
+        }
+    }
+
+    pub fn from_command(command: &Command) -> Self {
+        Self {
+            id: command.id().to_string(),
+            command_line: command.command_line().to_string(),
+            executed_at: None,
+            exit_code: None,
+            duration_ms: None,
+            executed: false,
         }
     }
 
@@ -36,7 +50,7 @@ impl CommandExecution {
         &self.command_line
     }
 
-    pub fn executed_at(&self) -> &DateTime<Utc> {
+    pub fn executed_at(&self) -> &Option<DateTime<Utc>> {
         &self.executed_at
     }
 
@@ -46,6 +60,10 @@ impl CommandExecution {
 
     pub fn duration_ms(&self) -> Option<u64> {
         self.duration_ms
+    }
+
+    pub fn is_executed(&self) -> bool {
+        self.executed
     }
 }
 
