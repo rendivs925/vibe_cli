@@ -2,8 +2,10 @@
 
 pub mod command;
 pub mod document;
+pub mod neurosymbolic_entities;
 pub mod session;
 
 pub use command::*;
 pub use document::*;
+pub use neurosymbolic_entities::*;
 pub use session::*;

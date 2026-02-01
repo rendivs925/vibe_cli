@@ -58,3 +58,21 @@ arrayvec = "0.7"
 dotenvy = "0.15"
 docx-rs = "0.4"
 crossterm = "0.29"
+# Neurosymbolic reasoning dependencies
+symbolica = "1.0"
+z3 = "0.11"
+varisat = "1.0"
+rustsat = "0.1"
+petgraph = "0.6"
+# System analysis dependencies  
+procfs = "0.16"
+nix = "0.28"
+sysinfo = "0.30"
+# Binary analysis dependencies
+capstone = "0.10"
+goblin = "0.8"
+# Container and networking dependencies
+bollard = "0.16"
+pnet = "0.34"
+# Security analysis dependencies
+yara = "0.25"
