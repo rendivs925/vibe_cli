@@ -1,3 +1,5 @@
+#[allow(unused_imports)]
+use chrono::serde;
 use domain::neurosymbolic_entities::*;
 use domain::services::linux_symbolic_engine::LinuxSymbolicEngine;
 use domain::ConstraintSolver;

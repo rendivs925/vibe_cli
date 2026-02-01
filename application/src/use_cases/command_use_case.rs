@@ -30,7 +30,7 @@ impl CommandUseCase {
     }
 
     /// Generate a command using enhanced neurosymbolic reasoning
-    pub async fn generate_command(&self, input: &str) -> Result<CommandExecutionPlan, AppError> {
+    pub async fn generate_command(&self, input: &str) -> Result<CommandExecution, AppError> {
         println!("🧠 Neurosymbolic Analysis Started for: {}", input);
 
         // Use neurosymbolic service for enhanced reasoning
@@ -70,21 +70,21 @@ impl CommandUseCase {
 
                     println!("🔧 Generated Command: {}", command.command_line());
 
-                    let plan_result = domain::command_plan::CommandPlan {
+                    let plan_result = domain::neurosymbolic_entities::command_plan::CommandPlan {
                         id: format!("neuro_{}", response.ranked_solutions[0].solution.id),
                         description: response.ranked_solutions[0].solution.description.clone(),
                         steps: vec![command.command_line()],
                         safety_checks: vec![],
                     };
 
-                    CommandExecutionPlan::new(
+                    CommandExecution::new(
                         command,
                         domain::value_objects::safety_policy::SafetyResult::new(true, vec![]),
                         false,
                     )
                 } else {
                     println!("⚠️ No viable neurosymbolic solutions found");
-                    CommandExecutionPlan::cached(domain::entities::command::Command::new(
+                    CommandExecution::cached(domain::entities::command::Command::new(
                         "fallback".to_string(),
                         "No solution found".to_string(),
                         "echo 'No neurosymbolic solution available'".to_string(),
@@ -106,17 +106,14 @@ impl CommandUseCase {
         let cache_key = format!("cmd:{:x}", md5::compute(input.as_bytes()));
         if let Some(cached_command) = self.cache.get(&cache_key).await? {
             println!("📋 Using cached neurosymbolic solution");
-            return Ok(CommandExecutionPlan::cached(cached_command));
+            return Ok(CommandExecution::cached(cached_command));
         }
 
         plan_result
     }
 
     /// Generate multiple commands from complex input
-    pub async fn generate_multi_step(
-        &self,
-        input: &str,
-    ) -> Result<MultiStepExecutionPlan, AppError> {
+    pub async fn generate_multi_step(&self, input: &str) -> Result<CommandExecution, AppError> {
         // Use enhanced command planner for multi-step analysis
         let plan_result = self
             .command_planner
@@ -134,7 +131,7 @@ impl CommandUseCase {
             self.storage.save_command(command).await?;
         }
 
-        Ok(MultiStepExecutionPlan::new(
+        Ok(CommandExecution::new(
             plan_result.commands().to_vec(),
             plan_result.safety_result().clone(),
         ))

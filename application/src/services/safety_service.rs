@@ -1,4 +1,4 @@
-use domain::{Command, SafetyPolicy};
+use domain::{safety_policy::SafetyPolicy, Command};
 use shared::types::Result;
 
 pub struct SafetyService {
