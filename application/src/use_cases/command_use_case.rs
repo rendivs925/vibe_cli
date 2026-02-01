@@ -2,6 +2,7 @@ use crate::ports::{Cache, StorageService};
 use async_trait::async_trait;
 use domain::entities::command::Command;
 use domain::services::command_planner::{CommandPlanner, CommandPlannerError};
+use domain::CommandExecution;
 use domain::CommandPlanResult;
 use shared::error::AppError;
 

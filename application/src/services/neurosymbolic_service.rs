@@ -1,5 +1,7 @@
 use domain::neurosymbolic_entities::*;
 use domain::services::linux_symbolic_engine::LinuxSymbolicEngine;
+use domain::ConstraintSolver;
+use domain::RiskLevel;
 use infrastructure::ollama_client::OllamaClient;
 use serde::{Deserialize, Serialize};
 use shared::types::Result;
