@@ -43,21 +43,21 @@ impl CommandUseCase {
                 if !response.ranked_solutions.is_empty() {
                     println!(
                         "🏆 Top Solution: {}",
-                        response.ranked_solutions[0].description
+                        response.ranked_solutions[0].solution.description
                     );
                     println!(
                         "🧠 Neural Score: {:.1}",
-                        response.ranked_solutions[0].neural_score
+                        response.ranked_solutions[0].solution.neural_score
                     );
                     println!(
                         "⚙️ Symbolic Score: {:.1}",
-                        response.ranked_solutions[0].symbolic_score
+                        response.ranked_solutions[0].solution.symbolic_score
                     );
 
                     // Convert to command using simplified approach
                     let command = domain::entities::command::Command::new(
-                        format!("neuro_{}", response.ranked_solutions[0].id),
-                        response.ranked_solutions[0].description.clone(),
+                        format!("neuro_{}", response.ranked_solutions[0].solution.id),
+                        response.ranked_solutions[0].solution.description.clone(),
                         response.ranked_solutions[0]
                             .solution
                             .command_sequence
@@ -65,14 +65,14 @@ impl CommandUseCase {
                             .unwrap_or(&"")
                             .clone(),
                         vec![],
-                        response.ranked_solutions[0].confidence,
+                        response.ranked_solutions[0].solution.confidence,
                     );
 
                     println!("🔧 Generated Command: {}", command.command_line());
 
                     let plan_result = domain::command_plan::CommandPlan {
-                        id: format!("neuro_{}", response.ranked_solutions[0].id),
-                        description: response.ranked_solutions[0].description.clone(),
+                        id: format!("neuro_{}", response.ranked_solutions[0].solution.id),
+                        description: response.ranked_solutions[0].solution.description.clone(),
                         steps: vec![command.command_line()],
                         safety_checks: vec![],
                     };

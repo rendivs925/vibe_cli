@@ -845,7 +845,7 @@ impl NeurosymbolicService {
                 id: format!("step_{}", i),
                 description: format!("Execute: {}", cmd),
                 command: cmd.clone(),
-                preconditions: best_solution.preconditions.clone(),
+                preconditions: best_solution.solution.preconditions.clone(),
                 postconditions: vec![],
                 timeout: std::time::Duration::from_secs(30),
                 retry_count: 3,
@@ -885,8 +885,8 @@ impl NeurosymbolicService {
             steps,
             rollback_plan,
             verification_points,
-            estimated_duration: best_solution.estimated_duration,
-            resource_allocation: best_solution.resource_requirements.clone(),
+            estimated_duration: best_solution.solution.estimated_duration,
+            resource_allocation: best_solution.solution.resource_requirements.clone(),
         })
     }
 
