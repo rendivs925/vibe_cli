@@ -1,7 +1,6 @@
 use domain::value_objects::embedding::Embedding;
 use rusqlite::{params, Connection, Result as SqlResult};
 use shared::types::Result;
-use std::fs;
 use std::path::Path;
 use std::sync::Arc;
 use tokio::sync::Mutex;
@@ -116,7 +115,7 @@ impl EmbeddingStorage {
                     id,
                     vector,
                     text,
-document_path: path,
+                    document_path: path,
                 });
             }
             Ok(embeddings)

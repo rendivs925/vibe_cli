@@ -1,7 +1,7 @@
+use crate::ports::{Cache, StorageService};
 use async_trait::async_trait;
+use domain::entities::session::{Message, Session};
 use shared::error::AppError;
-use domain::entities::session::{Session, Message};
-use crate::ports::{StorageService, Cache};
 
 /// Use case for session management
 pub struct SessionUseCase {
@@ -17,15 +17,16 @@ impl SessionUseCase {
     /// Create a new session
     pub async fn create_session(&self, session_id: String) -> Result<Session, AppError> {
         let session = Session::new(session_id.clone());
-        
+
         // Store session
         self.storage.save_session(&session).await?;
-        
+
         // Cache session
         let cache_key = format!("session:{}", session_id);
-        let session_data = serde_json::to_string(&session).map_err(|e| AppError::serialization(e.to_string()))?;
+        let session_data =
+            serde_json::to_string(&session).map_err(|e| AppError::serialization(e.to_string()))?;
         self.cache.set(&cache_key, &session_data).await?;
-        
+
         Ok(session)
     }
 
@@ -41,21 +42,23 @@ impl SessionUseCase {
 
         // Fetch from storage
         let session = self.storage.find_session_by_id(session_id).await?;
-        
+
         // Cache if found
         if let Some(ref sess) = session {
-            let session_data = serde_json::to_string(sess)
-                .map_err(|e| AppError::serialization(e.to_string()))?;
+            let session_data =
+                serde_json::to_string(sess).map_err(|e| AppError::serialization(e.to_string()))?;
             self.cache.set(&cache_key, &session_data).await?;
         }
-        
+
         Ok(session)
     }
 
     /// Add message to session
     pub async fn add_message(&self, session_id: &str, message: Message) -> Result<(), AppError> {
         // Get session
-        let mut session = self.get_session(session_id).await?
+        let mut session = self
+            .get_session(session_id)
+            .await?
             .ok_or_else(|| AppError::not_found(format!("Session {} not found", session_id)))?;
 
         // Add message
@@ -66,8 +69,8 @@ impl SessionUseCase {
 
         // Update cache
         let cache_key = format!("session:{}", session_id);
-        let session_data = serde_json::to_string(&session)
-            .map_err(|e| AppError::serialization(e.to_string()))?;
+        let session_data =
+            serde_json::to_string(&session).map_err(|e| AppError::serialization(e.to_string()))?;
         self.cache.set(&cache_key, &session_data).await?;
 
         Ok(())
@@ -75,9 +78,11 @@ impl SessionUseCase {
 
     /// Get session messages
     pub async fn get_messages(&self, session_id: &str) -> Result<Vec<Message>, AppError> {
-        let session = self.get_session(session_id).await?
+        let session = self
+            .get_session(session_id)
+            .await?
             .ok_or_else(|| AppError::not_found(format!("Session {} not found", session_id)))?;
-        
+
         Ok(session.history().to_vec())
     }
 
@@ -102,7 +107,9 @@ impl SessionUseCase {
     /// Clear session history
     pub async fn clear_session_history(&self, session_id: &str) -> Result<(), AppError> {
         // Get session
-        let mut session = self.get_session(session_id).await?
+        let mut session = self
+            .get_session(session_id)
+            .await?
             .ok_or_else(|| AppError::not_found(format!("Session {} not found", session_id)))?;
 
         // Clear history
@@ -113,8 +120,8 @@ impl SessionUseCase {
 
         // Update cache
         let cache_key = format!("session:{}", session_id);
-        let session_data = serde_json::to_string(&session)
-            .map_err(|e| AppError::serialization(e.to_string()))?;
+        let session_data =
+            serde_json::to_string(&session).map_err(|e| AppError::serialization(e.to_string()))?;
         self.cache.set(&cache_key, &session_data).await?;
 
         Ok(())
@@ -122,15 +129,26 @@ impl SessionUseCase {
 
     /// Get session statistics
     pub async fn get_session_stats(&self, session_id: &str) -> Result<SessionStats, AppError> {
-        let session = self.get_session(session_id).await?
+        let session = self
+            .get_session(session_id)
+            .await?
             .ok_or_else(|| AppError::not_found(format!("Session {} not found", session_id)))?;
 
         let message_count = session.history().len();
-        let user_messages = session.history().iter()
+        let user_messages = session
+            .history()
+            .iter()
             .filter(|msg| matches!(msg.role(), domain::entities::session::MessageRole::User))
             .count();
-        let assistant_messages = session.history().iter()
-            .filter(|msg| matches!(msg.role(), domain::entities::session::MessageRole::Assistant))
+        let assistant_messages = session
+            .history()
+            .iter()
+            .filter(|msg| {
+                matches!(
+                    msg.role(),
+                    domain::entities::session::MessageRole::Assistant
+                )
+            })
             .count();
 
         Ok(SessionStats::new(
@@ -142,7 +160,11 @@ impl SessionUseCase {
     }
 
     /// Search sessions by content
-    pub async fn search_sessions(&self, query: &str, limit: usize) -> Result<Vec<SessionSearchResult>, AppError> {
+    pub async fn search_sessions(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<SessionSearchResult>, AppError> {
         // This would search through sessions
         Ok(vec![])
     }

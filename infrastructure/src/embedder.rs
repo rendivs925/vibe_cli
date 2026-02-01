@@ -19,7 +19,10 @@ impl Embedder {
         Self { client }
     }
 
-    pub async fn generate_embeddings(&self, inputs: &[EmbeddingInput]) -> Result<Vec<Embedding>, AppError> {
+    pub async fn generate_embeddings(
+        &self,
+        inputs: &[EmbeddingInput],
+    ) -> Result<Vec<Embedding>, AppError> {
         const BATCH_SIZE: usize = 32;
         let mut embeddings = Vec::with_capacity(inputs.len());
 
@@ -31,7 +34,10 @@ impl Embedder {
         Ok(embeddings)
     }
 
-    async fn generate_batch_embeddings(&self, inputs: &[EmbeddingInput]) -> Result<Vec<Embedding>, AppError> {
+    async fn generate_batch_embeddings(
+        &self,
+        inputs: &[EmbeddingInput],
+    ) -> Result<Vec<Embedding>, AppError> {
         let futures: Vec<_> = inputs
             .iter()
             .map(|input| {

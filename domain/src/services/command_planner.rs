@@ -25,13 +25,13 @@ impl CommandPlanner {
         // Parse the command from natural language
         let command_line = self.extract_command(input)?;
         let description = self.generate_description(input, &command_line);
-        
+
         // Generate safety checks
         let safety_checks = self.generate_safety_checks(&command_line);
-        
+
         // Validate against safety policy
         let safety_result = self.safety_policy.validate_command(&command_line);
-        
+
         // Create command
         let command = Command::new(
             self.generate_id(),
@@ -48,7 +48,7 @@ impl CommandPlanner {
     pub fn plan_multi_step(&self, input: &str) -> Result<MultiStepPlanResult, CommandPlannerError> {
         let steps = self.parse_steps(input)?;
         let mut commands = Vec::new();
-        
+
         for step in &steps {
             let plan_result = self.plan_command(step)?;
             commands.push(plan_result.command().clone());
@@ -61,7 +61,7 @@ impl CommandPlanner {
     // Private helper methods
     fn extract_command(&self, input: &str) -> Result<String, CommandPlannerError> {
         let cleaned = input.trim();
-        
+
         if cleaned.is_empty() {
             return Err(CommandPlannerError::EmptyInput);
         }
@@ -72,7 +72,8 @@ impl CommandPlanner {
         } else if cleaned.starts_with("execute ") {
             cleaned[8..].trim().to_string()
         } else if cleaned.contains("command:") {
-            cleaned.split("command:")
+            cleaned
+                .split("command:")
                 .nth(1)
                 .unwrap_or("")
                 .trim()
@@ -88,7 +89,7 @@ impl CommandPlanner {
         }
     }
 
-    fn generate_description(&self, input: &str, command: &str) -> String {
+    fn generate_description(&self, input: &str, _command: &str) -> String {
         format!("Generated from input: '{}'", input)
     }
 
@@ -117,7 +118,13 @@ impl CommandPlanner {
 
     fn generate_id(&self) -> String {
         use std::time::{SystemTime, UNIX_EPOCH};
-        format!("cmd_{}", SystemTime::now().duration_since(UNIX_EPOCH).unwrap().as_secs())
+        format!(
+            "cmd_{}",
+            SystemTime::now()
+                .duration_since(UNIX_EPOCH)
+                .unwrap()
+                .as_secs()
+        )
     }
 
     fn parse_steps(&self, input: &str) -> Result<Vec<String>, CommandPlannerError> {
@@ -156,7 +163,10 @@ pub struct CommandPlanResult {
 
 impl CommandPlanResult {
     pub fn new(command: Command, safety_result: SafetyResult) -> Self {
-        Self { command, safety_result }
+        Self {
+            command,
+            safety_result,
+        }
     }
 
     pub fn command(&self) -> &Command {
@@ -230,7 +240,9 @@ impl std::fmt::Display for CommandPlannerError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             CommandPlannerError::EmptyInput => write!(f, "Input is empty"),
-            CommandPlannerError::CannotExtractCommand => write!(f, "Cannot extract command from input"),
+            CommandPlannerError::CannotExtractCommand => {
+                write!(f, "Cannot extract command from input")
+            }
             CommandPlannerError::InvalidSyntax => write!(f, "Invalid command syntax"),
         }
     }
@@ -241,6 +253,12 @@ impl std::error::Error for CommandPlannerError {}
 /// Trait for async command planning (for future extension)
 #[async_trait]
 pub trait AsyncCommandPlanner: Send + Sync {
-    async fn plan_command_async(&self, input: &str) -> Result<CommandPlanResult, CommandPlannerError>;
-    async fn plan_multi_step_async(&self, input: &str) -> Result<MultiStepPlanResult, CommandPlannerError>;
+    async fn plan_command_async(
+        &self,
+        input: &str,
+    ) -> Result<CommandPlanResult, CommandPlannerError>;
+    async fn plan_multi_step_async(
+        &self,
+        input: &str,
+    ) -> Result<MultiStepPlanResult, CommandPlannerError>;
 }

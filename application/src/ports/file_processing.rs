@@ -1,6 +1,6 @@
 use async_trait::async_trait;
-use shared::error::AppError;
 use domain::entities::document::{Document, DocumentType};
+use shared::error::AppError;
 
 /// File processing port for handling different document types
 #[async_trait]

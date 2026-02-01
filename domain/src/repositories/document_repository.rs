@@ -1,6 +1,6 @@
-use async_trait::async_trait;
 use super::super::entities::document::{Document, DocumentType};
 use super::embedding_repository::RepositoryError;
+use async_trait::async_trait;
 
 /// Repository interface for document storage and retrieval
 #[async_trait]
@@ -18,7 +18,10 @@ pub trait DocumentRepository: Send + Sync {
     async fn list_all(&self) -> Result<Vec<Document>, RepositoryError>;
 
     /// List documents by type
-    async fn list_by_type(&self, document_type: &DocumentType) -> Result<Vec<Document>, RepositoryError>;
+    async fn list_by_type(
+        &self,
+        document_type: &DocumentType,
+    ) -> Result<Vec<Document>, RepositoryError>;
 
     /// Search documents by content
     async fn search_content(&self, query: &str) -> Result<Vec<Document>, RepositoryError>;

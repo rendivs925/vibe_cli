@@ -1,6 +1,6 @@
-use async_trait::async_trait;
 use super::super::entities::command::Command;
 use super::embedding_repository::RepositoryError;
+use async_trait::async_trait;
 
 /// Repository interface for command storage and retrieval
 #[async_trait]
@@ -24,7 +24,8 @@ pub trait CommandRepository: Send + Sync {
     async fn search_by_command(&self, query: &str) -> Result<Vec<Command>, RepositoryError>;
 
     /// Get commands by confidence threshold
-    async fn get_by_confidence(&self, min_confidence: f32) -> Result<Vec<Command>, RepositoryError>;
+    async fn get_by_confidence(&self, min_confidence: f32)
+        -> Result<Vec<Command>, RepositoryError>;
 
     /// Get safe commands only
     async fn get_safe_commands(&self) -> Result<Vec<Command>, RepositoryError>;
@@ -54,7 +55,11 @@ pub trait CommandRepository: Send + Sync {
     async fn get_stats(&self) -> Result<CommandStats, RepositoryError>;
 
     /// Find similar commands by description
-    async fn find_similar(&self, command: &Command, threshold: f32) -> Result<Vec<Command>, RepositoryError>;
+    async fn find_similar(
+        &self,
+        command: &Command,
+        threshold: f32,
+    ) -> Result<Vec<Command>, RepositoryError>;
 
     /// Get commands by date range
     async fn get_by_date_range(

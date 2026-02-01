@@ -1,8 +1,8 @@
-use crate::entities::neurosymbolic_entities::*;
-use crate::services::linux_symbolic_engine::LinuxSymbolicEngine;
-use crate::types::Result;
+use domain::neurosymbolic_entities::*;
+use domain::services::linux_symbolic_engine::LinuxSymbolicEngine;
 use infrastructure::ollama_client::OllamaClient;
 use serde::{Deserialize, Serialize};
+use shared::types::Result;
 use std::collections::HashMap;
 
 /// Main neurosymbolic service that bridges neural and symbolic reasoning
@@ -153,10 +153,23 @@ pub struct GroundedEntity {
 /// Entity relationships
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum EntityRelationship {
-    DependsOn { from: String, to: String },
-    InteractsWith { entities: Vec<String>, interaction_type: String },
-    MemberOf { child: String, parent: String },
-    Affects { source: String, target: String, effect: String },
+    DependsOn {
+        from: String,
+        to: String,
+    },
+    InteractsWith {
+        entities: Vec<String>,
+        interaction_type: String,
+    },
+    MemberOf {
+        child: String,
+        parent: String,
+    },
+    Affects {
+        source: String,
+        target: String,
+        effect: String,
+    },
 }
 
 /// Constraint satisfaction step
@@ -353,11 +366,28 @@ pub enum EntityType {
 /// Relationships between entities
 #[derive(Debug, Clone)]
 pub enum Relationship {
-    DependsOn { from: String, to: String, dependency_type: String },
-    InteractsWith { entities: Vec<String>, interaction_type: String },
-    Affects { source: String, target: String, effect: String },
-    LocatedAt { entity: String, location: String },
-    MemberOf { member: String, group: String },
+    DependsOn {
+        from: String,
+        to: String,
+        dependency_type: String,
+    },
+    InteractsWith {
+        entities: Vec<String>,
+        interaction_type: String,
+    },
+    Affects {
+        source: String,
+        target: String,
+        effect: String,
+    },
+    LocatedAt {
+        entity: String,
+        location: String,
+    },
+    MemberOf {
+        member: String,
+        group: String,
+    },
 }
 
 impl NeurosymbolicService {
@@ -375,39 +405,44 @@ impl NeurosymbolicService {
     pub async fn process_query(&mut self, query: &str) -> Result<NeurosymbolicResponse> {
         // Step 1: Neural understanding
         let neural_step = self.neural_understanding(query).await?;
-        
+
         // Step 2: Intent extraction and grounding
         let (intent, grounding_step) = self.extract_and_ground_intent(&neural_step).await?;
-        
+
         // Step 3: Knowledge graph enrichment
         let kg_queries = self.query_knowledge_graph(&grounding_step.entities).await?;
-        
+
         // Step 4: Constraint solving
         let constraint_step = self.solve_constraints(&intent, &grounding_step).await?;
-        
+
         // Step 5: Solution generation
         let solutions = self.generate_solutions(&constraint_step.solutions).await?;
-        
+
         // Step 6: Neural verification and ranking
-        let verification_results = self.verify_solutions_with_neural(&solutions, &intent).await?;
+        let verification_results = self
+            .verify_solutions_with_neural(&solutions, &intent)
+            .await?;
         let ranked_solutions = self.rank_solutions(&solutions, &verification_results);
-        
+
         // Step 7: Execution plan generation
         let execution_plan = self.generate_execution_plan(&ranked_solutions).await?;
-        
+
         // Build reasoning trace
         let reasoning_trace = ReasoningTrace {
             neural_understanding: neural_step,
             symbolic_grounding: grounding_step,
             constraint_satisfaction: constraint_step,
             knowledge_graph_queries: kg_queries,
-            verification_results: verification_results.iter().map(|v| ReasoningTrace::map_verification(v)).collect(),
+            verification_results: verification_results
+                .iter()
+                .map(|v| ReasoningTrace::map_verification(v))
+                .collect(),
             summary: self.generate_summary(&intent, &ranked_solutions),
         };
-        
+
         let confidence = self.calculate_overall_confidence(&ranked_solutions);
         let explanation = self.generate_explanation(&reasoning_trace, &ranked_solutions);
-        
+
         Ok(NeurosymbolicResponse {
             intent,
             reasoning_trace,
@@ -435,11 +470,11 @@ impl NeurosymbolicService {
         );
 
         let response = self.llm_client.generate_response(&prompt).await?;
-        
+
         // Parse neural response
         let entities = self.extract_entities_from_response(&response);
         let intent = self.extract_intent_from_response(&response);
-        
+
         Ok(NeuralStep {
             input: query.to_string(),
             intent_extraction: "Neural LLM processing completed".to_string(),
@@ -453,7 +488,7 @@ impl NeurosymbolicService {
     fn extract_entities_from_response(&self, response: &str) -> Vec<RecognizedEntity> {
         // Simplified entity extraction - in real implementation would use NLP
         let mut entities = Vec::new();
-        
+
         // Look for file paths
         for word in response.split_whitespace() {
             if word.starts_with('/') || word.starts_with('~') {
@@ -464,7 +499,7 @@ impl NeurosymbolicService {
                     confidence: 0.9,
                 });
             }
-            
+
             // Look for service names
             if ["nginx", "apache", "mysql", "postgresql", "redis"].contains(&word) {
                 entities.push(RecognizedEntity {
@@ -474,7 +509,7 @@ impl NeurosymbolicService {
                     confidence: 0.8,
                 });
             }
-            
+
             // Look for process names
             if word.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
                 entities.push(RecognizedEntity {
@@ -485,7 +520,7 @@ impl NeurosymbolicService {
                 });
             }
         }
-        
+
         entities
     }
 
@@ -518,14 +553,26 @@ impl NeurosymbolicService {
             ActionType::Configure
         };
 
-        let objects: Vec<String> = response.split_whitespace()
-            .filter(|w| !["the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for"].contains(&w))
+        let objects: Vec<String> = response
+            .split_whitespace()
+            .filter(|w| {
+                ![
+                    "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
+                ]
+                .contains(&w)
+            })
             .take(5)
             .map(|s| s.to_string())
             .collect();
 
         Intent {
-            id: format!("intent_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()),
+            id: format!(
+                "intent_{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs()
+            ),
             domain,
             action,
             objects,
@@ -535,7 +582,10 @@ impl NeurosymbolicService {
     }
 
     /// Ground entities symbolically
-    async fn extract_and_ground_intent(&mut self, neural_step: &NeuralStep) -> Result<(Intent, SymbolicStep)> {
+    async fn extract_and_ground_intent(
+        &mut self,
+        neural_step: &NeuralStep,
+    ) -> Result<(Intent, SymbolicStep)> {
         let mut grounded_entities = Vec::new();
         let mut symbolic_expressions = Vec::new();
         let mut constraints = Vec::new();
@@ -550,12 +600,12 @@ impl NeurosymbolicService {
                             entity_type: entity.entity_type.clone(),
                             relationships: vec![],
                         });
-                        
+
                         symbolic_expressions.push(SymbolicExpression::AtomicValue(
-                            SymbolicValue::String(path.clone())
+                            SymbolicValue::String(path.clone()),
                         ));
-                        
-                        constraints.push(Constraint::FileExists { 
+
+                        constraints.push(Constraint::FileExists {
                             path: path.clone(),
                             required: true,
                         });
@@ -567,14 +617,14 @@ impl NeurosymbolicService {
                             name: entity.name.clone(),
                             symbolic_value: SymbolicValue::String(service_name.clone()),
                             entity_type: entity.entity_type.clone(),
-                            relationships: vec![EntityRelationship::MemberOf { 
-                                member: service_name.clone(), 
-                                group: "systemd".to_string() 
+                            relationships: vec![EntityRelationship::MemberOf {
+                                member: service_name.clone(),
+                                group: "systemd".to_string(),
                             }],
                         });
-                        
+
                         symbolic_expressions.push(SymbolicExpression::AtomicValue(
-                            SymbolicValue::String(service_name.clone())
+                            SymbolicValue::String(service_name.clone()),
                         ));
                     }
                 }
@@ -595,11 +645,25 @@ impl NeurosymbolicService {
         }
 
         let intent = Intent {
-            id: format!("grounded_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_secs()),
+            id: format!(
+                "grounded_{}",
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap()
+                    .as_secs()
+            ),
             domain: self.infer_domain(&neural_step),
             action: self.infer_action(&neural_step),
-            objects: neural_step.entities.iter().map(|e| e.name.clone()).collect(),
-            constraints: neural_step.entities.iter().map(|_| "unknown".to_string()).collect(),
+            objects: neural_step
+                .entities
+                .iter()
+                .map(|e| e.name.clone())
+                .collect(),
+            constraints: neural_step
+                .entities
+                .iter()
+                .map(|_| "unknown".to_string())
+                .collect(),
             confidence: neural_step.confidence,
         };
 
@@ -614,15 +678,21 @@ impl NeurosymbolicService {
     }
 
     /// Query knowledge graph
-    async fn query_knowledge_graph(&mut self, entities: &[GroundedEntity]) -> Result<Vec<GraphQuery>> {
+    async fn query_knowledge_graph(
+        &mut self,
+        entities: &[GroundedEntity],
+    ) -> Result<Vec<GraphQuery>> {
         let mut queries = Vec::new();
-        
+
         for entity in entities {
             // Query for related entities
             let query = GraphQuery {
                 query_type: QueryType::EntityLookup,
                 parameters: HashMap::from([
-                    ("entity_type".to_string(), format!("{:?}", entity.entity_type)),
+                    (
+                        "entity_type".to_string(),
+                        format!("{:?}", entity.entity_type),
+                    ),
                     ("name".to_string(), entity.name.clone()),
                 ]),
                 results: self.knowledge_graph.lookup_entity(&entity.name).await?,
@@ -635,15 +705,19 @@ impl NeurosymbolicService {
     }
 
     /// Solve constraints
-    async fn solve_constraints(&mut self, intent: &Intent, grounding_step: &SymbolicStep) -> Result<ConstraintStep> {
+    async fn solve_constraints(
+        &mut self,
+        intent: &Intent,
+        grounding_step: &SymbolicStep,
+    ) -> Result<ConstraintStep> {
         let mut constraints = grounding_step.constraint_generation.clone();
-        
+
         // Add domain-specific constraints
         constraints.extend(self.generate_domain_constraints(&intent));
-        
+
         // Solve using constraint solver
         let solutions = self.constraint_solver.solve(&constraints).await?;
-        
+
         Ok(ConstraintStep {
             constraints,
             solving_method: "hybrid SAT+SMT solver".to_string(),
@@ -653,9 +727,12 @@ impl NeurosymbolicService {
     }
 
     /// Generate solutions from constraint solving results
-    async fn generate_solutions(&mut self, constraint_solutions: &[PartialSolution]) -> Result<Vec<Solution>> {
+    async fn generate_solutions(
+        &mut self,
+        constraint_solutions: &[PartialSolution],
+    ) -> Result<Vec<Solution>> {
         let mut solutions = Vec::new();
-        
+
         for (i, partial_solution) in constraint_solutions.iter().enumerate() {
             let solution = Solution {
                 id: format!("solution_{}", i),
@@ -668,14 +745,18 @@ impl NeurosymbolicService {
             };
             solutions.push(solution);
         }
-        
+
         Ok(solutions)
     }
 
     /// Verify solutions using neural model
-    async fn verify_solutions_with_neural(&mut self, solutions: &[Solution], intent: &Intent) -> Result<Vec<VerificationStep>> {
+    async fn verify_solutions_with_neural(
+        &mut self,
+        solutions: &[Solution],
+        intent: &Intent,
+    ) -> Result<Vec<VerificationStep>> {
         let mut verification_results = Vec::new();
-        
+
         for solution in solutions {
             let verification_prompt = format!(
                 "Verify this solution satisfies the user's original intent:\n\
@@ -693,9 +774,13 @@ impl NeurosymbolicService {
                 solution.command_sequence.join("; ")
             );
 
-            let verification_response = self.llm_client.generate_response(&verification_prompt).await?;
+            let verification_response = self
+                .llm_client
+                .generate_response(&verification_prompt)
+                .await?;
             let neural_rating = self.extract_satisfaction_score(&verification_response);
-            let verification_reasoning = self.extract_verification_reasoning(&verification_response);
+            let verification_reasoning =
+                self.extract_verification_reasoning(&verification_response);
             let passed = neural_rating >= 5.0;
 
             verification_results.push(VerificationStep {
@@ -711,13 +796,20 @@ impl NeurosymbolicService {
     }
 
     /// Rank solutions based on symbolic and neural scores
-    fn rank_solutions(&self, solutions: &[Solution], verification_results: &[VerificationStep]) -> Vec<RankedSolution> {
+    fn rank_solutions(
+        &self,
+        solutions: &[Solution],
+        verification_results: &[VerificationStep],
+    ) -> Vec<RankedSolution> {
         let mut ranked_solutions = Vec::new();
 
         for solution in solutions {
-            if let Some(verification) = verification_results.iter().find(|v| v.solution_id == solution.id) {
+            if let Some(verification) = verification_results
+                .iter()
+                .find(|v| v.solution_id == solution.id)
+            {
                 let risk_assessment = self.assess_solution_risk(solution);
-                
+
                 ranked_solutions.push(RankedSolution {
                     id: solution.id.clone(),
                     solution: solution.clone(),
@@ -736,10 +828,15 @@ impl NeurosymbolicService {
     }
 
     /// Generate execution plan
-    async fn generate_execution_plan(&mut self, ranked_solutions: &[RankedSolution]) -> Result<ExecutionPlan> {
+    async fn generate_execution_plan(
+        &mut self,
+        ranked_solutions: &[RankedSolution],
+    ) -> Result<ExecutionPlan> {
         let best_solution = ranked_solutions.first().unwrap();
-        
-        let steps: Vec<ExecutionStep> = best_solution.solution.command_sequence
+
+        let steps: Vec<ExecutionStep> = best_solution
+            .solution
+            .command_sequence
             .iter()
             .enumerate()
             .map(|(i, cmd)| ExecutionStep {
@@ -793,9 +890,17 @@ impl NeurosymbolicService {
 
     // Helper methods
     fn infer_domain(&self, neural_step: &NeuralStep) -> DomainType {
-        if neural_step.entities.iter().any(|e| e.entity_type == EntityType::Service) {
+        if neural_step
+            .entities
+            .iter()
+            .any(|e| e.entity_type == EntityType::Service)
+        {
             DomainType::SystemAdministration
-        } else if neural_step.entities.iter().any(|e| e.entity_type == EntityType::File) {
+        } else if neural_step
+            .entities
+            .iter()
+            .any(|e| e.entity_type == EntityType::File)
+        {
             DomainType::SystemAdministration
         } else {
             DomainType::SystemAdministration
@@ -810,31 +915,26 @@ impl NeurosymbolicService {
     fn generate_domain_constraints(&self, intent: &Intent) -> Vec<Constraint> {
         // Generate constraints based on domain and action
         match intent.domain {
-            DomainType::SystemAdministration => vec![
-                Constraint::SystemState { 
-                    property: "user_permissions".to_string(), 
-                    expected_value: SymbolicValue::Boolean(true) 
-                }
-            ],
-            DomainType::ContainerOrchestration => vec![
-                Constraint::ResourceAvailable { 
-                    resource: ResourceType::Memory, 
-                    amount: 512 * 1024 * 1024 
-                }
-            ],
+            DomainType::SystemAdministration => vec![Constraint::SystemState {
+                property: "user_permissions".to_string(),
+                expected_value: SymbolicValue::Boolean(true),
+            }],
+            DomainType::ContainerOrchestration => vec![Constraint::ResourceAvailable {
+                resource: ResourceType::Memory,
+                amount: 512 * 1024 * 1024,
+            }],
             _ => vec![],
         }
     }
 
     fn convert_to_commands(&self, partial_solution: &PartialSolution) -> Vec<String> {
         // Convert variable assignments to executable commands
-        partial_solution.variable_assignments
+        partial_solution
+            .variable_assignments
             .iter()
-            .map(|(var, val)| {
-                match val {
-                    SymbolicValue::String(cmd) => cmd.clone(),
-                    _ => format!("echo {:?}", val),
-                }
+            .map(|(var, val)| match val {
+                SymbolicValue::String(cmd) => cmd.clone(),
+                _ => format!("echo {:?}", val),
             })
             .collect()
     }
@@ -848,7 +948,10 @@ impl NeurosymbolicService {
         Vec::new() // Simplified
     }
 
-    fn calculate_resource_requirements(&self, partial_solution: &PartialSolution) -> ResourceVector {
+    fn calculate_resource_requirements(
+        &self,
+        partial_solution: &PartialSolution,
+    ) -> ResourceVector {
         // Calculate resources needed for solution
         ResourceVector::default() // Simplified
     }
@@ -865,14 +968,16 @@ impl NeurosymbolicService {
 
     fn extract_satisfaction_score(&self, response: &str) -> f32 {
         // Extract numeric satisfaction score from neural response
-        response.split_whitespace()
+        response
+            .split_whitespace()
             .find_map(|word| word.parse::<f32>().ok())
             .unwrap_or(5.0) // Default to medium satisfaction
     }
 
     fn extract_verification_reasoning(&self, response: &str) -> String {
         // Extract reasoning from neural response
-        response.lines()
+        response
+            .lines()
             .next()
             .unwrap_or("No reasoning provided")
             .to_string()
@@ -900,7 +1005,11 @@ impl NeurosymbolicService {
         }
     }
 
-    fn generate_explanation(&self, reasoning_trace: &ReasoningTrace, solutions: &[RankedSolution]) -> String {
+    fn generate_explanation(
+        &self,
+        reasoning_trace: &ReasoningTrace,
+        solutions: &[RankedSolution],
+    ) -> String {
         format!(
             "Hybrid neurosymbolic reasoning completed:\n\
             1. Neural understanding: {:.1}% confidence\n\
@@ -913,8 +1022,15 @@ impl NeurosymbolicService {
             reasoning_trace.neural_understanding.confidence * 100.0,
             reasoning_trace.symbolic_grounding.entities.len(),
             reasoning_trace.constraint_satisfaction.constraints.len(),
-            solutions.iter().map(|s| s.neural_score * 100.0).sum::<f32>() / solutions.len() as f32,
-            solutions.first().map(|s| &s.solution.description).unwrap_or("None"),
+            solutions
+                .iter()
+                .map(|s| s.neural_score * 100.0)
+                .sum::<f32>()
+                / solutions.len() as f32,
+            solutions
+                .first()
+                .map(|s| &s.solution.description)
+                .unwrap_or("None"),
             solutions.first().map(|s| s.combined_score).unwrap_or(0.0)
         )
     }
@@ -959,9 +1075,10 @@ impl ConstraintSolver {
     async fn solve(&mut self, constraints: &[Constraint]) -> Result<Vec<PartialSolution>> {
         // Simplified constraint solving
         let solution = PartialSolution {
-            variable_assignments: HashMap::from([
-                ("solution".to_string(), SymbolicValue::String("hybrid_solution".to_string())),
-            ]),
+            variable_assignments: HashMap::from([(
+                "solution".to_string(),
+                SymbolicValue::String("hybrid_solution".to_string()),
+            )]),
             satisfied_constraints: constraints.to_vec(),
             unsatisfied_constraints: Vec::new(),
             quality_score: 0.8,

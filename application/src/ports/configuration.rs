@@ -5,10 +5,10 @@ use shared::error::AppError;
 #[async_trait]
 pub trait ConfigLoader: Send + Sync {
     /// Load configuration from default locations
-    async fn load_config(&self) -> Result< AppConfig, AppError>;
+    async fn load_config(&self) -> Result<AppConfig, AppError>;
 
     /// Load configuration from specific path
-    async fn load_config_from_path(&self, path: &str) -> Result< AppConfig, AppError>;
+    async fn load_config_from_path(&self, path: &str) -> Result<AppConfig, AppError>;
 
     /// Save configuration to path
     async fn save_config(&self, config: &AppConfig, path: &str) -> Result<(), AppError>;
@@ -94,10 +94,7 @@ pub struct AiConfig {
 }
 
 impl AiConfig {
-    pub fn new(
-        model_name: String,
-        api_endpoint: String,
-    ) -> Self {
+    pub fn new(model_name: String, api_endpoint: String) -> Self {
         Self {
             model_name,
             api_endpoint,
@@ -143,10 +140,7 @@ impl AiConfig {
 
 impl Default for AiConfig {
     fn default() -> Self {
-        Self::new(
-            "llama2".to_string(),
-            "http://localhost:11434".to_string(),
-        )
+        Self::new("llama2".to_string(), "http://localhost:11434".to_string())
     }
 }
 
@@ -234,8 +228,8 @@ impl CacheConfig {
             max_size_mb: 100,
             ttl_seconds: 3600,
             cleanup_interval_hours: 6,
-            command_cache_ttl: 86400, // 24 hours
-            query_cache_ttl: 1800,     // 30 minutes
+            command_cache_ttl: 86400,    // 24 hours
+            query_cache_ttl: 1800,       // 30 minutes
             embedding_cache_ttl: 604800, // 7 days
         }
     }

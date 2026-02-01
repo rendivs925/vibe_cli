@@ -1,13 +1,16 @@
 use async_trait::async_trait;
-use shared::error::AppError;
-use domain::repositories::{EmbeddingRepository, DocumentRepository, SessionRepository, CommandRepository, ExecutionRepository};
-use domain::value_objects::embedding::{Embedding, SearchResult};
-use domain::EmbeddingStats;
-use domain::value_objects::query::Query;
+use domain::entities::command::Command;
 use domain::entities::document::Document;
 use domain::entities::session::Session;
-use domain::entities::command::Command;
 use domain::repositories::execution_repository::CommandExecution;
+use domain::repositories::{
+    CommandRepository, DocumentRepository, EmbeddingRepository, ExecutionRepository,
+    SessionRepository,
+};
+use domain::value_objects::embedding::{Embedding, SearchResult};
+use domain::value_objects::query::Query;
+use domain::EmbeddingStats;
+use shared::error::AppError;
 
 /// Storage port for all repository operations
 pub struct StorageService {
@@ -37,54 +40,94 @@ impl StorageService {
 
     // Embedding operations
     pub async fn save_embedding(&self, embedding: &Embedding) -> Result<(), AppError> {
-        self.embedding_repository.save(embedding).await.map_err(|e| AppError::storage(e.to_string()))
+        self.embedding_repository
+            .save(embedding)
+            .await
+            .map_err(|e| AppError::storage(e.to_string()))
     }
 
-    pub async fn search_embeddings(&self, query: &Query, query_embedding: &Embedding) -> Result<Vec<domain::value_objects::embedding::SearchResult>, AppError> {
-        self.embedding_repository.search_similar(query, query_embedding).await.map_err(|e| AppError::storage(e.to_string()))
+    pub async fn search_embeddings(
+        &self,
+        query: &Query,
+        query_embedding: &Embedding,
+    ) -> Result<Vec<domain::value_objects::embedding::SearchResult>, AppError> {
+        self.embedding_repository
+            .search_similar(query, query_embedding)
+            .await
+            .map_err(|e| AppError::storage(e.to_string()))
     }
 
     // Document operations
     pub async fn save_document(&self, document: &Document) -> Result<(), AppError> {
-        self.document_repository.save(document).await.map_err(|e| AppError::storage(e.to_string()))
+        self.document_repository
+            .save(document)
+            .await
+            .map_err(|e| AppError::storage(e.to_string()))
     }
 
     pub async fn find_document_by_path(&self, path: &str) -> Result<Option<Document>, AppError> {
-        self.document_repository.find_by_path(path).await.map_err(|e| AppError::storage(e.to_string()))
+        self.document_repository
+            .find_by_path(path)
+            .await
+            .map_err(|e| AppError::storage(e.to_string()))
     }
 
     pub async fn find_document_by_id(&self, id: &str) -> Result<Option<Document>, AppError> {
-        self.document_repository.find_by_id(id).await.map_err(|e| AppError::storage(e.to_string()))
+        self.document_repository
+            .find_by_id(id)
+            .await
+            .map_err(|e| AppError::storage(e.to_string()))
     }
 
     pub async fn list_all_documents(&self) -> Result<Vec<Document>, AppError> {
-        self.document_repository.list_all().await.map_err(|e| AppError::storage(e.to_string()))
+        self.document_repository
+            .list_all()
+            .await
+            .map_err(|e| AppError::storage(e.to_string()))
     }
 
     // Session operations
     pub async fn save_session(&self, session: &Session) -> Result<(), AppError> {
-        self.session_repository.save(session).await.map_err(|e| AppError::storage(e.to_string()))
+        self.session_repository
+            .save(session)
+            .await
+            .map_err(|e| AppError::storage(e.to_string()))
     }
 
     pub async fn find_session_by_id(&self, id: &str) -> Result<Option<Session>, AppError> {
-        self.session_repository.find_by_id(id).await.map_err(|e| AppError::storage(e.to_string()))
+        self.session_repository
+            .find_by_id(id)
+            .await
+            .map_err(|e| AppError::storage(e.to_string()))
     }
 
     pub async fn delete_session(&self, id: &str) -> Result<(), AppError> {
-        self.session_repository.delete(id).await.map_err(|e| AppError::storage(e.to_string()))
+        self.session_repository
+            .delete(id)
+            .await
+            .map_err(|e| AppError::storage(e.to_string()))
     }
 
     // Command operations
     pub async fn save_command(&self, command: &Command) -> Result<(), AppError> {
-        self.command_repository.save(command).await.map_err(|e| AppError::storage(e.to_string()))
+        self.command_repository
+            .save(command)
+            .await
+            .map_err(|e| AppError::storage(e.to_string()))
     }
 
     pub async fn find_command_by_id(&self, id: &str) -> Result<Option<Command>, AppError> {
-        self.command_repository.find_by_id(id).await.map_err(|e| AppError::storage(e.to_string()))
+        self.command_repository
+            .find_by_id(id)
+            .await
+            .map_err(|e| AppError::storage(e.to_string()))
     }
 
     pub async fn get_all_commands(&self) -> Result<Vec<Command>, AppError> {
-        self.command_repository.list_all().await.map_err(|e| AppError::storage(e.to_string()))
+        self.command_repository
+            .list_all()
+            .await
+            .map_err(|e| AppError::storage(e.to_string()))
     }
 
     pub async fn get_all_executions(&self) -> Result<Vec<CommandExecution>, AppError> {
@@ -198,7 +241,11 @@ pub struct VectorSearchResult {
 
 impl VectorSearchResult {
     pub fn new(id: String, similarity: f32, metadata: String) -> Self {
-        Self { id, similarity, metadata }
+        Self {
+            id,
+            similarity,
+            metadata,
+        }
     }
 }
 

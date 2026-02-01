@@ -331,7 +331,8 @@ impl RagService {
             }
 
             eprintln!("Processing {}...", scan.path);
-            let previous_hash: Option<String> = self.storage.get_file_hash(scan.path.clone()).await?;
+            let previous_hash: Option<String> =
+                self.storage.get_file_hash(scan.path.clone()).await?;
             if previous_hash.as_deref() == Some(scan.hash.as_str()) {
                 continue;
             }

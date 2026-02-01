@@ -1,6 +1,6 @@
-use async_trait::async_trait;
 use super::super::value_objects::embedding::{Embedding, SearchResult};
 use super::super::value_objects::query::Query;
+use async_trait::async_trait;
 
 /// Repository interface for embedding storage and retrieval
 #[async_trait]
@@ -15,7 +15,10 @@ pub trait EmbeddingRepository: Send + Sync {
     async fn find_by_id(&self, id: &str) -> Result<Option<Embedding>, RepositoryError>;
 
     /// Retrieve embeddings by document path
-    async fn find_by_document(&self, document_path: &str) -> Result<Vec<Embedding>, RepositoryError>;
+    async fn find_by_document(
+        &self,
+        document_path: &str,
+    ) -> Result<Vec<Embedding>, RepositoryError>;
 
     /// Search for similar embeddings
     async fn search_similar(

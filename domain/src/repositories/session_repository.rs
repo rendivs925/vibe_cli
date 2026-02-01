@@ -1,6 +1,6 @@
-use async_trait::async_trait;
-use super::super::entities::session::{Session, Message};
+use super::super::entities::session::{Message, Session};
 use super::embedding_repository::RepositoryError;
+use async_trait::async_trait;
 
 /// Repository interface for session storage and retrieval
 #[async_trait]
@@ -24,7 +24,8 @@ pub trait SessionRepository: Send + Sync {
     async fn delete(&self, id: &str) -> Result<(), RepositoryError>;
 
     /// Add message to session
-    async fn add_message(&self, session_id: &str, message: &Message) -> Result<(), RepositoryError>;
+    async fn add_message(&self, session_id: &str, message: &Message)
+        -> Result<(), RepositoryError>;
 
     /// Get session messages
     async fn get_messages(&self, session_id: &str) -> Result<Vec<Message>, RepositoryError>;
@@ -42,7 +43,11 @@ pub trait SessionRepository: Send + Sync {
     async fn get_stats(&self) -> Result<SessionStats, RepositoryError>;
 
     /// Find sessions by context key-value pair
-    async fn find_by_context(&self, key: &str, value: &str) -> Result<Vec<Session>, RepositoryError>;
+    async fn find_by_context(
+        &self,
+        key: &str,
+        value: &str,
+    ) -> Result<Vec<Session>, RepositoryError>;
 
     /// Update session context
     async fn update_context(
@@ -53,7 +58,10 @@ pub trait SessionRepository: Send + Sync {
     ) -> Result<(), RepositoryError>;
 
     /// Get sessions older than specified date
-    async fn find_older_than(&self, date: chrono::DateTime<chrono::Utc>) -> Result<Vec<Session>, RepositoryError>;
+    async fn find_older_than(
+        &self,
+        date: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<Session>, RepositoryError>;
 }
 
 /// Statistics about sessions in the repository

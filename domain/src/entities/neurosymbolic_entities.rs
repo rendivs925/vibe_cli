@@ -1,5 +1,3 @@
-use crate::entities::command::Command;
-use crate::types::Result;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -197,6 +195,10 @@ pub enum LinuxConstraint {
         property: String,
         expected_value: SymbolicValue,
     },
+    ServiceState {
+        property: String,
+        expected_value: String,
+    },
 }
 
 /// System resources
@@ -231,15 +233,40 @@ pub enum SystemEffect {
     },
 }
 
+/// Permission set for file access
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PermissionSet {
+    pub read: bool,
+    pub write: bool,
+    pub execute: bool,
+    pub owner: String,
+    pub group: String,
+}
+
 /// File operations
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum FileOperation {
-    Create,
-    Read,
-    Write,
-    Delete,
-    Modify,
-    ChangePermissions { from: String, to: String },
+    Create {
+        path: String,
+    },
+    Read {
+        path: String,
+    },
+    Write {
+        from: String,
+        to: String,
+    },
+    Delete {
+        path: String,
+    },
+    Modify {
+        path: String,
+    },
+    ChangePermissions {
+        path: String,
+        from: String,
+        to: String,
+    },
 }
 
 /// Enhanced symbolic command
@@ -375,6 +402,25 @@ pub enum ConnectionState {
     TimeWait,
     CloseWait,
     FinWait,
+    Unknown,
+}
+
+/// Resource validation results
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceValidationResult {
+    pub valid: bool,
+    pub memory_check: ResourceCheck,
+    pub cpu_check: ResourceCheck,
+    pub disk_check: ResourceCheck,
+    pub network_check: ResourceCheck,
+}
+
+/// Resource check result
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ResourceCheck {
+    pub required: u64,
+    pub available: u64,
+    pub ok: bool,
 }
 
 /// Resource usage tracking

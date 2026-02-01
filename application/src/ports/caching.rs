@@ -39,7 +39,8 @@ pub trait CommandCache: Send + Sync {
     async fn get_commands(&self, query: &str) -> Result<Vec<CachedCommand>, AppError>;
 
     /// Store multiple commands for a query
-    async fn store_commands(&self, query: &str, commands: &[CachedCommand]) -> Result<(), AppError>;
+    async fn store_commands(&self, query: &str, commands: &[CachedCommand])
+        -> Result<(), AppError>;
 
     /// Get popular commands
     async fn get_popular_commands(&self, limit: usize) -> Result<Vec<CachedCommand>, AppError>;
@@ -69,11 +70,7 @@ pub struct CachedCommand {
 }
 
 impl CachedCommand {
-    pub fn new(
-        id: String,
-        command: String,
-        query_hash: String,
-    ) -> Self {
+    pub fn new(id: String, command: String, query_hash: String) -> Self {
         Self {
             id,
             command,
@@ -188,7 +185,11 @@ pub trait QueryCache: Send + Sync {
     async fn get_query_embedding(&self, query: &str) -> Result<Option<Vec<f32>>, AppError>;
 
     /// Get similar cached queries
-    async fn get_similar_queries(&self, query_embedding: &[f32], limit: usize) -> Result<Vec<SimilarQuery>, AppError>;
+    async fn get_similar_queries(
+        &self,
+        query_embedding: &[f32],
+        limit: usize,
+    ) -> Result<Vec<SimilarQuery>, AppError>;
 }
 
 /// Cached query result

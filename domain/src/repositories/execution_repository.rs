@@ -12,11 +12,7 @@ pub struct CommandExecution {
 }
 
 impl CommandExecution {
-    pub fn new(
-        id: String,
-        command_line: String,
-        executed_at: DateTime<Utc>,
-    ) -> Self {
+    pub fn new(id: String, command_line: String, executed_at: DateTime<Utc>) -> Self {
         Self {
             id,
             command_line,
@@ -59,5 +55,9 @@ pub trait ExecutionRepository: Send + Sync {
     async fn get_all(&self) -> Result<Vec<CommandExecution>, AppError>;
     async fn get_by_id(&self, id: &str) -> Result<Option<CommandExecution>, AppError>;
     async fn get_by_command(&self, command_line: &str) -> Result<Vec<CommandExecution>, AppError>;
-    async fn get_by_date_range(&self, start: DateTime<Utc>, end: DateTime<Utc>) -> Result<Vec<CommandExecution>, AppError>;
+    async fn get_by_date_range(
+        &self,
+        start: DateTime<Utc>,
+        end: DateTime<Utc>,
+    ) -> Result<Vec<CommandExecution>, AppError>;
 }

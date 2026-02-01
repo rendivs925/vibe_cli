@@ -1,8 +1,8 @@
+use crate::ports::{AiClient, Cache, StorageService};
 use async_trait::async_trait;
-use shared::error::AppError;
-use domain::value_objects::query::{Query, QueryResult};
 use domain::value_objects::embedding::{Embedding, SearchResult};
-use crate::ports::{AiClient, StorageService, Cache};
+use domain::value_objects::query::{Query, QueryResult};
+use shared::error::AppError;
 
 /// Use case for RAG (Retrieval-Augmented Generation) operations
 pub struct RagUseCase {
@@ -34,22 +34,31 @@ impl RagUseCase {
 
         // Generate embedding for query
         let query_embedding = self.ai_client.generate_embedding(query_text).await?;
-        
+
         // Search for relevant documents
         let query_obj = Query::new(query_text.to_string());
-        let search_results = self.storage.search_embeddings(&query_obj, &Embedding::new(
-            "query".to_string(),
-            query_embedding,
-            query_text.to_string(),
-            "".to_string(),
-        )).await?;
+        let search_results = self
+            .storage
+            .search_embeddings(
+                &query_obj,
+                &Embedding::new(
+                    "query".to_string(),
+                    query_embedding,
+                    query_text.to_string(),
+                    "".to_string(),
+                ),
+            )
+            .await?;
 
         // Build context from search results
         let context = self.build_context(&search_results);
-        
+
         // Generate augmented response
         let prompt = self.build_rag_prompt(query_text, &context);
-        let response = self.ai_client.generate_response_with_context(&prompt, &context).await?;
+        let response = self
+            .ai_client
+            .generate_response_with_context(&prompt, &context)
+            .await?;
 
         // Cache the result
         self.cache.set(&cache_key, &response).await?;
@@ -69,33 +78,43 @@ impl RagUseCase {
     ) -> Result<Box<dyn futures::Stream<Item = Result<String, AppError>> + Send>, AppError> {
         // Generate embedding for query
         let query_embedding = self.ai_client.generate_embedding(query_text).await?;
-        
+
         // Search for relevant documents
         let query_obj = Query::new(query_text.to_string());
-        let search_results = self.storage.search_embeddings(&query_obj, &Embedding::new(
-            "query".to_string(),
-            query_embedding,
-            query_text.to_string(),
-            "".to_string(),
-        )).await?;
+        let search_results = self
+            .storage
+            .search_embeddings(
+                &query_obj,
+                &Embedding::new(
+                    "query".to_string(),
+                    query_embedding,
+                    query_text.to_string(),
+                    "".to_string(),
+                ),
+            )
+            .await?;
 
         // Build context
         let context = self.build_context(&search_results);
-        
+
         // Build prompt and stream response
         let prompt = self.build_rag_prompt(query_text, &context);
         self.ai_client.stream_response(&prompt).await
     }
 
     /// Index a document for RAG
-    pub async fn index_document(&self, document_text: &str, document_path: &str) -> Result<(), AppError> {
+    pub async fn index_document(
+        &self,
+        document_text: &str,
+        document_path: &str,
+    ) -> Result<(), AppError> {
         // Split document into chunks
         let chunks = self.chunk_document(document_text);
-        
+
         for (i, chunk) in chunks.iter().enumerate() {
             // Generate embedding for chunk
             let embedding = self.ai_client.generate_embedding(chunk).await?;
-            
+
             // Store embedding
             let doc_embedding = Embedding::new(
                 format!("{}:{}", document_path, i),
@@ -103,7 +122,7 @@ impl RagUseCase {
                 chunk.clone(),
                 document_path.to_string(),
             );
-            
+
             self.storage.save_embedding(&doc_embedding).await?;
         }
 
@@ -134,7 +153,9 @@ impl RagUseCase {
     }
 
     fn build_rag_prompt(&self, query: &str, context: &[String]) -> String {
-        let context_text = context.iter().enumerate()
+        let context_text = context
+            .iter()
+            .enumerate()
             .map(|(i, ctx)| format!("{}. {}", i + 1, ctx))
             .collect::<Vec<_>>()
             .join("\n\n");
@@ -157,18 +178,24 @@ impl RagUseCase {
 
         for paragraph in paragraphs {
             let words: Vec<&str> = paragraph.split_whitespace().collect();
-            
+
             if word_count + words.len() > chunk_size && !current_chunk.is_empty() {
                 chunks.push(current_chunk.join(" "));
                 current_chunk.clear();
                 word_count = 0;
-                
+
                 // Add overlap
-                let overlap_words = words.iter().rev().take(overlap).rev().cloned().collect::<Vec<_>>();
+                let overlap_words = words
+                    .iter()
+                    .rev()
+                    .take(overlap)
+                    .rev()
+                    .cloned()
+                    .collect::<Vec<_>>();
                 current_chunk.extend(overlap_words.clone());
                 word_count = overlap_words.len();
             }
-            
+
             current_chunk.extend(words.clone());
             word_count += words.len();
         }
@@ -279,6 +306,13 @@ impl RagStats {
 #[async_trait]
 pub trait AsyncRagService: Send + Sync {
     async fn process_query(&self, query: &str) -> Result<RagResponse, AppError>;
-    async fn stream_query(&self, query: &str) -> Result<Box<dyn futures::Stream<Item = Result<String, AppError>> + Send>, AppError>;
-    async fn index_document(&self, document_text: &str, document_path: &str) -> Result<(), AppError>;
+    async fn stream_query(
+        &self,
+        query: &str,
+    ) -> Result<Box<dyn futures::Stream<Item = Result<String, AppError>> + Send>, AppError>;
+    async fn index_document(
+        &self,
+        document_text: &str,
+        document_path: &str,
+    ) -> Result<(), AppError>;
 }
