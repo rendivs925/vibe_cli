@@ -124,7 +124,7 @@ impl CommandGenerator {
     }
 
     /// Score a generator based on input completeness
-    fn score_generator(
+    pub(crate) fn score_generator(
         &self,
         generator: &Generator,
         inputs: &HashMap<String, serde_json::Value>,
@@ -166,7 +166,7 @@ impl CommandGenerator {
     }
 
     /// Resolve template variables with inputs
-    fn resolve_template(
+    pub(crate) fn resolve_template(
         &self,
         template: &str,
         inputs: &HashMap<String, serde_json::Value>,

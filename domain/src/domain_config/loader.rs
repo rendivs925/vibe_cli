@@ -26,7 +26,7 @@ impl DomainLoader {
     pub fn load_all(&self) -> Result<HashMap<String, Domain>, DomainError> {
         let mut domains = HashMap::new();
 
-        // Load prebuilt domains
+        // Load prebuilt domains (optional, may not exist)
         if self.prebuilt_base.exists() {
             for entry in fs::read_dir(&self.prebuilt_base)? {
                 let entry = entry?;
@@ -43,7 +43,7 @@ impl DomainLoader {
             }
         }
 
-        // Load user overrides (merge with prebuilt)
+        // Load user overrides (optional, may not exist)
         if self.user_base.exists() {
             for entry in fs::read_dir(&self.user_base)? {
                 let entry = entry?;
