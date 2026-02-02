@@ -96,6 +96,10 @@ impl CacheManager {
         Self { cache_path }
     }
 
+    pub fn cache_path(&self) -> &PathBuf {
+        &self.cache_path
+    }
+
     fn normalize_text(text: &str) -> String {
         text.to_lowercase()
             .chars()
@@ -241,6 +245,10 @@ impl ExplainCacheManager {
         Self { cache_path }
     }
 
+    pub fn cache_path(&self) -> &PathBuf {
+        &self.cache_path
+    }
+
     pub fn load_cached(&self, prompt: &str) -> Result<Option<String>> {
         if !self.cache_path.exists() {
             return Ok(None);
@@ -304,6 +312,10 @@ pub struct RagCacheManager {
 impl RagCacheManager {
     pub fn new(cache_path: PathBuf) -> Self {
         Self { cache_path }
+    }
+
+    pub fn cache_path(&self) -> &PathBuf {
+        &self.cache_path
     }
 
     pub fn load_cached(&self, question: &str) -> Result<Option<String>> {

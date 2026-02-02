@@ -72,6 +72,10 @@ pub struct Cli {
     #[arg(long)]
     pub ai_interpret: bool,
 
+    /// Clear the command cache
+    #[arg(long)]
+    pub clear_cache: bool,
+
     /// The query or file path to process
     #[arg(trailing_var_arg = true)]
     pub args: Vec<String>,
@@ -118,6 +122,8 @@ impl CliApp {
             self.handlers.handle_neurosymbolic_add(&domain).await
         } else if cli.neurosymbolic_list {
             self.handlers.handle_neurosymbolic_list().await
+        } else if cli.clear_cache {
+            self.handlers.handle_clear_cache()
         } else {
             self.handlers.handle_query(&args_str, cli.ai_interpret).await
         }

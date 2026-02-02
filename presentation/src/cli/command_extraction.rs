@@ -140,8 +140,30 @@ pub fn extract_commands(raw: &str, user_query: &str) -> Vec<CommandCandidate> {
             "download ",
             "create ",
             "make sure",
+            "cpu ",
+            "disk ",
+            "memory ",
+            "hostname",
+            "operating",
+            "platform",
+            "kernel",
+            "shell:",
+            "total ",
+            "free ",
+            "cpu type",
+            "processor",
+            "information:",
+            "generated command",
+            "replacing xx",
         ];
         if bad_prefixes.iter().any(|p| lower.starts_with(p)) {
+            return false;
+        }
+
+        // Reject numbered list items like "[1] Get the CPU" or "1] Get the CPU"
+        if t.starts_with('[')
+            || (t.chars().next().is_some_and(|c| c.is_ascii_digit()) && t.contains("] "))
+        {
             return false;
         }
 

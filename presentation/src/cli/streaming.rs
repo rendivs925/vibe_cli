@@ -308,9 +308,70 @@ Environment:
     }
 
     // Extract command candidates flexibly
-    let candidates = extract_commands(&raw, user_query);
+    let all_candidates = extract_commands(&raw, user_query);
 
-    // Cache and prompt user to choose
-    cache_manager.save_cached(user_query, candidates.clone())?;
-    handle_candidate_selection(candidates)
+    // Filter to only valid shell commands - reject prose, descriptions, and natural language
+    let valid_candidates: Vec<CommandCandidate> = all_candidates
+        .into_iter()
+        .filter(|c| {
+            let cmd = &c.command;
+            if cmd.is_empty() {
+                return false;
+            }
+
+            let lower = cmd.to_ascii_lowercase();
+
+            // Reject lines that are clearly prose/descriptions
+            let prose_indicators = [
+                "get the", "show the", "check the", "display the", "list the",
+                "find the", "retrieve the", "execute the", "run the",
+                "cpu", "disk", "memory", "hostname", "operating system",
+                "platform", "kernel", "shell", "total ram", "free ram",
+                "cpu type", "processor speed", "information:",
+            ];
+            if prose_indicators.iter().any(|p| lower.contains(p)) {
+                return false;
+            }
+
+            // Reject lines with embedded colons followed by prose (like "CWD: value")
+            if cmd.contains(": ") && !cmd.contains("|") && !cmd.contains(";") {
+                return false;
+            }
+
+            // Reject lines that are just variable assignments or echo statements without actual commands
+            if lower.starts_with("echo ") && cmd.split_whitespace().count() < 3 {
+                return false;
+            }
+
+            // Accept if it contains shell operators, flags, or is a known command
+            let has_shell_features = cmd.contains('|')
+                || cmd.contains("&&")
+                || cmd.contains(";")
+                || cmd.contains(" -")
+                || cmd.contains("--")
+                || cmd.contains("$(")
+                || cmd.starts_with("uname ")
+                || cmd.starts_with("hostname ")
+                || cmd.starts_with("free ")
+                || cmd.starts_with("df ")
+                || cmd.starts_with("ls ")
+                || cmd.starts_with("ps ")
+                || cmd.starts_with("top ")
+                || cmd.starts_with("cat ")
+                || cmd.starts_with("grep ")
+                || cmd.starts_with("awk ")
+                || cmd.starts_with("sed ")
+                || cmd.starts_with("find ")
+                || cmd.starts_with("lspci ")
+                || cmd.starts_with("nvidia-smi");
+
+            has_shell_features
+        })
+        .collect();
+
+    // Only cache if we have valid commands
+    if !valid_candidates.is_empty() {
+        cache_manager.save_cached(user_query, valid_candidates.clone())?;
+    }
+    handle_candidate_selection(valid_candidates)
 }
