@@ -411,11 +411,33 @@ impl NeurosymbolicService {
         let home = env::var("HOME").unwrap_or_else(|_| "/home/rendi".to_string());
         let config_dir = PathBuf::from(home).join(".config/vibe_cli");
 
-        let domain_registry = DomainRegistry::new(
-            config_dir.clone(),
-            config_dir.clone(),
-            config_dir.join("shared_entities"),
-        ).ok();
+        let domains_dir = config_dir.join("domains");
+        let shared_dir = config_dir.join("shared_entities");
+
+        // Create directories if they don't exist
+        if !domains_dir.exists() {
+            if let Err(e) = std::fs::create_dir_all(&domains_dir) {
+                eprintln!("Warning: Could not create domains directory: {:?}", e);
+            }
+        }
+        if !shared_dir.exists() {
+            if let Err(e) = std::fs::create_dir_all(&shared_dir) {
+                eprintln!("Warning: Could not create shared_entities directory: {:?}", e);
+            }
+        }
+
+        let domain_registry = match DomainRegistry::new(
+            domains_dir.clone(),
+            domains_dir.clone(),
+            shared_dir,
+        ) {
+            Ok(reg) => Some(reg),
+            Err(e) => {
+                eprintln!("Warning: Failed to load domain registry: {:?}", e);
+                eprintln!("Try running: vibe_cli --neurosymbolic-init");
+                None
+            }
+        };
 
         Ok(Self {
             llm_client: OllamaClient::new()?,
@@ -450,29 +472,46 @@ impl NeurosymbolicService {
         })
     }
 
-    /// Process query using config-driven domain system
+    /// Process query using config-driven domain system (no LLM needed)
     pub async fn process_query_with_domains(
         &mut self,
         query: &str,
     ) -> Result<NeurosymbolicResponse> {
-        let neural_step = self.neural_understanding(query).await?;
+        let registry = match self.domain_registry.as_ref() {
+            Some(r) => r,
+            None => {
+                return Err(anyhow::anyhow!(
+                    "Domain registry not initialized. Run 'vibe_cli --neurosymbolic-init' first."
+                ));
+            }
+        };
 
-        let domains = self.domain_registry
-            .as_ref()
-            .map(|r| r.query_intent(query))
-            .unwrap_or_default();
+        let domains = registry.list_domains();
+        eprintln!("Loaded domains: {:?}", domains);
 
-        let command_sequence = if let Some(domain) = domains.first() {
-            self.generate_commands_from_domain(domain, query)
+        let matches = registry.query_intent_detailed(query);
+        eprintln!("Intent matches: {:?}", matches);
+
+        if matches.is_empty() {
+            return Err(anyhow::anyhow!("No matching domain found for query: {}", query));
+        }
+
+        let best_match = &matches[0];
+        let domain = registry.get(&best_match.domain).unwrap();
+
+        let command_sequence = if let Some((_, operation, _)) = registry.find_operation(query) {
+            eprintln!("Found operation: {:?}", operation.name);
+            let generated = registry.command_generator().generate(operation, &HashMap::new());
+            eprintln!("Generated commands: {:?}", generated);
+            generated.into_iter().map(|c| c.command).collect()
         } else {
+            eprintln!("No operation found, using query as command");
             vec![query.to_string()]
         };
 
-        let (intent, grounding_step) = self.extract_and_ground_intent(&neural_step).await?;
-
         let solution = Solution {
-            id: "config_driven_solution".to_string(),
-            description: "Config-driven command generation".to_string(),
+            id: format!("{}_solution", domain.id),
+            description: format!("{} - {}", best_match.matched_on.to_string(), best_match.matched_value),
             command_sequence,
             preconditions: vec![],
             effects: vec![],
@@ -480,39 +519,73 @@ impl NeurosymbolicService {
             estimated_duration: std::time::Duration::from_secs(30),
         };
 
-        let combined_score = 0.7 * 0.85 + 0.3 * neural_step.confidence;
         let ranked_solution = RankedSolution {
             id: solution.id.clone(),
             solution: solution.clone(),
-            symbolic_score: 0.85,
-            neural_score: neural_step.confidence,
-            combined_score,
-            reasoning_trace: "Config-driven domain reasoning".to_string(),
+            symbolic_score: best_match.confidence,
+            neural_score: 0.0,
+            combined_score: best_match.confidence,
+            reasoning_trace: format!("Matched {} ({:.0}%)", best_match.matched_on.to_string(), best_match.confidence * 100.0),
             risk_assessment: RiskAssessment {
-                overall_score: 0.2,
+                overall_score: 0.1,
                 risk_level: RiskLevel::Low,
                 identified_risks: vec![],
                 mitigation_strategies: vec![],
             },
         };
 
+        let best_match_confidence = best_match.confidence;
+        let best_match_matched_value = best_match.matched_value.clone();
+        let best_match_matched_on_str = best_match.matched_on.to_string();
+        let domain_id = domain.id.clone();
+        let query_string = query.to_string();
+        let explanation = format!("Used {} domain with {} matching for command generation", domain_id, best_match.matched_on.to_string());
+        let solution_id = solution.id.clone();
+        let solution_desc = solution.description.clone();
+        let command_seq = solution.command_sequence.clone();
+
         let execution_plan = self.generate_execution_plan(&[ranked_solution.clone()]).await?;
 
         let reasoning_trace = ReasoningTrace {
-            neural_understanding: neural_step,
-            symbolic_grounding: grounding_step,
-            constraint_satisfaction: Default::default(),
+            neural_understanding: NeuralStep {
+                input: query_string.clone(),
+                intent_extraction: best_match_matched_value.clone(),
+                entity_recognition: vec![],
+                confidence: best_match_confidence,
+                raw_response: format!("Domain matching: {} (confidence: {:.0}%)", best_match_matched_on_str, best_match_confidence * 100.0),
+            },
+            symbolic_grounding: SymbolicStep {
+                entities: vec![],
+                symbolic_expressions: vec![],
+                constraint_generation: vec![],
+                reasoning_method: format!("Domain: {}", domain_id),
+            },
+            constraint_satisfaction: ConstraintStep {
+                constraints: vec![],
+                solving_method: "config_driven".to_string(),
+                solutions: vec![],
+                satisfaction_confidence: best_match_confidence,
+            },
             knowledge_graph_queries: vec![],
             verification_results: vec![],
-            summary: format!("Generated command from domain config for: {}", query),
+            summary: format!("Generated command from {} domain (confidence: {:.0}%)", domain_id, best_match_confidence * 100.0),
+        };
+
+        let intent = Intent {
+            id: format!("intent_{}", domain_id),
+            domain: DomainType::SystemAdministration,
+            action: ActionType::Analyze,
+            objects: vec![best_match_matched_value.clone()],
+            constraints: vec![],
+            confidence: best_match_confidence,
         };
 
         Ok(NeurosymbolicResponse {
             intent,
             reasoning_trace,
             ranked_solutions: vec![ranked_solution],
-            confidence: combined_score,
-            explanation: "Used config-driven domain system for command generation".to_string(),
+            confidence: best_match_confidence,
+            explanation,
             execution_plan,
         })
     }

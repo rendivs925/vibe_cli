@@ -64,6 +64,22 @@ pub enum MatchSource {
     Keyword,
 }
 
+impl std::fmt::Display for MatchSource {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            MatchSource::DomainId => write!(f, "domain ID"),
+            MatchSource::DomainDescription => write!(f, "domain description"),
+            MatchSource::OperationName => write!(f, "operation name"),
+            MatchSource::OperationDescription => write!(f, "operation description"),
+            MatchSource::OperationExample => write!(f, "operation example"),
+            MatchSource::EntityName => write!(f, "entity name"),
+            MatchSource::Relationship => write!(f, "relationship"),
+            MatchSource::TroubleshootingPattern => write!(f, "troubleshooting pattern"),
+            MatchSource::Keyword => write!(f, "keyword"),
+        }
+    }
+}
+
 impl Default for MatchSource {
     fn default() -> Self {
         MatchSource::Keyword
