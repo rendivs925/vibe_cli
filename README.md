@@ -30,6 +30,46 @@ vibe_cli "show top cpu processes"
 ```
 
 No flags to remember. No man pages to read. Just natural language.
+
+---
+
+## Features
+
+### Core Capabilities
+
+| Feature | Description |
+|---------|-------------|
+| **Natural Language -> Shell** | Convert descriptions to safe shell commands |
+| **Ultra-Safe Mode** | Blocks dangerous commands (`rm -rf /`, `mkfs`, `dd`) |
+| **RAG Context** | Codebase-aware responses using embeddings |
+| **Multi-Step Agent** | Complex task planning with safety validation |
+| **Neurosymbolic Reasoning** | Config-driven command generation |
+| **AI Interpretation** | Get readable summaries with `--ai-interpret` |
+
+### Neurosymbolic Domain System
+
+Intelligent command generation through JSON configurations:
+
+| Component | Count | Description |
+|-----------|-------|-------------|
+| Operations | 15 | process, memory, disk, network, services, hardware, logs |
+| Entities | 7 | Process, File, Service, NetworkConnection, User, Filesystem, Memory |
+| Relationships | 8 | hierarchical, ownership, containment, usage, binding |
+| Inference Rules | 10 | zombie detection, high CPU/memory, disk full |
+| Troubleshooting | 5 | disk, service, CPU, memory, network issues |
+
+### Supported File Types
+
+| Operation | Formats |
+|-----------|---------|
+| **Explain** | `.rs`, `.md`, `.toml`, `.json`, `.graphql`, `.pdf`, `.docx` |
+| **RAG Indexing** | Same as above, plus text files |
+
+---
+
+## Quick Start
+
+```bash
 # Build and install
 cargo build --release
 sudo mv target/release/vibe_cli /usr/local/bin/vibe_cli
@@ -66,18 +106,14 @@ vibe_cli --chat
 vibe_cli --agent "collect system health: disk, cpu, memory"
 ```
 
-### File Explanation
+### AI Output Interpretation
 
 ```bash
-vibe_cli --explain src/main.rs
-vibe_cli --explain document.pdf
-```
+# With standard query
+vibe_cli --ai-interpret "list processes"
 
-### RAG with Context
-
-```bash
-vibe_cli --rag "how does session management work?"
-vibe_cli --context ./docs/
+# With neurosymbolic (executes multiple commands, then summarizes)
+vibe_cli --neurosymbolic --ai-interpret "show my gpu name"
 ```
 
 ---
@@ -95,14 +131,7 @@ vibe_cli --neurosymbolic "nginx is not running"
 vibe_cli --neurosymbolic "show my gpu name"
 vibe_cli --neurosymbolic "check last 20 lines journalctl"
 
-# With AI interpretation
-vibe_cli --neurosymbolic --ai-interpret "show my gpu name"
-vibe_cli --neurosymbolic --ai-interpret "check disk usage"
-```
-
-### Domain Management
-
-```bash
+# Domain management
 vibe_cli --neurosymbolic-list                    # List domains
 vibe_cli --neurosymbolic-add <name>              # Add domain
 vibe_cli --neurosymbolic-edit <domain>           # Edit in $EDITOR
@@ -121,11 +150,10 @@ $ vibe_cli --neurosymbolic "show my gpu name"
 
 Command Validation: 4/10 valid
 Invalid commands:
-  X lshw -short: Command not found: 'lshw' (try: apt install lshw)
-  X inxi -G: Command not found: 'inxi' (try: apt install inxi)
+  X lshw -short: Command not found (try: apt install lshw)
+  X inxi -G: Command not found (try: apt install inxi)
 
-Executing 4 valid command(s) out of 10...
-Commands to execute: lspci | grep -i vga; lspci; nvidia-smi; hwinfo --short
+Executing 4 valid command(s)...
 ```
 
 **Validation types:**
@@ -142,22 +170,19 @@ When neurosymbolic matching fails and the LLM fallback succeeds, you can teach t
 ```bash
 $ vibe_cli --neurosymbolic "check last 20 lines journalctl"
 # Falls back to LLM, executes successfully
-Command succeeded! Learn this for future neurosymbolic queries? [y/N]
+
+Command succeeded! Learn this for future queries? [y/N]
+y
 
 === Learning New Command ===
 Operation Name: Check journal logs
-Operation ID: check_journal_logs
-Description: Display recent journal entries with line count
 Tool: journalctl
 Template: journalctl -n 20
 
-Save this operation to the Linux domain? [y/N]
-y
-
-Saved new operation to: /home/user/.config/vibe_cli/domains/linux/operations.json
+Saved to: ~/.config/vibe_cli/domains/linux/operations.json
 ```
 
-The new operation is immediately available for future neurosymbolic queries. The system learns from your successful fallback commands and builds the domain dynamically.
+The new operation is immediately available for future queries.
 
 ---
 
@@ -205,15 +230,6 @@ vibe_cli/
 └── shared/                  # Common utilities
 ```
 
-### Design Patterns
-
-- **Repository**: Data access abstraction
-- **Adapter**: External system integration
-- **Command**: CLI operations
-- **Factory**: Service creation
-- **Strategy**: Generator selection
-- **Template Method**: Command resolution
-
 ---
 
 ## Configuration
@@ -245,13 +261,6 @@ ollama serve
 
 # Pull recommended model
 ollama pull qwen2.5-coder:3b
-```
-
-### Rust Toolchain
-
-```bash
-rustup install stable
-cargo build --release
 ```
 
 ---
@@ -297,25 +306,6 @@ cargo build --release
 # Install system-wide
 sudo mv target/release/vibe_cli /usr/local/bin/vibe_cli
 ```
-
----
-
-## Shell Integration
-
-### zsh
-
-Add to `.zshrc`:
-
-```zsh
-vibe_cli_widget() {
-  BUFFER="vibe_cli --chat"
-  zle accept-line
-}
-zle -N vibe_cli_widget
-bindkey '^G' vibe_cli_widget
-```
-
-Press `Ctrl-G` to start interactive session.
 
 ---
 
