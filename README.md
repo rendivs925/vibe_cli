@@ -2,7 +2,7 @@
 
 <div align="center">
 
-**AI-powered CLI assistant** with RAG capabilities and neurosymbolic reasoning
+**Intelligent CLI assistant** that converts natural language queries into shell commands, validates them before execution, and can learn new commands from successful interactions.
 
 [![Rust](https://img.shields.io/badge/Rust-1.70+-orange.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
@@ -10,6 +10,18 @@
 </div>
 
 ---
+
+## What is vibe_cli?
+
+vibe_cli is an AI-powered command-line assistant that:
+
+- **Understands natural language** - Ask "show my disk usage" and get `df -h`
+- **Validates before executing** - Syntax checks, command availability, dangerous command blocking
+- **Learns from interactions** - Teaching system builds your personal domain over time
+- **Explains files and codebases** - RAG-powered documentation and code understanding
+- **Multi-step task automation** - Complex workflows with safety validation
+
+No more memorizing flags or man pages. Just describe what you need.
 
 ## Features
 
