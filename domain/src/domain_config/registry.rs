@@ -2,8 +2,73 @@
 
 use crate::domain_config::loader::DomainLoader;
 use crate::domain_config::types::*;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+
+static INTENT_SYNONYMS: &[(&str, &[&str])] = &[
+    (
+        "list",
+        &["show", "display", "get", "view", "print", "ls", "ps", "cat"],
+    ),
+    (
+        "processes",
+        &["process", "proc", "tasks", "programs", "services"],
+    ),
+    (
+        "files",
+        &["file", "filesystem", "fs", "directory", "dir", "folder"],
+    ),
+    ("disk", &["storage", "space", "df", "du", "partition"]),
+    ("memory", &["ram", "mem", "free", "usage"]),
+    (
+        "network",
+        &["net", "connection", "socket", "port", "ss", "netstat"],
+    ),
+    ("service", &["services", "daemon", "systemd", " systemctl"]),
+    ("user", &["users", "account", "passwd", "who"]),
+    (
+        "permission",
+        &["permissions", "chmod", "chown", "acl", "access"],
+    ),
+    ("search", &["find", "grep", "locate", "whereis", "which"]),
+    ("kill", &["terminate", "stop", "end", "pkill", "killall"]),
+    (
+        "start",
+        &["run", "execute", "begin", "launch", "enable", "start"],
+    ),
+    ("status", &["state", "health", "check", "verify", "info"]),
+    ("restart", &["reload", "reboot", "refresh", "reopen"]),
+    ("cpu", &["processor", "load", "top", "htop"]),
+    ("log", &["logs", "journalctl", "syslog", "tail"]),
+];
+
+/// Intent match result with detailed scoring
+#[derive(Debug, Clone)]
+pub struct IntentMatch {
+    pub domain: String,
+    pub confidence: f32,
+    pub matched_on: MatchSource,
+    pub matched_value: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum MatchSource {
+    DomainId,
+    DomainDescription,
+    OperationName,
+    OperationDescription,
+    OperationExample,
+    EntityName,
+    Relationship,
+    TroubleshootingPattern,
+    Keyword,
+}
+
+impl Default for MatchSource {
+    fn default() -> Self {
+        MatchSource::Keyword
+    }
+}
 
 /// Registry for all loaded domains
 #[derive(Debug, Clone)]
@@ -11,6 +76,7 @@ pub struct DomainRegistry {
     domains: HashMap<String, Domain>,
     entities: HashMap<String, Entity>,
     command_generator: crate::domain_config::command_generator::CommandGenerator,
+    inverted_index: HashMap<String, HashSet<String>>,
 }
 
 impl DomainRegistry {
@@ -23,12 +89,35 @@ impl DomainRegistry {
         let loader = DomainLoader::new(prebuilt_base, user_base.clone(), shared_base.clone());
         let domains = loader.load_all()?;
 
-        // Collect all shared entities
         let mut entities = HashMap::new();
+        let mut inverted_index: HashMap<String, HashSet<String>> = HashMap::new();
+
         for (name, domain) in &domains {
             for (entity_name, entity) in &domain.entities {
                 if !entities.contains_key(entity_name) {
                     entities.insert(entity_name.clone(), entity.clone());
+                }
+                for prop in &entity.core_properties {
+                    Self::add_to_index(
+                        &mut inverted_index,
+                        &prop.name.to_lowercase(),
+                        &entity_name,
+                    );
+                    Self::add_to_index(
+                        &mut inverted_index,
+                        &prop.meaning.to_lowercase(),
+                        &entity_name,
+                    );
+                }
+            }
+            for op in &domain.operations {
+                Self::add_to_index(&mut inverted_index, &op.id.to_lowercase(), &op.name);
+                Self::add_to_index(&mut inverted_index, &op.name.to_lowercase(), &op.id);
+                Self::add_to_index(&mut inverted_index, &op.description.to_lowercase(), &op.id);
+                for example in &op.examples {
+                    for word in example.description.to_lowercase().split_whitespace() {
+                        Self::add_to_index(&mut inverted_index, word, &op.id);
+                    }
                 }
             }
         }
@@ -37,7 +126,17 @@ impl DomainRegistry {
             domains,
             entities,
             command_generator: crate::domain_config::command_generator::CommandGenerator::new(),
+            inverted_index,
         })
+    }
+
+    fn add_to_index(index: &mut HashMap<String, HashSet<String>>, word: &str, value: &str) {
+        if word.len() > 2 {
+            index
+                .entry(word.to_string())
+                .or_insert_with(HashSet::new)
+                .insert(value.to_string());
+        }
     }
 
     /// Get a domain by ID
@@ -50,84 +149,215 @@ impl DomainRegistry {
         self.domains.values().filter(|d| d.enabled).collect()
     }
 
+    /// Query domains by intent with detailed matching
+    pub fn query_intent_detailed(&self, intent: &str) -> Vec<IntentMatch> {
+        let mut matches = Vec::new();
+        let expanded_intent = self.expand_synonyms(intent);
+
+        for domain in self.enabled_domains() {
+            if let Some(m) = self.match_intent_detailed(domain, intent, &expanded_intent) {
+                matches.push(m);
+            }
+        }
+
+        matches.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap());
+        matches
+    }
+
     /// Query domains by intent (return domains sorted by priority)
     pub fn query_intent(&self, intent: &str) -> Vec<&Domain> {
-        let mut scored: Vec<(i32, &Domain)> = self
-            .enabled_domains()
-            .iter()
-            .map(|domain| {
-                let confidence = self.match_intent(domain, intent);
-                (confidence, *domain)
-            })
-            .filter(|(confidence, _)| *confidence > 0)
-            .map(|(confidence, domain)| (domain.priority, domain))
-            .collect();
+        self.query_intent_detailed(intent)
+            .into_iter()
+            .map(|m| self.domains.get(&m.domain).unwrap())
+            .collect()
+    }
 
-        scored.sort_by(|a, b| b.0.cmp(&a.0));
-        scored.into_iter().map(|(_, d)| d).collect()
+    /// Expand intent with synonyms for better matching
+    fn expand_synonyms(&self, intent: &str) -> String {
+        let mut expanded = intent.to_lowercase();
+        for (word, synonyms) in INTENT_SYNONYMS {
+            for synonym in *synonyms {
+                if intent.to_lowercase().contains(synonym) {
+                    for s in *synonyms {
+                        if !expanded.contains(s) {
+                            expanded.push(' ');
+                            expanded.push_str(s);
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+        expanded
+    }
+
+    /// Match an intent to a domain with detailed scoring
+    fn match_intent_detailed(
+        &self,
+        domain: &Domain,
+        intent: &str,
+        expanded_intent: &str,
+    ) -> Option<IntentMatch> {
+        let intent_lower = intent.to_lowercase();
+
+        if intent_lower.contains(&domain.id.to_lowercase()) {
+            return Some(IntentMatch {
+                domain: domain.id.clone(),
+                confidence: 1.0,
+                matched_on: MatchSource::DomainId,
+                matched_value: domain.id.clone(),
+            });
+        }
+
+        if intent_lower.contains(&domain.description.to_lowercase()) {
+            return Some(IntentMatch {
+                domain: domain.id.clone(),
+                confidence: 0.9,
+                matched_on: MatchSource::DomainDescription,
+                matched_value: domain.description.clone(),
+            });
+        }
+
+        for op in &domain.operations {
+            let op_lower = op.name.to_lowercase();
+            let desc_lower = op.description.to_lowercase();
+
+            if self.fuzzy_match(&intent_lower, &op_lower)
+                || self.fuzzy_match(&intent_lower, &desc_lower)
+            {
+                return Some(IntentMatch {
+                    domain: domain.id.clone(),
+                    confidence: 0.85,
+                    matched_on: MatchSource::OperationName,
+                    matched_value: op.name.clone(),
+                });
+            }
+
+            for example in &op.examples {
+                if self.fuzzy_match(&intent_lower, &example.description.to_lowercase()) {
+                    return Some(IntentMatch {
+                        domain: domain.id.clone(),
+                        confidence: 0.75,
+                        matched_on: MatchSource::OperationExample,
+                        matched_value: example.description.clone(),
+                    });
+                }
+            }
+        }
+
+        for entity in domain.entities.values() {
+            if self.fuzzy_match(&intent_lower, &entity.name.to_lowercase()) {
+                return Some(IntentMatch {
+                    domain: domain.id.clone(),
+                    confidence: 0.6,
+                    matched_on: MatchSource::EntityName,
+                    matched_value: entity.name.clone(),
+                });
+            }
+        }
+
+        None
+    }
+
+    /// Fuzzy string matching with Levenshtein distance
+    fn fuzzy_match(&self, intent: &str, target: &str) -> bool {
+        if intent.contains(target) || target.contains(intent) {
+            return true;
+        }
+
+        let intent_words: Vec<&str> = intent.split_whitespace().collect();
+        let target_words: Vec<&str> = target.split_whitespace().collect();
+
+        let intersection_count = intent_words
+            .iter()
+            .filter(|&&iw| target_words.iter().any(|&tw| iw == tw))
+            .count();
+
+        if intersection_count >= 2 {
+            return true;
+        }
+
+        for &i_word in &intent_words {
+            for &t_word in &target_words {
+                if i_word.len() > 3 && t_word.len() > 3 {
+                    let dist = self.levenshtein_distance(i_word, t_word);
+                    let max_len = i_word.len().max(t_word.len());
+                    let ratio = (dist as f64) / (max_len as f64);
+                    if max_len > 0 && ratio < 0.3 {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        false
+    }
+
+    fn levenshtein_distance(&self, a: &str, b: &str) -> usize {
+        let a_bytes = a.as_bytes();
+        let b_bytes = b.as_bytes();
+        let (m, n) = (a_bytes.len(), b_bytes.len());
+
+        if m == 0 {
+            return n;
+        }
+        if n == 0 {
+            return m;
+        }
+
+        let mut prev_row: Vec<usize> = (0..=n).collect();
+        let mut curr_row = vec![0; n + 1];
+
+        for i in 1..=m {
+            curr_row[0] = i;
+            for j in 1..=n {
+                let cost = if a_bytes[i - 1] == b_bytes[j - 1] {
+                    0
+                } else {
+                    1
+                };
+                curr_row[j] = curr_row[j - 1].min(prev_row[j]).min(prev_row[j - 1] + cost);
+            }
+            std::mem::swap(&mut prev_row, &mut curr_row);
+        }
+
+        prev_row[n]
     }
 
     /// Match an intent to a domain and return confidence
     fn match_intent(&self, domain: &Domain, intent: &str) -> i32 {
-        let intent_lower = intent.to_lowercase();
+        self.query_intent_detailed(intent)
+            .into_iter()
+            .find(|m| m.domain == domain.id)
+            .map(|m| (m.confidence * 100.0) as i32)
+            .unwrap_or(0)
+    }
 
-        // Check domain ID and name
-        if intent_lower.contains(&domain.id.to_lowercase())
-            || intent_lower.contains(&domain.description.to_lowercase())
-        {
-            return 100;
-        }
+    /// Find best operation for intent
+    pub fn find_operation(&self, intent: &str) -> Option<(&Domain, &Operation, f32)> {
+        let matches = self.query_intent_detailed(intent);
 
-        // Check operations (by name and description)
-        for op in &domain.operations {
-            let op_lower = op.name.to_lowercase();
-            let desc_lower = op.description.to_lowercase();
-            let intent_lower = intent_lower.clone();
-
-            if intent_lower.contains(&op_lower) || intent_lower.contains(&desc_lower) {
-                return 80;
-            }
-
-            // Check operation examples
-            for example in &op.examples {
-                if intent_lower.contains(&example.description.to_lowercase()) {
-                    return 70;
-                }
-            }
-        }
-
-        // Check entity names
-        for entity in domain.entities.values() {
-            if intent_lower.contains(&entity.name.to_lowercase()) {
-                return 50;
-            }
-        }
-
-        // Check relationships
-        for rel in &domain.relationships {
-            if intent_lower.contains(&rel.name.to_lowercase())
-                || intent_lower.contains(&rel.from_entity.to_lowercase())
-                || intent_lower.contains(&rel.to_entity.to_lowercase())
+        for m in matches {
+            if m.matched_on == MatchSource::OperationName
+                || m.matched_on == MatchSource::OperationExample
             {
-                return 40;
-            }
-        }
-
-        // Check troubleshooting patterns
-        for pattern in &domain.troubleshooting_patterns {
-            if intent_lower.contains(&pattern.id.to_lowercase()) {
-                return 60;
-            }
-            for symptom in &pattern.symptoms {
-                if intent_lower.contains(&symptom.metric.to_lowercase())
-                    || intent_lower.contains(&symptom.observation.to_lowercase())
-                {
-                    return 55;
+                if let Some((domain, op)) = self.get_operation_by_id(&m.matched_value) {
+                    return Some((domain, op, m.confidence));
                 }
             }
         }
 
-        0
+        for domain in self.enabled_domains() {
+            for op in &domain.operations {
+                if self.fuzzy_match(&intent.to_lowercase(), &op.name.to_lowercase())
+                    || self.fuzzy_match(&intent.to_lowercase(), &op.description.to_lowercase())
+                {
+                    return Some((domain, op, 0.7));
+                }
+            }
+        }
+
+        None
     }
 
     /// Get operation by ID from any domain
@@ -136,8 +366,19 @@ impl DomainRegistry {
             if let Some(op) = domain.operations.iter().find(|o| o.id == op_id) {
                 return Some((domain, op));
             }
+            if let Some(op) = domain
+                .operations
+                .iter()
+                .find(|o| o.name.to_lowercase() == op_id.to_lowercase())
+            {
+                return Some((domain, op));
+            }
         }
         None
+    }
+
+    fn get_operation_by_id(&self, op_id: &str) -> Option<(&Domain, &Operation)> {
+        self.get_operation(op_id)
     }
 
     /// Get entity by name from any domain
@@ -145,14 +386,52 @@ impl DomainRegistry {
         self.entities.get(name)
     }
 
+    /// Find entities matching a pattern
+    pub fn find_entities(&self, pattern: &str) -> Vec<&Entity> {
+        let pattern_lower = pattern.to_lowercase();
+        self.entities
+            .values()
+            .filter(|e| {
+                e.name.to_lowercase().contains(&pattern_lower)
+                    || e.description.to_lowercase().contains(&pattern_lower)
+            })
+            .collect()
+    }
+
     /// Get relationship by name
     pub fn get_relationship(&self, name: &str) -> Option<&Relationship> {
         for domain in self.enabled_domains() {
-            if let Some(rel) = domain.relationships.iter().find(|r| r.name == name) {
+            if let Some(rel) = domain
+                .relationships
+                .iter()
+                .find(|r| r.name.to_lowercase() == name.to_lowercase())
+            {
                 return Some(rel);
             }
         }
         None
+    }
+
+    /// Find related entities through relationships
+    pub fn get_related_entities(&self, entity_name: &str) -> Vec<&Entity> {
+        let mut related = Vec::new();
+
+        for domain in self.enabled_domains() {
+            for rel in &domain.relationships {
+                if rel.from_entity.to_lowercase() == entity_name.to_lowercase() {
+                    if let Some(e) = self.entities.get(&rel.to_entity) {
+                        related.push(e);
+                    }
+                }
+                if rel.to_entity.to_lowercase() == entity_name.to_lowercase() {
+                    if let Some(e) = self.entities.get(&rel.from_entity) {
+                        related.push(e);
+                    }
+                }
+            }
+        }
+
+        related
     }
 
     /// Get inference rule by ID
@@ -165,6 +444,47 @@ impl DomainRegistry {
         None
     }
 
+    /// Apply inference rules to extract additional constraints
+    pub fn apply_inference_rules(
+        &self,
+        context: &HashMap<String, serde_json::Value>,
+    ) -> Vec<serde_json::Value> {
+        let mut inferences = Vec::new();
+
+        for domain in self.enabled_domains() {
+            for rule in &domain.inference_rules {
+                let matches = rule.if_.iter().all(|condition| {
+                    if let Some(value) = context.get(&condition.entity) {
+                        let prop_value = value.as_str().map(|s| s.to_lowercase());
+                        if let Some(pv) = prop_value {
+                            return pv.contains(
+                                &condition
+                                    .equals
+                                    .as_ref()
+                                    .unwrap_or(&serde_json::Value::Null)
+                                    .to_string()
+                                    .to_lowercase()
+                                    .as_str(),
+                            );
+                        }
+                    }
+                    false
+                });
+
+                if matches {
+                    for conclusion in &rule.then {
+                        inferences.push(serde_json::json!({
+                            "conclude": conclusion.conclusion,
+                            "confidence": conclusion.confidence
+                        }));
+                    }
+                }
+            }
+        }
+
+        inferences
+    }
+
     /// Get troubleshooting pattern by ID
     pub fn get_troubleshooting_pattern(
         &self,
@@ -174,12 +494,41 @@ impl DomainRegistry {
             if let Some(pattern) = domain
                 .troubleshooting_patterns
                 .iter()
-                .find(|p| p.id == pattern_id)
+                .find(|p| p.id.to_lowercase() == pattern_id.to_lowercase())
             {
                 return Some((domain, pattern));
             }
         }
         None
+    }
+
+    /// Find troubleshooting patterns matching symptoms
+    pub fn find_troubleshooting_patterns(
+        &self,
+        symptoms: &[String],
+    ) -> Vec<(&Domain, &TroubleshootingPattern)> {
+        let mut matches = Vec::new();
+
+        for domain in self.enabled_domains() {
+            for pattern in &domain.troubleshooting_patterns {
+                for symptom in &pattern.symptoms {
+                    for input_symptom in symptoms {
+                        if input_symptom
+                            .to_lowercase()
+                            .contains(&symptom.observation.to_lowercase())
+                            || input_symptom
+                                .to_lowercase()
+                                .contains(&symptom.metric.to_lowercase())
+                        {
+                            matches.push((domain, pattern));
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+
+        matches
     }
 
     /// Get reasoning template by ID
@@ -191,7 +540,7 @@ impl DomainRegistry {
             if let Some(template) = domain
                 .reasoning_templates
                 .iter()
-                .find(|t| t.id == template_id)
+                .find(|t| t.id.to_lowercase() == template_id.to_lowercase())
             {
                 return Some((domain, template));
             }
