@@ -152,12 +152,34 @@ vibe_cli --neurosymbolic "nginx is not running"
 vibe_cli --neurosymbolic "disk is full"
 vibe_cli --neurosymbolic "show my gpu name"
 
+# With AI interpretation (validates commands, interprets output once at end)
+vibe_cli --neurosymbolic --ai-interpret "show my gpu name"
+
 # Domain management
 vibe_cli --neurosymbolic-list                    # List installed domains
 vibe_cli --neurosymbolic-add <name>              # Add new domain
 vibe_cli --neurosymbolic-edit <domain>           # Edit domain in $EDITOR
 vibe_cli --neurosymbolic-remove <domain>         # Remove domain
 vibe_cli --neurosymbolic-install <url_or_path>   # Install domain from URL/path
+```
+
+### Command Validation
+
+Before executing commands, the system validates each one:
+
+1. **Syntax Check**: Uses `bash -n` to verify command syntax without execution
+2. **Availability Check**: Uses `command -v` to verify each binary exists in PATH
+3. **Invalid Command Handling**: Invalid commands are filtered out and reported with helpful error messages
+
+Example output:
+```
+Command Validation: 4/10 valid
+Invalid commands:
+  ✗ lshw -short: Command not found: 'lshw' (try: apt install lshw)
+  ✗ inxi -G: Command not found: 'inxi' (try: apt install inxi)
+
+Executing 4 valid command(s) out of 10...
+Commands to execute: lspci | grep -i vga; lspci; nvidia-smi; hwinfo --short
 ```
 
 ---
