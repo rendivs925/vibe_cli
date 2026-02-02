@@ -171,6 +171,30 @@ vibe_cli --neurosymbolic --ai-interpret "check memory usage"
 
 The AI executes all relevant commands first, then interprets the combined output into a single, comprehensive summary. This eliminates duplicate interpretations and provides a cleaner user experience.
 
+### Command Validation
+
+Before executing commands, the system validates each one:
+
+```bash
+vibe_cli --neurosymbolic "show my gpu name"
+```
+
+Output:
+```
+Command Validation: 4/10 valid
+Invalid commands:
+  ✗ lshw -short: Command not found: 'lshw' (try: apt install lshw)
+  ✗ inxi -G: Command not found: 'inxi' (try: apt install inxi)
+
+Executing 4 valid command(s) out of 10...
+Commands to execute: lspci | grep -i vga; lspci; nvidia-smi; hwinfo --short
+```
+
+Validation includes:
+- **Syntax Check**: Uses `bash -n` to verify command syntax without execution
+- **Availability Check**: Uses `command -v` to verify each binary exists in PATH
+- **Helpful Errors**: Suggests installation commands for missing tools
+
 ## Architecture
 
 Clean Architecture with clear separation:
