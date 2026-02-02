@@ -273,6 +273,11 @@ impl DomainRegistry {
 
         let is_hardware_query = hardware_keywords.iter().any(|k| intent_lower.contains(k));
         let is_log_query = log_keywords.iter().any(|k| intent_lower.contains(k));
+        let is_memory_query = intent_lower.contains("memory")
+            || intent_lower.contains("ram")
+            || intent_lower.contains("mem");
+
+        let intent_words: Vec<&str> = intent_lower.split_whitespace().collect();
 
         // First pass: find best matching operation
         let mut best_match: Option<(f32, &Operation)> = None;
@@ -287,13 +292,33 @@ impl DomainRegistry {
             } else if is_log_query && op_lower.contains("log") {
                 // Boost log operations for log queries (e.g., journalctl)
                 0.95
+            } else if is_memory_query && op_lower.contains("memory") {
+                // Boost memory operations for memory queries
+                0.95
             } else if intent_lower.contains("journalctl") && op_lower.contains("log") {
                 // Explicit journalctl mention + log operation = very high confidence
                 0.98
             } else if self.fuzzy_match(&intent_lower, &op_lower) {
-                0.85
+                // Check if this is a direct word match (more confident)
+                let op_words: Vec<&str> = op_lower.split_whitespace().collect();
+                let intent_has_op_words = op_words.iter().any(|ow| {
+                    intent_words.iter().any(|iw| {
+                        iw == ow
+                            || (iw.len() > 3 && ow.len() > 3 && {
+                                let dist = self.levenshtein_distance(iw, ow);
+                                let max_len = iw.len().max(ow.len());
+                                let ratio = (dist as f64) / (max_len as f64);
+                                ratio < 0.3
+                            })
+                    })
+                });
+                if intent_has_op_words {
+                    0.90 // Higher confidence for direct word match
+                } else {
+                    0.80 // Lower confidence for fuzzy match
+                }
             } else if self.fuzzy_match(&intent_lower, &desc_lower) {
-                0.80
+                0.75
             } else {
                 continue;
             };
@@ -340,22 +365,20 @@ impl DomainRegistry {
 
     /// Fuzzy string matching with Levenshtein distance
     fn fuzzy_match(&self, intent: &str, target: &str) -> bool {
-        if intent.contains(target) || target.contains(intent) {
-            return true;
-        }
-
         let intent_words: Vec<&str> = intent.split_whitespace().collect();
         let target_words: Vec<&str> = target.split_whitespace().collect();
 
+        // Check for word-level intersection (must have at least 1 common word)
         let intersection_count = intent_words
             .iter()
             .filter(|&&iw| target_words.iter().any(|&tw| iw == tw))
             .count();
 
-        if intersection_count >= 2 {
+        if intersection_count >= 1 {
             return true;
         }
 
+        // Levenshtein distance for similar words (both words must be > 3 chars)
         for &i_word in &intent_words {
             for &t_word in &target_words {
                 if i_word.len() > 3 && t_word.len() > 3 {
