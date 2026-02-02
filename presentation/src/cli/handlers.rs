@@ -390,7 +390,16 @@ User request: {}",
 
                         if ai_interpret && has_any_output {
                             let combined_output = all_outputs.join("\n\n");
-                            self.interpret_output(query, &combined_output).await?;
+                            match self.interpret_output(query, &combined_output).await {
+                                Ok(_) => {}
+                                Err(e) => {
+                                    eprintln!("\nAI interpretation failed: {:?}", e);
+                                    println!("\n=== Raw Command Output ===");
+                                    println!("{}", combined_output);
+                                }
+                            }
+                        } else if ai_interpret {
+                            println!("\n{}", "No output to interpret.".yellow());
                         }
                     }
                 }
