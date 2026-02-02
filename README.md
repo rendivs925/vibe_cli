@@ -2,7 +2,7 @@
 
 <div align="center">
 
-**AI-powered CLI assistant** with RAG capabilities and neurosymbolic reasoning - converts natural language queries into validated shell commands and learns from your interactions.
+**AI-powered CLI assistant** with RAG capabilities and neurosymbolic reasoning - no more memorizing man pages or flag combinations.
 
 [![Rust](https://img.shields.io/badge/Rust-1.70+-orange.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
@@ -11,43 +11,25 @@
 
 ---
 
-## Features
+## Why vibe_cli?
 
-### Core Capabilities
-
-| Feature | Description |
-|---------|-------------|
-| **Natural Language -> Shell** | Convert descriptions to safe shell commands |
-| **Ultra-Safe Mode** | Blocks dangerous commands (`rm -rf /`, `mkfs`, `dd`) |
-| **RAG Context** | Codebase-aware responses using embeddings |
-| **Multi-Step Agent** | Complex task planning with safety validation |
-| **Neurosymbolic Reasoning** | Config-driven command generation |
-| **AI Interpretation** | Get readable summaries with `--ai-interpret` |
-
-### Neurosymbolic Domain System
-
-Intelligent command generation through JSON configurations:
-
-| Component | Count | Description |
-|-----------|-------|-------------|
-| Operations | 15 | process, memory, disk, network, services, hardware, logs |
-| Entities | 7 | Process, File, Service, NetworkConnection, User, Filesystem, Memory |
-| Relationships | 8 | hierarchical, ownership, containment, usage, binding |
-| Inference Rules | 10 | zombie detection, high CPU/memory, disk full |
-| Troubleshooting | 5 | disk, service, CPU, memory, network issues |
-
-### Supported File Types
-
-| Operation | Formats |
-|-----------|---------|
-| **Explain** | `.rs`, `.md`, `.toml`, `.json`, `.graphql`, `.pdf`, `.docx` |
-| **RAG Indexing** | Same as above, plus text files |
-
----
-
-## Quick Start
+Stop memorizing man pages. Just describe what you need:
 
 ```bash
+# Instead of: free -h && cat /proc/meminfo | grep MemTotal
+vibe_cli "show my ram usage"
+
+# Instead of: df -h && lsblk
+vibe_cli "check disk space"
+
+# Instead of: journalctl -n 50 --no-pager
+vibe_cli "check last 50 lines of journalctl"
+
+# Instead of: ps aux --sort=-%cpu | head -20
+vibe_cli "show top cpu processes"
+```
+
+No flags to remember. No man pages to read. Just natural language.
 # Build and install
 cargo build --release
 sudo mv target/release/vibe_cli /usr/local/bin/vibe_cli
