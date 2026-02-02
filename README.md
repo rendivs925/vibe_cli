@@ -11,13 +11,13 @@
 
 ---
 
-## ✨ Features
+## Features
 
 ### Core Capabilities
 
 | Feature | Description |
 |---------|-------------|
-| **Natural Language → Shell** | Convert descriptions to safe shell commands |
+| **Natural Language -> Shell** | Convert descriptions to safe shell commands |
 | **Ultra-Safe Mode** | Blocks dangerous commands (`rm -rf /`, `mkfs`, `dd`) |
 | **RAG Context** | Codebase-aware responses using embeddings |
 | **Multi-Step Agent** | Complex task planning with safety validation |
@@ -45,7 +45,7 @@ Intelligent command generation through JSON configurations:
 
 ---
 
-## 🚀 Quick Start
+## Quick Start
 
 ```bash
 # Build and install
@@ -63,7 +63,7 @@ vibe_cli "find all .rs files larger than 1MB"
 
 ---
 
-## 📖 Usage Guide
+## Usage Guide
 
 ### Standard Query
 
@@ -100,7 +100,7 @@ vibe_cli --context ./docs/
 
 ---
 
-## 🧠 Neurosymbolic Commands
+## Neurosymbolic Commands
 
 ```bash
 # Initialize domain
@@ -129,7 +129,7 @@ vibe_cli --neurosymbolic-install <url_or_path>   # Install from URL
 
 ---
 
-## 🛡️ Command Validation
+## Command Validation
 
 Before execution, commands are validated:
 
@@ -138,8 +138,8 @@ $ vibe_cli --neurosymbolic "show my gpu name"
 
 Command Validation: 4/10 valid
 Invalid commands:
-  ✗ lshw -short: Command not found: 'lshw' (try: apt install lshw)
-  ✗ inxi -G: Command not found: 'inxi' (try: apt install inxi)
+  X lshw -short: Command not found: 'lshw' (try: apt install lshw)
+  X inxi -G: Command not found: 'inxi' (try: apt install inxi)
 
 Executing 4 valid command(s) out of 10...
 Commands to execute: lspci | grep -i vga; lspci; nvidia-smi; hwinfo --short
@@ -152,7 +152,7 @@ Commands to execute: lspci | grep -i vga; lspci; nvidia-smi; hwinfo --short
 
 ---
 
-## 💾 Cache Management
+## Cache Management
 
 ```bash
 # Clear all cached commands
@@ -178,7 +178,7 @@ Cleared 4 cache file(s), 0 failed
 
 ---
 
-## 🏗️ Architecture
+## Architecture
 
 ```
 vibe_cli/
@@ -207,7 +207,7 @@ vibe_cli/
 
 ---
 
-## ⚙️ Configuration
+## Configuration
 
 ### Environment Variables
 
@@ -226,7 +226,7 @@ BASE_MODEL=qwen2.5-coder:3b
 
 ---
 
-## 📦 Requirements
+## Requirements
 
 ### Ollama Setup
 
@@ -247,7 +247,7 @@ cargo build --release
 
 ---
 
-## ⚡ Performance
+## Performance
 
 | Optimization | Description |
 |--------------|-------------|
@@ -261,7 +261,7 @@ cargo build --release
 
 ---
 
-## 🧪 Development
+## Development
 
 ```bash
 # Run tests
@@ -279,7 +279,7 @@ cargo build --release
 
 ---
 
-## 🔧 Installation
+## Installation
 
 ```bash
 # Build
@@ -291,7 +291,7 @@ sudo mv target/release/vibe_cli /usr/local/bin/vibe_cli
 
 ---
 
-## ⌨️ Shell Integration
+## Shell Integration
 
 ### zsh
 
@@ -310,6 +310,6 @@ Press `Ctrl-G` to start interactive session.
 
 ---
 
-## 📄 License
+## License
 
 MIT License - see [LICENSE](LICENSE) for details.
