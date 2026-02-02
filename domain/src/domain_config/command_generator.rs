@@ -144,6 +144,11 @@ impl CommandGenerator {
             }
         }
 
+        // Base score for generators with no required inputs (can run as-is)
+        if generator.when.is_empty() {
+            score = 1.0;
+        }
+
         // Bonus for optional inputs present
         for opt in &generator.optional {
             if inputs.contains_key(&opt.name) {

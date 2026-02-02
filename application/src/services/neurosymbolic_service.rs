@@ -486,11 +486,7 @@ impl NeurosymbolicService {
             }
         };
 
-        let domains = registry.list_domains();
-        eprintln!("Loaded domains: {:?}", domains);
-
         let matches = registry.query_intent_detailed(query);
-        eprintln!("Intent matches: {:?}", matches);
 
         if matches.is_empty() {
             return Err(anyhow::anyhow!("No matching domain found for query: {}", query));
@@ -500,12 +496,9 @@ impl NeurosymbolicService {
         let domain = registry.get(&best_match.domain).unwrap();
 
         let command_sequence = if let Some((_, operation, _)) = registry.find_operation(query) {
-            eprintln!("Found operation: {:?}", operation.name);
             let generated = registry.command_generator().generate(operation, &HashMap::new());
-            eprintln!("Generated commands: {:?}", generated);
             generated.into_iter().map(|c| c.command).collect()
         } else {
-            eprintln!("No operation found, using query as command");
             vec![query.to_string()]
         };
 

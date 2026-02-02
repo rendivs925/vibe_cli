@@ -6,10 +6,8 @@ use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 static INTENT_SYNONYMS: &[(&str, &[&str])] = &[
-    (
-        "list",
-        &["show", "display", "get", "view", "print", "ls", "ps", "cat"],
-    ),
+    ("list", &["display", "get", "view", "print", "ls", "ps"]),
+    ("show", &["display", "view", "print", "cat"]),
     (
         "processes",
         &["process", "proc", "tasks", "programs", "services"],
@@ -40,6 +38,16 @@ static INTENT_SYNONYMS: &[(&str, &[&str])] = &[
     ("restart", &["reload", "reboot", "refresh", "reopen"]),
     ("cpu", &["processor", "load", "top", "htop"]),
     ("log", &["logs", "journalctl", "syslog", "tail"]),
+    (
+        "hardware",
+        &[
+            "gpu", "graphics", "nvidia", "amd", "vga", "card", "lspci", "lshw", "device", "specs",
+        ],
+    ),
+    (
+        "gpu",
+        &["graphics", "nvidia", "amd", "display", "vga", "card"],
+    ),
 ];
 
 /// Intent match result with detailed scoring
@@ -234,31 +242,54 @@ impl DomainRegistry {
             });
         }
 
+        // Priority keyword matching for hardware/system info
+        let hardware_keywords = [
+            "gpu", "vga", "graphics", "nvidia", "amd", "lspci", "lshw", "hardware", "card",
+        ];
+        let is_hardware_query = hardware_keywords.iter().any(|k| intent_lower.contains(k));
+
+        // First pass: find best matching operation
+        let mut best_match: Option<(f32, &Operation)> = None;
+
         for op in &domain.operations {
             let op_lower = op.name.to_lowercase();
             let desc_lower = op.description.to_lowercase();
 
-            if self.fuzzy_match(&intent_lower, &op_lower)
-                || self.fuzzy_match(&intent_lower, &desc_lower)
-            {
-                return Some(IntentMatch {
-                    domain: domain.id.clone(),
-                    confidence: 0.85,
-                    matched_on: MatchSource::OperationName,
-                    matched_value: op.name.clone(),
-                });
+            let confidence = if is_hardware_query && op_lower.contains("hardware") {
+                // Boost hardware operations for hardware queries
+                0.95
+            } else if self.fuzzy_match(&intent_lower, &op_lower) {
+                0.85
+            } else if self.fuzzy_match(&intent_lower, &desc_lower) {
+                0.80
+            } else {
+                continue;
+            };
+
+            if best_match.map(|(c, _)| confidence > c).unwrap_or(true) {
+                best_match = Some((confidence, op));
             }
 
             for example in &op.examples {
                 if self.fuzzy_match(&intent_lower, &example.description.to_lowercase()) {
-                    return Some(IntentMatch {
-                        domain: domain.id.clone(),
-                        confidence: 0.75,
-                        matched_on: MatchSource::OperationExample,
-                        matched_value: example.description.clone(),
-                    });
+                    let example_confidence = 0.75;
+                    if best_match
+                        .map(|(c, _)| example_confidence > c)
+                        .unwrap_or(true)
+                    {
+                        best_match = Some((example_confidence, op));
+                    }
                 }
             }
+        }
+
+        if let Some((confidence, op)) = best_match {
+            return Some(IntentMatch {
+                domain: domain.id.clone(),
+                confidence,
+                matched_on: MatchSource::OperationName,
+                matched_value: op.name.clone(),
+            });
         }
 
         for entity in domain.entities.values() {
