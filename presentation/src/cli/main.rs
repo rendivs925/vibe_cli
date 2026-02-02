@@ -105,7 +105,7 @@ impl CliApp {
         } else if cli.context {
             self.handlers.handle_context(&args_str).await
         } else if cli.neurosymbolic {
-            self.handlers.handle_neurosymbolic(&args_str).await
+            self.handlers.handle_neurosymbolic(&args_str, cli.ai_interpret).await
         } else if cli.neurosymbolic_init {
             self.handlers.handle_neurosymbolic_init().await
         } else if let Some(domain) = cli.neurosymbolic_install {
@@ -119,7 +119,7 @@ impl CliApp {
         } else if cli.neurosymbolic_list {
             self.handlers.handle_neurosymbolic_list().await
         } else {
-            self.handlers.handle_query(&args_str).await
+            self.handlers.handle_query(&args_str, cli.ai_interpret).await
         }
     }
 }

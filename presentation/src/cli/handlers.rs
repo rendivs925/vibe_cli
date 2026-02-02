@@ -329,7 +329,7 @@ User request: {}",
         self.handle_chat().await
     }
 
-    pub async fn handle_neurosymbolic(&mut self, query: &str) -> Result<()> {
+    pub async fn handle_neurosymbolic(&mut self, query: &str, ai_interpret: bool) -> Result<()> {
         if self.neurosymbolic_service.is_none() {
             eprintln!("Initializing neurosymbolic service with domain configs...");
             let config = NeurosymbolicConfig::default();
@@ -370,11 +370,19 @@ User request: {}",
                         for cmd in &solution.solution.command_sequence {
                             println!("\n{}", format!("Executing: {}", cmd).yellow());
                             let output = Command::new("bash").arg("-c").arg(cmd).output()?;
-                            println!("{}", String::from_utf8_lossy(&output.stdout));
+                            let stdout = String::from_utf8_lossy(&output.stdout);
+                            let stderr = String::from_utf8_lossy(&output.stderr);
+
+                            if ai_interpret {
+                                self.interpret_output(query, &stdout, &stderr).await?;
+                            } else {
+                                println!("{}", stdout);
+                            }
+
                             if !output.status.success() {
                                 println!(
                                     "{}",
-                                    format!("Command failed: {}", String::from_utf8_lossy(&output.stderr)).red()
+                                    format!("Command failed: {}", stderr).red()
                                 );
                             }
                         }
@@ -384,13 +392,13 @@ User request: {}",
             Err(e) => {
                 eprintln!("Neurosymbolic processing failed: {:?}", e);
                 eprintln!("Falling back to standard query...");
-                self.handle_query(query).await?;
+                self.handle_query(query, ai_interpret).await?;
             }
         }
         Ok(())
     }
 
-    pub async fn handle_query(&mut self, query: &str) -> Result<()> {
+    pub async fn handle_query(&mut self, query: &str, ai_interpret: bool) -> Result<()> {
         if let Ok(Some(cached_command)) = self.cache_manager.load_cached(query) {
             println!("{}", format!("Found cached commands").green());
             if ask_confirmation("Use cached command?", true)? {
@@ -398,13 +406,21 @@ User request: {}",
                     .arg("-c")
                     .arg(&cached_command[0].command)
                     .output()?;
-                println!("{}", String::from_utf8_lossy(&output.stdout));
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                let stderr = String::from_utf8_lossy(&output.stderr);
+
+                if ai_interpret {
+                    self.interpret_output(query, &stdout, &stderr).await?;
+                } else {
+                    println!("{}", stdout);
+                }
+
                 if !output.status.success() {
                     println!(
                         "{}",
                         format!(
                             "Command failed: {}",
-                            String::from_utf8_lossy(&output.stderr)
+                            stderr
                         )
                         .red()
                     );
@@ -421,19 +437,52 @@ User request: {}",
         let command = request_command_stream_then_confirm(&self.config, &messages).await?;
         if let Some(cmd) = command {
             let output = Command::new("bash").arg("-c").arg(&cmd).output()?;
-            println!("{}", String::from_utf8_lossy(&output.stdout));
+            let stdout = String::from_utf8_lossy(&output.stdout);
+            let stderr = String::from_utf8_lossy(&output.stderr);
+
+            if ai_interpret {
+                self.interpret_output(query, &stdout, &stderr).await?;
+            } else {
+                println!("{}", stdout);
+            }
+
             if !output.status.success() {
                 println!(
                     "{}",
                     format!("Command failed with exit code: {:?}", output.status.code()).red()
                 );
-                if !output.stderr.is_empty() {
-                    println!("{}", String::from_utf8_lossy(&output.stderr).red());
+                if !stderr.is_empty() {
+                    println!("{}", stderr.red());
                 }
             }
         } else {
             // println!("{}", "No command generated or cancelled.".yellow());
         }
+        Ok(())
+    }
+
+    /// Interpret command output using AI to make it readable
+    async fn interpret_output(&self, query: &str, stdout: &str, stderr: &str) -> Result<()> {
+        println!("\n{}", "=== AI Interpretation ===".green().bold());
+
+        let client = infrastructure::ollama_client::OllamaClient::new()?;
+        let prompt = format!(
+            "The user asked: '{}'\n\n\
+            Command output:\n{}\n\n\
+            {}\
+            \n\nPlease provide a clear, concise summary of what this output means. \
+            Format it nicely with bullet points. Keep it brief but informative.",
+            query,
+            stdout,
+            if !stderr.is_empty() {
+                format!("Errors/warnings:\n{}\n\n", stderr)
+            } else {
+                "".to_string()
+            }
+        );
+
+        let response = client.generate_response(&prompt).await?;
+        println!("{}", response);
         Ok(())
     }
 
