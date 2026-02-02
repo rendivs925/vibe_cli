@@ -104,7 +104,7 @@ pub fn extract_commands(raw: &str, user_query: &str) -> Vec<CommandCandidate> {
 
         let lower = t.to_ascii_lowercase();
 
-        // Reject obvious prose / UI noise
+        // Reject obvious prose / UI noise - expanded list
         let bad_prefixes = [
             "to ",
             "run ",
@@ -122,6 +122,24 @@ pub fn extract_commands(raw: &str, user_query: &str) -> Vec<CommandCandidate> {
             "these commands",
             "this command",
             "open a terminal",
+            "get the",
+            "show the",
+            "check the",
+            "display the",
+            "list the",
+            "find the",
+            "retrieve the",
+            "execute ",
+            "run the",
+            "please ",
+            "you can ",
+            "here is",
+            "use the",
+            "you'll need",
+            "install ",
+            "download ",
+            "create ",
+            "make sure",
         ];
         if bad_prefixes.iter().any(|p| lower.starts_with(p)) {
             return false;
@@ -166,13 +184,31 @@ pub fn extract_commands(raw: &str, user_query: &str) -> Vec<CommandCandidate> {
             return false;
         }
 
-        // If it looks like a sentence, require shell syntax to prove it’s a command.
+        // If it looks like a sentence or description, require shell syntax
+        // These phrases indicate prose, not commands
         let sentencey = lower.contains(" you ")
             || lower.contains(" this ")
             || lower.contains(" should ")
             || lower.contains(" able ")
             || lower.contains(" provides ")
-            || lower.contains(" display ");
+            || lower.contains(" display ")
+            || lower.starts_with("get ")
+            || lower.starts_with("show ")
+            || lower.starts_with("check ")
+            || lower.starts_with("list ")
+            || lower.starts_with("find ")
+            || lower.starts_with("display ")
+            || lower.starts_with("retrieve ")
+            || lower.starts_with("execute ")
+            || lower.starts_with("run ")
+            || lower.starts_with("install ")
+            || lower.starts_with("download ")
+            || lower.starts_with("create ")
+            || lower.starts_with("make ")
+            || lower.starts_with("please ")
+            || lower.starts_with("use ")
+            || lower.starts_with("here ")
+            || lower.starts_with("you'll");
 
         let has_shell_signal = t.contains('|')
             || t.contains("&&")
@@ -183,21 +219,46 @@ pub fn extract_commands(raw: &str, user_query: &str) -> Vec<CommandCandidate> {
             || t.contains(">/")
             || t.contains("</")
             || t.contains("$(")
-            || t.contains('`');
+            || t.contains('`')
+            || t.contains('/'); // Paths indicate commands
 
         if sentencey && !has_shell_signal {
             return false;
         }
 
-        // Require *some* signal beyond a single bare word, unless allowlisted.
+        // Require *some* signal beyond a single bare word, unless allowlisted
         let token_count = t.split_whitespace().count();
         if token_count == 1 {
-            // small allowlist for common info commands
+            // Allowlist for common single-word info commands
             let ok = matches!(
                 lower.as_str(),
-                "htop" | "top" | "free" | "uname" | "nvidia-smi" | "ls"
+                "htop"
+                    | "top"
+                    | "free"
+                    | "uname"
+                    | "nvidia-smi"
+                    | "ls"
+                    | "ps"
+                    | "df"
+                    | "du"
+                    | "who"
+                    | "w"
+                    | "uptime"
+                    | "hostname"
+                    | "arch"
+                    | "date"
+                    | "cal"
+                    | "last"
+                    | "id"
+                    | "groups"
+                    | "users"
             );
             return ok;
+        }
+
+        // For multi-word, require shell signal or be very confident
+        if token_count >= 2 && !has_shell_signal {
+            return false;
         }
 
         true
