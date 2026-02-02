@@ -7,9 +7,8 @@ use domain::repositories::{
     CommandRepository, DocumentRepository, EmbeddingRepository, ExecutionRepository,
     SessionRepository,
 };
-use domain::value_objects::embedding::{Embedding, SearchResult};
+use domain::value_objects::embedding::Embedding;
 use domain::value_objects::query::Query;
-use domain::EmbeddingStats;
 use shared::error::AppError;
 
 /// Storage port for all repository operations

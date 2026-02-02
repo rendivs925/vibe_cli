@@ -87,7 +87,7 @@ impl SessionUseCase {
     }
 
     /// Get recent sessions
-    pub async fn get_recent_sessions(&self, limit: usize) -> Result<Vec<Session>, AppError> {
+    pub async fn get_recent_sessions(&self, _limit: usize) -> Result<Vec<Session>, AppError> {
         // This would fetch from storage
         Ok(vec![])
     }
@@ -162,8 +162,8 @@ impl SessionUseCase {
     /// Search sessions by content
     pub async fn search_sessions(
         &self,
-        query: &str,
-        limit: usize,
+        _query: &str,
+        _limit: usize,
     ) -> Result<Vec<SessionSearchResult>, AppError> {
         // This would search through sessions
         Ok(vec![])

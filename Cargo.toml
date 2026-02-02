@@ -61,7 +61,6 @@ docx-rs = "0.4"
 crossterm = "0.29"
 # Neurosymbolic reasoning dependencies
 symbolica = "1.0"
-z3 = "0.11"
 varisat = "1.0"
 rustsat = "0.1"
 petgraph = "0.6"

@@ -64,3 +64,9 @@ impl From<anyhow::Error> for AppError {
         AppError::new(err.to_string())
     }
 }
+
+impl From<serde_json::Error> for AppError {
+    fn from(err: serde_json::Error) -> Self {
+        AppError::serialization(err.to_string())
+    }
+}

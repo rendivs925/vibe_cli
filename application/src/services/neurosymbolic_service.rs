@@ -8,13 +8,19 @@ use infrastructure::ollama_client::OllamaClient;
 use shared::types::Result;
 use std::collections::HashMap;
 
-/// Main neurosymbolic service that bridges neural and symbolic reasoning
+#[derive(Debug, Deserialize)]
+struct LlmResponse {
+    intent: String,
+    domain: String,
+    action: String,
+    objects: Vec<String>,
+    constraints: Vec<String>,
+}
+
 pub struct NeurosymbolicService {
     llm_client: OllamaClient,
-    linux_engine: LinuxSymbolicEngine,
     knowledge_graph: UnifiedKnowledgeGraph,
     constraint_solver: ConstraintSolver,
-    config: NeurosymbolicConfig,
 }
 
 /// Configuration for neurosymbolic processing
@@ -398,10 +404,8 @@ impl NeurosymbolicService {
     pub async fn new(config: NeurosymbolicConfig) -> Result<Self> {
         Ok(Self {
             llm_client: OllamaClient::new()?,
-            linux_engine: LinuxSymbolicEngine::new(),
             knowledge_graph: UnifiedKnowledgeGraph::new(),
             constraint_solver: ConstraintSolver::new(),
-            config,
         })
     }
 
@@ -437,7 +441,7 @@ impl NeurosymbolicService {
             symbolic_grounding: grounding_step,
             constraint_satisfaction: constraint_step,
             knowledge_graph_queries: kg_queries,
-            verification_results: todo!(),
+                        verification_results,
             summary: self.generate_summary(&intent, &ranked_solutions),
         };
 
@@ -472,13 +476,15 @@ impl NeurosymbolicService {
 
         let response = self.llm_client.generate_response(&prompt).await?;
 
+        let llm_response: LlmResponse = serde_json::from_str(&response)?;
+
         // Parse neural response
-        let entity_recognition = self.extract_entities_from_response(&response);
-        let intent = self.extract_intent_from_response(&response);
+        let entity_recognition = self.extract_entities_from_llm_response(&llm_response);
+        let _intent = self.extract_intent_from_llm_response(&llm_response);
 
         Ok(NeuralStep {
             input: query.to_string(),
-            intent_extraction: "Neural LLM processing completed".to_string(),
+            intent_extraction: llm_response.intent.clone(),
             entity_recognition,
             confidence: 0.8, // Default confidence
             raw_response: response,
@@ -486,85 +492,60 @@ impl NeurosymbolicService {
     }
 
     /// Extract entities from neural response
-    fn extract_entities_from_response(&self, response: &str) -> Vec<RecognizedEntity> {
-        // Simplified entity extraction - in real implementation would use NLP
+    fn extract_entities_from_llm_response(&self, response: &LlmResponse) -> Vec<RecognizedEntity> {
         let mut entities = Vec::new();
-
-        // Look for file paths
-        for word in response.split_whitespace() {
-            if word.starts_with('/') || word.starts_with('~') {
+        for obj in &response.objects {
+            if obj.starts_with('/') || obj.starts_with('~') {
                 entities.push(RecognizedEntity {
-                    name: word.to_string(),
+                    name: obj.to_string(),
                     entity_type: EntityType::File,
-                    properties: HashMap::from([("path".to_string(), word.to_string())]),
+                    properties: HashMap::from([("path".to_string(), obj.to_string())]),
                     confidence: 0.9,
                 });
-            }
-
-            // Look for service names
-            if ["nginx", "apache", "mysql", "postgresql", "redis"].contains(&word) {
+            } else if ["nginx", "apache", "mysql", "postgresql", "redis"].contains(&obj.as_str()) {
                 entities.push(RecognizedEntity {
-                    name: word.to_string(),
+                    name: obj.to_string(),
                     entity_type: EntityType::Service,
-                    properties: HashMap::from([("service_name".to_string(), word.to_string())]),
+                    properties: HashMap::from([("service_name".to_string(), obj.to_string())]),
                     confidence: 0.8,
                 });
-            }
-
-            // Look for process names
-            if word.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            } else {
                 entities.push(RecognizedEntity {
-                    name: word.to_string(),
+                    name: obj.to_string(),
                     entity_type: EntityType::Process,
-                    properties: HashMap::from([("process_name".to_string(), word.to_string())]),
+                    properties: HashMap::from([("process_name".to_string(), obj.to_string())]),
                     confidence: 0.7,
                 });
             }
         }
-
         entities
     }
 
     /// Extract intent from neural response
-    fn extract_intent_from_response(&self, response: &str) -> Intent {
-        // Simplified intent extraction
-        let domain = if response.contains("file") || response.contains("directory") {
-            DomainType::SystemAdministration
-        } else if response.contains("container") || response.contains("docker") {
-            DomainType::ContainerOrchestration
-        } else if response.contains("binary") || response.contains("analyze") {
-            DomainType::BinaryAnalysis
-        } else if response.contains("network") || response.contains("security") {
-            DomainType::NetworkSecurity
-        } else if response.contains("package") || response.contains("install") {
-            DomainType::PackageManagement
-        } else {
-            DomainType::SystemAdministration
+    fn extract_intent_from_llm_response(&self, response: &LlmResponse) -> Intent {
+        let domain = match response.domain.to_lowercase().as_str() {
+            "systemadministration" | "system administration" => DomainType::SystemAdministration,
+            "containerorchestration" | "container orchestration" => DomainType::ContainerOrchestration,
+            "binaryanalysis" | "binary analysis" => DomainType::BinaryAnalysis,
+            "networksecurity" | "network security" => DomainType::NetworkSecurity,
+            "packagemanagement" | "package management" => DomainType::PackageManagement,
+            "malwaredetection" | "malware detection" => DomainType::MalwareDetection,
+            _ => DomainType::SystemAdministration,
         };
 
-        let action = if response.contains("create") || response.contains("add") {
-            ActionType::Create
-        } else if response.contains("start") || response.contains("enable") {
-            ActionType::Start
-        } else if response.contains("stop") || response.contains("disable") {
-            ActionType::Stop
-        } else if response.contains("analyze") || response.contains("check") {
-            ActionType::Analyze
-        } else {
-            ActionType::Configure
+        let action = match response.action.to_lowercase().as_str() {
+            "create" => ActionType::Create,
+            "modify" => ActionType::Modify,
+            "delete" => ActionType::Delete,
+            "start" => ActionType::Start,
+            "stop" => ActionType::Stop,
+            "analyze" => ActionType::Analyze,
+            "deploy" => ActionType::Deploy,
+            "configure" => ActionType::Configure,
+            "monitor" => ActionType::Monitor,
+            "secure" => ActionType::Secure,
+            _ => ActionType::Configure,
         };
-
-        let objects: Vec<String> = response
-            .split_whitespace()
-            .filter(|w| {
-                ![
-                    "the", "a", "an", "and", "or", "but", "in", "on", "at", "to", "for",
-                ]
-                .contains(&w)
-            })
-            .take(5)
-            .map(|s| s.to_string())
-            .collect();
 
         Intent {
             id: format!(
@@ -576,11 +557,12 @@ impl NeurosymbolicService {
             ),
             domain,
             action,
-            objects,
-            constraints: Vec::new(),
+            objects: response.objects.clone(),
+            constraints: response.constraints.clone(),
             confidence: 0.8,
         }
     }
+
 
     /// Ground entities symbolically
     async fn extract_and_ground_intent(
@@ -855,7 +837,7 @@ impl NeurosymbolicService {
         let verification_points: Vec<VerificationPoint> = steps
             .iter()
             .enumerate()
-            .map(|(i, step)| VerificationPoint {
+            .map(|(i, _step)| VerificationPoint {
                 id: format!("verify_{}", i),
                 verification_command: format!("echo 'Step {} completed'", i),
                 expected_output: format!("Step {} completed", i),
@@ -908,7 +890,7 @@ impl NeurosymbolicService {
         }
     }
 
-    fn infer_action(&self, neural_step: &NeuralStep) -> ActionType {
+    fn infer_action(&self, _neural_step: &NeuralStep) -> ActionType {
         // Simplified action inference from neural response
         ActionType::Configure // Default
     }
@@ -933,7 +915,7 @@ impl NeurosymbolicService {
         partial_solution
             .variable_assignments
             .iter()
-            .map(|(var, val)| match val {
+            .map(|(_var, val)| match val {
                 SymbolicValue::String(cmd) => cmd.clone(),
                 _ => format!("echo {:?}", val),
             })
@@ -944,20 +926,20 @@ impl NeurosymbolicService {
         partial_solution.satisfied_constraints.clone()
     }
 
-    fn extract_effects(&self, partial_solution: &PartialSolution) -> Vec<SystemEffect> {
+    fn extract_effects(&self, _partial_solution: &PartialSolution) -> Vec<SystemEffect> {
         // Generate effects based on variable assignments
         Vec::new() // Simplified
     }
 
     fn calculate_resource_requirements(
         &self,
-        partial_solution: &PartialSolution,
+        _partial_solution: &PartialSolution,
     ) -> ResourceVector {
         // Calculate resources needed for solution
         ResourceVector::default() // Simplified
     }
 
-    fn assess_solution_risk(&self, solution: &Solution) -> RiskAssessment {
+    fn assess_solution_risk(&self, _solution: &Solution) -> RiskAssessment {
         // Assess risk level of solution
         RiskAssessment {
             overall_score: 0.3, // Low risk
@@ -1048,7 +1030,7 @@ impl UnifiedKnowledgeGraph {
         }
     }
 
-    async fn lookup_entity(&self, name: &str) -> Result<Vec<QueryResult>> {
+    async fn lookup_entity(&self, _name: &str) -> Result<Vec<QueryResult>> {
         // Simplified entity lookup
         Ok(vec![])
     }

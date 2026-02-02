@@ -1,7 +1,7 @@
 use crate::ports::{AiClient, Cache, StorageService};
 use async_trait::async_trait;
 use domain::value_objects::embedding::{Embedding, SearchResult};
-use domain::value_objects::query::{Query, QueryResult};
+use domain::value_objects::query::Query;
 use shared::error::AppError;
 
 /// Use case for RAG (Retrieval-Augmented Generation) operations
@@ -173,9 +173,8 @@ impl RagUseCase {
         let chunk_size = 500; // words per chunk
         let overlap = 50; // words overlap
 
-        let mut current_chunk = Vec::new();
+                let mut current_chunk = Vec::new();
         let mut word_count = 0;
-
         for paragraph in paragraphs {
             let words: Vec<&str> = paragraph.split_whitespace().collect();
 

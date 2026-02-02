@@ -1,6 +1,6 @@
 use crate::ports::{DocumentReader, FileScanner, StorageService};
 use async_trait::async_trait;
-use domain::entities::document::{Document, DocumentType};
+use domain::entities::document::Document;
 use domain::services::document_analyzer::DocumentAnalyzer;
 use shared::error::AppError;
 
