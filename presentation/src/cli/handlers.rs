@@ -52,7 +52,7 @@ impl CommandValidator {
             Some("Syntax error".to_string())
         } else if !command_available {
             let first_cmd = self.extract_first_command(trimmed);
-            Some(format!("Command not found: '{}' (try: apt install {}", first_cmd, first_cmd))
+            Some(format!("Command not found: '{}' (try: apt install {})", first_cmd, first_cmd))
         } else {
             None
         };
