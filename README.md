@@ -70,6 +70,9 @@ vibe_cli --neurosymbolic-add <name>              # Add new domain
 vibe_cli --neurosymbolic-edit <domain>           # Edit domain in $EDITOR
 vibe_cli --neurosymbolic-remove <domain>         # Remove domain
 vibe_cli --neurosymbolic-install <url_or_path>   # Install domain from URL/path
+
+# Cache management
+vibe_cli --clear-cache                           # Clear all cached commands
 ```
 
 ## Domain Configuration
@@ -199,6 +202,30 @@ Validation includes:
 - **Syntax Check**: Uses `bash -n` to verify command syntax without execution
 - **Availability Check**: Uses `command -v` to verify each binary exists in PATH
 - **Helpful Errors**: Suggests installation commands for missing tools
+
+### Cache Management
+
+Clear cached commands to force regeneration:
+
+```bash
+vibe_cli --clear-cache
+```
+
+Output:
+```
+Cleared: /home/user/.local/share/vibe_cli/xxx_cli_cache.json
+Cleared: /home/user/.local/share/vibe_cli/xxx_explain_cache.bin
+Cleared: /home/user/.local/share/vibe_cli/xxx_rag_cache.bin
+Cleared: /home/user/.cache/vibe_cli/commands.json
+
+Cleared 4 cache file(s), 0 failed
+```
+
+Cache locations:
+- Command cache: `~/.local/share/vibe_cli/*_cli_cache.json`
+- Explain cache: `~/.local/share/vibe_cli/*_explain_cache.bin`
+- RAG cache: `~/.local/share/vibe_cli/*_rag_cache.bin`
+- Streaming cache: `~/.cache/vibe_cli/commands.json`
 
 ## Architecture
 
