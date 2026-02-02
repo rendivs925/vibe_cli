@@ -1,5 +1,5 @@
 use clap::Parser;
-use presentation::main::{Cli, CliApp};
+use presentation::cli::main::{Cli, CliApp};
 use shared::types::Result;
 
 #[tokio::main]

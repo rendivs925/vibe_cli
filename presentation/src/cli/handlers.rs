@@ -3,6 +3,7 @@ use crate::cli::streaming::request_command_stream_then_confirm;
 use super::cache::{CacheManager, ExplainCacheManager, RagCacheManager};
 use super::command_extraction::{extract_command_from_response, parse_agent_plan};
 use super::utils::{detect_system_info, project_cache_suffix};
+use application::services::neurosymbolic_service::{NeurosymbolicConfig, NeurosymbolicService};
 use application::services::rag_service::RagService;
 use colored::Colorize;
 use infrastructure::{config::Config, ollama_client::OllamaClient};
@@ -20,6 +21,7 @@ pub struct CliHandlers {
     system_info: String,
     config: Config,
     rag_service: Option<RagService>,
+    neurosymbolic_service: Option<NeurosymbolicService>,
 }
 
 impl CliHandlers {
@@ -37,6 +39,7 @@ impl CliHandlers {
             system_info,
             config,
             rag_service: None,
+            neurosymbolic_service: None,
         }
     }
 
@@ -324,6 +327,67 @@ User request: {}",
         self.rag_service.as_ref().unwrap().build_index().await?;
         eprintln!("Context loaded from {}", path);
         self.handle_chat().await
+    }
+
+    pub async fn handle_neurosymbolic(&mut self, query: &str) -> Result<()> {
+        if self.neurosymbolic_service.is_none() {
+            eprintln!("Initializing neurosymbolic service with domain configs...");
+            let config = NeurosymbolicConfig::default();
+            match NeurosymbolicService::new(config).await {
+                Ok(service) => {
+                    self.neurosymbolic_service = Some(service);
+                    eprintln!("Neurosymbolic service initialized.");
+                }
+                Err(e) => {
+                    eprintln!("Failed to initialize neurosymbolic service: {:?}", e);
+                    return Ok(());
+                }
+            }
+        }
+
+        eprintln!("Processing query with neurosymbolic reasoning...");
+        match self.neurosymbolic_service
+            .as_mut()
+            .unwrap()
+            .process_query_with_domains(query)
+            .await
+        {
+            Ok(response) => {
+                println!("\n{}", "=== Neurosymbolic Response ===".green().bold());
+                println!("Confidence: {:.1}%", response.confidence * 100.0);
+                println!("\n{}", response.explanation);
+                println!("\n{}", "=== Best Solution ===".green().bold());
+                if let Some(solution) = response.ranked_solutions.first() {
+                    println!("Command: {}", solution.solution.command_sequence.join("; "));
+                    println!("Score: {:.2}", solution.combined_score);
+                    println!("Risk: {:?}", solution.risk_assessment.risk_level);
+                }
+                println!("\n{}", "=== Reasoning Summary ===".green().bold());
+                println!("{}", response.reasoning_trace.summary);
+
+                if ask_confirmation("Execute this command?", false)? {
+                    if let Some(solution) = response.ranked_solutions.first() {
+                        for cmd in &solution.solution.command_sequence {
+                            println!("\n{}", format!("Executing: {}", cmd).yellow());
+                            let output = Command::new("bash").arg("-c").arg(cmd).output()?;
+                            println!("{}", String::from_utf8_lossy(&output.stdout));
+                            if !output.status.success() {
+                                println!(
+                                    "{}",
+                                    format!("Command failed: {}", String::from_utf8_lossy(&output.stderr)).red()
+                                );
+                            }
+                        }
+                    }
+                }
+            }
+            Err(e) => {
+                eprintln!("Neurosymbolic processing failed: {:?}", e);
+                eprintln!("Falling back to standard query...");
+                self.handle_query(query).await?;
+            }
+        }
+        Ok(())
     }
 
     pub async fn handle_query(&mut self, query: &str) -> Result<()> {

@@ -18,7 +18,7 @@ use std::io::{self, Write};
 
 #[derive(Parser)]
 #[command(name = "vibe_cli")]
-#[command(about = "Vibe CLI assistant with RAG capabilities")]
+#[command(about = "Vibe CLI assistant with RAG and neurosymbolic capabilities")]
 pub struct Cli {
     /// Enter interactive chat mode
     #[arg(long)]
@@ -39,6 +39,10 @@ pub struct Cli {
     /// Load context from path
     #[arg(long)]
     pub context: bool,
+
+    /// Use neurosymbolic reasoning with domain configs
+    #[arg(long)]
+    pub neurosymbolic: bool,
 
     /// The query or file path to process
     #[arg(trailing_var_arg = true)]
@@ -72,6 +76,8 @@ impl CliApp {
             self.handlers.handle_rag(&args_str).await
         } else if cli.context {
             self.handlers.handle_context(&args_str).await
+        } else if cli.neurosymbolic {
+            self.handlers.handle_neurosymbolic(&args_str).await
         } else {
             self.handlers.handle_query(&args_str).await
         }
