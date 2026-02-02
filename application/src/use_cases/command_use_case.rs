@@ -32,7 +32,8 @@ impl CommandUseCase {
         // Check cache first
         let cache_key = format!("cmd:{:x}", md5::compute(input.as_bytes()));
         if let Some(cached_command_str) = self.cache.get(&cache_key).await? {
-            let cached_command: Command = serde_json::from_str(&cached_command_str).map_err(|e| AppError::new(e.to_string()))?;
+            let cached_command: Command = serde_json::from_str(&cached_command_str)
+                .map_err(|e| AppError::new(e.to_string()))?;
             println!("📋 Using cached neurosymbolic solution");
             return Ok(CommandExecution::from_command(&cached_command));
         }
@@ -75,7 +76,9 @@ impl CommandUseCase {
                     );
 
                     println!("🔧 Generated Command: {}", command.command_line());
-                    self.cache.set(&cache_key, &serde_json::to_string(&command).unwrap()).await?;
+                    self.cache
+                        .set(&cache_key, &serde_json::to_string(&command).unwrap())
+                        .await?;
                     Ok(CommandExecution::from_command(&command))
                 } else {
                     println!("⚠️ No viable neurosymbolic solutions found");
@@ -118,7 +121,10 @@ impl CommandUseCase {
             self.storage.save_command(command).await?;
         }
 
-        let first_command = plan_result.commands().first().ok_or_else(|| AppError::domain("No commands in plan".to_string()))?;
+        let first_command = plan_result
+            .commands()
+            .first()
+            .ok_or_else(|| AppError::domain("No commands in plan".to_string()))?;
 
         Ok(CommandExecution::from_command(first_command))
     }

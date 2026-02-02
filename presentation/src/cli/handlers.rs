@@ -52,7 +52,10 @@ impl CommandValidator {
             Some("Syntax error".to_string())
         } else if !command_available {
             let first_cmd = self.extract_first_command(trimmed);
-            Some(format!("Command not found: '{}' (try: apt install {})", first_cmd, first_cmd))
+            Some(format!(
+                "Command not found: '{}' (try: apt install {})",
+                first_cmd, first_cmd
+            ))
         } else {
             None
         };
@@ -67,10 +70,7 @@ impl CommandValidator {
     }
 
     fn check_syntax(&self, cmd: &str) -> bool {
-        let output = Command::new("bash")
-            .args(&["-n", "-c", cmd])
-            .output()
-            .ok();
+        let output = Command::new("bash").args(&["-n", "-c", cmd]).output().ok();
 
         match output {
             Some(o) => o.status.success(),
@@ -92,10 +92,7 @@ impl CommandValidator {
         match output {
             Some(o) => o.status.success(),
             None => {
-                let which_output = Command::new("which")
-                    .arg(&first_cmd)
-                    .output()
-                    .ok();
+                let which_output = Command::new("which").arg(&first_cmd).output().ok();
                 which_output.map(|o| o.status.success()).unwrap_or(false)
             }
         }
@@ -156,6 +153,14 @@ impl CommandValidator {
 
         summary
     }
+}
+
+#[derive(Debug, Clone)]
+pub struct IntentAnalysis {
+    pub intent: String,
+    pub neurosymbolic_suitable: bool,
+    pub reasoning: String,
+    pub keywords: Vec<String>,
 }
 
 pub struct CliHandlers {
@@ -475,6 +480,94 @@ User request: {}",
         self.handle_chat().await
     }
 
+    async fn understand_intent(&self, query: &str) -> Result<IntentAnalysis> {
+        let client = infrastructure::ollama_client::OllamaClient::new()?;
+        let prompt = format!(
+            r#"Analyze this query and determine the best approach:
+
+Query: "{}"
+
+Respond in this format (exactly):
+INTENT: [system_info|process|memory|disk|network|service|user|file|log|hardware|general|unknown]
+NEUROSYMBOLIC_SUITABLE: [yes|no]
+REASONING: [brief explanation]
+KEYWORDS: [comma-separated keywords detected]
+
+Guidelines:
+- INTROSYMBOLIC_SUITABLE=yes for: system queries like process list, memory usage, disk space, network status, service management, user info, file operations, hardware info, log viewing
+- INTROSYMBOLIC_SUITABLE=no for: complex reasoning, code generation, file editing, creative tasks, general questions
+
+Examples:
+Query: "list running processes"
+INTENT: process
+NEUROSYMBOLIC_SUITABLE: yes
+REASONING: Standard system administration query about processes
+KEYWORDS: list, processes, running
+
+Query: "show my gpu name"
+INTENT: hardware
+NEUROSYMBOLIC_SUITABLE: yes
+REASONING: Hardware information query
+KEYWORDS: gpu, show, name, graphics
+
+Query: "how do I configure nginx"
+INTENT: general
+NEUROSYMBOLIC_SUITABLE: no
+REASONING: Requires configuration guidance, not command execution
+KEYWORDS: configure, nginx
+
+Query: "check last 20 lines journalctl"
+INTENT: log
+NEUROSYMBOLIC_SUITABLE: yes
+REASONING: Log viewing query with journalctl
+KEYWORDS: check, last, lines, journalctl, log
+
+Query: "fix my code"
+INTENT: general
+NEUROSYMBOLIC_SUITABLE: no
+REASONING: Requires code understanding and editing
+KEYWORDS: fix, code
+
+Now analyze this query:"#,
+            query
+        );
+
+        let response = client.generate_response(&prompt).await?;
+        self.parse_intent_analysis(&response)
+    }
+
+    fn parse_intent_analysis(&self, response: &str) -> Result<IntentAnalysis> {
+        let mut intent = "unknown".to_string();
+        let mut neurosymbolic_suitable = true;
+        let mut reasoning = "Could not parse".to_string();
+        let mut keywords = Vec::new();
+
+        for line in response.lines() {
+            let line = line.trim();
+            if line.starts_with("INTENT:") {
+                intent = line.replace("INTENT:", "").trim().to_string();
+            } else if line.starts_with("NEUROSYMBOLIC_SUITABLE:") {
+                let val = line
+                    .replace("NEUROSYMBOLIC_SUITABLE:", "")
+                    .trim()
+                    .to_string();
+                neurosymbolic_suitable = val.to_lowercase() == "yes";
+            } else if line.starts_with("REASONING:") {
+                reasoning = line.replace("REASONING:", "").trim().to_string();
+            } else if line.starts_with("KEYWORDS:") {
+                let kw = line.replace("KEYWORDS:", "").trim().to_string();
+                keywords = kw.split(',').map(|s| s.trim().to_string()).collect();
+            }
+        }
+
+        Ok(IntentAnalysis {
+            intent,
+            neurosymbolic_suitable,
+            reasoning,
+            keywords,
+        })
+    }
+
     pub async fn handle_neurosymbolic(&mut self, query: &str, ai_interpret: bool) -> Result<()> {
         if self.neurosymbolic_service.is_none() {
             eprintln!("Initializing neurosymbolic service with domain configs...");
@@ -491,8 +584,33 @@ User request: {}",
             }
         }
 
+        eprintln!("Analyzing query intent...");
+        let intent_analysis = self.understand_intent(query).await?;
+
+        println!("\n{}", "=== Intent Analysis ===".green().bold());
+        println!("Intent: {}", intent_analysis.intent.cyan());
+        println!("Reasoning: {}", intent_analysis.reasoning.white());
+
+        if !intent_analysis.keywords.is_empty() {
+            println!("Keywords: {}", intent_analysis.keywords.join(", ").yellow());
+        }
+
+        if !intent_analysis.neurosymbolic_suitable {
+            println!(
+                "\n{}",
+                format!(
+                    "Neurosymbolic not suitable ({}), using LLM...",
+                    intent_analysis.intent
+                )
+                .yellow()
+            );
+            eprintln!("Falling back to LLM...");
+            return self.handle_query(query, ai_interpret, true).await;
+        }
+
         eprintln!("Processing query with neurosymbolic reasoning...");
-        match self.neurosymbolic_service
+        match self
+            .neurosymbolic_service
             .as_mut()
             .unwrap()
             .process_query_with_domains(query)
@@ -507,7 +625,9 @@ User request: {}",
                     let commands = &solution.solution.command_sequence;
 
                     let validation_results = self.command_validator.validate_multiple(commands);
-                    let validation_summary = self.command_validator.summarize_validation(&validation_results);
+                    let validation_summary = self
+                        .command_validator
+                        .summarize_validation(&validation_results);
                     println!("{}", validation_summary);
 
                     let valid_commands: Vec<String> = validation_results
@@ -522,7 +642,15 @@ User request: {}",
                     }
 
                     if valid_commands.len() != commands.len() {
-                        println!("\n{}", format!("Executing {} valid command(s) out of {}...", valid_commands.len(), commands.len()).yellow());
+                        println!(
+                            "\n{}",
+                            format!(
+                                "Executing {} valid command(s) out of {}...",
+                                valid_commands.len(),
+                                commands.len()
+                            )
+                            .yellow()
+                        );
                     }
 
                     println!("Commands to execute: {}", valid_commands.join("; ").white());
@@ -543,14 +671,19 @@ User request: {}",
                         let mut all_outputs = Vec::new();
                         let mut has_any_output = false;
 
-                        for cmd in valid_commands {
+                        for cmd in &valid_commands {
                             println!("\n{}", format!("Executing: {}", cmd).yellow());
-                            let output = Command::new("bash").arg("-c").arg(&cmd).output()?;
+                            let output = Command::new("bash").arg("-c").arg(cmd).output()?;
                             let stdout = String::from_utf8_lossy(&output.stdout);
                             let stderr = String::from_utf8_lossy(&output.stderr);
 
-                            let cmd_output = format!("=== Command: {} ===\n{}\n{}", cmd, stdout, stderr);
-                            all_outputs.push(cmd_output);
+                            if ai_interpret {
+                                let cmd_output =
+                                    format!("=== Command: {} ===\n{}\n{}", cmd, stdout, stderr);
+                                all_outputs.push(cmd_output);
+                            } else {
+                                println!("{}", stdout);
+                            }
 
                             if !stdout.is_empty() || !stderr.is_empty() {
                                 has_any_output = true;
@@ -586,14 +719,22 @@ User request: {}",
         Ok(())
     }
 
-    pub async fn handle_query(&mut self, query: &str, ai_interpret: bool, from_fallback: bool) -> Result<()> {
+    pub async fn handle_query(
+        &mut self,
+        query: &str,
+        ai_interpret: bool,
+        from_fallback: bool,
+    ) -> Result<()> {
         let mut last_successful_command = String::new();
         let mut last_successful_query = String::new();
 
         if let Ok(Some(cached_commands)) = self.cache_manager.load_cached(query) {
             // Validate cached commands
             let validation_results = self.command_validator.validate_multiple(
-                &cached_commands.iter().map(|c| c.command.clone()).collect::<Vec<_>>()
+                &cached_commands
+                    .iter()
+                    .map(|c| c.command.clone())
+                    .collect::<Vec<_>>(),
             );
             let valid_commands: Vec<CommandCandidate> = cached_commands
                 .into_iter()
@@ -603,9 +744,15 @@ User request: {}",
                 .collect();
 
             if valid_commands.is_empty() {
-                println!("{}", "Cached commands are invalid, generating new ones...".yellow());
+                println!(
+                    "{}",
+                    "Cached commands are invalid, generating new ones...".yellow()
+                );
             } else {
-                println!("{}", format!("Found {} cached commands", valid_commands.len()).green());
+                println!(
+                    "{}",
+                    format!("Found {} cached commands", valid_commands.len()).green()
+                );
                 println!("{}", "Validating cached commands...".white());
                 let valid_count = valid_commands.len();
                 println!("{}", format!("{} valid commands", valid_count).green());
@@ -617,7 +764,15 @@ User request: {}",
                         .output()?;
                     let stdout = String::from_utf8_lossy(&output.stdout);
                     let stderr = String::from_utf8_lossy(&output.stderr);
-                    let full_output = format!("{}{}", stdout, if !stderr.is_empty() { format!("\nErrors:\n{}", stderr) } else { String::new() });
+                    let full_output = format!(
+                        "{}{}",
+                        stdout,
+                        if !stderr.is_empty() {
+                            format!("\nErrors:\n{}", stderr)
+                        } else {
+                            String::new()
+                        }
+                    );
 
                     if ai_interpret {
                         self.interpret_output(query, &full_output).await?;
@@ -626,14 +781,7 @@ User request: {}",
                     }
 
                     if !output.status.success() {
-                        println!(
-                            "{}",
-                            format!(
-                                "Command failed: {}",
-                                stderr
-                            )
-                            .red()
-                        );
+                        println!("{}", format!("Command failed: {}", stderr).red());
                     }
                     return Ok(());
                 }
@@ -650,7 +798,15 @@ User request: {}",
             let output = Command::new("bash").arg("-c").arg(&cmd).output()?;
             let stdout = String::from_utf8_lossy(&output.stdout);
             let stderr = String::from_utf8_lossy(&output.stderr);
-            let full_output = format!("{}{}", stdout, if !stderr.is_empty() { format!("\nErrors:\n{}", stderr) } else { String::new() });
+            let full_output = format!(
+                "{}{}",
+                stdout,
+                if !stderr.is_empty() {
+                    format!("\nErrors:\n{}", stderr)
+                } else {
+                    String::new()
+                }
+            );
 
             if ai_interpret {
                 self.interpret_output(query, &full_output).await?;
@@ -676,8 +832,12 @@ User request: {}",
 
         // Learning system: offer to add successful commands to domain
         if from_fallback && !last_successful_command.is_empty() {
-            if ask_confirmation("\nCommand succeeded! Learn this for future neurosymbolic queries?", false)? {
-                self.learn_command(&last_successful_query, &last_successful_command).await?;
+            if ask_confirmation(
+                "\nCommand succeeded! Learn this for future neurosymbolic queries?",
+                false,
+            )? {
+                self.learn_command(&last_successful_query, &last_successful_command)
+                    .await?;
             }
         }
 
@@ -755,7 +915,10 @@ User request: {}",
             let output = serde_json::to_string_pretty(&operations)?;
             std::fs::write(&ops_file, output)?;
 
-            println!("\n{}", format!("Saved new operation to: {}", ops_file.display()).green());
+            println!(
+                "\n{}",
+                format!("Saved new operation to: {}", ops_file.display()).green()
+            );
             println!("Restart vibe_cli or run --neurosymbolic-init to use the new operation.");
         }
 
@@ -765,7 +928,8 @@ User request: {}",
     fn generate_operation_name(query: &str) -> String {
         let words: Vec<&str> = query.split_whitespace().collect();
 
-        let action_words: Vec<&str> = words.iter()
+        let action_words: Vec<&str> = words
+            .iter()
             .filter(|w| {
                 let w = w.to_lowercase();
                 ["check", "show", "list", "get", "find", "view", "display"].contains(&w.as_str())
@@ -774,12 +938,14 @@ User request: {}",
             .collect();
 
         if !action_words.is_empty() {
-            let rest: Vec<&str> = words.iter()
+            let rest: Vec<&str> = words
+                .iter()
                 .filter(|w| !action_words.contains(w))
                 .copied()
                 .collect();
 
-            let capitalized: Vec<String> = rest.iter()
+            let capitalized: Vec<String> = rest
+                .iter()
                 .map(|w| {
                     let mut chars = w.chars();
                     match chars.next() {
@@ -789,25 +955,35 @@ User request: {}",
                 })
                 .collect();
 
-            format!("{} {}",
+            format!(
+                "{} {}",
                 action_words[0].to_lowercase() + " " + &capitalized.join(" "),
                 // Add "usage/status/info" based on context
-                if query.to_lowercase().contains("log") || query.to_lowercase().contains("journal") {
+                if query.to_lowercase().contains("log") || query.to_lowercase().contains("journal")
+                {
                     "logs"
                 } else if query.to_lowercase().contains("line") {
                     "output"
                 } else {
                     "info"
                 }
-            ).trim().to_string()
+            )
+            .trim()
+            .to_string()
         } else {
-            format!("Check {} info", words.first().map(|w| {
-                let mut chars = w.chars();
-                match chars.next() {
-                    Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
-                    None => "System".to_string(),
-                }
-            }).unwrap_or_else(|| "System".to_string()))
+            format!(
+                "Check {} info",
+                words
+                    .first()
+                    .map(|w| {
+                        let mut chars = w.chars();
+                        match chars.next() {
+                            Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+                            None => "System".to_string(),
+                        }
+                    })
+                    .unwrap_or_else(|| "System".to_string())
+            )
         }
     }
 
@@ -822,9 +998,7 @@ User request: {}",
             Please provide a clear, concise summary of what this output means. \
             Focus on the key information and present it in a well-organized format. \
             Use sections and bullet points where appropriate.",
-
-            query,
-            output
+            query, output
         );
 
         let response = client.generate_response(&prompt).await?;
@@ -847,21 +1021,29 @@ User request: {}",
 
     pub async fn handle_neurosymbolic_init(&self) -> Result<()> {
         let config_dir = self.config_dir();
-        
-        println!("{}", "Initializing complete Linux symbolic reasoning domain...".green().bold());
-        
+
+        println!(
+            "{}",
+            "Initializing complete Linux symbolic reasoning domain..."
+                .green()
+                .bold()
+        );
+
         if config_dir.exists() {
-            println!("{}", "Domain config directory already exists. Updating...".yellow());
+            println!(
+                "{}",
+                "Domain config directory already exists. Updating...".yellow()
+            );
         } else {
             std::fs::create_dir_all(&config_dir)?;
         }
 
         let linux_dir = config_dir.join("linux/entities");
         let shared_dir = config_dir.join("../shared_entities");
-        
+
         std::fs::create_dir_all(&linux_dir)?;
         std::fs::create_dir_all(&shared_dir)?;
-        
+
         println!("{}", "Creating Linux symbolic reasoning domain...".green());
 
         // Complete Linux domain manifest
@@ -875,7 +1057,7 @@ User request: {}",
     "author": "vibe_cli",
     "tags": ["linux", "process", "filesystem", "network", "services", "users"]
 }"#;
-        
+
         std::fs::write(config_dir.join("linux/domain.json"), domain_json)?;
         println!("  {}", "✓ domain.json");
 
@@ -1136,7 +1318,7 @@ User request: {}",
         ]
     }
 ]"#;
-        
+
         std::fs::write(config_dir.join("linux/operations.json"), ops_json)?;
         println!("  {}", "✓ operations.json (14 operations)");
 
@@ -1303,7 +1485,10 @@ User request: {}",
     {"name": "process_uses_file", "type": "usage", "from": "Process", "to": "File", "meaning": "Process has file open"},
     {"name": "connection_binds_to_port", "type": "binding", "from": "NetworkConnection", "to": "Port", "meaning": "Connection uses port"}
 ]"#;
-        std::fs::write(config_dir.join("linux/relationships.json"), relationships_json)?;
+        std::fs::write(
+            config_dir.join("linux/relationships.json"),
+            relationships_json,
+        )?;
         println!("  {}", "✓ relationships.json (8 relationships)");
 
         // Inference rules for symbolic reasoning
@@ -1369,7 +1554,10 @@ User request: {}",
         "then": [{"conclude": "orphaned_process", "confidence": 0.70, "recommendation": "Process parent died, may need cleanup"}]
     }
 ]"#;
-        std::fs::write(config_dir.join("linux/inference_rules.json"), inference_rules_json)?;
+        std::fs::write(
+            config_dir.join("linux/inference_rules.json"),
+            inference_rules_json,
+        )?;
         println!("  {}", "✓ inference_rules.json (10 inference rules)");
 
         // Troubleshooting patterns
@@ -1504,8 +1692,14 @@ User request: {}",
         ]
     }
 ]"#;
-        std::fs::write(config_dir.join("linux/troubleshooting.json"), troubleshooting_json)?;
-        println!("  {}", "✓ troubleshooting.json (5 troubleshooting patterns)");
+        std::fs::write(
+            config_dir.join("linux/troubleshooting.json"),
+            troubleshooting_json,
+        )?;
+        println!(
+            "  {}",
+            "✓ troubleshooting.json (5 troubleshooting patterns)"
+        );
 
         // Shared entities
         let shared_port = r#"{
@@ -1520,59 +1714,75 @@ User request: {}",
 }"#;
         std::fs::write(shared_dir.join("port.json"), shared_port)?;
 
-        println!("\n{}", "✓ Linux symbolic reasoning domain initialized!".green().bold());
+        println!(
+            "\n{}",
+            "✓ Linux symbolic reasoning domain initialized!"
+                .green()
+                .bold()
+        );
         println!("\n{}", "Summary:".green());
         println!("  - 14 operations (process, memory, disk, network, services, files, etc.)");
         println!("  - 7 entities (Process, File, Service, NetworkConnection, User, Filesystem, MemoryInfo)");
         println!("  - 8 relationships (hierarchical, ownership, containment, etc.)");
         println!("  - 10 inference rules for symbolic reasoning");
         println!("  - 5 troubleshooting patterns for common issues");
-        
+
         println!("\n{}", "Usage:".green());
         println!("  vibe_cli --neurosymbolic \"list processes\"");
         println!("  vibe_cli --neurosymbolic \"check disk usage\"");
         println!("  vibe_cli --neurosymbolic \"nginx is not running\"");
         println!("  vibe_cli --neurosymbolic \"memory is full\"");
-        
+
         Ok(())
     }
 
     pub async fn handle_neurosymbolic_install(&self, package: &str) -> Result<()> {
         let config_dir = self.config_dir();
-        
-        println!("{}", format!("Installing domain package: {}", package).green().bold());
-        
+
+        println!(
+            "{}",
+            format!("Installing domain package: {}", package)
+                .green()
+                .bold()
+        );
+
         if package.starts_with("http://") || package.starts_with("https://") {
             println!("{}", "Downloading from URL...".yellow());
             let client = reqwest::Client::new();
             let response = client.get(package).send().await?;
-            
+
             if response.status().is_success() {
                 let content = response.text().await?;
-                let domain_name = package.split('/').last()
+                let domain_name = package
+                    .split('/')
+                    .last()
                     .unwrap_or(package)
                     .replace(".json", "");
-                
+
                 let target_dir = config_dir.join(&domain_name);
                 std::fs::create_dir_all(&target_dir)?;
                 std::fs::write(target_dir.join("domain.json"), content)?;
-                
+
                 println!("{}", format!("Installed domain: {}", domain_name).green());
             } else {
                 eprintln!("{}", "Failed to download package".red());
             }
         } else {
-            println!("{}", format!("Looking for local package: {}", package).yellow());
+            println!(
+                "{}",
+                format!("Looking for local package: {}", package).yellow()
+            );
             let package_dir = std::path::Path::new(package);
             if package_dir.exists() && package_dir.is_dir() {
-                let domain_name = package_dir.file_name()
+                let domain_name = package_dir
+                    .file_name()
                     .unwrap_or_default()
                     .to_string_lossy()
                     .to_string();
-                
+
                 let target_dir = config_dir.join(&domain_name);
                 std::fs::create_dir_all(&target_dir)?;
-                
+
                 for entry in std::fs::read_dir(package_dir)? {
                     let entry = entry?;
                     if entry.path().is_file() {
@@ -1580,84 +1790,95 @@ User request: {}",
                         std::fs::copy(entry.path(), target_dir.join(&file_name))?;
                     }
                 }
-                
+
                 println!("{}", format!("Installed domain: {}", domain_name).green());
             } else {
                 eprintln!("{}", format!("Package not found: {}", package).red());
             }
         }
-        
+
         Ok(())
     }
 
     pub async fn handle_neurosymbolic_remove(&self, domain: &str) -> Result<()> {
         let config_dir = self.config_dir();
         let domain_dir = config_dir.join(domain);
-        
+
         println!("{}", format!("Removing domain: {}", domain).green().bold());
-        
+
         if domain_dir.exists() {
             std::fs::remove_dir_all(&domain_dir)?;
             println!("{}", format!("Removed: {}", domain_dir.display()).green());
         } else {
             println!("{}", format!("Domain not found: {}", domain).yellow());
         }
-        
+
         Ok(())
     }
 
     pub async fn handle_neurosymbolic_edit(&self, domain: &str) -> Result<()> {
         let config_dir = self.config_dir();
         let domain_dir = config_dir.join(domain);
-        
+
         println!("{}", format!("Editing domain: {}", domain).green().bold());
-        
+
         if !domain_dir.exists() {
-            println!("{}", format!("Domain not found: {}. Use --neurosymbolic-add to create it.", domain).yellow());
+            println!(
+                "{}",
+                format!(
+                    "Domain not found: {}. Use --neurosymbolic-add to create it.",
+                    domain
+                )
+                .yellow()
+            );
             return Ok(());
         }
 
         let editor = std::env::var("EDITOR").unwrap_or_else(|_| "vi".to_string());
-        
+
         for entry in std::fs::read_dir(&domain_dir)? {
             let entry = entry?;
             if entry.path().is_file() {
                 let file_name = entry.file_name();
                 println!("{}", format!("Opening: {}", file_name.display()).yellow());
-                
-                let status = Command::new(&editor)
-                    .arg(entry.path())
-                    .status()?;
-                
+
+                let status = Command::new(&editor).arg(entry.path()).status()?;
+
                 if status.success() {
                     println!("{}", format!("Saved: {}", file_name.display()).green());
                 }
             }
         }
-        
+
         Ok(())
     }
 
     pub async fn handle_neurosymbolic_add(&self, domain: &str) -> Result<()> {
         let config_dir = self.config_dir();
         let domain_dir = config_dir.join(domain);
-        
-        println!("{}", format!("Adding new domain: {}", domain).green().bold());
-        
+
+        println!(
+            "{}",
+            format!("Adding new domain: {}", domain).green().bold()
+        );
+
         std::fs::create_dir_all(&domain_dir.join("entities"))?;
-        
-        let domain_json = format!(r#"{{
+
+        let domain_json = format!(
+            r#"{{
     "domain": "{}",
     "version": "1.0.0",
     "description": "Custom domain: {}",
     "depends_on": [],
     "priority": 50,
     "enabled": true
-}}"#, domain, domain);
-        
+}}"#,
+            domain, domain
+        );
+
         std::fs::write(domain_dir.join("domain.json"), &domain_json)?;
         println!("{}", format!("Created: {}/domain.json", domain).green());
-        
+
         let ops_json = r#"[
     {
         "op_id": "custom_operation",
@@ -1675,56 +1896,66 @@ User request: {}",
         "examples": []
     }
 ]"#;
-        
+
         std::fs::write(domain_dir.join("operations.json"), ops_json)?;
         println!("{}", format!("Created: {}/operations.json", domain).green());
-        
+
         std::fs::write(domain_dir.join("relationships.json"), "[]")?;
         std::fs::write(domain_dir.join("inference_rules.json"), "[]")?;
         std::fs::write(domain_dir.join("troubleshooting.json"), "[]")?;
-        
+
         println!("\n{}", "Domain template created!".green().bold());
-        println!("{}", format!("Edit with: vibe_cli --neurosymbolic-edit {}", domain).yellow());
-        
+        println!(
+            "{}",
+            format!("Edit with: vibe_cli --neurosymbolic-edit {}", domain).yellow()
+        );
+
         Ok(())
     }
 
     pub async fn handle_neurosymbolic_list(&self) -> Result<()> {
         let config_dir = self.config_dir();
-        
+
         println!("{}", "Installed Domains".green().bold());
         println!("{}", "==============".to_string());
-        
+
         if !config_dir.exists() {
-            println!("{}", "No domains installed. Run --neurosymbolic-init first.".yellow());
+            println!(
+                "{}",
+                "No domains installed. Run --neurosymbolic-init first.".yellow()
+            );
             return Ok(());
         }
-        
+
         let mut domains: Vec<String> = Vec::new();
-        
+
         for entry in std::fs::read_dir(&config_dir)? {
             let entry = entry?;
             if entry.path().is_dir() {
                 let domain_name = entry.file_name().to_string_lossy().to_string();
                 let domain_json = entry.path().join("domain.json");
-                
+
                 if domain_json.exists() {
                     if let Ok(content) = std::fs::read_to_string(&domain_json) {
                         if let Ok(domain) = serde_json::from_str::<serde_json::Value>(&content) {
-                            let desc = domain.get("description")
+                            let desc = domain
+                                .get("description")
                                 .and_then(|d| d.as_str())
                                 .unwrap_or("");
-                            let version = domain.get("version")
+                            let version = domain
+                                .get("version")
                                 .and_then(|v| v.as_str())
                                 .unwrap_or("?");
-                            let enabled = domain.get("enabled")
+                            let enabled = domain
+                                .get("enabled")
                                 .and_then(|e| e.as_bool())
                                 .unwrap_or(true);
-                            
+
                             let status = if enabled { "enabled" } else { "disabled" };
-                            println!("  {} - {} (v{}) [{}]", 
-                                domain_name.green().bold(), 
-                                desc, 
+                            println!(
+                                "  {} - {} (v{}) [{}]",
+                                domain_name.green().bold(),
+                                desc,
                                 version,
                                 status
                             );
@@ -1734,13 +1965,13 @@ User request: {}",
                 }
             }
         }
-        
+
         if domains.is_empty() {
             println!("{}", "No domains found.".yellow());
         } else {
             println!("\n{}", format!("Total: {} domain(s)", domains.len()).cyan());
         }
-        
+
         println!("\n{}", "Usage:".green());
         println!("  vibe_cli --neurosymbolic \"your query\"");
         println!("  vibe_cli --neurosymbolic-edit <domain>  # Edit a domain");
@@ -1760,7 +1991,7 @@ User request: {}",
         cache_paths.push(
             std::path::PathBuf::from(".cache")
                 .join("vibe_cli")
-                .join("commands.json")
+                .join("commands.json"),
         );
 
         let mut cleared = 0;
@@ -1774,7 +2005,10 @@ User request: {}",
                         cleared += 1;
                     }
                     Err(e) => {
-                        println!("{}", format!("Failed to clear {}: {:?}", path.display(), e).red());
+                        println!(
+                            "{}",
+                            format!("Failed to clear {}: {:?}", path.display(), e).red()
+                        );
                         failed += 1;
                     }
                 }
@@ -1784,7 +2018,10 @@ User request: {}",
         if cleared == 0 && failed == 0 {
             println!("{}", "No cache files found.".yellow());
         } else {
-            println!("\n{}", format!("Cleared {} cache file(s), {} failed", cleared, failed).cyan());
+            println!(
+                "\n{}",
+                format!("Cleared {} cache file(s), {} failed", cleared, failed).cyan()
+            );
         }
 
         Ok(())

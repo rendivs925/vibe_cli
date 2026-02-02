@@ -294,7 +294,8 @@ impl SymbolicQuery {
     }
 
     pub fn with_metadata(mut self, key: &str, value: &str) -> Self {
-        self.metadata_filter.insert(key.to_string(), value.to_string());
+        self.metadata_filter
+            .insert(key.to_string(), value.to_string());
         self
     }
 

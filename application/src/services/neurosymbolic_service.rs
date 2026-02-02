@@ -1,15 +1,15 @@
-#[allow(unused_imports)]
-use serde::{Deserialize, Serialize};
+use domain::domain_config::{CommandGenerator, DomainRegistry, OutputParser};
 use domain::neurosymbolic_entities::*;
 use domain::services::linux_symbolic_engine::LinuxSymbolicEngine;
 use domain::ConstraintSolver;
 use domain::RiskLevel;
-use domain::domain_config::{DomainRegistry, CommandGenerator, OutputParser};
 use infrastructure::ollama_client::OllamaClient;
+#[allow(unused_imports)]
+use serde::{Deserialize, Serialize};
 use shared::types::Result;
 use std::collections::HashMap;
-use std::path::PathBuf;
 use std::env;
+use std::path::PathBuf;
 
 #[derive(Debug, Deserialize)]
 struct LlmResponse {
@@ -203,8 +203,6 @@ pub struct ConstraintStep {
     pub solutions: Vec<PartialSolution>,
     pub satisfaction_confidence: f32,
 }
-
-
 
 /// Verification step
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -422,22 +420,22 @@ impl NeurosymbolicService {
         }
         if !shared_dir.exists() {
             if let Err(e) = std::fs::create_dir_all(&shared_dir) {
-                eprintln!("Warning: Could not create shared_entities directory: {:?}", e);
+                eprintln!(
+                    "Warning: Could not create shared_entities directory: {:?}",
+                    e
+                );
             }
         }
 
-        let domain_registry = match DomainRegistry::new(
-            domains_dir.clone(),
-            domains_dir.clone(),
-            shared_dir,
-        ) {
-            Ok(reg) => Some(reg),
-            Err(e) => {
-                eprintln!("Warning: Failed to load domain registry: {:?}", e);
-                eprintln!("Try running: vibe_cli --neurosymbolic-init");
-                None
-            }
-        };
+        let domain_registry =
+            match DomainRegistry::new(domains_dir.clone(), domains_dir.clone(), shared_dir) {
+                Ok(reg) => Some(reg),
+                Err(e) => {
+                    eprintln!("Warning: Failed to load domain registry: {:?}", e);
+                    eprintln!("Try running: vibe_cli --neurosymbolic-init");
+                    None
+                }
+            };
 
         Ok(Self {
             llm_client: OllamaClient::new()?,
@@ -456,11 +454,8 @@ impl NeurosymbolicService {
         user_base: PathBuf,
         shared_base: PathBuf,
     ) -> Result<Self> {
-        let domain_registry = DomainRegistry::new(
-            prebuilt_base.clone(),
-            user_base.clone(),
-            shared_base,
-        )?;
+        let domain_registry =
+            DomainRegistry::new(prebuilt_base.clone(), user_base.clone(), shared_base)?;
 
         Ok(Self {
             llm_client: OllamaClient::new()?,
@@ -489,14 +484,19 @@ impl NeurosymbolicService {
         let matches = registry.query_intent_detailed(query);
 
         if matches.is_empty() {
-            return Err(anyhow::anyhow!("No matching domain found for query: {}", query));
+            return Err(anyhow::anyhow!(
+                "No matching domain found for query: {}",
+                query
+            ));
         }
 
         let best_match = &matches[0];
         let domain = registry.get(&best_match.domain).unwrap();
 
         let command_sequence = if let Some((_, operation, _)) = registry.find_operation(query) {
-            let generated = registry.command_generator().generate(operation, &HashMap::new());
+            let generated = registry
+                .command_generator()
+                .generate(operation, &HashMap::new());
             generated.into_iter().map(|c| c.command).collect()
         } else {
             vec![query.to_string()]
@@ -504,7 +504,11 @@ impl NeurosymbolicService {
 
         let solution = Solution {
             id: format!("{}_solution", domain.id),
-            description: format!("{} - {}", best_match.matched_on.to_string(), best_match.matched_value),
+            description: format!(
+                "{} - {}",
+                best_match.matched_on.to_string(),
+                best_match.matched_value
+            ),
             command_sequence,
             preconditions: vec![],
             effects: vec![],
@@ -518,7 +522,11 @@ impl NeurosymbolicService {
             symbolic_score: best_match.confidence,
             neural_score: 0.0,
             combined_score: best_match.confidence,
-            reasoning_trace: format!("Matched {} ({:.0}%)", best_match.matched_on.to_string(), best_match.confidence * 100.0),
+            reasoning_trace: format!(
+                "Matched {} ({:.0}%)",
+                best_match.matched_on.to_string(),
+                best_match.confidence * 100.0
+            ),
             risk_assessment: RiskAssessment {
                 overall_score: 0.1,
                 risk_level: RiskLevel::Low,
@@ -532,12 +540,18 @@ impl NeurosymbolicService {
         let best_match_matched_on_str = best_match.matched_on.to_string();
         let domain_id = domain.id.clone();
         let query_string = query.to_string();
-        let explanation = format!("Used {} domain with {} matching for command generation", domain_id, best_match.matched_on.to_string());
+        let explanation = format!(
+            "Used {} domain with {} matching for command generation",
+            domain_id,
+            best_match.matched_on.to_string()
+        );
         let solution_id = solution.id.clone();
         let solution_desc = solution.description.clone();
         let command_seq = solution.command_sequence.clone();
 
-        let execution_plan = self.generate_execution_plan(&[ranked_solution.clone()]).await?;
+        let execution_plan = self
+            .generate_execution_plan(&[ranked_solution.clone()])
+            .await?;
 
         let reasoning_trace = ReasoningTrace {
             neural_understanding: NeuralStep {
@@ -545,7 +559,11 @@ impl NeurosymbolicService {
                 intent_extraction: best_match_matched_value.clone(),
                 entity_recognition: vec![],
                 confidence: best_match_confidence,
-                raw_response: format!("Domain matching: {} (confidence: {:.0}%)", best_match_matched_on_str, best_match_confidence * 100.0),
+                raw_response: format!(
+                    "Domain matching: {} (confidence: {:.0}%)",
+                    best_match_matched_on_str,
+                    best_match_confidence * 100.0
+                ),
             },
             symbolic_grounding: SymbolicStep {
                 entities: vec![],
@@ -561,7 +579,11 @@ impl NeurosymbolicService {
             },
             knowledge_graph_queries: vec![],
             verification_results: vec![],
-            summary: format!("Generated command from {} domain (confidence: {:.0}%)", domain_id, best_match_confidence * 100.0),
+            summary: format!(
+                "Generated command from {} domain (confidence: {:.0}%)",
+                domain_id,
+                best_match_confidence * 100.0
+            ),
         };
 
         let intent = Intent {
@@ -595,7 +617,8 @@ impl NeurosymbolicService {
             if query.to_lowercase().contains(&op.name.to_lowercase())
                 || query.to_lowercase().contains(&op.id.to_lowercase())
             {
-                if let Some((_, operation)) = self.domain_registry
+                if let Some((_, operation)) = self
+                    .domain_registry
                     .as_ref()
                     .and_then(|r| r.get_operation(&op.id))
                 {
@@ -649,7 +672,7 @@ impl NeurosymbolicService {
             symbolic_grounding: grounding_step,
             constraint_satisfaction: constraint_step,
             knowledge_graph_queries: kg_queries,
-                        verification_results,
+            verification_results,
             summary: self.generate_summary(&intent, &ranked_solutions),
         };
 
@@ -733,7 +756,9 @@ impl NeurosymbolicService {
     fn extract_intent_from_llm_response(&self, response: &LlmResponse) -> Intent {
         let domain = match response.domain.to_lowercase().as_str() {
             "systemadministration" | "system administration" => DomainType::SystemAdministration,
-            "containerorchestration" | "container orchestration" => DomainType::ContainerOrchestration,
+            "containerorchestration" | "container orchestration" => {
+                DomainType::ContainerOrchestration
+            }
             "binaryanalysis" | "binary analysis" => DomainType::BinaryAnalysis,
             "networksecurity" | "network security" => DomainType::NetworkSecurity,
             "packagemanagement" | "package management" => DomainType::PackageManagement,
@@ -771,7 +796,6 @@ impl NeurosymbolicService {
         }
     }
 
-
     /// Ground entities symbolically
     async fn extract_and_ground_intent(
         &mut self,
@@ -781,7 +805,7 @@ impl NeurosymbolicService {
         let mut symbolic_expressions = Vec::new();
         let mut constraints = Vec::new();
 
-                for entity in &neural_step.entity_recognition {
+        for entity in &neural_step.entity_recognition {
             match entity.entity_type {
                 EntityType::File => {
                     if let Some(path) = entity.properties.get("path") {
@@ -1225,8 +1249,6 @@ impl NeurosymbolicService {
             solutions.first().map(|s| s.combined_score).unwrap_or(0.0)
         )
     }
-
-
 }
 
 impl UnifiedKnowledgeGraph {
@@ -1243,8 +1265,6 @@ impl UnifiedKnowledgeGraph {
         Ok(vec![])
     }
 }
-
-
 
 impl Default for NeurosymbolicConfig {
     fn default() -> Self {

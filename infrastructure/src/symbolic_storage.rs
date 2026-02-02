@@ -25,9 +25,9 @@ impl FileSymbolicStorage {
         let dirs = ["traces", "expressions", "constraints"];
         for dir in &dirs {
             let path = self.base_path.join(dir);
-            fs::create_dir_all(&path)
-                .await
-                .map_err(|e| SymbolicStorageError::StorageError(format!("Failed to create directory: {}", e)))?;
+            fs::create_dir_all(&path).await.map_err(|e| {
+                SymbolicStorageError::StorageError(format!("Failed to create directory: {}", e))
+            })?;
         }
         Ok(())
     }
@@ -37,11 +37,15 @@ impl FileSymbolicStorage {
     }
 
     fn get_expression_path(&self, id: &str) -> PathBuf {
-        self.base_path.join("expressions").join(format!("{}.json", id))
+        self.base_path
+            .join("expressions")
+            .join(format!("{}.json", id))
     }
 
     fn get_constraint_path(&self, id: &str) -> PathBuf {
-        self.base_path.join("constraints").join(format!("{}.json", id))
+        self.base_path
+            .join("constraints")
+            .join(format!("{}.json", id))
     }
 
     async fn serialize<T: Serialize>(&self, data: &T) -> Result<Vec<u8>, SymbolicStorageError> {
@@ -58,7 +62,10 @@ impl FileSymbolicStorage {
         }
     }
 
-    async fn deserialize<T: for<'de> Deserialize<'de>>(&self, data: &[u8]) -> Result<T, SymbolicStorageError> {
+    async fn deserialize<T: for<'de> Deserialize<'de>>(
+        &self,
+        data: &[u8],
+    ) -> Result<T, SymbolicStorageError> {
         match self.format {
             StorageFormat::Json => serde_json::from_slice(data)
                 .map_err(|e| SymbolicStorageError::DeserializationError(e.to_string())),
@@ -77,19 +84,19 @@ impl FileSymbolicStorage {
             .await
             .map_err(|e| SymbolicStorageError::NotFound(format!("File not found: {}", e)))?;
         let mut contents = Vec::new();
-        file.read_to_end(&mut contents)
-            .await
-            .map_err(|e| SymbolicStorageError::StorageError(format!("Failed to read file: {}", e)))?;
+        file.read_to_end(&mut contents).await.map_err(|e| {
+            SymbolicStorageError::StorageError(format!("Failed to read file: {}", e))
+        })?;
         Ok(contents)
     }
 
     async fn write_file(&self, path: &Path, data: &[u8]) -> Result<(), SymbolicStorageError> {
-        let mut file = fs::File::create(path)
-            .await
-            .map_err(|e| SymbolicStorageError::StorageError(format!("Failed to create file: {}", e)))?;
-        file.write_all(data)
-            .await
-            .map_err(|e| SymbolicStorageError::StorageError(format!("Failed to write file: {}", e)))?;
+        let mut file = fs::File::create(path).await.map_err(|e| {
+            SymbolicStorageError::StorageError(format!("Failed to create file: {}", e))
+        })?;
+        file.write_all(data).await.map_err(|e| {
+            SymbolicStorageError::StorageError(format!("Failed to write file: {}", e))
+        })?;
         Ok(())
     }
 
@@ -201,17 +208,15 @@ impl SymbolicReasoningRepository for FileSymbolicStorage {
         query: &SymbolicQuery,
     ) -> Result<Vec<SymbolicReasoningTrace>, SymbolicStorageError> {
         let traces_dir = self.base_path.join("traces");
-        let mut entries = fs::read_dir(&traces_dir)
-            .await
-            .map_err(|e| SymbolicStorageError::StorageError(format!("Failed to read traces directory: {}", e)))?;
+        let mut entries = fs::read_dir(&traces_dir).await.map_err(|e| {
+            SymbolicStorageError::StorageError(format!("Failed to read traces directory: {}", e))
+        })?;
 
         let mut results = Vec::new();
 
-        while let Some(entry) = entries
-            .next_entry()
-            .await
-            .map_err(|e| SymbolicStorageError::StorageError(format!("Failed to read directory entry: {}", e)))?
-        {
+        while let Some(entry) = entries.next_entry().await.map_err(|e| {
+            SymbolicStorageError::StorageError(format!("Failed to read directory entry: {}", e))
+        })? {
             let path = entry.path();
             if path.extension().and_then(|s| s.to_str()) != Some("json") {
                 continue;
@@ -247,9 +252,10 @@ impl SymbolicReasoningRepository for FileSymbolicStorage {
             }
 
             // Check metadata filter
-            let metadata_matches = query.metadata_filter.iter().all(|(key, value)| {
-                trace.metadata.get(key).map(|v| v == value).unwrap_or(false)
-            });
+            let metadata_matches = query
+                .metadata_filter
+                .iter()
+                .all(|(key, value)| trace.metadata.get(key).map(|v| v == value).unwrap_or(false));
             if !metadata_matches {
                 continue;
             }
@@ -275,9 +281,9 @@ impl SymbolicReasoningRepository for FileSymbolicStorage {
     async fn delete_trace(&self, id: &str) -> Result<(), SymbolicStorageError> {
         let path = self.get_trace_path(id);
         if path.exists() {
-            fs::remove_file(&path)
-                .await
-                .map_err(|e| SymbolicStorageError::StorageError(format!("Failed to delete trace: {}", e)))?;
+            fs::remove_file(&path).await.map_err(|e| {
+                SymbolicStorageError::StorageError(format!("Failed to delete trace: {}", e))
+            })?;
         }
         Ok(())
     }
@@ -303,8 +309,12 @@ impl SymbolicReasoningRepository for FileSymbolicStorage {
 
                     if let Ok(data) = self.read_file(&path).await {
                         if let Ok(trace) = self.deserialize::<SymbolicReasoningTrace>(&data).await {
-                            oldest = oldest.map(|o| o.min(trace.timestamp)).or(Some(trace.timestamp));
-                            newest = newest.map(|n| n.max(trace.timestamp)).or(Some(trace.timestamp));
+                            oldest = oldest
+                                .map(|o| o.min(trace.timestamp))
+                                .or(Some(trace.timestamp));
+                            newest = newest
+                                .map(|n| n.max(trace.timestamp))
+                                .or(Some(trace.timestamp));
                         }
                     }
                 }
@@ -352,17 +362,15 @@ impl SymbolicReasoningRepository for FileSymbolicStorage {
         limit: usize,
     ) -> Result<Vec<String>, SymbolicStorageError> {
         let traces_dir = self.base_path.join("traces");
-        let mut entries = fs::read_dir(&traces_dir)
-            .await
-            .map_err(|e| SymbolicStorageError::StorageError(format!("Failed to read traces directory: {}", e)))?;
+        let mut entries = fs::read_dir(&traces_dir).await.map_err(|e| {
+            SymbolicStorageError::StorageError(format!("Failed to read traces directory: {}", e))
+        })?;
 
         let mut ids = Vec::new();
 
-        while let Some(entry) = entries
-            .next_entry()
-            .await
-            .map_err(|e| SymbolicStorageError::StorageError(format!("Failed to read directory entry: {}", e)))?
-        {
+        while let Some(entry) = entries.next_entry().await.map_err(|e| {
+            SymbolicStorageError::StorageError(format!("Failed to read directory entry: {}", e))
+        })? {
             let path = entry.path();
             if let Some(stem) = path.file_stem().and_then(|s| s.to_str()) {
                 ids.push(stem.to_string());
@@ -591,8 +599,12 @@ impl SymbolicReasoningRepository for InMemorySymbolicStorage {
         let mut newest: Option<chrono::DateTime<chrono::Utc>> = None;
 
         for trace in traces.values() {
-            oldest = oldest.map(|o| o.min(trace.timestamp)).or(Some(trace.timestamp));
-            newest = newest.map(|n| n.max(trace.timestamp)).or(Some(trace.timestamp));
+            oldest = oldest
+                .map(|o| o.min(trace.timestamp))
+                .or(Some(trace.timestamp));
+            newest = newest
+                .map(|n| n.max(trace.timestamp))
+                .or(Some(trace.timestamp));
         }
 
         Ok(SymbolicStorageStats::new(

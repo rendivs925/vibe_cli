@@ -323,11 +323,28 @@ Environment:
 
             // Reject lines that are clearly prose/descriptions
             let prose_indicators = [
-                "get the", "show the", "check the", "display the", "list the",
-                "find the", "retrieve the", "execute the", "run the",
-                "cpu", "disk", "memory", "hostname", "operating system",
-                "platform", "kernel", "shell", "total ram", "free ram",
-                "cpu type", "processor speed", "information:",
+                "get the",
+                "show the",
+                "check the",
+                "display the",
+                "list the",
+                "find the",
+                "retrieve the",
+                "execute the",
+                "run the",
+                "cpu",
+                "disk",
+                "memory",
+                "hostname",
+                "operating system",
+                "platform",
+                "kernel",
+                "shell",
+                "total ram",
+                "free ram",
+                "cpu type",
+                "processor speed",
+                "information:",
             ];
             if prose_indicators.iter().any(|p| lower.contains(p)) {
                 return false;

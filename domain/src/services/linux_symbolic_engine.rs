@@ -1064,19 +1064,25 @@ impl ConstraintSolver {
 
     pub async fn solve(&mut self, constraints: &[Constraint]) -> Result<Vec<PartialSolution>> {
         let mut solutions = Vec::new();
-        
+
         // Simplified constraint solving: assume all constraints are satisfiable
         // TODO: Implement proper constraint solving with Z3 when available
         let mut assignments = HashMap::new();
-        
+
         for (i, constraint) in constraints.iter().enumerate() {
             match constraint {
                 Constraint::FileExists { path, required } => {
                     // Simplified: assume files exist for positive constraints
                     if *required {
-                        assignments.insert(format!("file_exists_{}", path), SymbolicValue::Boolean(true));
+                        assignments.insert(
+                            format!("file_exists_{}", path),
+                            SymbolicValue::Boolean(true),
+                        );
                     } else {
-                        assignments.insert(format!("file_exists_{}", path), SymbolicValue::Boolean(false));
+                        assignments.insert(
+                            format!("file_exists_{}", path),
+                            SymbolicValue::Boolean(false),
+                        );
                     }
                 }
                 Constraint::Equals { left, right } => {
@@ -1086,14 +1092,14 @@ impl ConstraintSolver {
                 _ => {}
             }
         }
-        
+
         let solution = PartialSolution {
             variable_assignments: assignments,
             satisfied_constraints: constraints.to_vec(),
             unsatisfied_constraints: Vec::new(),
             quality_score: 0.8,
         };
-        
+
         solutions.push(solution);
         Ok(solutions)
     }
