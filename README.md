@@ -1,6 +1,6 @@
 # vibe_cli
 
-AI-powered CLI assistant with **RAG capabilities** and **neurosymbolic reasoning**. Built with Clean Architecture for safety, extensibility, and performance.
+AI-powered CLI assistant with **RAG capabilities** and **neurosymbolic reasoning**.
 
 ## Features
 
@@ -94,13 +94,18 @@ Domain configs are stored in `~/.config/vibe_cli/domains/`:
 
 ```json
 {
-    "op_id": "list_processes",
-    "name": "List processes",
-    "description": "List running processes",
-    "generators": [
-        {"name": "ps_standard", "tool": "ps", "template": "ps aux", "when": []},
-        {"name": "ps_sort_cpu", "tool": "ps", "template": "ps aux --sort=-%cpu", "when": []}
-    ]
+  "op_id": "list_processes",
+  "name": "List processes",
+  "description": "List running processes",
+  "generators": [
+    { "name": "ps_standard", "tool": "ps", "template": "ps aux", "when": [] },
+    {
+      "name": "ps_sort_cpu",
+      "tool": "ps",
+      "template": "ps aux --sort=-%cpu",
+      "when": []
+    }
+  ]
 }
 ```
 
@@ -108,14 +113,12 @@ Domain configs are stored in `~/.config/vibe_cli/domains/`:
 
 ```json
 {
-    "name": "Process",
-    "core_properties": [
-        {"name": "pid", "type": "integer", "meaning": "Process ID"},
-        {"name": "cpu", "type": "number", "meaning": "CPU usage"}
-    ],
-    "derived_properties": [
-        {"name": "is_zombie", "expression": "state == 'Z'"}
-    ]
+  "name": "Process",
+  "core_properties": [
+    { "name": "pid", "type": "integer", "meaning": "Process ID" },
+    { "name": "cpu", "type": "number", "meaning": "CPU usage" }
+  ],
+  "derived_properties": [{ "name": "is_zombie", "expression": "state == 'Z'" }]
 }
 ```
 
@@ -180,6 +183,7 @@ vibe_cli --neurosymbolic "show my gpu name"
 ```
 
 Output:
+
 ```
 Command Validation: 4/10 valid
 Invalid commands:
@@ -191,6 +195,7 @@ Commands to execute: lspci | grep -i vga; lspci; nvidia-smi; hwinfo --short
 ```
 
 Validation includes:
+
 - **Syntax Check**: Uses `bash -n` to verify command syntax without execution
 - **Availability Check**: Uses `command -v` to verify each binary exists in PATH
 - **Helpful Errors**: Suggests installation commands for missing tools
@@ -235,6 +240,7 @@ ollama pull qwen2.5-coder:3b
 ```
 
 Or configure via environment:
+
 ```bash
 export OLLAMA_BASE_URL=http://localhost:11434
 export BASE_MODEL=qwen2.5-coder:3b
@@ -294,6 +300,7 @@ sudo mv target/release/vibe_cli /usr/local/bin/vibe_cli
 ## Optional zsh Keybinding
 
 Add to `.zshrc`:
+
 ```zsh
 vibe_cli_widget() {
   BUFFER="vibe_cli --chat"
