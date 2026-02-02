@@ -150,6 +150,25 @@ Commands to execute: lspci | grep -i vga; lspci; nvidia-smi; hwinfo --short
 - **Availability**: `command -v` to verify binaries
 - **Helpful errors**: Suggests install commands
 
+### Learning System
+
+When neurosymbolic matching fails and the LLM fallback succeeds, you can teach the system new commands:
+
+```bash
+vibe_cli --neurosymbolic "check last 20 lines journalctl"
+# If neurosymbolic doesn't match, falls back to LLM
+# After successful execution:
+#   "Command succeeded! Learn this for future neurosymbolic queries? [y/N]"
+```
+
+If you confirm, the system:
+1. Generates an operation name from your query
+2. Creates a description using AI
+3. Extracts the command template
+4. Saves it to `~/.config/vibe_cli/domains/linux/operations.json`
+
+The new operation is immediately available for future neurosymbolic queries.
+
 ---
 
 ## Cache Management
