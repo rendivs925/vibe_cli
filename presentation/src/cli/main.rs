@@ -68,6 +68,10 @@ pub struct Cli {
     #[arg(long)]
     pub neurosymbolic_list: bool,
 
+    /// Use AI to interpret command output (make it readable)
+    #[arg(long)]
+    pub ai_interpret: bool,
+
     /// The query or file path to process
     #[arg(trailing_var_arg = true)]
     pub args: Vec<String>,
