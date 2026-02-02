@@ -11,17 +11,19 @@ AI-powered CLI assistant with **RAG capabilities** and **neurosymbolic reasoning
 - **Retrieval-Augmented Generation (RAG)**: Context-aware responses using codebase embeddings
 - **Multi-Step Agent Mode**: Complex task planning with safety validation
 - **Neurosymbolic Reasoning**: Config-driven command generation with domain configs
+- **AI Output Interpretation**: Get readable summaries of command results with `--ai-interpret`
 
 ### Neurosymbolic Domain System
 
 Intelligent command generation through JSON-based domain configurations:
 
-- **14 Linux operations**: process, memory, disk, network, services, files, users, permissions, Docker
+- **15 Linux operations**: process, memory, disk, network, services, files, users, permissions, Docker, hardware info
 - **7 entities**: Process, File, Service, NetworkConnection, User, Filesystem, MemoryInfo
 - **8 relationships**: hierarchical, ownership, containment, usage, binding
 - **10 inference rules**: zombie detection, high CPU/memory, disk full, service failure
 - **5 troubleshooting patterns**: high CPU, high memory, disk full, service down, network issues
 - **Fuzzy matching + synonyms**: Better accuracy for natural language queries
+- **Priority keyword matching**: Hardware queries get boosted confidence (95%)
 
 ### File Support
 
@@ -56,6 +58,11 @@ vibe_cli --neurosymbolic-init
 vibe_cli --neurosymbolic "list processes"
 vibe_cli --neurosymbolic "check memory usage"
 vibe_cli --neurosymbolic "nginx is not running"
+vibe_cli --neurosymbolic "show my gpu name"
+
+# With AI interpretation (get readable summaries)
+vibe_cli --neurosymbolic --ai-interpret "show my gpu name"
+vibe_cli --neurosymbolic --ai-interpret "check disk usage"
 
 # Domain management
 vibe_cli --neurosymbolic-list                    # List installed domains
@@ -74,7 +81,7 @@ Domain configs are stored in `~/.config/vibe_cli/domains/`:
 ├── domains/
 │   └── linux/
 │       ├── domain.json              # Domain manifest
-│       ├── operations.json          # 14 operations
+│       ├── operations.json          # 15 operations
 │       ├── entities/                # 7 entities
 │       ├── relationships.json       # 8 relationships
 │       ├── inference_rules.json     # 10 inference rules
@@ -147,6 +154,22 @@ vibe_cli --explain file.docx
 vibe_cli --rag "how does session management work?"
 vibe_cli --context ./docs/
 ```
+
+### AI Output Interpretation
+
+Get readable summaries of command results using AI:
+
+```bash
+# With standard query
+vibe_cli --ai-interpret "list processes"
+vibe_cli --ai-interpret "show disk usage"
+
+# With neurosymbolic mode
+vibe_cli --neurosymbolic --ai-interpret "show my gpu name"
+vibe_cli --neurosymbolic --ai-interpret "check memory usage"
+```
+
+The AI interprets raw command output and presents it in a clear, concise format.
 
 ## Architecture
 
