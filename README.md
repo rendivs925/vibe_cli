@@ -30,11 +30,11 @@ Intelligent command generation through JSON configurations:
 
 | Component | Count | Description |
 |-----------|-------|-------------|
-| Operations | 15 | process, memory, disk, network, services, hardware |
+| Operations | 15 | process, memory, disk, network, services, hardware, logs |
 | Entities | 7 | Process, File, Service, NetworkConnection, User, Filesystem, Memory |
 | Relationships | 8 | hierarchical, ownership, containment, usage, binding |
 | Inference Rules | 10 | zombie detection, high CPU/memory, disk full |
-| Troubleshooting | 5 | CPU, memory, disk, service, network issues |
+| Troubleshooting | 5 | disk, service, CPU, memory, network issues |
 
 ### Supported File Types
 
@@ -111,6 +111,7 @@ vibe_cli --neurosymbolic "list processes"
 vibe_cli --neurosymbolic "check memory usage"
 vibe_cli --neurosymbolic "nginx is not running"
 vibe_cli --neurosymbolic "show my gpu name"
+vibe_cli --neurosymbolic "check last 20 lines journalctl"
 
 # With AI interpretation
 vibe_cli --neurosymbolic --ai-interpret "show my gpu name"
@@ -150,24 +151,31 @@ Commands to execute: lspci | grep -i vga; lspci; nvidia-smi; hwinfo --short
 - **Availability**: `command -v` to verify binaries
 - **Helpful errors**: Suggests install commands
 
-### Learning System
+---
+
+## Learning System
 
 When neurosymbolic matching fails and the LLM fallback succeeds, you can teach the system new commands:
 
 ```bash
-vibe_cli --neurosymbolic "check last 20 lines journalctl"
-# If neurosymbolic doesn't match, falls back to LLM
-# After successful execution:
-#   "Command succeeded! Learn this for future neurosymbolic queries? [y/N]"
+$ vibe_cli --neurosymbolic "check last 20 lines journalctl"
+# Falls back to LLM, executes successfully
+Command succeeded! Learn this for future neurosymbolic queries? [y/N]
+
+=== Learning New Command ===
+Operation Name: Check journal logs
+Operation ID: check_journal_logs
+Description: Display recent journal entries with line count
+Tool: journalctl
+Template: journalctl -n 20
+
+Save this operation to the Linux domain? [y/N]
+y
+
+Saved new operation to: /home/user/.config/vibe_cli/domains/linux/operations.json
 ```
 
-If you confirm, the system:
-1. Generates an operation name from your query
-2. Creates a description using AI
-3. Extracts the command template
-4. Saves it to `~/.config/vibe_cli/domains/linux/operations.json`
-
-The new operation is immediately available for future neurosymbolic queries.
+The new operation is immediately available for future neurosymbolic queries. The system learns from your successful fallback commands and builds the domain dynamically.
 
 ---
 
