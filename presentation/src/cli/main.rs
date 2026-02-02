@@ -44,6 +44,30 @@ pub struct Cli {
     #[arg(long)]
     pub neurosymbolic: bool,
 
+    /// Initialize domain config directory
+    #[arg(long)]
+    pub neurosymbolic_init: bool,
+
+    /// Install a domain package (URL or name)
+    #[arg(long)]
+    pub neurosymbolic_install: Option<String>,
+
+    /// Remove a domain
+    #[arg(long)]
+    pub neurosymbolic_remove: Option<String>,
+
+    /// Edit a domain config
+    #[arg(long)]
+    pub neurosymbolic_edit: Option<String>,
+
+    /// Add a new domain from template
+    #[arg(long)]
+    pub neurosymbolic_add: Option<String>,
+
+    /// List installed domains
+    #[arg(long)]
+    pub neurosymbolic_list: bool,
+
     /// The query or file path to process
     #[arg(trailing_var_arg = true)]
     pub args: Vec<String>,
@@ -78,6 +102,18 @@ impl CliApp {
             self.handlers.handle_context(&args_str).await
         } else if cli.neurosymbolic {
             self.handlers.handle_neurosymbolic(&args_str).await
+        } else if cli.neurosymbolic_init {
+            self.handlers.handle_neurosymbolic_init().await
+        } else if let Some(domain) = cli.neurosymbolic_install {
+            self.handlers.handle_neurosymbolic_install(&domain).await
+        } else if let Some(domain) = cli.neurosymbolic_remove {
+            self.handlers.handle_neurosymbolic_remove(&domain).await
+        } else if let Some(domain) = cli.neurosymbolic_edit {
+            self.handlers.handle_neurosymbolic_edit(&domain).await
+        } else if let Some(domain) = cli.neurosymbolic_add {
+            self.handlers.handle_neurosymbolic_add(&domain).await
+        } else if cli.neurosymbolic_list {
+            self.handlers.handle_neurosymbolic_list().await
         } else {
             self.handlers.handle_query(&args_str).await
         }
