@@ -10,3 +10,5 @@ infrastructure = { path = "../infrastructure" }
 presentation = { path = "../presentation" }
 shared = { path = "../shared" }
 tokio.workspace = true
+serde_json.workspace = true
+chrono.workspace = true

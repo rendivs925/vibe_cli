@@ -16,4 +16,6 @@ pub use value_objects::*;
 
 // Additional re-exports for specific types
 pub use repositories::embedding_repository::EmbeddingStats;
+pub use repositories::symbolic_reasoning_repository::*;
 pub use services::command_planner::CommandPlanResult;
+pub use services::symbolic_format_converter::*;
