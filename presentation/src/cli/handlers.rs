@@ -367,24 +367,30 @@ User request: {}",
 
                 if ask_confirmation("Execute this command?", false)? {
                     if let Some(solution) = response.ranked_solutions.first() {
+                        let mut all_outputs = Vec::new();
+                        let mut has_any_output = false;
+
                         for cmd in &solution.solution.command_sequence {
                             println!("\n{}", format!("Executing: {}", cmd).yellow());
                             let output = Command::new("bash").arg("-c").arg(cmd).output()?;
                             let stdout = String::from_utf8_lossy(&output.stdout);
                             let stderr = String::from_utf8_lossy(&output.stderr);
 
-                            if ai_interpret {
-                                self.interpret_output(query, &stdout, &stderr).await?;
-                            } else {
-                                println!("{}", stdout);
+                            let cmd_output = format!("=== Command: {} ===\n{}\n{}", cmd, stdout, stderr);
+                            all_outputs.push(cmd_output);
+
+                            if !stdout.is_empty() || !stderr.is_empty() {
+                                has_any_output = true;
                             }
 
                             if !output.status.success() {
-                                println!(
-                                    "{}",
-                                    format!("Command failed: {}", stderr).red()
-                                );
+                                println!("{}", format!("Command failed: {}", stderr).red());
                             }
+                        }
+
+                        if ai_interpret && has_any_output {
+                            let combined_output = all_outputs.join("\n\n");
+                            self.interpret_output(query, &combined_output).await?;
                         }
                     }
                 }
@@ -408,9 +414,10 @@ User request: {}",
                     .output()?;
                 let stdout = String::from_utf8_lossy(&output.stdout);
                 let stderr = String::from_utf8_lossy(&output.stderr);
+                let full_output = format!("{}{}", stdout, if !stderr.is_empty() { format!("\nErrors:\n{}", stderr) } else { String::new() });
 
                 if ai_interpret {
-                    self.interpret_output(query, &stdout, &stderr).await?;
+                    self.interpret_output(query, &full_output).await?;
                 } else {
                     println!("{}", stdout);
                 }
@@ -439,9 +446,10 @@ User request: {}",
             let output = Command::new("bash").arg("-c").arg(&cmd).output()?;
             let stdout = String::from_utf8_lossy(&output.stdout);
             let stderr = String::from_utf8_lossy(&output.stderr);
+            let full_output = format!("{}{}", stdout, if !stderr.is_empty() { format!("\nErrors:\n{}", stderr) } else { String::new() });
 
             if ai_interpret {
-                self.interpret_output(query, &stdout, &stderr).await?;
+                self.interpret_output(query, &full_output).await?;
             } else {
                 println!("{}", stdout);
             }
@@ -462,23 +470,19 @@ User request: {}",
     }
 
     /// Interpret command output using AI to make it readable
-    async fn interpret_output(&self, query: &str, stdout: &str, stderr: &str) -> Result<()> {
+    async fn interpret_output(&self, query: &str, output: &str) -> Result<()> {
         println!("\n{}", "=== AI Interpretation ===".green().bold());
 
         let client = infrastructure::ollama_client::OllamaClient::new()?;
         let prompt = format!(
             "The user asked: '{}'\n\n\
             Command output:\n{}\n\n\
-            {}\
-            \n\nPlease provide a clear, concise summary of what this output means. \
-            Format it nicely with bullet points. Keep it brief but informative.",
+            Please provide a clear, concise summary of what this output means. \
+            Focus on the key information and present it in a well-organized format. \
+            Use sections and bullet points where appropriate.",
+
             query,
-            stdout,
-            if !stderr.is_empty() {
-                format!("Errors/warnings:\n{}\n\n", stderr)
-            } else {
-                "".to_string()
-            }
+            output
         );
 
         let response = client.generate_response(&prompt).await?;
