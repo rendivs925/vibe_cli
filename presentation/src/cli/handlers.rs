@@ -14,6 +14,150 @@ use shared::types::Result;
 use std::path::PathBuf;
 use std::process::Command;
 
+#[derive(Debug, Clone)]
+pub struct CommandValidationResult {
+    pub command: String,
+    pub is_valid: bool,
+    pub syntax_valid: bool,
+    pub command_available: bool,
+    pub error_message: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct CommandValidator;
+
+impl CommandValidator {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub fn validate(&self, cmd: &str) -> CommandValidationResult {
+        let trimmed = cmd.trim();
+        if trimmed.is_empty() {
+            return CommandValidationResult {
+                command: cmd.to_string(),
+                is_valid: false,
+                syntax_valid: false,
+                command_available: false,
+                error_message: Some("Empty command".to_string()),
+            };
+        }
+
+        let syntax_valid = self.check_syntax(trimmed);
+        let command_available = self.check_command_availability(trimmed);
+
+        let is_valid = syntax_valid && command_available;
+
+        let error_message = if !syntax_valid {
+            Some("Syntax error".to_string())
+        } else if !command_available {
+            let first_cmd = self.extract_first_command(trimmed);
+            Some(format!("Command not found: '{}' (try: apt install {}", first_cmd, first_cmd))
+        } else {
+            None
+        };
+
+        CommandValidationResult {
+            command: cmd.to_string(),
+            is_valid,
+            syntax_valid,
+            command_available,
+            error_message,
+        }
+    }
+
+    fn check_syntax(&self, cmd: &str) -> bool {
+        let output = Command::new("bash")
+            .args(&["-n", "-c", cmd])
+            .output()
+            .ok();
+
+        match output {
+            Some(o) => o.status.success(),
+            None => false,
+        }
+    }
+
+    fn check_command_availability(&self, cmd: &str) -> bool {
+        let first_cmd = self.extract_first_command(cmd);
+        if first_cmd.is_empty() {
+            return false;
+        }
+
+        let output = Command::new("command")
+            .args(&["-v", &first_cmd])
+            .output()
+            .ok();
+
+        match output {
+            Some(o) => o.status.success(),
+            None => {
+                let which_output = Command::new("which")
+                    .arg(&first_cmd)
+                    .output()
+                    .ok();
+                which_output.map(|o| o.status.success()).unwrap_or(false)
+            }
+        }
+    }
+
+    fn extract_first_command(&self, cmd: &str) -> String {
+        let tokens: Vec<&str> = cmd.split_whitespace().collect();
+        if tokens.is_empty() {
+            return String::new();
+        }
+
+        let first = tokens[0];
+
+        if first.starts_with("sudo") && tokens.len() > 1 {
+            tokens[1].to_string()
+        } else if first.starts_with('-') {
+            String::new()
+        } else {
+            first.to_string()
+        }
+    }
+
+    pub fn validate_multiple(&self, commands: &[String]) -> Vec<CommandValidationResult> {
+        commands.iter().map(|cmd| self.validate(cmd)).collect()
+    }
+
+    pub fn filter_valid(&self, commands: &[String]) -> Vec<String> {
+        self.validate_multiple(commands)
+            .into_iter()
+            .filter(|r| r.is_valid)
+            .map(|r| r.command)
+            .collect()
+    }
+
+    pub fn summarize_validation(&self, results: &[CommandValidationResult]) -> String {
+        let total = results.len();
+        let valid = results.iter().filter(|r| r.is_valid).count();
+        let invalid = total - valid;
+
+        if total == 0 {
+            return "No commands to validate.".to_string();
+        }
+
+        let mut summary = format!("Command Validation: {}/{} valid", valid, total);
+
+        if invalid > 0 {
+            summary.push_str(&format!("\n{}", "Invalid commands:".red().bold()));
+            for result in results.iter().filter(|r| !r.is_valid) {
+                if let Some(ref err) = result.error_message {
+                    summary.push_str(&format!(
+                        "\n  ✗ {}: {}",
+                        result.command.yellow(),
+                        err.white()
+                    ));
+                }
+            }
+        }
+
+        summary
+    }
+}
+
 pub struct CliHandlers {
     cache_manager: CacheManager,
     explain_cache_manager: ExplainCacheManager,
@@ -22,6 +166,7 @@ pub struct CliHandlers {
     config: Config,
     rag_service: Option<RagService>,
     neurosymbolic_service: Option<NeurosymbolicService>,
+    command_validator: CommandValidator,
 }
 
 impl CliHandlers {
@@ -40,6 +185,7 @@ impl CliHandlers {
             config,
             rag_service: None,
             neurosymbolic_service: None,
+            command_validator: CommandValidator::new(),
         }
     }
 
@@ -358,21 +504,48 @@ User request: {}",
                 println!("\n{}", response.explanation);
                 println!("\n{}", "=== Best Solution ===".green().bold());
                 if let Some(solution) = response.ranked_solutions.first() {
-                    println!("Command: {}", solution.solution.command_sequence.join("; "));
-                    println!("Score: {:.2}", solution.combined_score);
-                    println!("Risk: {:?}", solution.risk_assessment.risk_level);
+                    let commands = &solution.solution.command_sequence;
+
+                    let validation_results = self.command_validator.validate_multiple(commands);
+                    let validation_summary = self.command_validator.summarize_validation(&validation_results);
+                    println!("{}", validation_summary);
+
+                    let valid_commands: Vec<String> = validation_results
+                        .iter()
+                        .filter(|r| r.is_valid)
+                        .map(|r| r.command.clone())
+                        .collect();
+
+                    if valid_commands.is_empty() {
+                        println!("\n{}", "No valid commands to execute.".red());
+                        return Ok(());
+                    }
+
+                    if valid_commands.len() != commands.len() {
+                        println!("\n{}", format!("Executing {} valid command(s) out of {}...", valid_commands.len(), commands.len()).yellow());
+                    }
+
+                    println!("Commands to execute: {}", valid_commands.join("; ").white());
                 }
                 println!("\n{}", "=== Reasoning Summary ===".green().bold());
                 println!("{}", response.reasoning_trace.summary);
 
-                if ask_confirmation("Execute this command?", false)? {
+                if ask_confirmation("Execute these commands?", false)? {
                     if let Some(solution) = response.ranked_solutions.first() {
+                        let commands = &solution.solution.command_sequence;
+                        let validation_results = self.command_validator.validate_multiple(commands);
+                        let valid_commands: Vec<String> = validation_results
+                            .iter()
+                            .filter(|r| r.is_valid)
+                            .map(|r| r.command.clone())
+                            .collect();
+
                         let mut all_outputs = Vec::new();
                         let mut has_any_output = false;
 
-                        for cmd in &solution.solution.command_sequence {
+                        for cmd in valid_commands {
                             println!("\n{}", format!("Executing: {}", cmd).yellow());
-                            let output = Command::new("bash").arg("-c").arg(cmd).output()?;
+                            let output = Command::new("bash").arg("-c").arg(&cmd).output()?;
                             let stdout = String::from_utf8_lossy(&output.stdout);
                             let stderr = String::from_utf8_lossy(&output.stderr);
 
