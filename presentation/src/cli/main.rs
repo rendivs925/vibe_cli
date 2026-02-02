@@ -125,7 +125,7 @@ impl CliApp {
         } else if cli.clear_cache {
             self.handlers.handle_clear_cache()
         } else {
-            self.handlers.handle_query(&args_str, cli.ai_interpret).await
+            self.handlers.handle_query(&args_str, cli.ai_interpret, false).await
         }
     }
 }

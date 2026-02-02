@@ -580,13 +580,16 @@ User request: {}",
             Err(e) => {
                 eprintln!("Neurosymbolic processing failed: {:?}", e);
                 eprintln!("Falling back to standard query...");
-                self.handle_query(query, ai_interpret).await?;
+                self.handle_query(query, ai_interpret, true).await?;
             }
         }
         Ok(())
     }
 
-    pub async fn handle_query(&mut self, query: &str, ai_interpret: bool) -> Result<()> {
+    pub async fn handle_query(&mut self, query: &str, ai_interpret: bool, from_fallback: bool) -> Result<()> {
+        let mut last_successful_command = String::new();
+        let mut last_successful_query = String::new();
+
         if let Ok(Some(cached_commands)) = self.cache_manager.load_cached(query) {
             // Validate cached commands
             let validation_results = self.command_validator.validate_multiple(
@@ -663,11 +666,149 @@ User request: {}",
                 if !stderr.is_empty() {
                     println!("{}", stderr.red());
                 }
+            } else {
+                last_successful_command = cmd;
+                last_successful_query = query.to_string();
             }
         } else {
             // println!("{}", "No command generated or cancelled.".yellow());
         }
+
+        // Learning system: offer to add successful commands to domain
+        if from_fallback && !last_successful_command.is_empty() {
+            if ask_confirmation("\nCommand succeeded! Learn this for future neurosymbolic queries?", false)? {
+                self.learn_command(&last_successful_query, &last_successful_command).await?;
+            }
+        }
+
         Ok(())
+    }
+
+    /// Learn a new command from successful fallback execution
+    async fn learn_command(&self, query: &str, command: &str) -> Result<()> {
+        println!("\n{}", "=== Learning New Command ===".green().bold());
+
+        // Extract operation name from query
+        let operation_name = Self::generate_operation_name(query);
+        let operation_id = operation_name.to_lowercase().replace(" ", "_");
+
+        // Generate description using AI
+        let client = infrastructure::ollama_client::OllamaClient::new()?;
+        let desc_prompt = format!(
+            "Generate a short (max 80 chars) description for this command: {}\n\
+             Query was: {}\n\
+             Just return the description, no formatting.",
+            command, query
+        );
+        let description = client.generate_response(&desc_prompt).await?;
+
+        // Extract the tool from command
+        let tool = command.split_whitespace().next().unwrap_or("bash");
+        let template = command;
+
+        println!("Operation Name: {}", operation_name);
+        println!("Operation ID: {}", operation_id);
+        println!("Description: {}", description.trim());
+        println!("Tool: {}", tool);
+        println!("Template: {}", template);
+
+        if ask_confirmation("Save this operation to the Linux domain?", false)? {
+            let domains_dir = self.config_dir();
+            let linux_dir = domains_dir.join("linux");
+
+            if !linux_dir.exists() {
+                std::fs::create_dir_all(&linux_dir)?;
+            }
+
+            let ops_file = linux_dir.join("operations.json");
+
+            let mut operations: Vec<serde_json::Value> = if ops_file.exists() {
+                let data = std::fs::read_to_string(&ops_file)?;
+                serde_json::from_str(&data)?
+            } else {
+                Vec::new()
+            };
+
+            let new_op = serde_json::json!({
+                "op_id": operation_id,
+                "name": operation_name,
+                "description": description.trim(),
+                "input_schema": {},
+                "generators": [
+                    {
+                        "name": format!("{}_generator", operation_id),
+                        "tool": tool,
+                        "template": template,
+                        "when": []
+                    }
+                ],
+                "examples": [
+                    {
+                        "description": query,
+                        "inputs": {}
+                    }
+                ]
+            });
+
+            operations.push(new_op);
+
+            let output = serde_json::to_string_pretty(&operations)?;
+            std::fs::write(&ops_file, output)?;
+
+            println!("\n{}", format!("Saved new operation to: {}", ops_file.display()).green());
+            println!("Restart vibe_cli or run --neurosymbolic-init to use the new operation.");
+        }
+
+        Ok(())
+    }
+
+    fn generate_operation_name(query: &str) -> String {
+        let words: Vec<&str> = query.split_whitespace().collect();
+
+        let action_words: Vec<&str> = words.iter()
+            .filter(|w| {
+                let w = w.to_lowercase();
+                ["check", "show", "list", "get", "find", "view", "display"].contains(&w.as_str())
+            })
+            .copied()
+            .collect();
+
+        if !action_words.is_empty() {
+            let rest: Vec<&str> = words.iter()
+                .filter(|w| !action_words.contains(w))
+                .copied()
+                .collect();
+
+            let capitalized: Vec<String> = rest.iter()
+                .map(|w| {
+                    let mut chars = w.chars();
+                    match chars.next() {
+                        Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+                        None => String::new(),
+                    }
+                })
+                .collect();
+
+            format!("{} {}",
+                action_words[0].to_lowercase() + " " + &capitalized.join(" "),
+                // Add "usage/status/info" based on context
+                if query.to_lowercase().contains("log") || query.to_lowercase().contains("journal") {
+                    "logs"
+                } else if query.to_lowercase().contains("line") {
+                    "output"
+                } else {
+                    "info"
+                }
+            ).trim().to_string()
+        } else {
+            format!("Check {} info", words.first().map(|w| {
+                let mut chars = w.chars();
+                match chars.next() {
+                    Some(c) => c.to_uppercase().collect::<String>() + chars.as_str(),
+                    None => "System".to_string(),
+                }
+            }).unwrap_or_else(|| "System".to_string()))
+        }
     }
 
     /// Interpret command output using AI to make it readable

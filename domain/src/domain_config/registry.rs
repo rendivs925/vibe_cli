@@ -37,7 +37,19 @@ static INTENT_SYNONYMS: &[(&str, &[&str])] = &[
     ("status", &["state", "health", "check", "verify", "info"]),
     ("restart", &["reload", "reboot", "refresh", "reopen"]),
     ("cpu", &["processor", "load", "top", "htop"]),
-    ("log", &["logs", "journalctl", "syslog", "tail"]),
+    (
+        "log",
+        &[
+            "logs",
+            "journalctl",
+            "syslog",
+            "tail",
+            "journal",
+            "last",
+            "recent",
+            "lines",
+        ],
+    ),
     (
         "hardware",
         &[
@@ -246,7 +258,21 @@ impl DomainRegistry {
         let hardware_keywords = [
             "gpu", "vga", "graphics", "nvidia", "amd", "lspci", "lshw", "hardware", "card",
         ];
+
+        let log_keywords = [
+            "log",
+            "logs",
+            "journalctl",
+            "journal",
+            "syslog",
+            "tail",
+            "last",
+            "recent",
+            "lines",
+        ];
+
         let is_hardware_query = hardware_keywords.iter().any(|k| intent_lower.contains(k));
+        let is_log_query = log_keywords.iter().any(|k| intent_lower.contains(k));
 
         // First pass: find best matching operation
         let mut best_match: Option<(f32, &Operation)> = None;
@@ -258,6 +284,12 @@ impl DomainRegistry {
             let confidence = if is_hardware_query && op_lower.contains("hardware") {
                 // Boost hardware operations for hardware queries
                 0.95
+            } else if is_log_query && op_lower.contains("log") {
+                // Boost log operations for log queries (e.g., journalctl)
+                0.95
+            } else if intent_lower.contains("journalctl") && op_lower.contains("log") {
+                // Explicit journalctl mention + log operation = very high confidence
+                0.98
             } else if self.fuzzy_match(&intent_lower, &op_lower) {
                 0.85
             } else if self.fuzzy_match(&intent_lower, &desc_lower) {
