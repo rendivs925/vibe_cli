@@ -13,11 +13,10 @@ Vibe CLI includes a **config-driven neurosymbolic reasoning system** that enable
 ### Domain Configuration Structure
 
 ```
-~/.config/vibe_cli/
-└── domains/
+├── domains/
     └── linux/
         ├── domain.json              # Domain manifest
-        ├── operations.json          # Available operations (14 operations)
+        ├── operations.json          # Available operations (15 operations)
         ├── relationships.json       # Entity relationships (8 relationships)
         ├── inference_rules.json     # Symbolic reasoning rules (10 rules)
         ├── troubleshooting.json     # Troubleshooting patterns (5 patterns)
@@ -151,6 +150,7 @@ vibe_cli --neurosymbolic-init
 vibe_cli --neurosymbolic "list processes"
 vibe_cli --neurosymbolic "nginx is not running"
 vibe_cli --neurosymbolic "disk is full"
+vibe_cli --neurosymbolic "show my gpu name"
 
 # Domain management
 vibe_cli --neurosymbolic-list                    # List installed domains
