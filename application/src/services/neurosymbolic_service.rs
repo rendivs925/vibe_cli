@@ -4,9 +4,12 @@ use domain::neurosymbolic_entities::*;
 use domain::services::linux_symbolic_engine::LinuxSymbolicEngine;
 use domain::ConstraintSolver;
 use domain::RiskLevel;
+use domain::domain_config::{DomainRegistry, CommandGenerator, OutputParser};
 use infrastructure::ollama_client::OllamaClient;
 use shared::types::Result;
 use std::collections::HashMap;
+use std::path::PathBuf;
+use std::env;
 
 #[derive(Debug, Deserialize)]
 struct LlmResponse {
@@ -21,6 +24,9 @@ pub struct NeurosymbolicService {
     llm_client: OllamaClient,
     knowledge_graph: UnifiedKnowledgeGraph,
     constraint_solver: ConstraintSolver,
+    domain_registry: Option<DomainRegistry>,
+    command_generator: CommandGenerator,
+    output_parser: OutputParser,
 }
 
 /// Configuration for neurosymbolic processing
@@ -402,11 +408,147 @@ pub enum Relationship {
 
 impl NeurosymbolicService {
     pub async fn new(config: NeurosymbolicConfig) -> Result<Self> {
+        let home = env::var("HOME").unwrap_or_else(|_| "/home/rendi".to_string());
+        let config_dir = PathBuf::from(home).join(".config/vibe_cli");
+
+        let domain_registry = DomainRegistry::new(
+            config_dir.clone(),
+            config_dir.clone(),
+            config_dir.join("shared_entities"),
+        ).ok();
+
         Ok(Self {
             llm_client: OllamaClient::new()?,
             knowledge_graph: UnifiedKnowledgeGraph::new(),
             constraint_solver: ConstraintSolver::new(),
+            domain_registry,
+            command_generator: CommandGenerator::new(),
+            output_parser: OutputParser,
         })
+    }
+
+    /// Create service with custom domain paths
+    pub async fn with_domains(
+        config: NeurosymbolicConfig,
+        prebuilt_base: PathBuf,
+        user_base: PathBuf,
+        shared_base: PathBuf,
+    ) -> Result<Self> {
+        let domain_registry = DomainRegistry::new(
+            prebuilt_base.clone(),
+            user_base.clone(),
+            shared_base,
+        )?;
+
+        Ok(Self {
+            llm_client: OllamaClient::new()?,
+            knowledge_graph: UnifiedKnowledgeGraph::new(),
+            constraint_solver: ConstraintSolver::new(),
+            domain_registry: Some(domain_registry),
+            command_generator: CommandGenerator::new(),
+            output_parser: OutputParser,
+        })
+    }
+
+    /// Process query using config-driven domain system
+    pub async fn process_query_with_domains(
+        &mut self,
+        query: &str,
+    ) -> Result<NeurosymbolicResponse> {
+        let neural_step = self.neural_understanding(query).await?;
+
+        let domains = self.domain_registry
+            .as_ref()
+            .map(|r| r.query_intent(query))
+            .unwrap_or_default();
+
+        let command_sequence = if let Some(domain) = domains.first() {
+            self.generate_commands_from_domain(domain, query)
+        } else {
+            vec![query.to_string()]
+        };
+
+        let (intent, grounding_step) = self.extract_and_ground_intent(&neural_step).await?;
+
+        let solution = Solution {
+            id: "config_driven_solution".to_string(),
+            description: "Config-driven command generation".to_string(),
+            command_sequence,
+            preconditions: vec![],
+            effects: vec![],
+            resource_requirements: Default::default(),
+            estimated_duration: std::time::Duration::from_secs(30),
+        };
+
+        let combined_score = 0.7 * 0.85 + 0.3 * neural_step.confidence;
+        let ranked_solution = RankedSolution {
+            id: solution.id.clone(),
+            solution: solution.clone(),
+            symbolic_score: 0.85,
+            neural_score: neural_step.confidence,
+            combined_score,
+            reasoning_trace: "Config-driven domain reasoning".to_string(),
+            risk_assessment: RiskAssessment {
+                overall_score: 0.2,
+                risk_level: RiskLevel::Low,
+                identified_risks: vec![],
+                mitigation_strategies: vec![],
+            },
+        };
+
+        let execution_plan = self.generate_execution_plan(&[ranked_solution.clone()]).await?;
+
+        let reasoning_trace = ReasoningTrace {
+            neural_understanding: neural_step,
+            symbolic_grounding: grounding_step,
+            constraint_satisfaction: Default::default(),
+            knowledge_graph_queries: vec![],
+            verification_results: vec![],
+            summary: format!("Generated command from domain config for: {}", query),
+        };
+
+        Ok(NeurosymbolicResponse {
+            intent,
+            reasoning_trace,
+            ranked_solutions: vec![ranked_solution],
+            confidence: combined_score,
+            explanation: "Used config-driven domain system for command generation".to_string(),
+            execution_plan,
+        })
+    }
+
+    /// Generate commands from domain configuration
+    fn generate_commands_from_domain(
+        &self,
+        domain: &domain::domain_config::Domain,
+        query: &str,
+    ) -> Vec<String> {
+        let mut commands = Vec::new();
+
+        for op in &domain.operations {
+            if query.to_lowercase().contains(&op.name.to_lowercase())
+                || query.to_lowercase().contains(&op.id.to_lowercase())
+            {
+                if let Some((_, operation)) = self.domain_registry
+                    .as_ref()
+                    .and_then(|r| r.get_operation(&op.id))
+                {
+                    let generated = self.command_generator.generate(operation, &HashMap::new());
+                    for cmd in generated {
+                        commands.push(cmd.command);
+                    }
+                    if !commands.is_empty() {
+                        break;
+                    }
+                }
+            }
+        }
+
+        if commands.is_empty() {
+            commands.push(query.to_string());
+        }
+
+        commands
     }
 
     /// Main processing method for neurosymbolic queries
