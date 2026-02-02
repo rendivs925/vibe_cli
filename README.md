@@ -157,19 +157,19 @@ vibe_cli --context ./docs/
 
 ### AI Output Interpretation
 
-Get readable summaries of command results using AI:
+Get readable, AI-powered summaries of command results:
 
 ```bash
 # With standard query
 vibe_cli --ai-interpret "list processes"
 vibe_cli --ai-interpret "show disk usage"
 
-# With neurosymbolic mode
+# With neurosymbolic mode (executes multiple commands, then summarizes all at once)
 vibe_cli --neurosymbolic --ai-interpret "show my gpu name"
 vibe_cli --neurosymbolic --ai-interpret "check memory usage"
 ```
 
-The AI interprets raw command output and presents it in a clear, concise format.
+The AI executes all relevant commands first, then interprets the combined output into a single, comprehensive summary. This eliminates duplicate interpretations and provides a cleaner user experience.
 
 ## Architecture
 
