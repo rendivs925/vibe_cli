@@ -216,6 +216,7 @@ pub struct CacheConfig {
     pub max_size_mb: u64,
     pub ttl_seconds: u64,
     pub cleanup_interval_hours: u32,
+    pub memory_mapped_io: bool,
     pub command_cache_ttl: u64,
     pub query_cache_ttl: u64,
     pub embedding_cache_ttl: u64,
@@ -228,6 +229,7 @@ impl CacheConfig {
             max_size_mb: 100,
             ttl_seconds: 3600,
             cleanup_interval_hours: 6,
+            memory_mapped_io: false,
             command_cache_ttl: 86400,    // 24 hours
             query_cache_ttl: 1800,       // 30 minutes
             embedding_cache_ttl: 604800, // 7 days
@@ -246,6 +248,11 @@ impl CacheConfig {
 
     pub fn with_cleanup_interval(mut self, hours: u32) -> Self {
         self.cleanup_interval_hours = hours;
+        self
+    }
+
+    pub fn with_memory_mapped_io(mut self, enabled: bool) -> Self {
+        self.memory_mapped_io = enabled;
         self
     }
 }
