@@ -235,7 +235,7 @@ vibe_cli/
 ├── infrastructure/          # External implementations
 │   ├── ai/                  # Ollama client
 │   ├── storage/             # SQLite + bincode embeddings
-│   └── cache/               # UnifiedCacheManager (mmap + compression)
+│   └── cache/               # CacheManager (mmap + compression)
 ├── presentation/            # CLI interface
 │   └── cli/
 │       └── cache.rs         # Pure bincode serialization
@@ -244,7 +244,7 @@ vibe_cli/
 
 ### Key Performance Components
 
-- **UnifiedCacheManager**: Memory-mapped I/O + flate2 compression + bincode
+- **CacheManager**: Memory-mapped I/O + flate2 compression + bincode
 - **FileSymbolicStorage**: Automatic mmap for large trace files (>1MB)
 - **EmbeddingStorage**: SQLite WAL mode with bincode vector serialization
 - **SmallVec Data Structures**: 8 optimized collections across domain layer

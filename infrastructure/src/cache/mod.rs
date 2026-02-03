@@ -78,12 +78,12 @@ pub struct RagCacheEntry {
     pub timestamp: u64,
 }
 
-pub struct UnifiedCacheManager {
+pub struct CacheManager {
     cache_dir: PathBuf,
     memory_mapped_io: bool,
 }
 
-impl UnifiedCacheManager {
+impl CacheManager {
     pub fn new(cache_dir: PathBuf, memory_mapped_io: bool) -> Self {
         Self {
             cache_dir,

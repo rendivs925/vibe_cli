@@ -514,7 +514,7 @@ fn detect_ransomware_behavior(behavior: &BehaviorSequence) -> Option<RansomwareP
 **Cross-Domain Knowledge Graph:**
 ```rust
 // domain/src/services/knowledge_graph.rs
-pub struct UnifiedKnowledgeGraph {
+pub struct KnowledgeGraph {
     entities: HashMap<EntityId, KnowledgeEntity>,
     relationships: Vec<Relationship>,
     constraints: Vec<GlobalConstraint>,
@@ -542,7 +542,7 @@ pub enum Relationship {
 
 **Cross-Domain Reasoning:**
 ```rust
-fn cross_domain_analysis(graph: &UnifiedKnowledgeGraph, query: &SecurityQuery) -> SecurityInsight {
+fn cross_domain_analysis(graph: &KnowledgeGraph, query: &SecurityQuery) -> SecurityInsight {
     // Example: Process interacting with suspicious file
     let suspicious_processes = graph.find_entities(|e| match e {
         KnowledgeEntity::Process(p) => is_suspicious_process(p),
@@ -604,8 +604,8 @@ fn cross_domain_analysis(graph: &UnifiedKnowledgeGraph, query: &SecurityQuery) -
 // application/src/services/neurosymbolic_bridge.rs
 pub struct NeurosymbolicBridge {
     llm_client: OllamaClient,
-    symbolic_engine: UnifiedSymbolicEngine,
-    knowledge_graph: UnifiedKnowledgeGraph,
+    symbolic_engine: SymbolicEngine,
+    knowledge_graph: KnowledgeGraph,
     constraint_solver: ConstraintSolver,
 }
 
@@ -688,7 +688,7 @@ impl NeurosymbolicBridge {
 
 1. **1000x Better Safety**: Logical reasoning about command sequences and system states
 2. **Explainable Decisions**: Clear reasoning traces for all recommendations  
-3. **Cross-Domain Intelligence**: Unified understanding across Linux, containers, security, binaries
+3. **Cross-Domain Intelligence**:  understanding across Linux, containers, security, binaries
 4. **Adaptive Learning**: Knowledge graph evolves with user interactions
 5. **Enterprise-Ready**: Comprehensive audit trails and constraint-based policies
 

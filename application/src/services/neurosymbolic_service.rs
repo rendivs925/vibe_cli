@@ -22,7 +22,7 @@ struct LlmResponse {
 
 pub struct NeurosymbolicService {
     llm_client: OllamaClient,
-    knowledge_graph: UnifiedKnowledgeGraph,
+    knowledge_graph: KnowledgeGraph,
     constraint_solver: ConstraintSolver,
     domain_registry: Option<DomainRegistry>,
     command_generator: CommandGenerator,
@@ -350,7 +350,7 @@ pub struct VerificationPoint {
 
 /// Simplified knowledge graph
 #[derive(Debug, Clone)]
-pub struct UnifiedKnowledgeGraph {
+pub struct KnowledgeGraph {
     entities: HashMap<String, KnowledgeEntity>,
     relationships: Vec<Relationship>,
     constraints: Vec<Constraint>,
@@ -439,7 +439,7 @@ impl NeurosymbolicService {
 
         Ok(Self {
             llm_client: OllamaClient::new()?,
-            knowledge_graph: UnifiedKnowledgeGraph::new(),
+            knowledge_graph: KnowledgeGraph::new(),
             constraint_solver: ConstraintSolver::new(),
             domain_registry,
             command_generator: CommandGenerator::new(),
@@ -459,7 +459,7 @@ impl NeurosymbolicService {
 
         Ok(Self {
             llm_client: OllamaClient::new()?,
-            knowledge_graph: UnifiedKnowledgeGraph::new(),
+            knowledge_graph: KnowledgeGraph::new(),
             constraint_solver: ConstraintSolver::new(),
             domain_registry: Some(domain_registry),
             command_generator: CommandGenerator::new(),
@@ -1251,7 +1251,7 @@ impl NeurosymbolicService {
     }
 }
 
-impl UnifiedKnowledgeGraph {
+impl KnowledgeGraph {
     pub fn new() -> Self {
         Self {
             entities: HashMap::new(),
