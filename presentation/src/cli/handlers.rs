@@ -1993,16 +1993,11 @@ Now analyze this query:"#,
             if path.exists() {
                 match std::fs::remove_file(&path) {
                     Ok(_) => {
-                        println!({}, format!("Cleared: {}").green(), path.display());
+                        println!("Cleared: {}", path.display());
                         cleared += 1;
                     }
                     Err(e) => {
-                        println!(
-                            {},
-                            format!("Failed to clear {}: {:?}").red(),
-                            path.display(),
-                            e
-                        );
+                            println!("Failed to clear {}: {:?}", path.display(), e);
                         failed += 1;
                     }
                 }
@@ -2010,14 +2005,9 @@ Now analyze this query:"#,
         }
 
         if cleared == 0 && failed == 0 {
-            println!({}, "No cache files found.".yellow());
+            println!("No cache files found.");
         } else {
-            println!(
-                {},
-                format!("\nCleared {} cache file(s), {} failed").cyan(),
-                cleared,
-                failed
-            );
+            println!("\nCleared {} cache file(s), {} failed", cleared, failed);
         }
 
         Ok(())
