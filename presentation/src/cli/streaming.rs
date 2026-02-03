@@ -1,5 +1,6 @@
 use shared::confirmation::{ask_command_confirmation, ask_selection};
 use shared::types::Message;
+use std::env;
 use std::io::{self, Write};
 
 use crate::cli::cache::CacheManager;
@@ -260,9 +261,11 @@ pub async fn request_command_stream_then_confirm(
         .unwrap_or("");
 
     let cache_manager = CacheManager::new(
-        std::path::PathBuf::from(".cache")
+        std::path::PathBuf::from(env::var("HOME").unwrap_or_else(|_| ".".to_string()))
+            .join(".local")
+            .join("share")
             .join("vibe_cli")
-            .join("commands.json"),
+            .join(format!("{}_cli_cache.bin", project_cache_suffix())),
     );
 
     // Check cache first

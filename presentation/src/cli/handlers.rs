@@ -201,7 +201,7 @@ impl CliHandlers {
         path.push("share");
         path.push("vibe_cli");
         let suffix = project_cache_suffix();
-        path.push(format!("{}_cli_cache.json", suffix));
+        path.push(format!("{}_cli_cache.bin", suffix));
         path
     }
 
@@ -1982,6 +1982,7 @@ Now analyze this query:"#,
 
     pub fn handle_clear_cache(&self) -> Result<()> {
         let mut cache_paths = vec![
+            self.cache_manager.cache_path().clone(),
             self.explain_cache_manager.cache_path().clone(),
             self.rag_cache_manager.cache_path().clone(),
         ];
@@ -1997,7 +1998,7 @@ Now analyze this query:"#,
                         cleared += 1;
                     }
                     Err(e) => {
-                            println!("Failed to clear {}: {:?}", path.display(), e);
+                        println!("Failed to clear {}: {:?}", path.display(), e);
                         failed += 1;
                     }
                 }
