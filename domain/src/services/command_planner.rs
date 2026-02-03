@@ -1,6 +1,7 @@
 use super::super::entities::command::{Command, SafetyCheck};
 use super::super::value_objects::safety_policy::{SafetyPolicy, SafetyResult};
 use async_trait::async_trait;
+use smallvec::{smallvec, SmallVec};
 
 /// Domain service for planning commands with safety validation
 pub struct CommandPlanner {
@@ -27,7 +28,7 @@ impl CommandPlanner {
         let description = self.generate_description(input, &command_line);
 
         // Generate safety checks
-        let safety_checks = self.generate_safety_checks(&command_line);
+        let safety_checks: Vec<SafetyCheck> = self.generate_safety_checks(&command_line).into_iter().collect();
 
         // Validate against safety policy
         let safety_result = self.safety_policy.validate_command(&command_line);
@@ -47,7 +48,7 @@ impl CommandPlanner {
     /// Plan multiple commands from complex input
     pub fn plan_multi_step(&self, input: &str) -> Result<MultiStepPlanResult, CommandPlannerError> {
         let steps = self.parse_steps(input)?;
-        let mut commands = Vec::new();
+        let mut commands: SmallVec<[Command; 5]> = SmallVec::new();
 
         for step in &steps {
             let plan_result = self.plan_command(step)?;
@@ -93,9 +94,9 @@ impl CommandPlanner {
         format!("Generated from input: '{}'", input)
     }
 
-    fn generate_safety_checks(&self, command: &str) -> Vec<SafetyCheck> {
+    fn generate_safety_checks(&self, command: &str) -> SmallVec<[SafetyCheck; 3]> {
         // This would be more sophisticated in a real implementation
-        vec![
+        smallvec![
             SafetyCheck::new(
                 super::super::entities::command::SafetyCheckType::FileSystemWrite,
                 !command.to_lowercase().contains("rm "),
@@ -185,13 +186,13 @@ impl CommandPlanResult {
 /// Result of multi-step planning
 #[derive(Debug, Clone)]
 pub struct MultiStepPlanResult {
-    commands: Vec<Command>,
+    commands: SmallVec<[Command; 5]>,
     safety_result: SafetyResult,
     error_message: Option<String>,
 }
 
 impl MultiStepPlanResult {
-    pub fn new(commands: Vec<Command>, safety_result: SafetyResult) -> Self {
+    pub fn new(commands: SmallVec<[Command; 5]>, safety_result: SafetyResult) -> Self {
         Self {
             commands,
             safety_result,
@@ -201,7 +202,7 @@ impl MultiStepPlanResult {
 
     pub fn error(message: String) -> Self {
         Self {
-            commands: vec![],
+            commands: SmallVec::new(),
             safety_result: SafetyResult::new(false, vec![]),
             error_message: Some(message),
         }

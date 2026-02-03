@@ -54,7 +54,7 @@ arboard = "3.6"
 rusqlite = { version = "0.38", features = ["bundled"] }
 memmap2 = "0.9"
 rayon = "1.11"
-smallvec = "1.15"
+smallvec = { version = "1.15", features = ["serde"] }
 arrayvec = "0.7"
 dotenvy = "0.15"
 docx-rs = "0.4"
@@ -77,3 +77,4 @@ bollard = "0.16"
 pnet = "0.34"
 # Security analysis dependencies
 yara = "0.25"
+flate2 = "1.0"

@@ -229,7 +229,7 @@ impl CacheConfig {
             max_size_mb: 100,
             ttl_seconds: 3600,
             cleanup_interval_hours: 6,
-            memory_mapped_io: false,
+            memory_mapped_io: true,
             command_cache_ttl: 86400,    // 24 hours
             query_cache_ttl: 1800,       // 30 minutes
             embedding_cache_ttl: 604800, // 7 days

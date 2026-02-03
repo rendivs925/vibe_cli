@@ -1,5 +1,6 @@
 use async_trait::async_trait;
 use domain::repositories::symbolic_reasoning_repository::*;
+use memmap2::Mmap;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
@@ -80,14 +81,29 @@ impl FileSymbolicStorage {
     }
 
     async fn read_file(&self, path: &Path) -> Result<Vec<u8>, SymbolicStorageError> {
-        let mut file = fs::File::open(path)
+        let metadata = fs::metadata(path)
             .await
             .map_err(|e| SymbolicStorageError::NotFound(format!("File not found: {}", e)))?;
-        let mut contents = Vec::new();
-        file.read_to_end(&mut contents).await.map_err(|e| {
-            SymbolicStorageError::StorageError(format!("Failed to read file: {}", e))
-        })?;
-        Ok(contents)
+
+        if metadata.len() > 1024 * 1024 {
+            let file = fs::File::open(path)
+                .await
+                .map_err(|e| SymbolicStorageError::NotFound(format!("File not found: {}", e)))?;
+            let mmap = unsafe {
+                memmap2::Mmap::map(&file)
+                    .map_err(|e| SymbolicStorageError::StorageError(format!("Failed to mmap file: {}", e)))?
+            };
+            Ok(mmap.to_vec())
+        } else {
+            let mut file = fs::File::open(path)
+                .await
+                .map_err(|e| SymbolicStorageError::NotFound(format!("File not found: {}", e)))?;
+            let mut contents = Vec::new();
+            file.read_to_end(&mut contents).await.map_err(|e| {
+                SymbolicStorageError::StorageError(format!("Failed to read file: {}", e))
+            })?;
+            Ok(contents)
+        }
     }
 
     async fn write_file(&self, path: &Path, data: &[u8]) -> Result<(), SymbolicStorageError> {

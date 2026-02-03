@@ -1,4 +1,6 @@
 use bincode::{deserialize, serialize};
+use flate2::read::GzDecoder;
+use flate2::write::GzEncoder;
 use memmap2::Mmap;
 use serde::{Deserialize, Serialize};
 use shared::types::Result;
@@ -38,6 +40,7 @@ impl CommandCandidate {
 
 const CACHE_TTL_SECONDS: u64 = 604800;
 const SEMANTIC_SIMILARITY_THRESHOLD: f64 = 0.7;
+const COMPRESSION_THRESHOLD_BYTES: usize = 1024; // Compress files larger than 1KB
 
 #[derive(Serialize, Deserialize, Default)]
 pub struct CacheFile {
@@ -145,13 +148,16 @@ impl UnifiedCacheManager {
             return Ok(T::default());
         }
 
-        if self.memory_mapped_io {
-            let file = File::open(&cache_path)?;
-            let mmap = unsafe { Mmap::map(&file)? };
-            let cache: T = deserialize(&mmap).unwrap_or_default();
+        let data = std::fs::read(&cache_path)?;
+
+        if data.first().map(|&b| b == 0x1f).unwrap_or(false) {
+            let decoder = GzDecoder::new(&data[..]);
+            let mut decoder = decoder;
+            let mut decompressed = Vec::new();
+            decoder.read_to_end(&mut decompressed)?;
+            let cache: T = deserialize(&decompressed).unwrap_or_default();
             Ok(cache)
         } else {
-            let data = std::fs::read(&cache_path)?;
             let cache: T = deserialize(&data).unwrap_or_default();
             Ok(cache)
         }
@@ -166,15 +172,38 @@ impl UnifiedCacheManager {
 
         let serialized = serialize(cache)?;
 
-        if self.memory_mapped_io {
-            // For mmap, we write directly to file
-            let mut file = File::create(&cache_path)?;
-            file.write_all(&serialized)?;
+        if serialized.len() > COMPRESSION_THRESHOLD_BYTES {
+            let file = File::create(&cache_path)?;
+            let mut encoder = GzEncoder::new(file, flate2::Compression::default());
+            encoder.write_all(&serialized)?;
+            encoder.finish()?;
         } else {
             std::fs::write(&cache_path, serialized)?;
         }
 
         Ok(())
+    }
+
+    fn load_cache_file<T: serde::de::DeserializeOwned>(&self, cache_type: &str) -> Result<T> {
+        let cache_path = self.get_cache_path(cache_type);
+
+        if !cache_path.exists() {
+            return Ok(T::default());
+        }
+
+        let data = std::fs::read(&cache_path)?;
+
+        if data.first().map(|&b| b == 0x1f).unwrap_or(false) {
+            let decoder = GzDecoder::new(&data[..]);
+            let mut decoder = decoder;
+            let mut decompressed = Vec::new();
+            decoder.read_to_end(&mut decompressed)?;
+            let cache: T = deserialize(&decompressed).unwrap_or_default();
+            Ok(cache)
+        } else {
+            let cache: T = deserialize(&data).unwrap_or_default();
+            Ok(cache)
+        }
     }
 
     pub fn load_command_cached(&self, prompt: &str) -> Result<Option<Vec<CommandCandidate>>> {

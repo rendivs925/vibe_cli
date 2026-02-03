@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use smallvec::SmallVec;
 use std::collections::HashMap;
 
 /// Session entity representing a conversation context
@@ -6,7 +7,7 @@ use std::collections::HashMap;
 pub struct Session {
     id: String,
     context: HashMap<String, String>,
-    history: Vec<Message>,
+    history: SmallVec<[Message; 8]>,
 }
 
 impl Session {
@@ -14,7 +15,7 @@ impl Session {
         Self {
             id,
             context: HashMap::new(),
-            history: Vec::new(),
+            history: SmallVec::new(),
         }
     }
 

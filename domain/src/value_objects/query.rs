@@ -1,10 +1,12 @@
 use serde::{Deserialize, Serialize};
+use smallvec::SmallVec;
+use std::collections::HashMap;
 
 /// Query value object representing a search query
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Query {
     text: String,
-    context: Vec<String>,
+    context: SmallVec<[String; 4]>,
     max_results: usize,
     min_similarity: f32,
 }
@@ -13,14 +15,14 @@ impl Query {
     pub fn new(text: String) -> Self {
         Self {
             text,
-            context: Vec::new(),
+            context: SmallVec::new(),
             max_results: 10,
             min_similarity: 0.7,
         }
     }
 
     pub fn with_context(mut self, context: Vec<String>) -> Self {
-        self.context = context;
+        self.context = context.into();
         self
     }
 
@@ -75,7 +77,7 @@ impl Query {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct QueryResult {
     query: Query,
-    results: Vec<super::embedding::SearchResult>,
+    results: SmallVec<[super::embedding::SearchResult; 8]>,
     total_found: usize,
     execution_time_ms: u64,
 }
@@ -83,7 +85,7 @@ pub struct QueryResult {
 impl QueryResult {
     pub fn new(
         query: Query,
-        results: Vec<super::embedding::SearchResult>,
+        results: SmallVec<[super::embedding::SearchResult; 8]>,
         total_found: usize,
         execution_time_ms: u64,
     ) -> Self {

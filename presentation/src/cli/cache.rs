@@ -1,3 +1,4 @@
+use bincode::{deserialize, serialize};
 use serde::{Deserialize, Serialize};
 use shared::types::Result;
 use std::collections::HashSet;
@@ -149,19 +150,9 @@ impl CacheManager {
             return Ok(None);
         }
 
-        let data = std::fs::read_to_string(&self.cache_path)?;
+        let data = std::fs::read(&self.cache_path)?;
 
-        // Try to parse as new format first
-        let mut cache: CacheFile = if let Ok(new_cache) = serde_json::from_str::<CacheFile>(&data) {
-            new_cache
-        } else {
-            // Try legacy format and convert
-            let legacy_cache: Vec<LegacyCacheEntry> =
-                serde_json::from_str(&data).unwrap_or_default();
-            CacheFile {
-                entries: legacy_cache.into_iter().map(Into::into).collect(),
-            }
-        };
+        let mut cache: CacheFile = deserialize(&data).unwrap_or_default();
 
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -174,7 +165,7 @@ impl CacheManager {
         if let Some(parent) = self.cache_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let serialized = serde_json::to_string_pretty(&cache)?;
+        let serialized = serialize(&cache)?;
         std::fs::write(&self.cache_path, serialized)?;
 
         for entry in &cache.entries {
@@ -210,8 +201,8 @@ impl CacheManager {
 
     pub fn save_cached(&self, prompt: &str, candidates: Vec<CommandCandidate>) -> Result<()> {
         let mut cache = if self.cache_path.exists() {
-            let data = std::fs::read_to_string(&self.cache_path).unwrap_or_default();
-            serde_json::from_str::<CacheFile>(&data).unwrap_or_default()
+            let data = std::fs::read(&self.cache_path).unwrap_or_default();
+            deserialize::<CacheFile>(&data).unwrap_or_default()
         } else {
             CacheFile::default()
         };
@@ -229,7 +220,7 @@ impl CacheManager {
             std::fs::create_dir_all(parent)?;
         }
 
-        let serialized = serde_json::to_string_pretty(&cache)?;
+        let serialized = serialize(&cache)?;
         std::fs::write(&self.cache_path, serialized)?;
 
         Ok(())
@@ -255,7 +246,7 @@ impl ExplainCacheManager {
         }
 
         let data = std::fs::read(&self.cache_path)?;
-        let mut cache: ExplainCacheFile = bincode::deserialize(&data).unwrap_or_default();
+        let mut cache: ExplainCacheFile = deserialize(&data).unwrap_or_default();
 
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -266,7 +257,7 @@ impl ExplainCacheManager {
         if let Some(parent) = self.cache_path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        let serialized = bincode::serialize(&cache)?;
+        let serialized = serialize(&cache)?;
         std::fs::write(&self.cache_path, serialized)?;
 
         for entry in &cache.entries {
@@ -280,7 +271,7 @@ impl ExplainCacheManager {
     pub fn save_cached(&self, prompt: &str, response: &str) -> Result<()> {
         let mut cache = if self.cache_path.exists() {
             let data = std::fs::read(&self.cache_path).unwrap_or_default();
-            bincode::deserialize::<ExplainCacheFile>(&data).unwrap_or_default()
+            deserialize::<ExplainCacheFile>(&data).unwrap_or_default()
         } else {
             ExplainCacheFile::default()
         };
@@ -298,7 +289,7 @@ impl ExplainCacheManager {
             std::fs::create_dir_all(parent)?;
         }
 
-        let serialized = serde_json::to_string_pretty(&cache)?;
+        let serialized = serialize(&cache)?;
         std::fs::write(&self.cache_path, serialized)?;
 
         Ok(())
@@ -324,7 +315,7 @@ impl RagCacheManager {
         }
 
         let data = std::fs::read(&self.cache_path)?;
-        let mut cache: RagCacheFile = bincode::deserialize(&data).unwrap_or_default();
+        let mut cache: RagCacheFile = deserialize(&data).unwrap_or_default();
 
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
@@ -336,7 +327,7 @@ impl RagCacheManager {
             std::fs::create_dir_all(parent)?;
         }
 
-        let serialized = bincode::serialize(&cache)?;
+        let serialized = serialize(&cache)?;
         std::fs::write(&self.cache_path, serialized)?;
 
         for entry in &cache.entries {
@@ -350,7 +341,7 @@ impl RagCacheManager {
     pub fn save_cached(&self, question: &str, response: &str) -> Result<()> {
         let mut cache = if self.cache_path.exists() {
             let data = std::fs::read(&self.cache_path).unwrap_or_default();
-            bincode::deserialize::<RagCacheFile>(&data).unwrap_or_default()
+            deserialize::<RagCacheFile>(&data).unwrap_or_default()
         } else {
             RagCacheFile::default()
         };
@@ -368,7 +359,7 @@ impl RagCacheManager {
             std::fs::create_dir_all(parent)?;
         }
 
-        let serialized = bincode::serialize(&cache)?;
+        let serialized = serialize(&cache)?;
         std::fs::write(&self.cache_path, serialized)?;
 
         Ok(())

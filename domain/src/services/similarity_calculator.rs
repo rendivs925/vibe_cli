@@ -1,4 +1,5 @@
 use super::super::value_objects::embedding::{Embedding, SearchResult};
+use smallvec::SmallVec;
 
 /// Domain service for calculating similarity between embeddings
 pub struct SimilarityCalculator;
@@ -66,8 +67,8 @@ impl SimilarityCalculator {
         query: &Embedding,
         candidates: &[Embedding],
         max_results: usize,
-    ) -> Vec<SearchResult> {
-        let mut results: Vec<SearchResult> = candidates
+    ) -> SmallVec<[SearchResult; 8]> {
+        let mut results: SmallVec<[SearchResult; 8]> = candidates
             .iter()
             .map(|candidate| {
                 let similarity = self.cosine_similarity(query, candidate);
@@ -94,7 +95,7 @@ impl SimilarityCalculator {
         query: &Embedding,
         candidates: &[Embedding],
         threshold: f32,
-    ) -> Vec<SearchResult> {
+    ) -> SmallVec<[SearchResult; 8]> {
         candidates
             .iter()
             .map(|candidate| {
@@ -186,8 +187,8 @@ impl SimilarityCalculator {
     }
 
     /// Find outliers based on low similarity to others
-    pub fn find_outliers(&self, embeddings: &[Embedding], threshold: f32) -> Vec<usize> {
-        let mut outliers = Vec::new();
+    pub fn find_outliers(&self, embeddings: &[Embedding], threshold: f32) -> SmallVec<[usize; 8]> {
+        let mut outliers: SmallVec<[usize; 8]> = SmallVec::new();
 
         for i in 0..embeddings.len() {
             let mut max_similarity = 0.0;
