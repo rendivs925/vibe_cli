@@ -1982,17 +1982,9 @@ Now analyze this query:"#,
 
     pub fn handle_clear_cache(&self) -> Result<()> {
         let mut cache_paths = vec![
-            self.cache_manager.cache_path().clone(),
             self.explain_cache_manager.cache_path().clone(),
             self.rag_cache_manager.cache_path().clone(),
         ];
-
-        // Add streaming cache path
-        cache_paths.push(
-            std::path::PathBuf::from(".cache")
-                .join("vibe_cli")
-                .join("commands.json"),
-        );
 
         let mut cleared = 0;
         let mut failed = 0;
@@ -2001,13 +1993,15 @@ Now analyze this query:"#,
             if path.exists() {
                 match std::fs::remove_file(&path) {
                     Ok(_) => {
-                        println!("{}", format!("Cleared: {}", path.display()).green());
+                        println!({}, format!("Cleared: {}").green(), path.display());
                         cleared += 1;
                     }
                     Err(e) => {
                         println!(
-                            "{}",
-                            format!("Failed to clear {}: {:?}", path.display(), e).red()
+                            {},
+                            format!("Failed to clear {}: {:?}").red(),
+                            path.display(),
+                            e
                         );
                         failed += 1;
                     }
@@ -2016,11 +2010,13 @@ Now analyze this query:"#,
         }
 
         if cleared == 0 && failed == 0 {
-            println!("{}", "No cache files found.".yellow());
+            println!({}, "No cache files found.".yellow());
         } else {
             println!(
-                "\n{}",
-                format!("Cleared {} cache file(s), {} failed", cleared, failed).cyan()
+                {},
+                format!("\nCleared {} cache file(s), {} failed").cyan(),
+                cleared,
+                failed
             );
         }
 
