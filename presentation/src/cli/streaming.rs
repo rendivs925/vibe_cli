@@ -50,12 +50,93 @@ fn confirm_and_run_generated_command(command: &str) -> anyhow::Result<Option<Str
     }
 }
 
+fn validate_command(command: &str) -> bool {
+    if command.trim().is_empty() {
+        return false;
+    }
+
+    // Check if command contains any dangerous patterns
+    let dangerous_patterns = [
+        "rm -rf",
+        "rm -r",
+        "dd if=",
+        "mkfs",
+        "format",
+        "shred",
+        "wipe",
+        "fdisk",
+        "sfdisk",
+        "parted",
+        "dd of=",
+        "> /dev",
+        "< /dev",
+        "2> /dev",
+    ];
+
+    if dangerous_patterns.iter().any(|pattern| command.to_lowercase().contains(pattern)) {
+        return false;
+    }
+
+    // Check for shell injection patterns
+    let injection_patterns = [
+        "; rm",
+        "&& rm",
+        "|| rm",
+        "$(rm",
+        "`rm`",
+        "| rm",
+        "> rm",
+        "< rm",
+    ];
+
+    if injection_patterns.iter().any(|pattern| command.contains(pattern)) {
+        return false;
+    }
+
+    // Extract the first word as the command
+    let parts: Vec<&str> = command.split_whitespace().collect();
+    if parts.is_empty() {
+        return false;
+    }
+
+    let cmd_name = parts[0];
+    
+    // Skip validation for common built-in commands
+    let builtins = ["echo", "cd", "pwd", "ls", "cat", "grep", "find", "which", "type"];
+    if builtins.contains(&cmd_name) {
+        return true;
+    }
+
+    // Check if command exists in PATH without executing it
+    // Use `which` command to check availability without running the command
+    match std::process::Command::new("which")
+        .arg(cmd_name)
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .output() {
+        Ok(output) => output.status.success(),
+        Err(_) => false,
+    }
+}
+
 fn handle_cached_candidates(
     candidates: Vec<CommandCandidate>,
     user_query: &str,
 ) -> anyhow::Result<Option<String>> {
-    if candidates.len() == 1 {
-        let candidate = &candidates[0];
+    // Filter out invalid commands
+    let valid_candidates: Vec<CommandCandidate> = candidates
+        .iter()
+        .filter(|candidate| validate_command(&candidate.command))
+        .cloned()
+        .collect();
+
+    if valid_candidates.is_empty() {
+        println!("No valid cached commands found, generating new ones...");
+        return Ok(None);
+    }
+
+    if valid_candidates.len() == 1 {
+        let candidate = &valid_candidates[0];
         println!("Found cached command: {}", candidate.command);
         if let Some(label) = &candidate.label {
             println!("Label: {}", label);
@@ -66,7 +147,7 @@ fn handle_cached_candidates(
     println!("Found cached commands for: \"{}\"", user_query);
     println!();
 
-    let options: Vec<String> = candidates
+    let options: Vec<String> = valid_candidates
         .iter()
         .map(|candidate| {
             let label_text = candidate

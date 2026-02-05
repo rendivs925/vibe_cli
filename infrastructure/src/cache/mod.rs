@@ -10,6 +10,7 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CommandCandidate {
@@ -91,6 +92,80 @@ impl CacheManager {
         }
     }
 
+    fn validate_command_syntax(command: &str) -> bool {
+        // Check if command contains any dangerous patterns
+        let dangerous_patterns = [
+            "rm -rf", "rm -r", "dd if=", "mkfs", "format", "shred", "wipe", "fdisk", "sfdisk",
+            "parted", "dd of=", "> /dev", "< /dev", "2> /dev",
+        ];
+
+        if dangerous_patterns
+            .iter()
+            .any(|pattern| command.to_lowercase().contains(pattern))
+        {
+            return false;
+        }
+
+        // Check for shell injection patterns
+        let injection_patterns = [
+            "; rm", "&& rm", "|| rm", "$(rm", "`rm`", "| rm", "> rm", "< rm",
+        ];
+
+        if injection_patterns
+            .iter()
+            .any(|pattern| command.contains(pattern))
+        {
+            return false;
+        }
+
+        true
+    }
+
+    fn validate_command_exists(command: &str) -> bool {
+        // Extract the first word as the command
+        let parts: Vec<&str> = command.split_whitespace().collect();
+        if parts.is_empty() {
+            return false;
+        }
+
+        let cmd_name = parts[0];
+
+        // Skip validation for common built-in commands
+        let builtins = [
+            "echo", "cd", "pwd", "ls", "cat", "grep", "find", "which", "type",
+        ];
+        if builtins.contains(&cmd_name) {
+            return true;
+        }
+
+        // Check if command exists in PATH without executing it
+        // Use `which` command to check availability without running the command
+        match std::process::Command::new("which")
+            .arg(cmd_name)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output()
+        {
+            Ok(output) => output.status.success(),
+            Err(_) => false,
+        }
+    }
+
+    fn validate_command(command: &str) -> bool {
+        if command.trim().is_empty() {
+            return false;
+        }
+
+        if !Self::validate_command_syntax(command) {
+            return false;
+        }
+
+        if !Self::validate_command_exists(command) {
+            return false;
+        }
+
+        true
+    }
     fn normalize_text(text: &str) -> String {
         text.to_lowercase()
             .chars()
@@ -226,7 +301,22 @@ impl CacheManager {
                 if entry.candidates.is_empty() {
                     return Ok(None);
                 }
-                return Ok(Some(entry.candidates.clone()));
+
+                // Validate cached commands
+                let valid_candidates: Vec<CommandCandidate> = entry
+                    .candidates
+                    .iter()
+                    .filter(|candidate| Self::validate_command(&candidate.command))
+                    .cloned()
+                    .collect();
+
+                if valid_candidates.is_empty() {
+                    // All cached commands are invalid, remove this entry
+                    self.remove_cache_entry("commands", prompt)?;
+                    return Ok(None);
+                }
+
+                return Ok(Some(valid_candidates));
             }
         }
 
@@ -246,11 +336,32 @@ impl CacheManager {
             if entry.candidates.is_empty() {
                 Ok(None)
             } else {
-                Ok(Some(entry.candidates.clone()))
+                // Validate cached commands
+                let valid_candidates: Vec<CommandCandidate> = entry
+                    .candidates
+                    .iter()
+                    .filter(|candidate| Self::validate_command(&candidate.command))
+                    .cloned()
+                    .collect();
+
+                if valid_candidates.is_empty() {
+                    // All cached commands are invalid, remove this entry
+                    self.remove_cache_entry("commands", &entry.prompt)?;
+                    return Ok(None);
+                }
+
+                Ok(Some(valid_candidates))
             }
         } else {
             Ok(None)
         }
+    }
+
+    fn remove_cache_entry(&self, cache_type: &str, prompt: &str) -> Result<()> {
+        let mut cache: CacheFile = self.load_cache_file(cache_type)?;
+        cache.entries.retain(|entry| entry.prompt != prompt);
+        self.save_cache_file(cache_type, &cache)?;
+        Ok(())
     }
 
     pub fn save_command_cached(
@@ -341,5 +452,43 @@ impl CacheManager {
 
         self.save_cache_file("rag", &cache)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_validate_command_syntax() {
+        let cache_manager = CacheManager::new(PathBuf::from("/tmp"), false);
+
+        assert!(cache_manager.validate_command_syntax("ls -la"));
+        assert!(cache_manager.validate_command_syntax("echo hello"));
+        assert!(!cache_manager.validate_command_syntax("rm -rf /"));
+        assert!(!cache_manager.validate_command_syntax("dd if=/dev/zero"));
+        assert!(!cache_manager.validate_command_syntax("echo; rm -rf /"));
+    }
+
+    #[test]
+    fn test_validate_command_exists() {
+        let cache_manager = CacheManager::new(PathBuf::from("/tmp"), false);
+
+        assert!(cache_manager.validate_command_exists("ls"));
+        assert!(cache_manager.validate_command_exists("echo"));
+        assert!(cache_manager.validate_command_exists("cat"));
+        assert!(!cache_manager.validate_command_exists("nonexistent_command_xyz123"));
+    }
+
+    #[test]
+    fn test_validate_command() {
+        let cache_manager = CacheManager::new(PathBuf::from("/tmp"), false);
+
+        assert!(cache_manager.validate_command("ls -la"));
+        assert!(cache_manager.validate_command("echo hello world"));
+        assert!(!cache_manager.validate_command("rm -rf /"));
+        assert!(!cache_manager.validate_command("nonexistent_command_xyz123"));
+        assert!(!cache_manager.validate_command(""));
+        assert!(!cache_manager.validate_command("   "));
     }
 }

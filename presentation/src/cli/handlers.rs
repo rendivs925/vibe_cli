@@ -728,66 +728,6 @@ Now analyze this query:"#,
         let mut last_successful_command = String::new();
         let mut last_successful_query = String::new();
 
-        if let Ok(Some(cached_commands)) = self.cache_manager.load_cached(query) {
-            // Validate cached commands
-            let validation_results = self.command_validator.validate_multiple(
-                &cached_commands
-                    .iter()
-                    .map(|c| c.command.clone())
-                    .collect::<Vec<_>>(),
-            );
-            let valid_commands: Vec<CommandCandidate> = cached_commands
-                .into_iter()
-                .zip(validation_results.into_iter())
-                .filter(|(_, validation)| validation.is_valid)
-                .map(|(candidate, _)| candidate)
-                .collect();
-
-            if valid_commands.is_empty() {
-                println!(
-                    "{}",
-                    "Cached commands are invalid, generating new ones...".yellow()
-                );
-            } else {
-                println!(
-                    "{}",
-                    format!("Found {} cached commands", valid_commands.len()).green()
-                );
-                println!("{}", "Validating cached commands...".white());
-                let valid_count = valid_commands.len();
-                println!("{}", format!("{} valid commands", valid_count).green());
-
-                if ask_confirmation("Use cached commands?", true)? {
-                    let output = Command::new("bash")
-                        .arg("-c")
-                        .arg(&valid_commands[0].command)
-                        .output()?;
-                    let stdout = String::from_utf8_lossy(&output.stdout);
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    let full_output = format!(
-                        "{}{}",
-                        stdout,
-                        if !stderr.is_empty() {
-                            format!("\nErrors:\n{}", stderr)
-                        } else {
-                            String::new()
-                        }
-                    );
-
-                    if ai_interpret {
-                        self.interpret_output(query, &full_output).await?;
-                    } else {
-                        println!("{}", stdout);
-                    }
-
-                    if !output.status.success() {
-                        println!("{}", format!("Command failed: {}", stderr).red());
-                    }
-                    return Ok(());
-                }
-            }
-        }
-
         let messages = vec![Message {
             role: "user".to_string(),
             content: query.to_string(),

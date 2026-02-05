@@ -1,5 +1,5 @@
 use crate::ports::{Cache, StorageService};
-use domain::entities::command::Command;
+use domain::entities::command::Command as DomainCommand;
 use domain::services::command_planner::CommandPlanner;
 use domain::CommandExecution;
 use shared::error::AppError;
@@ -32,37 +32,45 @@ impl CommandUseCase {
         // Check cache first
         let cache_key = format!("cmd:{:x}", md5::compute(input.as_bytes()));
         if let Some(cached_command_str) = self.cache.get(&cache_key).await? {
-            let cached_command: Command = serde_json::from_str(&cached_command_str)
+            let cached_command: DomainCommand = serde_json::from_str(&cached_command_str)
                 .map_err(|e| AppError::new(e.to_string()))?;
-            println!("📋 Using cached neurosymbolic solution");
-            return Ok(CommandExecution::from_command(&cached_command));
+            println!("Using cached neurosymbolic solution");
+            
+            // Validate cached command
+            if Self::validate_command(&cached_command.command_line()) {
+                return Ok(CommandExecution::from_command(&cached_command));
+            } else {
+                println!("Cached command invalid, regenerating...");
+                // Note: remove method might need to be implemented in Cache trait
+                // self.cache.remove(&cache_key).await?;
+            }
         }
 
-        println!("🧠 Neurosymbolic Analysis Started for: {}", input);
+        println!("Neurosymbolic Analysis Started for: {}", input);
 
         // Use neurosymbolic service for enhanced reasoning
         match self.neurosymbolic_service.process_query(input).await {
             Ok(response) => {
-                println!("✅ Neurosymbolic Processing Complete");
-                println!("🎯 Intent: {}", response.intent.id);
-                println!("📊 Confidence: {:.1}%", response.confidence * 100.0);
+                println!("Neurosymbolic Processing Complete");
+                println!("Intent: {}", response.intent.id);
+                println!("Confidence: {:.1}%", response.confidence * 100.0);
 
                 if !response.ranked_solutions.is_empty() {
                     println!(
-                        "🏆 Top Solution: {}",
+                        "Top Solution: {}",
                         response.ranked_solutions[0].solution.description
                     );
                     println!(
-                        "🧠 Neural Score: {:.1}",
+                        "Neural Score: {:.1}",
                         response.ranked_solutions[0].neural_score
                     );
                     println!(
-                        "⚙️ Symbolic Score: {:.1}",
+                        "Symbolic Score: {:.1}",
                         response.ranked_solutions[0].symbolic_score
                     );
 
                     // Convert to command using simplified approach
-                    let command = domain::entities::command::Command::new(
+                    let command = DomainCommand::new(
                         format!("neuro_{}", response.ranked_solutions[0].solution.id),
                         response.ranked_solutions[0].solution.description.clone(),
                         response.ranked_solutions[0]
@@ -75,14 +83,14 @@ impl CommandUseCase {
                         response.ranked_solutions[0].combined_score,
                     );
 
-                    println!("🔧 Generated Command: {}", command.command_line());
+                    println!("Generated Command: {}", command.command_line());
                     self.cache
                         .set(&cache_key, &serde_json::to_string(&command).unwrap())
                         .await?;
                     Ok(CommandExecution::from_command(&command))
                 } else {
-                    println!("⚠️ No viable neurosymbolic solutions found");
-                    let command = domain::entities::command::Command::new(
+                    println!("No viable neurosymbolic solutions found");
+                    let command = DomainCommand::new(
                         "fallback".to_string(),
                         "No solution found".to_string(),
                         "echo 'No neurosymbolic solution available'".to_string(),
@@ -93,7 +101,7 @@ impl CommandUseCase {
                 }
             }
             Err(e) => {
-                println!("❌ Neurosymbolic Service Error: {}", e);
+                println!("Neurosymbolic Service Error: {}", e);
                 Err(AppError::domain(format!(
                     "Neurosymbolic service error: {}",
                     e
@@ -134,7 +142,7 @@ impl CommandUseCase {
         &self,
         _query: &str,
         _limit: usize,
-    ) -> Result<Vec<Command>, AppError> {
+    ) -> Result<Vec<DomainCommand>, AppError> {
         // Get all commands from storage and return recent ones
         self.storage
             .get_all_commands()
@@ -145,7 +153,7 @@ impl CommandUseCase {
     /// Execute a command with confirmation
     pub async fn execute_command(
         &self,
-        command: &Command,
+        command: &DomainCommand,
         confirmed: bool,
     ) -> Result<CommandExecution, AppError> {
         if !confirmed && !command.is_safe() {
@@ -177,5 +185,74 @@ impl CommandUseCase {
             .get_all_executions()
             .await
             .map(|execs| execs.into_iter().take(limit).collect())
+    }
+
+    fn validate_command(command: &str) -> bool {
+        if command.trim().is_empty() {
+            return false;
+        }
+
+        // Check if command contains any dangerous patterns
+        let dangerous_patterns = [
+            "rm -rf",
+            "rm -r",
+            "dd if=",
+            "mkfs",
+            "format",
+            "shred",
+            "wipe",
+            "fdisk",
+            "sfdisk",
+            "parted",
+            "dd of=",
+            "> /dev",
+            "< /dev",
+            "2> /dev",
+        ];
+
+        if dangerous_patterns.iter().any(|pattern| command.to_lowercase().contains(pattern)) {
+            return false;
+        }
+
+        // Check for shell injection patterns
+        let injection_patterns = [
+            "; rm",
+            "&& rm",
+            "|| rm",
+            "$(rm",
+            "`rm`",
+            "| rm",
+            "> rm",
+            "< rm",
+        ];
+
+        if injection_patterns.iter().any(|pattern| command.contains(pattern)) {
+            return false;
+        }
+
+        // Extract the first word as the command
+        let parts: Vec<&str> = command.split_whitespace().collect();
+        if parts.is_empty() {
+            return false;
+        }
+
+        let cmd_name = parts[0];
+        
+        // Skip validation for common built-in commands
+        let builtins = ["echo", "cd", "pwd", "ls", "cat", "grep", "find", "which", "type"];
+        if builtins.contains(&cmd_name) {
+            return true;
+        }
+
+        // Check if command exists in PATH without executing it
+        // Use `which` command to check availability without running the command
+        match std::process::Command::new("which")
+            .arg(cmd_name)
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .output() {
+            Ok(output) => output.status.success(),
+            Err(_) => false,
+        }
     }
 }
