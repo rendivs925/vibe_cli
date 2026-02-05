@@ -45,6 +45,7 @@ No flags to remember. No man pages to read. Just natural language.
 | **Multi-Step Agent** | Complex task planning with safety validation |
 | **Neurosymbolic Reasoning** | Config-driven command generation |
 | **AI Interpretation** | Get readable summaries with `--ai-interpret` |
+| **Command Validation** | Multi-layer validation without command execution |
 
 ### Neurosymbolic Domain System
 
@@ -143,7 +144,17 @@ vibe_cli --neurosymbolic-install <url_or_path>   # Install from URL
 
 ## Command Validation
 
-Before execution, commands are validated:
+**Multi-layer safety validation that never executes commands during checking.**
+
+### How It Works
+
+Before any command is executed (from cache or newly generated), it passes through multiple validation layers:
+
+1. **Syntax Validation**: Checks for dangerous patterns and injection attacks
+2. **Availability Validation**: Uses `which` command to verify binary exists
+3. **Cache Validation**: Validates cached commands and removes invalid entries
+
+### Example Usage
 
 ```bash
 $ vibe_cli --neurosymbolic "show my gpu name"
@@ -156,10 +167,51 @@ Invalid commands:
 Executing 4 valid command(s)...
 ```
 
-**Validation types:**
-- **Syntax**: `bash -n` for syntax checking
-- **Availability**: `command -v` to verify binaries
-- **Helpful errors**: Suggests install commands
+### Validation Types
+
+#### **Security Validation**
+- **Dangerous Patterns**: Blocks `rm -rf`, `dd if=`, `mkfs`, `format`, `shred`, etc.
+- **Shell Injection**: Prevents `; rm`, `&& rm`, `$(rm`, backticks, pipes
+- **Input Validation**: Empty commands and whitespace-only commands are rejected
+
+#### **Availability Validation** 
+- **Binary Check**: Uses `which` to verify command exists in PATH
+- **Built-in Handling**: Recognizes common shell built-ins (`echo`, `cd`, `pwd`, `ls`, etc.)
+- **No Execution**: Validated commands are never executed during checking
+
+#### **Cache Intelligence**
+- **Automatic Cleanup**: Invalid cached commands are removed automatically
+- **Seamless Regeneration**: New commands generated when cache is invalid
+- **Performance**: Valid cached commands served instantly, invalid ones regenerated
+
+#### **Helpful Error Messages**
+- **Install Suggestions**: Recommends package installation for missing commands
+- **Pattern Identification**: Shows which validation rule was triggered
+- **Alternatives**: Suggests safer alternatives when dangerous commands are blocked
+
+### Validation Flow
+
+```
+Input Command
+       ↓
+Cache Lookup → Validate Cached Commands
+       ↓
+Generate New → Validate Generated Commands
+       ↓
+Security Check → Block/Allow Based on Rules
+       ↓
+Execution → Run Only Validated Commands
+```
+
+### Safety First Approach
+
+* **Never executes commands during validation**  
+* Uses `which` for safe binary availability checking  
+* Blocks destructive operations and injection attacks  
+* Maintains cache hygiene automatically  
+* Provides clear, actionable error messages  
+
+This ensures that both cached and newly generated commands are safe before they ever reach the user's shell.
 
 ---
 
