@@ -3,6 +3,9 @@ use crate::cli::streaming::request_command_stream_then_confirm;
 use super::cache::{CacheManager, CommandCandidate, ExplainCacheManager, RagCacheManager};
 use super::command_extraction::{extract_command_from_response, parse_agent_plan};
 use super::utils::{detect_system_info, project_cache_suffix};
+use application::services::integrated_neurosymbolic_service::{
+    IntegratedNeurosymbolicService, NeurosymbolicConfig as IntegratedConfig,
+};
 use application::services::neurosymbolic_service::{NeurosymbolicConfig, NeurosymbolicService};
 use application::services::rag_service::RagService;
 use colored::Colorize;
@@ -171,6 +174,7 @@ pub struct CliHandlers {
     config: Config,
     rag_service: Option<RagService>,
     neurosymbolic_service: Option<NeurosymbolicService>,
+    integrated_service: Option<IntegratedNeurosymbolicService>,
     command_validator: CommandValidator,
 }
 
@@ -182,6 +186,8 @@ impl CliHandlers {
         let system_info_path = Self::default_system_info_path();
         let system_info = Self::load_or_collect_system_info(&system_info_path);
 
+        let integrated_service = IntegratedNeurosymbolicService::new().ok();
+
         Self {
             cache_manager: CacheManager::new(cache_path),
             explain_cache_manager: ExplainCacheManager::new(explain_cache_path),
@@ -190,6 +196,7 @@ impl CliHandlers {
             config,
             rag_service: None,
             neurosymbolic_service: None,
+            integrated_service,
             command_validator: CommandValidator::new(),
         }
     }

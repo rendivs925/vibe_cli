@@ -76,6 +76,26 @@ pub struct Cli {
     #[arg(long)]
     pub clear_cache: bool,
 
+    /// Validate command syntax against man pages
+    #[arg(long)]
+    pub validate_syntax: bool,
+
+    /// Disable learning/RAG features
+    #[arg(long)]
+    pub no_learning: bool,
+
+    /// Disable safety validation
+    #[arg(long)]
+    pub no_safety: bool,
+
+    /// Output FQL (Formal Query Language) representation
+    #[arg(long)]
+    pub fql_output: bool,
+
+    /// Show reasoning trace
+    #[arg(long)]
+    pub trace: bool,
+
     /// The query or file path to process
     #[arg(trailing_var_arg = true)]
     pub args: Vec<String>,
