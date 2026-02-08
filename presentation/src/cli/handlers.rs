@@ -509,7 +509,8 @@ User request: {}",
     async fn understand_intent(&self, query: &str) -> Result<IntentAnalysis> {
         let client = infrastructure::ollama_client::OllamaClient::new()?;
         let prompt = format!(
-            r#"Analyze this query and return STRICT JSON only with these keys:
+            r#"Analyze this query and return STRICT JSON only with these keys.
+Pick EXACTLY ONE value for intent_category, action, and target (no pipes or multiple values):
 
 {{
   "intent_category": "system_info|process|memory|disk|network|service|user|file|log|hardware|general|unknown",
@@ -535,6 +536,7 @@ Query: "{}""#,
             let intent = parsed
                 .intent_category
                 .unwrap_or_else(|| "unknown".to_string());
+            let intent = Self::normalize_single_label(&intent);
             let mut neurosymbolic_suitable = parsed.neurosymbolic_suitable.unwrap_or(true);
             if intent == "log" {
                 neurosymbolic_suitable = true;
@@ -546,8 +548,8 @@ Query: "{}""#,
                 intent,
                 neurosymbolic_suitable,
                 reasoning,
-                action: parsed.action,
-                target: parsed.target,
+                action: parsed.action.map(|a| Self::normalize_single_label(&a)),
+                target: parsed.target.map(|t| Self::normalize_single_label(&t)),
                 objects: parsed.objects.unwrap_or_default(),
                 constraints: parsed.constraints.unwrap_or_default(),
                 params: parsed.params.unwrap_or_default(),
@@ -582,6 +584,15 @@ Query: "{}""#,
             constraints: Vec::new(),
             params: HashMap::new(),
         })
+    }
+
+    fn normalize_single_label(input: &str) -> String {
+        input
+            .split('|')
+            .map(|s| s.trim())
+            .find(|s| !s.is_empty())
+            .unwrap_or("unknown")
+            .to_string()
     }
 
     pub async fn handle_neurosymbolic(&mut self, query: &str, ai_interpret: bool) -> Result<()> {

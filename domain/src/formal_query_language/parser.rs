@@ -139,7 +139,24 @@ impl FqlParser {
             .unwrap()
             .captures(query)
         {
-            return Some(FqlTarget::Process(cap[1].to_string()));
+            let token = cap[1].to_string();
+            let token_lower = token.to_lowercase();
+            if [
+                "list",
+                "listing",
+                "show",
+                "all",
+                "running",
+                "process",
+                "processes",
+                "last",
+                "recent",
+            ]
+            .contains(&token_lower.as_str())
+            {
+                return Some(FqlTarget::Process("*".to_string()));
+            }
+            return Some(FqlTarget::Process(token));
         }
         if query.contains("running") && query.contains("process") {
             return Some(FqlTarget::Process("*".to_string()));

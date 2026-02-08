@@ -391,10 +391,8 @@ impl IntegratedNeurosymbolicService {
                         generated = self.filter_with_learning_context(&generated, context);
                     }
 
-                    if let Some(best) =
-                        self.select_best_command(&mut generated, trace)
-                    {
-                        return Ok(best);
+                    if let Some(best) = self.select_best_command(&mut generated, trace) {
+                        return Ok(self.apply_fql_limits(best, fql));
                     }
                 }
             }
@@ -406,6 +404,35 @@ impl IntegratedNeurosymbolicService {
             self.command_from_fql(fql)
         } else {
             self.heuristic_command_generation(&query_lower)
+        }
+    }
+
+    fn apply_fql_limits(&self, command: String, fql: Option<&FqlQuery>) -> String {
+        let Some(fql) = fql else {
+            return command;
+        };
+
+        let mut limit: Option<u64> = None;
+        for constraint in &fql.constraints {
+            if let domain::formal_query_language::FqlConstraint::Limit(n) = constraint {
+                limit = Some(*n);
+                break;
+            }
+        }
+
+        let Some(n) = limit else {
+            return command;
+        };
+
+        match fql.target {
+            FqlTarget::Process(_) => {
+                if command.contains("head -n") || command.contains("tail -n") {
+                    command
+                } else {
+                    format!("{} | head -n {}", command, n)
+                }
+            }
+            _ => command,
         }
     }
 
