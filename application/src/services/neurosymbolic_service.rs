@@ -545,7 +545,7 @@ impl NeurosymbolicService {
         let explanation = format!(
             "Used {} domain with {} matching for command generation",
             domain_id,
-            best_match.matched_on.to_string()
+            resolved.matched_on.to_string()
         );
         let solution_id = solution.id.clone();
         let solution_desc = solution.description.clone();

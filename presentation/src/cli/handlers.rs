@@ -513,17 +513,17 @@ User request: {}",
         let prompt = format!(
             r#"Analyze this query and return STRICT JSON only with these keys:
 
-{
+{{
   "intent_category": "system_info|process|memory|disk|network|service|user|file|log|hardware|general|unknown",
   "action": "list|show|check|monitor|start|stop|restart|enable|disable|find|read|delete|unknown",
   "target": "process|memory|disk|network|service|user|file|log|hardware|gpu|package|system|unknown",
   "objects": ["..."],
   "constraints": ["..."],
-  "params": {"lines": "20", "pattern": "error", "service": "nginx", "path": "/var/log"},
+  "params": {{"lines": "20", "pattern": "error", "service": "nginx", "path": "/var/log"}},
   "neurosymbolic_suitable": true,
   "reasoning": "brief explanation",
   "keywords": ["..."]
-}
+}}
 
 Query: "{}""#,
             query

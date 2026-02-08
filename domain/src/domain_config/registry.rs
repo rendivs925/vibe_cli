@@ -505,7 +505,7 @@ impl DomainRegistry {
                     continue;
                 }
 
-                if best.map(|(c, _, _, _, _)| score > c).unwrap_or(true) {
+                if best.as_ref().map(|(c, _, _, _, _)| score > *c).unwrap_or(true) {
                     best = Some((
                         score,
                         domain.id.clone(),
