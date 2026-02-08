@@ -1,7 +1,10 @@
+pub mod cache;
 pub mod config;
 pub mod embedder;
 pub mod embedding_storage;
+pub mod execution_storage;
 pub mod file_scanner;
 pub mod ollama_client;
 pub mod search;
+pub mod storage;
 pub mod symbolic_storage;

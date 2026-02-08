@@ -6,6 +6,7 @@
 pub mod domain_config;
 pub mod entities;
 pub mod repositories;
+pub mod safety;
 pub mod services;
 pub mod value_objects;
 
@@ -13,6 +14,7 @@ pub mod value_objects;
 pub use domain_config::*;
 pub use entities::*;
 pub use repositories::*;
+pub use safety::*;
 pub use services::*;
 pub use value_objects::*;
 

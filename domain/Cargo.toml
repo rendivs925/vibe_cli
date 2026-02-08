@@ -16,3 +16,4 @@ uuid = { version = "1.6", features = ["v4"] }
 thiserror = "1.0"
 which = "4"
 smallvec = { workspace = true, features = ["serde"] }
+regex = "1"
