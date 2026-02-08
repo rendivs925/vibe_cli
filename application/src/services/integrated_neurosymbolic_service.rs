@@ -518,6 +518,18 @@ impl IntegratedNeurosymbolicService {
     ) -> Option<FqlQuery> {
         if let Some(signal) = intent {
             if let (Some(action_str), Some(target_str)) = (&signal.action, &signal.target) {
+                let query_lower = query.to_lowercase();
+                let target_norm = target_str.to_lowercase();
+
+                if (target_norm == "system"
+                    || target_norm == "unknown"
+                    || action_str.to_lowercase() == "unknown"
+                    || (query_lower.contains("process") && target_norm != "process")
+                    || (query_lower.contains("journal") && target_norm != "log"))
+                {
+                    return self.fql_parser.parse(query);
+                }
+
                 if let (Some(action), Some(target)) = (
                     self.map_action(action_str),
                     self.map_target(target_str, signal),

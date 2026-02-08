@@ -1451,8 +1451,37 @@ Query: "{}""#,
     }
 ]"#;
 
-        std::fs::write(config_dir.join("linux/operations.json"), ops_json)?;
-        println!("  {}", "✓ operations.json (14 operations)");
+        let ops_path = config_dir.join("linux/operations.json");
+        let base_ops: Vec<serde_json::Value> = serde_json::from_str(ops_json)?;
+        let mut merged_ops: Vec<serde_json::Value> = Vec::new();
+
+        if ops_path.exists() {
+            if let Ok(existing_data) = std::fs::read_to_string(&ops_path) {
+                if let Ok(existing_ops) = serde_json::from_str::<Vec<serde_json::Value>>(&existing_data) {
+                    merged_ops.extend(existing_ops);
+                }
+            }
+        }
+
+        for base in base_ops {
+            let base_id = base.get("op_id").and_then(|v| v.as_str()).unwrap_or("");
+            if base_id.is_empty() {
+                continue;
+            }
+            let exists = merged_ops.iter().any(|op| {
+                op.get("op_id")
+                    .and_then(|v| v.as_str())
+                    .map(|id| id == base_id)
+                    .unwrap_or(false)
+            });
+            if !exists {
+                merged_ops.push(base);
+            }
+        }
+
+        let output = serde_json::to_string_pretty(&merged_ops)?;
+        std::fs::write(&ops_path, output)?;
+        println!("  {}", "✓ operations.json (merged)");
 
         // Entity definitions
         let process_entity = r#"{
