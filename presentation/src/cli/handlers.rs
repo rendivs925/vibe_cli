@@ -607,8 +607,12 @@ Now analyze this query:"#,
         }
 
         eprintln!("Processing query with neurosymbolic reasoning...");
-        if let Some(service) = self.integrated_service.as_mut() {
-            match service.process(query) {
+        if self.integrated_service.is_some() {
+            let result = {
+                let service = self.integrated_service.as_mut().unwrap();
+                service.process(query)
+            };
+            match result {
                 Ok(result) => {
                     println!(
                         "\n{}",
@@ -629,12 +633,14 @@ Now analyze this query:"#,
                             FailureType::Other
                         };
 
-                        let _ = service.record_failure(
-                            query,
-                            &result.command,
-                            failure_type,
-                            result.block_reason.as_deref(),
-                        );
+                        if let Some(service) = self.integrated_service.as_ref() {
+                            let _ = service.record_failure(
+                                query,
+                                &result.command,
+                                failure_type,
+                                result.block_reason.as_deref(),
+                            );
+                        }
                         return Ok(());
                     }
 
@@ -666,27 +672,31 @@ Now analyze this query:"#,
                             println!("{}", stdout);
                         }
 
-                        if output.status.success() {
-                            let _ = service.record_success(query, &result.command);
-                        } else {
-                            println!(
-                                "{}",
-                                format!("Command failed: {}", stderr).red()
-                            );
+                        if let Some(service) = self.integrated_service.as_ref() {
+                            if output.status.success() {
+                                let _ = service.record_success(query, &result.command);
+                            } else {
+                                println!(
+                                    "{}",
+                                    format!("Command failed: {}", stderr).red()
+                                );
+                                let _ = service.record_failure(
+                                    query,
+                                    &result.command,
+                                    FailureType::ExecutionFailed,
+                                    Some(stderr.trim()),
+                                );
+                            }
+                        }
+                    } else {
+                        if let Some(service) = self.integrated_service.as_ref() {
                             let _ = service.record_failure(
                                 query,
                                 &result.command,
-                                FailureType::ExecutionFailed,
-                                Some(stderr.trim()),
+                                FailureType::UserCancelled,
+                                Some("User cancelled execution"),
                             );
                         }
-                    } else {
-                        let _ = service.record_failure(
-                            query,
-                            &result.command,
-                            FailureType::UserCancelled,
-                            Some("User cancelled execution"),
-                        );
                     }
                 }
                 Err(e) => {

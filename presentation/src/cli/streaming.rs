@@ -292,7 +292,8 @@ impl LiveMonitor {
         }
 
         if self.pending_line.ends_with(' ') || self.pending_line.ends_with('\t') {
-            if let Some(violation) = self.validate_line(&self.pending_line) {
+            let pending = self.pending_line.clone();
+            if let Some(violation) = self.validate_line(&pending) {
                 return Some(violation);
             }
         }
