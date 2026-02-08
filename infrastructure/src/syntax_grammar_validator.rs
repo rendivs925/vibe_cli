@@ -150,7 +150,7 @@ impl SyntaxGrammarValidator {
     }
 
     /// Extract flags from command parts
-    fn extract_flags(&self, base_command: &str, parts: &[&str]) -> Vec<String> {
+    fn extract_flags(&mut self, base_command: &str, parts: &[&str]) -> Vec<String> {
         let mut flags = vec![];
         let mut skip_next = false;
 
