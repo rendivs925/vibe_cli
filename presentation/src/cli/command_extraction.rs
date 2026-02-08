@@ -250,35 +250,10 @@ pub fn extract_commands(raw: &str, user_query: &str) -> Vec<CommandCandidate> {
             return false;
         }
 
-        // Require *some* signal beyond a single bare word, unless allowlisted
+        // Single-word commands are allowed if they pass basic checks
         let token_count = t.split_whitespace().count();
         if token_count == 1 {
-            // Allowlist for common single-word info commands
-            let ok = matches!(
-                lower.as_str(),
-                "htop"
-                    | "top"
-                    | "free"
-                    | "uname"
-                    | "nvidia-smi"
-                    | "ls"
-                    | "ps"
-                    | "df"
-                    | "du"
-                    | "who"
-                    | "w"
-                    | "uptime"
-                    | "hostname"
-                    | "arch"
-                    | "date"
-                    | "cal"
-                    | "last"
-                    | "id"
-                    | "groups"
-                    | "users"
-                    | "fastfetch"
-            );
-            return ok;
+            return true;
         }
 
         // For multi-word, require shell signal or be very confident
