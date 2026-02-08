@@ -370,6 +370,9 @@ impl IntegratedNeurosymbolicService {
     ) -> Result<String> {
         if let Some(registry) = &self.domain_registry {
             if let Some(resolved) = registry.resolve_operation(query, fql) {
+                if resolved.confidence < 0.75 {
+                    return Err(anyhow!("Low confidence neurosymbolic match"));
+                }
                 trace.push(format!(
                     "  Resolved operation: {} ({:.0}%)",
                     resolved.op_id,
@@ -377,6 +380,10 @@ impl IntegratedNeurosymbolicService {
                 ));
 
                 if let Some((_, operation)) = registry.get_operation(&resolved.op_id) {
+                    if self.requires_service_input(operation, &resolved) {
+                        return Err(anyhow!("Missing required service input"));
+                    }
+
                     let mut generated = registry
                         .command_generator()
                         .generate(operation, &resolved.inputs);
@@ -402,6 +409,26 @@ impl IntegratedNeurosymbolicService {
         } else {
             return Err(anyhow!("Domain registry not available"));
         }
+    }
+
+    fn requires_service_input(
+        &self,
+        operation: &domain::domain_config::types::Operation,
+        resolved: &domain::domain_config::registry::ResolvedOperation,
+    ) -> bool {
+        if !operation.input_schema.contains_key("service") {
+            return false;
+        }
+
+        if resolved.inputs.contains_key("service") {
+            return false;
+        }
+
+        if let Some(action) = resolved.inputs.get("action").and_then(|v| v.as_str()) {
+            return action != "list";
+        }
+
+        true
     }
 
     fn apply_fql_limits(&self, command: String, fql: Option<&FqlQuery>) -> String {
