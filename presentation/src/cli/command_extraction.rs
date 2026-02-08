@@ -66,11 +66,6 @@ pub fn extract_commands(raw: &str, user_query: &str) -> Vec<CommandCandidate> {
             return true;
         }
 
-        // Elevation
-        if first == "sudo" {
-            return true;
-        }
-
         // Dangerous primaries
         if first == "rm" || first == "dd" || first.starts_with("mkfs") {
             return true;
@@ -243,6 +238,14 @@ pub fn extract_commands(raw: &str, user_query: &str) -> Vec<CommandCandidate> {
             || t.contains('`')
             || t.contains('/'); // Paths indicate commands
 
+        let tokens: Vec<&str> = t.split_whitespace().collect();
+        let first_tok = tokens.first().copied().unwrap_or("");
+        let second_tok = tokens.get(1).copied().unwrap_or("");
+        let allow_no_signal = matches!(
+            first_tok,
+            "systemctl" | "service"
+        ) || (first_tok == "sudo" && matches!(second_tok, "systemctl" | "service"));
+
         if sentencey && !has_shell_signal {
             return false;
         }
@@ -278,7 +281,7 @@ pub fn extract_commands(raw: &str, user_query: &str) -> Vec<CommandCandidate> {
         }
 
         // For multi-word, require shell signal or be very confident
-        if token_count >= 2 && !has_shell_signal {
+        if token_count >= 2 && !has_shell_signal && !allow_no_signal {
             return false;
         }
 
