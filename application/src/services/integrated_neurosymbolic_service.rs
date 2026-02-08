@@ -34,7 +34,7 @@ pub struct NeurosymbolicConfig {
     pub enable_learning: bool,
     /// Output FQL in trace
     pub output_fql: bool,
-    /// Block on safety violations
+    /// Require confirmation for safety warnings (dangerous commands always blocked)
     pub block_on_safety: bool,
     /// Block on invalid syntax
     pub block_on_invalid_syntax: bool,
