@@ -402,7 +402,7 @@ impl IntegratedNeurosymbolicService {
 
     /// Get manpage cache stats
     pub fn get_manpage_stats(&self) -> Result<(usize, usize)> {
-        self.manpage_cache.stats()
+        Ok(self.manpage_cache.stats()?)
     }
 
     /// Update configuration

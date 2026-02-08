@@ -380,7 +380,7 @@ impl GraphBuilder {
 
     /// Get discovery statistics
     pub fn get_stats(&self) -> Result<(usize, usize)> {
-        self.graph.stats()
+        Ok(self.graph.stats()?)
     }
 
     /// Clear and rebuild the graph

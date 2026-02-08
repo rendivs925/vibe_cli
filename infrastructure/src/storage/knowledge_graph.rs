@@ -282,6 +282,38 @@ impl KnowledgeGraph {
         }
     }
 
+    /// Lookup entities by name across all types
+    pub fn lookup_entity(&self, name: &str) -> SqliteResult<Vec<Entity>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, entity_type, discovered_at, last_updated
+             FROM entities WHERE name = ?1",
+        )?;
+
+        let results: SqliteResult<Vec<Entity>> = stmt
+            .query_map([name], |row| {
+                let id: i64 = row.get(0)?;
+                let entity_type_str: String = row.get(1)?;
+                let discovered_at: String = row.get(2)?;
+                let last_updated: String = row.get(3)?;
+
+                let entity_type =
+                    EntityType::from_str(&entity_type_str).unwrap_or(EntityType::File);
+                let attributes = self.get_entity_attributes(id)?;
+
+                Ok(Entity {
+                    id,
+                    entity_type,
+                    name: name.to_string(),
+                    attributes,
+                    discovered_at,
+                    last_updated,
+                })
+            })?
+            .collect();
+
+        results
+    }
+
     /// Get all entities of a specific type
     pub fn get_entities_by_type(&self, entity_type: EntityType) -> SqliteResult<Vec<Entity>> {
         let mut stmt = self.conn.prepare(

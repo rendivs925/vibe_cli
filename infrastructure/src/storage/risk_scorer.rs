@@ -8,10 +8,11 @@
 //! - System impact scope
 
 use crate::storage::experience_buffer::{ExperienceBuffer, FailureType};
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
 /// Risk level classification
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum RiskLevel {
     Minimal = 0,
     Low = 1,

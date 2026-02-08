@@ -171,17 +171,17 @@ impl LearningService {
 
     /// Get lessons learned for a query
     pub fn get_lessons(&self, query: &str) -> Result<Vec<String>> {
-        self.buffer.get_lessons_learned(query)
+        Ok(self.buffer.get_lessons_learned(query)?)
     }
 
     /// Get success rate for query pattern
     pub fn get_success_rate(&self, query: &str) -> Result<f32> {
-        self.buffer.get_success_rate(query)
+        Ok(self.buffer.get_success_rate(query)?)
     }
 
     /// Get service statistics
     pub fn get_stats(&self) -> Result<(usize, usize, f32)> {
-        self.buffer.get_stats()
+        Ok(self.buffer.get_stats()?)
     }
 
     /// Get the session ID

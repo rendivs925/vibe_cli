@@ -4,7 +4,7 @@ use domain::services::linux_symbolic_engine::LinuxSymbolicEngine;
 use domain::ConstraintSolver;
 use infrastructure::ollama_client::OllamaClient;
 use infrastructure::storage::experience_buffer::FailureType;
-use infrastructure::storage::knowledge_graph::KnowledgeGraph;
+use infrastructure::storage::knowledge_graph::KnowledgeGraph as InfraKnowledgeGraph;
 use infrastructure::storage::risk_scorer::RiskLevel;
 #[allow(unused_imports)]
 use serde::{Deserialize, Serialize};
@@ -24,7 +24,7 @@ struct LlmResponse {
 
 pub struct NeurosymbolicService {
     llm_client: OllamaClient,
-    knowledge_graph: KnowledgeGraph,
+    knowledge_graph: InfraKnowledgeGraph,
     constraint_solver: ConstraintSolver,
     domain_registry: Option<DomainRegistry>,
     command_generator: CommandGenerator,
@@ -350,9 +350,9 @@ pub struct VerificationPoint {
     pub critical: bool,
 }
 
-/// Simplified knowledge graph
+/// Simplified in-memory knowledge graph for reasoning
 #[derive(Debug, Clone)]
-pub struct KnowledgeGraph {
+pub struct InMemoryKnowledgeGraph {
     entities: HashMap<String, KnowledgeEntity>,
     relationships: Vec<Relationship>,
     constraints: Vec<Constraint>,
@@ -444,7 +444,7 @@ impl NeurosymbolicService {
 
         Ok(Self {
             llm_client: OllamaClient::new()?,
-            knowledge_graph: KnowledgeGraph::new(&kg_path)?,
+            knowledge_graph: InfraKnowledgeGraph::new(&kg_path)?,
             constraint_solver: ConstraintSolver::new(),
             domain_registry,
             command_generator: CommandGenerator::new(),
@@ -466,7 +466,7 @@ impl NeurosymbolicService {
 
         Ok(Self {
             llm_client: OllamaClient::new()?,
-            knowledge_graph: KnowledgeGraph::new(&kg_path)?,
+            knowledge_graph: InfraKnowledgeGraph::new(&kg_path)?,
             constraint_solver: ConstraintSolver::new(),
             domain_registry: Some(domain_registry),
             command_generator: CommandGenerator::new(),
@@ -907,6 +907,17 @@ impl NeurosymbolicService {
         let mut queries = Vec::new();
 
         for entity in entities {
+            let found_entities = self.knowledge_graph.lookup_entity(&entity.name)?;
+            let results: Vec<QueryResult> = found_entities
+                .into_iter()
+                .map(|e| QueryResult {
+                    entity_id: e.id.to_string(),
+                    entity_type: entity.entity_type.clone(),
+                    properties: e.attributes,
+                    confidence: 1.0,
+                })
+                .collect();
+
             // Query for related entities
             let query = GraphQuery {
                 query_type: QueryType::EntityLookup,
@@ -917,7 +928,7 @@ impl NeurosymbolicService {
                     ),
                     ("name".to_string(), entity.name.clone()),
                 ]),
-                results: self.knowledge_graph.lookup_entity(&entity.name).await?,
+                results,
                 execution_time: std::time::Duration::from_millis(10),
             };
             queries.push(query);
