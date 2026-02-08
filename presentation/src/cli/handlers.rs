@@ -10,6 +10,7 @@ use application::services::neurosymbolic_service::{NeurosymbolicConfig, Neurosym
 use application::services::rag_service::RagService;
 use colored::Colorize;
 use infrastructure::{config::Config, ollama_client::OllamaClient};
+use infrastructure::storage::experience_buffer::FailureType;
 use shared::confirmation::{ask_confirmation, ask_feedback};
 use shared::types::Message;
 use shared::types::Result;
@@ -576,19 +577,9 @@ Now analyze this query:"#,
     }
 
     pub async fn handle_neurosymbolic(&mut self, query: &str, ai_interpret: bool) -> Result<()> {
-        if self.neurosymbolic_service.is_none() {
-            eprintln!("Initializing neurosymbolic service with domain configs...");
-            let config = NeurosymbolicConfig::default();
-            match NeurosymbolicService::new(config).await {
-                Ok(service) => {
-                    self.neurosymbolic_service = Some(service);
-                    eprintln!("Neurosymbolic service initialized.");
-                }
-                Err(e) => {
-                    eprintln!("Failed to initialize neurosymbolic service: {:?}", e);
-                    return Ok(());
-                }
-            }
+        if self.integrated_service.is_none() {
+            eprintln!("Initializing integrated neurosymbolic service...");
+            self.integrated_service = IntegratedNeurosymbolicService::new().ok();
         }
 
         eprintln!("Analyzing query intent...");
@@ -616,111 +607,219 @@ Now analyze this query:"#,
         }
 
         eprintln!("Processing query with neurosymbolic reasoning...");
-        match self
-            .neurosymbolic_service
-            .as_mut()
-            .unwrap()
-            .process_query_with_domains(query)
-            .await
-        {
-            Ok(response) => {
-                println!("\n{}", "=== Neurosymbolic Response ===".green().bold());
-                println!("Confidence: {:.1}%", response.confidence * 100.0);
-                println!("\n{}", response.explanation);
-                println!("\n{}", "=== Best Solution ===".green().bold());
-                if let Some(solution) = response.ranked_solutions.first() {
-                    let commands = &solution.solution.command_sequence;
+        if let Some(service) = self.integrated_service.as_mut() {
+            match service.process(query) {
+                Ok(result) => {
+                    println!(
+                        "\n{}",
+                        "=== Integrated Neurosymbolic Response ===".green().bold()
+                    );
+                    println!("{}", result.format_display());
 
-                    let validation_results = self.command_validator.validate_multiple(commands);
-                    let validation_summary = self
-                        .command_validator
-                        .summarize_validation(&validation_results);
-                    println!("{}", validation_summary);
+                    if !result.can_execute {
+                        if let Some(reason) = result.block_reason.as_deref() {
+                            println!("{}", reason.red());
+                        }
 
-                    let valid_commands: Vec<String> = validation_results
-                        .iter()
-                        .filter(|r| r.is_valid)
-                        .map(|r| r.command.clone())
-                        .collect();
+                        let failure_type = if result.safety_report.is_blocked() {
+                            FailureType::SafetyViolation
+                        } else if !result.syntax_valid {
+                            FailureType::InvalidFlag
+                        } else {
+                            FailureType::Other
+                        };
 
-                    if valid_commands.is_empty() {
-                        println!("\n{}", "No valid commands to execute.".red());
+                        let _ = service.record_failure(
+                            query,
+                            &result.command,
+                            failure_type,
+                            result.block_reason.as_deref(),
+                        );
                         return Ok(());
                     }
 
-                    if valid_commands.len() != commands.len() {
-                        println!(
-                            "\n{}",
-                            format!(
-                                "Executing {} valid command(s) out of {}...",
-                                valid_commands.len(),
-                                commands.len()
-                            )
-                            .yellow()
-                        );
+                    if let Some(reason) = result.block_reason.as_deref() {
+                        println!("{}", reason.yellow());
                     }
 
-                    println!("Commands to execute: {}", valid_commands.join("; ").white());
-                }
-                println!("\n{}", "=== Reasoning Summary ===".green().bold());
-                println!("{}", response.reasoning_trace.summary);
+                    if ask_confirmation("Execute this command?", false)? {
+                        println!("\n{}", format!("Executing: {}", result.command).yellow());
+                        let output = Command::new("bash")
+                            .arg("-c")
+                            .arg(&result.command)
+                            .output()?;
+                        let stdout = String::from_utf8_lossy(&output.stdout);
+                        let stderr = String::from_utf8_lossy(&output.stderr);
+                        let full_output = format!(
+                            "{}{}",
+                            stdout,
+                            if !stderr.is_empty() {
+                                format!("\nErrors:\n{}", stderr)
+                            } else {
+                                String::new()
+                            }
+                        );
 
-                if ask_confirmation("Execute these commands?", false)? {
+                        if ai_interpret {
+                            self.interpret_output(query, &full_output).await?;
+                        } else {
+                            println!("{}", stdout);
+                        }
+
+                        if output.status.success() {
+                            let _ = service.record_success(query, &result.command);
+                        } else {
+                            println!(
+                                "{}",
+                                format!("Command failed: {}", stderr).red()
+                            );
+                            let _ = service.record_failure(
+                                query,
+                                &result.command,
+                                FailureType::ExecutionFailed,
+                                Some(stderr.trim()),
+                            );
+                        }
+                    } else {
+                        let _ = service.record_failure(
+                            query,
+                            &result.command,
+                            FailureType::UserCancelled,
+                            Some("User cancelled execution"),
+                        );
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Integrated neurosymbolic processing failed: {:?}", e);
+                    eprintln!("Falling back to standard query...");
+                    self.handle_query(query, ai_interpret, true).await?;
+                }
+            }
+        } else {
+            if self.neurosymbolic_service.is_none() {
+                eprintln!("Initializing neurosymbolic service with domain configs...");
+                let config = NeurosymbolicConfig::default();
+                match NeurosymbolicService::new(config).await {
+                    Ok(service) => {
+                        self.neurosymbolic_service = Some(service);
+                        eprintln!("Neurosymbolic service initialized.");
+                    }
+                    Err(e) => {
+                        eprintln!("Failed to initialize neurosymbolic service: {:?}", e);
+                        return Ok(());
+                    }
+                }
+            }
+
+            match self
+                .neurosymbolic_service
+                .as_mut()
+                .unwrap()
+                .process_query_with_domains(query)
+                .await
+            {
+                Ok(response) => {
+                    println!("\n{}", "=== Neurosymbolic Response ===".green().bold());
+                    println!("Confidence: {:.1}%", response.confidence * 100.0);
+                    println!("\n{}", response.explanation);
+                    println!("\n{}", "=== Best Solution ===".green().bold());
                     if let Some(solution) = response.ranked_solutions.first() {
                         let commands = &solution.solution.command_sequence;
+
                         let validation_results = self.command_validator.validate_multiple(commands);
+                        let validation_summary = self
+                            .command_validator
+                            .summarize_validation(&validation_results);
+                        println!("{}", validation_summary);
+
                         let valid_commands: Vec<String> = validation_results
                             .iter()
                             .filter(|r| r.is_valid)
                             .map(|r| r.command.clone())
                             .collect();
 
-                        let mut all_outputs = Vec::new();
-                        let mut has_any_output = false;
-
-                        for cmd in &valid_commands {
-                            println!("\n{}", format!("Executing: {}", cmd).yellow());
-                            let output = Command::new("bash").arg("-c").arg(cmd).output()?;
-                            let stdout = String::from_utf8_lossy(&output.stdout);
-                            let stderr = String::from_utf8_lossy(&output.stderr);
-
-                            if ai_interpret {
-                                let cmd_output =
-                                    format!("=== Command: {} ===\n{}\n{}", cmd, stdout, stderr);
-                                all_outputs.push(cmd_output);
-                            } else {
-                                println!("{}", stdout);
-                            }
-
-                            if !stdout.is_empty() || !stderr.is_empty() {
-                                has_any_output = true;
-                            }
-
-                            if !output.status.success() {
-                                println!("{}", format!("Command failed: {}", stderr).red());
-                            }
+                        if valid_commands.is_empty() {
+                            println!("\n{}", "No valid commands to execute.".red());
+                            return Ok(());
                         }
 
-                        if ai_interpret && has_any_output {
-                            let combined_output = all_outputs.join("\n\n");
-                            match self.interpret_output(query, &combined_output).await {
-                                Ok(_) => {}
-                                Err(e) => {
-                                    eprintln!("\nAI interpretation failed: {:?}", e);
-                                    println!("\n=== Raw Command Output ===");
-                                    println!("{}", combined_output);
+                        if valid_commands.len() != commands.len() {
+                            println!(
+                                "\n{}",
+                                format!(
+                                    "Executing {} valid command(s) out of {}...",
+                                    valid_commands.len(),
+                                    commands.len()
+                                )
+                                .yellow()
+                            );
+                        }
+
+                        println!("Commands to execute: {}", valid_commands.join("; ").white());
+                    }
+                    println!("\n{}", "=== Reasoning Summary ===".green().bold());
+                    println!("{}", response.reasoning_trace.summary);
+
+                    if ask_confirmation("Execute these commands?", false)? {
+                        if let Some(solution) = response.ranked_solutions.first() {
+                            let commands = &solution.solution.command_sequence;
+                            let validation_results =
+                                self.command_validator.validate_multiple(commands);
+                            let valid_commands: Vec<String> = validation_results
+                                .iter()
+                                .filter(|r| r.is_valid)
+                                .map(|r| r.command.clone())
+                                .collect();
+
+                            let mut all_outputs = Vec::new();
+                            let mut has_any_output = false;
+
+                            for cmd in &valid_commands {
+                                println!("\n{}", format!("Executing: {}", cmd).yellow());
+                                let output = Command::new("bash").arg("-c").arg(cmd).output()?;
+                                let stdout = String::from_utf8_lossy(&output.stdout);
+                                let stderr = String::from_utf8_lossy(&output.stderr);
+
+                                if ai_interpret {
+                                    let cmd_output = format!(
+                                        "=== Command: {} ===\n{}\n{}",
+                                        cmd, stdout, stderr
+                                    );
+                                    all_outputs.push(cmd_output);
+                                } else {
+                                    println!("{}", stdout);
+                                }
+
+                                if !stdout.is_empty() || !stderr.is_empty() {
+                                    has_any_output = true;
+                                }
+
+                                if !output.status.success() {
+                                    println!("{}", format!("Command failed: {}", stderr).red());
                                 }
                             }
-                        } else if ai_interpret {
-                            println!("\n{}", "No output to interpret.".yellow());
+
+                            if ai_interpret && has_any_output {
+                                let combined_output = all_outputs.join("\n\n");
+                                match self.interpret_output(query, &combined_output).await {
+                                    Ok(_) => {}
+                                    Err(e) => {
+                                        eprintln!("\nAI interpretation failed: {:?}", e);
+                                        println!("\n=== Raw Command Output ===");
+                                        println!("{}", combined_output);
+                                    }
+                                }
+                            } else if ai_interpret {
+                                println!("\n{}", "No output to interpret.".yellow());
+                            }
                         }
                     }
                 }
-            }
-            Err(e) => {
-                eprintln!("Neurosymbolic processing failed: {:?}", e);
-                eprintln!("Falling back to standard query...");
-                self.handle_query(query, ai_interpret, true).await?;
+                Err(e) => {
+                    eprintln!("Neurosymbolic processing failed: {:?}", e);
+                    eprintln!("Falling back to standard query...");
+                    self.handle_query(query, ai_interpret, true).await?;
+                }
             }
         }
         Ok(())
