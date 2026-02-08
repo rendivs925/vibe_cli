@@ -94,7 +94,7 @@ impl SyntaxGrammarValidator {
         }
 
         let base_command = parts[0];
-        let flags = self.extract_flags(&parts);
+        let flags = self.extract_flags(base_command, &parts);
 
         // Check if we can parse the man page
         let entry = self.crawler.parse_manpage(base_command);
@@ -150,7 +150,7 @@ impl SyntaxGrammarValidator {
     }
 
     /// Extract flags from command parts
-    fn extract_flags(&self, parts: &[&str]) -> Vec<String> {
+    fn extract_flags(&self, base_command: &str, parts: &[&str]) -> Vec<String> {
         let mut flags = vec![];
         let mut skip_next = false;
 
@@ -164,17 +164,26 @@ impl SyntaxGrammarValidator {
                 continue;
             }
 
-            // Handle combined short flags (-la)
-            if part.starts_with('-') && !part.starts_with("--") && part.len() > 2 {
-                // Split combined flags
-                let chars: Vec<char> = part.chars().skip(1).collect();
-                for c in chars {
-                    flags.push(format!("-{}", c));
+            if part.starts_with('-') {
+                // Prefer treating as a long flag if the man page recognizes it
+                if part.len() > 2
+                    && !part.starts_with("--")
+                    && self.crawler.is_valid_flag(base_command, part)
+                {
+                    flags.push(part.to_string());
+                    continue;
                 }
-            }
-            // Handle regular flags
-            else if part.starts_with('-') {
-                flags.push(part.to_string());
+
+                // Handle combined short flags (-la)
+                if !part.starts_with("--") && part.len() > 2 {
+                    let chars: Vec<char> = part.chars().skip(1).collect();
+                    for c in chars {
+                        flags.push(format!("-{}", c));
+                    }
+                } else {
+                    // Handle regular flags
+                    flags.push(part.to_string());
+                }
 
                 // Check if next part is a value for this flag
                 if i + 1 < parts.len() && !parts[i + 1].starts_with('-') {
@@ -194,7 +203,7 @@ impl SyntaxGrammarValidator {
         }
 
         let base_command = parts[0];
-        let flags = self.extract_flags(&parts);
+        let flags = self.extract_flags(base_command, &parts);
         let mut suggestions = vec![];
 
         for flag in flags {
@@ -279,7 +288,7 @@ mod tests {
     fn test_extract_flags() {
         let validator = SyntaxGrammarValidator::new();
         let parts = vec!["ls", "-la", "-h", "--directory", "/tmp"];
-        let flags = validator.extract_flags(&parts);
+        let flags = validator.extract_flags("ls", &parts);
 
         // Should extract -l, -a (from -la), -h, --directory
         assert!(flags.iter().any(|f| f == "-l"));
