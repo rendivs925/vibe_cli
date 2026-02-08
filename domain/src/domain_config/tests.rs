@@ -1,6 +1,8 @@
 #[cfg(test)]
 mod domain_config_tests {
-    use crate::types::{Generator, OutputItem, OutputProperty, OutputSchema, RequiredInput};
+    use crate::domain_config::types::{
+        Generator, OutputItem, OutputProperty, OutputSchema, RequiredInput,
+    };
     use crate::{CommandGenerator, DomainRegistry, OutputParser};
     use std::collections::HashMap;
     use std::env;

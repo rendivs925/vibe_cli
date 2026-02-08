@@ -5,6 +5,7 @@
 
 pub mod domain_config;
 pub mod entities;
+pub mod formal_query_language;
 pub mod repositories;
 pub mod safety;
 pub mod services;
@@ -13,6 +14,7 @@ pub mod value_objects;
 // Re-export main types for easier imports
 pub use domain_config::*;
 pub use entities::*;
+pub use formal_query_language::*;
 pub use repositories::*;
 pub use safety::*;
 pub use services::*;
