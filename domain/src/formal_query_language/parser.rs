@@ -57,12 +57,13 @@ impl FqlParser {
 
     fn compile_action_patterns() -> Vec<(Regex, FqlAction)> {
         vec![
+            (Regex::new(r"show|display").unwrap(), FqlAction::Show),
             (
                 Regex::new(r"create|make|new|add").unwrap(),
                 FqlAction::Create,
             ),
             (
-                Regex::new(r"list|show|display|view|print|get").unwrap(),
+                Regex::new(r"list|view|print|get").unwrap(),
                 FqlAction::List,
             ),
             (Regex::new(r"read|cat|less|more").unwrap(), FqlAction::Read),
@@ -92,10 +93,8 @@ impl FqlParser {
                 Regex::new(r"disable|deactivate").unwrap(),
                 FqlAction::Disable,
             ),
-            (
-                Regex::new(r"check|verify|validate|test|monitor").unwrap(),
-                FqlAction::Check,
-            ),
+            (Regex::new(r"check|monitor").unwrap(), FqlAction::Check),
+            (Regex::new(r"verify|validate|test").unwrap(), FqlAction::Validate),
             (
                 Regex::new(r"find|search|locate|look for|grep").unwrap(),
                 FqlAction::Find,
@@ -168,6 +167,18 @@ impl FqlParser {
             return Some(FqlTarget::Disk("*".to_string()));
         }
 
+        // Check for GPU/graphics hardware
+        if Regex::new(r"gpu|graphics card|graphics|video card|vga|nvidia|radeon|amd gpu")
+            .unwrap()
+            .is_match(query)
+        {
+            return Some(FqlTarget::Component("gpu".to_string()));
+        }
+
+        if query.contains("hardware") || query.contains("device") {
+            return Some(FqlTarget::Resource("hardware".to_string()));
+        }
+
         // Check for logs
         if query.contains("log") || query.contains("logs") {
             return Some(FqlTarget::Log("*".to_string()));
@@ -192,6 +203,14 @@ impl FqlParser {
             return Some(FqlPattern::Glob(cap[1].to_string()));
         }
 
+        // Named/Called
+        if let Some(cap) = Regex::new(r"(?:named|called) +([a-z0-9_\-\.]+)")
+            .unwrap()
+            .captures(query)
+        {
+            return Some(FqlPattern::Name(cap[1].to_string()));
+        }
+
         // Extensions
         if let Some(cap) = Regex::new(r"\.(\w+) +files?").unwrap().captures(query) {
             return Some(FqlPattern::Extension(cap[1].to_string()));
@@ -206,11 +225,11 @@ impl FqlParser {
         }
 
         // Larger than
-        if let Some(cap) = Regex::new(r"larger than +(\d+[kmgt]?b)")
+        if let Some(cap) = Regex::new(r"larger than +(\d+(?:\.\d+)?\s*[kmgt]?b)")
             .unwrap()
             .captures(query)
         {
-            return Some(FqlPattern::LargerThan(cap[1].to_string()));
+            return Some(FqlPattern::LargerThan(cap[1].replace(' ', "")));
         }
 
         None
@@ -378,6 +397,15 @@ mod tests {
 
         assert!(matches!(query.action, FqlAction::Check));
         assert!(matches!(query.target, FqlTarget::Service(ref s) if s == "nginx"));
+    }
+
+    #[test]
+    fn test_parse_gpu_query() {
+        let parser = FqlParser::new();
+        let query = parser.parse("show my gpu name").unwrap();
+
+        assert!(matches!(query.action, FqlAction::Show));
+        assert!(matches!(query.target, FqlTarget::Component(ref s) if s == "gpu"));
     }
 
     #[test]
