@@ -8,14 +8,20 @@
 //! 5. Learning Integration (RAG context)
 //! 6. Execution with feedback loop
 
+use crate::services::graph_builder::GraphBuilder;
 use crate::services::learning_service::LearningService;
 use domain::{
     formal_query_language::{FqlParser, FqlQuery},
+    services::{ProofGenerator, SafetyProof},
     safety::{SafetyEngine, SafetyReport},
 };
 use infrastructure::{
-    manpage_crawler::ManpageCrawler,
-    storage::{experience_buffer::FailureType, knowledge_graph::KnowledgeGraph, ManpageCache},
+    storage::{
+        experience_buffer::{ExperienceBuffer, FailureType},
+        induction_engine::InductionEngine,
+        risk_scorer::{RiskLevel, RiskProfile, RiskScorer},
+        ManpageCache,
+    },
     syntax_grammar_validator::SyntaxGrammarValidator,
 };
 use shared::types::Result;
@@ -71,6 +77,10 @@ pub struct NeurosymbolicResult {
     pub invalid_flags: Vec<String>,
     /// Learning context applied
     pub learning_context: Option<String>,
+    /// Risk profile assessment
+    pub risk_profile: Option<RiskProfile>,
+    /// Formal safety proof (for critical operations)
+    pub safety_proof: Option<SafetyProof>,
     /// Whether execution is allowed
     pub can_execute: bool,
     /// Reason if execution blocked
@@ -117,6 +127,31 @@ impl NeurosymbolicResult {
             output.push_str("🧠 Learning context applied\n");
         }
 
+        // Risk assessment
+        if let Some(ref profile) = self.risk_profile {
+            output.push_str(&format!(
+                "⚠️ Risk: {} ({:.2})\n",
+                profile.risk_level.as_str(),
+                profile.overall_score
+            ));
+            if !profile.mitigation_steps.is_empty() {
+                output.push_str("Mitigations:\n");
+                for step in &profile.mitigation_steps {
+                    output.push_str(&format!("  - {}\n", step));
+                }
+            }
+        }
+
+        // Safety proof
+        if let Some(ref proof) = self.safety_proof {
+            let status = if proof.verified { "verified" } else { "failed" };
+            output.push_str(&format!(
+                "🧾 Safety Proof: {} ({:.0}% confidence)\n",
+                status,
+                proof.confidence * 100.0
+            ));
+        }
+
         // Execution status
         if self.can_execute {
             output.push_str(&format!("▶ Command: {}\n", self.command));
@@ -138,6 +173,10 @@ pub struct IntegratedNeurosymbolicService {
     safety_engine: SafetyEngine,
     syntax_validator: SyntaxGrammarValidator,
     learning_service: LearningService,
+    risk_scorer: RiskScorer,
+    proof_generator: ProofGenerator,
+    induction_engine: Option<InductionEngine>,
+    experience_db_path: PathBuf,
     manpage_cache: ManpageCache,
 }
 
@@ -155,6 +194,19 @@ impl IntegratedNeurosymbolicService {
         let _ = std::fs::create_dir_all(&cache_dir);
 
         let manpage_cache = ManpageCache::new(cache_dir.join("manpage_cache.db"))?;
+        let experience_db_path = cache_dir.join("experience.db");
+        let risk_buffer = ExperienceBuffer::new(&experience_db_path)?;
+        let risk_scorer = RiskScorer::new().with_experience_buffer(risk_buffer);
+        let proof_generator = ProofGenerator::new();
+        let induction_engine = InductionEngine::new(cache_dir.join("induction.db")).ok();
+
+        if let Ok(builder) = GraphBuilder::new() {
+            if let Ok((entities, _)) = builder.get_stats() {
+                if entities == 0 {
+                    let _ = builder.discover_system();
+                }
+            }
+        }
 
         Ok(Self {
             config: config.clone(),
@@ -162,6 +214,10 @@ impl IntegratedNeurosymbolicService {
             safety_engine: SafetyEngine::new(),
             syntax_validator: SyntaxGrammarValidator::new(),
             learning_service: LearningService::new()?,
+            risk_scorer,
+            proof_generator,
+            induction_engine,
+            experience_db_path,
             manpage_cache,
         })
     }
@@ -229,6 +285,20 @@ impl IntegratedNeurosymbolicService {
             (true, vec![])
         };
 
+        // Step 5.5: Risk Assessment
+        let risk_profile = Some(self.risk_scorer.assess(&command, query));
+
+        // Step 5.6: Formal Proof for critical operations
+        let safety_proof = risk_profile
+            .as_ref()
+            .filter(|profile| {
+                matches!(
+                    profile.risk_level,
+                    RiskLevel::High | RiskLevel::Critical
+                )
+            })
+            .map(|_| self.proof_generator.generate_safety_proof(&command, &safety_report, fql.as_ref()));
+
         // Step 6: Determine if execution is allowed
         let (can_execute, block_reason) =
             self.determine_execution_status(&safety_report, syntax_valid, &invalid_flags);
@@ -248,6 +318,8 @@ impl IntegratedNeurosymbolicService {
             syntax_valid,
             invalid_flags,
             learning_context,
+            risk_profile,
+            safety_proof,
             can_execute,
             block_reason,
             trace,
@@ -391,6 +463,12 @@ impl IntegratedNeurosymbolicService {
                 failure_type,
                 error_message,
             )?;
+
+            if let Some(engine) = &self.induction_engine {
+                if let Ok(buffer) = ExperienceBuffer::new(&self.experience_db_path) {
+                    let _ = engine.mine_patterns(&buffer);
+                }
+            }
         }
         Ok(())
     }

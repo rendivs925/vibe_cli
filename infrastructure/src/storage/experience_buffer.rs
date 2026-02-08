@@ -331,6 +331,37 @@ impl ExperienceBuffer {
         entries.collect()
     }
 
+    /// List recent failures for induction analysis
+    pub fn list_failures(&self, limit: i64) -> SqliteResult<Vec<ExperienceEntry>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, timestamp, session_id, query, attempted_fql, attempted_command,
+                    failure_type, error_message, user_correction, success
+             FROM experience_entries
+             WHERE success = 0
+             ORDER BY timestamp DESC
+             LIMIT ?1",
+        )?;
+
+        let entries = stmt.query_map(params![limit], |row| {
+            Ok(ExperienceEntry {
+                id: row.get(0)?,
+                timestamp: DateTime::parse_from_rfc3339(&row.get::<_, String>(1)?)
+                    .map(|dt| dt.with_timezone(&Utc))
+                    .unwrap_or_else(|_| Utc::now()),
+                session_id: row.get(2)?,
+                query: row.get(3)?,
+                attempted_fql: row.get(4)?,
+                attempted_command: row.get(5)?,
+                failure_type: FailureType::from_str(&row.get::<_, String>(6)?),
+                error_message: row.get(7)?,
+                user_correction: row.get(8)?,
+                success: row.get::<_, i32>(9)? != 0,
+            })
+        })?;
+
+        entries.collect()
+    }
+
     /// Get lessons learned for a query type
     pub fn get_lessons_learned(&self, query: &str) -> SqliteResult<Vec<String>> {
         let normalized = Self::normalize_query(query);

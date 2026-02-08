@@ -194,8 +194,7 @@ impl InductionEngine {
 
     /// Get all failures from experience buffer
     fn get_all_failures(&self, buffer: &ExperienceBuffer) -> SqliteResult<Vec<ExperienceEntry>> {
-        // This is a simplified version - in practice would query buffer
-        Ok(vec![])
+        buffer.list_failures(1000)
     }
 
     /// Mine permission-related patterns
