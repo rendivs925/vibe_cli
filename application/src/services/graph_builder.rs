@@ -411,7 +411,7 @@ impl DiscoveryReport {
         output.push_str("========================\n\n");
 
         for (name, status) in &self.sections {
-            output.push_str(&format!("✓ {}: {}\n", name, status));
+            output.push_str(&format!("OK {}: {}\n", name, status));
         }
 
         output

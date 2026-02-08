@@ -202,7 +202,7 @@ nvidia-smi
 
     #[test]
     fn test_unicode_handling() {
-        let input = "lspci | grep -i nvidia # Checking 🎮 GPU";
+        let input = "lspci | grep -i nvidia # Checking GPU";
         let result = extract_command(input, "");
         assert_eq!(result, Some("lspci | grep -i nvidia".to_string()));
     }

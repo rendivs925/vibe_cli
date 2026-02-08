@@ -50,9 +50,9 @@ impl ValidationResult {
     /// Format result for display
     pub fn format_display(&self) -> String {
         if self.is_valid && self.invalid_flags.is_empty() {
-            format!("✓ Command '{}' syntax is valid", self.command)
+            format!("OK Command '{}' syntax is valid", self.command)
         } else if !self.is_valid {
-            let mut output = format!("✗ Command '{}' has invalid flags:\n", self.command);
+            let mut output = format!("INVALID Command '{}' has invalid flags:\n", self.command);
             for flag in &self.invalid_flags {
                 output.push_str(&format!("  - {}\n", flag));
             }
@@ -309,9 +309,9 @@ mod tests {
     #[test]
     fn test_validation_result_display() {
         let valid = ValidationResult::valid("ls -la");
-        assert!(valid.format_display().contains("✓"));
+        assert!(valid.format_display().contains("OK"));
 
         let invalid = ValidationResult::invalid("ls -z", vec!["-z".to_string()]);
-        assert!(invalid.format_display().contains("✗"));
+        assert!(invalid.format_display().contains("INVALID"));
     }
 }

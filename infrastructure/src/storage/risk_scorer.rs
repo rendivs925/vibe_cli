@@ -474,25 +474,25 @@ impl RiskScorer {
         let mut mitigations = vec![];
 
         if overall_score > 0.7 {
-            mitigations.push("⚠️  HIGH RISK: Consider using --dry-run first".to_string());
+            mitigations.push("HIGH RISK: Consider using --dry-run first".to_string());
         }
 
         for factor in factors {
             if factor.score > 0.7 {
                 match factor.category {
                     RiskCategory::Destructiveness => {
-                        mitigations.push("💾 Backup data before executing".to_string());
+                        mitigations.push("Backup data before executing".to_string());
                     }
                     RiskCategory::TargetSensitivity => {
-                        mitigations.push("🔒 Verify target path is correct".to_string());
-                        mitigations.push("👤 Ensure you have proper permissions".to_string());
+                        mitigations.push("Verify target path is correct".to_string());
+                        mitigations.push("Ensure you have proper permissions".to_string());
                     }
                     RiskCategory::PermissionRequirements => {
-                        mitigations.push("⚡ Double-check sudo is necessary".to_string());
+                        mitigations.push("Double-check sudo is necessary".to_string());
                     }
                     RiskCategory::SystemImpact => {
-                        mitigations.push("🔄 Schedule during maintenance window".to_string());
-                        mitigations.push("📢 Notify other users if applicable".to_string());
+                        mitigations.push("Schedule during maintenance window".to_string());
+                        mitigations.push("Notify other users if applicable".to_string());
                     }
                     _ => {}
                 }
@@ -505,11 +505,11 @@ impl RiskScorer {
     /// Format risk profile for display
     pub fn format_profile(&self, profile: &RiskProfile) -> String {
         let icon = match profile.risk_level {
-            RiskLevel::Minimal => "🟢",
-            RiskLevel::Low => "🟢",
-            RiskLevel::Medium => "🟡",
-            RiskLevel::High => "🟠",
-            RiskLevel::Critical => "🔴",
+            RiskLevel::Minimal => "SAFE",
+            RiskLevel::Low => "SAFE",
+            RiskLevel::Medium => "WARN",
+            RiskLevel::High => "HIGH",
+            RiskLevel::Critical => "CRITICAL",
         };
 
         let mut output = format!(
@@ -526,11 +526,11 @@ impl RiskScorer {
         output.push_str("Risk Factors:\n");
         for factor in &profile.factors {
             let factor_icon = if factor.score < 0.3 {
-                "🟢"
+                "SAFE"
             } else if factor.score < 0.6 {
-                "🟡"
+                "WARN"
             } else {
-                "🔴"
+                "HIGH"
             };
             output.push_str(&format!(
                 "  {} {}: {:.2} ({}%)\n",

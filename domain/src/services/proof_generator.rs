@@ -435,7 +435,7 @@ impl ProofGenerator {
     pub fn format_proof(&self, proof: &SafetyProof) -> String {
         let mut output = String::new();
 
-        let status_icon = if proof.verified { "✓" } else { "✗" };
+        let status_icon = if proof.verified { "OK" } else { "FAIL" };
         output.push_str(&format!(
             "{} {} Proof for '{}'\n",
             status_icon,
@@ -447,7 +447,7 @@ impl ProofGenerator {
 
         output.push_str("Proof Steps:\n");
         for step in &proof.proof_steps {
-            let icon = if step.verified { "✓" } else { "✗" };
+            let icon = if step.verified { "OK" } else { "FAIL" };
             output.push_str(&format!(
                 "  {} {}. {}\n",
                 icon, step.step_number, step.statement

@@ -149,7 +149,7 @@ impl CommandValidator {
             for result in results.iter().filter(|r| !r.is_valid) {
                 if let Some(ref err) = result.error_message {
                     summary.push_str(&format!(
-                        "\n  ✗ {}: {}",
+                        "\n  X {}: {}",
                         result.command.yellow(),
                         err.white()
                     ));
@@ -1191,7 +1191,7 @@ Query: "{}""#,
 }"#;
 
         std::fs::write(config_dir.join("linux/domain.json"), domain_json)?;
-        println!("  {}", "✓ domain.json");
+        println!("  {}", "OK domain.json");
 
         // Comprehensive Linux operations
         let ops_json = r#"[
@@ -1481,7 +1481,7 @@ Query: "{}""#,
 
         let output = serde_json::to_string_pretty(&merged_ops)?;
         std::fs::write(&ops_path, output)?;
-        println!("  {}", "✓ operations.json (merged)");
+        println!("  {}", "OK operations.json (merged)");
 
         // Entity definitions
         let process_entity = r#"{
@@ -1633,7 +1633,7 @@ Query: "{}""#,
 }"#;
         std::fs::write(linux_dir.join("memory.json"), memory_entity)?;
 
-        println!("  {}", "✓ entities/ (6 entities: Process, File, Service, NetworkConnection, User, Filesystem, MemoryInfo)");
+        println!("  {}", "OK entities/ (6 entities: Process, File, Service, NetworkConnection, User, Filesystem, MemoryInfo)");
 
         // Relationships
         let relationships_json = r#"[
@@ -1650,7 +1650,7 @@ Query: "{}""#,
             config_dir.join("linux/relationships.json"),
             relationships_json,
         )?;
-        println!("  {}", "✓ relationships.json (8 relationships)");
+        println!("  {}", "OK relationships.json (8 relationships)");
 
         // Inference rules for symbolic reasoning
         let inference_rules_json = r#"[
@@ -1719,7 +1719,7 @@ Query: "{}""#,
             config_dir.join("linux/inference_rules.json"),
             inference_rules_json,
         )?;
-        println!("  {}", "✓ inference_rules.json (10 inference rules)");
+        println!("  {}", "OK inference_rules.json (10 inference rules)");
 
         // Troubleshooting patterns
         let troubleshooting_json = r#"[
@@ -1859,7 +1859,7 @@ Query: "{}""#,
         )?;
         println!(
             "  {}",
-            "✓ troubleshooting.json (5 troubleshooting patterns)"
+            "OK troubleshooting.json (5 troubleshooting patterns)"
         );
 
         // Shared entities
@@ -1877,7 +1877,7 @@ Query: "{}""#,
 
         println!(
             "\n{}",
-            "✓ Linux symbolic reasoning domain initialized!"
+            "OK Linux symbolic reasoning domain initialized!"
                 .green()
                 .bold()
         );

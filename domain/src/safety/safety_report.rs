@@ -97,14 +97,14 @@ impl SafetyReport {
         let mut output = String::new();
 
         // Header with risk level
-        let risk_color = match self.overall_risk {
-            RiskLevel::Safe => "🟢",
-            RiskLevel::Warning => "🟡",
-            RiskLevel::Dangerous => "🔴",
-            RiskLevel::Unknown => "⚪",
+        let risk_label = match self.overall_risk {
+            RiskLevel::Safe => "SAFE",
+            RiskLevel::Warning => "WARN",
+            RiskLevel::Dangerous => "DANGER",
+            RiskLevel::Unknown => "UNKNOWN",
         };
 
-        output.push_str(&format!("{} {}\n", risk_color, self.summary));
+        output.push_str(&format!("{} {}\n", risk_label, self.summary));
 
         if !self.violations.is_empty() {
             output.push_str("\nDetailed Analysis:\n");
@@ -112,7 +112,7 @@ impl SafetyReport {
             // Show blocked violations first
             let blocked: Vec<_> = self.blocked_violations();
             if !blocked.is_empty() {
-                output.push_str("\n❌ BLOCKED VIOLATIONS:\n");
+                output.push_str("\nBLOCKED VIOLATIONS:\n");
                 for v in blocked {
                     output.push_str(&v.format_display());
                     output.push('\n');
@@ -122,7 +122,7 @@ impl SafetyReport {
             // Show warnings
             let warnings: Vec<_> = self.warning_violations();
             if !warnings.is_empty() {
-                output.push_str("\n⚠️  WARNINGS:\n");
+                output.push_str("\nWARNINGS:\n");
                 for v in warnings {
                     output.push_str(&v.format_display());
                     output.push('\n');
@@ -182,7 +182,7 @@ impl SafetyViolation {
 
     /// Format for display
     pub fn format_display(&self) -> String {
-        let icon = if self.blocked { "🚫" } else { "⚠️" };
+        let icon = if self.blocked { "BLOCKED" } else { "WARN" };
         let mut output = format!("  {} [{}] {}\n", icon, self.rule_id, self.rule_name);
         output.push_str(&format!("     Type: {}\n", self.violation_type));
         output.push_str(&format!("     Description: {}\n", self.description));

@@ -10,6 +10,7 @@
 
 use crate::services::graph_builder::GraphBuilder;
 use crate::services::learning_service::LearningService;
+use anyhow::anyhow;
 use domain::{
     domain_config::{types::GeneratedCommand, DomainRegistry},
     formal_query_language::{FqlAction, FqlParser, FqlQuery, FqlTarget},
@@ -110,41 +111,34 @@ impl NeurosymbolicResult {
 
         // FQL output
         if let Some(ref fql) = self.fql {
-            output.push_str(&format!("📝 FQL: {}\n", fql.to_fql_string()));
+            output.push_str(&format!("FQL: {}\n", fql.to_fql_string()));
         }
 
         // Safety
-        let safety_icon = if self.safety_report.is_safe() {
-            "🟢"
-        } else if self.safety_report.is_blocked() {
-            "🔴"
-        } else {
-            "🟡"
-        };
         output.push_str(&format!(
-            "{} Safety: {}\n",
-            safety_icon, self.safety_report.overall_risk
+            "Safety: {}\n",
+            self.safety_report.overall_risk
         ));
 
         // Syntax validation
         if self.syntax_valid {
-            output.push_str("✓ Syntax: Valid\n");
+            output.push_str("Syntax: Valid\n");
         } else {
             output.push_str(&format!(
-                "✗ Syntax: Invalid flags: {:?}\n",
+                "Syntax: Invalid flags: {:?}\n",
                 self.invalid_flags
             ));
         }
 
         // Learning context
         if self.learning_context.is_some() {
-            output.push_str("🧠 Learning context applied\n");
+            output.push_str("Learning context applied\n");
         }
 
         // Risk assessment
         if let Some(ref profile) = self.risk_profile {
             output.push_str(&format!(
-                "⚠️ Risk: {} ({:.2})\n",
+                "Risk: {} ({:.2})\n",
                 profile.risk_level.as_str(),
                 profile.overall_score
             ));
@@ -160,7 +154,7 @@ impl NeurosymbolicResult {
         if let Some(ref proof) = self.safety_proof {
             let status = if proof.verified { "verified" } else { "failed" };
             output.push_str(&format!(
-                "🧾 Safety Proof: {} ({:.0}% confidence)\n",
+                "Safety Proof: {} ({:.0}% confidence)\n",
                 status,
                 proof.confidence * 100.0
             ));
@@ -168,10 +162,10 @@ impl NeurosymbolicResult {
 
         // Execution status
         if self.can_execute {
-            output.push_str(&format!("▶ Command: {}\n", self.command));
+            output.push_str(&format!("Command: {}\n", self.command));
         } else {
             output.push_str(&format!(
-                "⛔ Blocked: {}\n",
+                "Blocked: {}\n",
                 self.block_reason.as_deref().unwrap_or("Unknown reason")
             ));
         }
@@ -391,19 +385,20 @@ impl IntegratedNeurosymbolicService {
                         generated = self.filter_with_learning_context(&generated, context);
                     }
 
+                    if generated.is_empty() {
+                        return Err(anyhow!("No command candidates generated"));
+                    }
+
                     if let Some(best) = self.select_best_command(&mut generated, trace) {
                         return Ok(self.apply_fql_limits(best, fql));
                     }
+                    return Err(anyhow!("No valid command candidates"));
                 }
+            } else {
+                return Err(anyhow!("No neurosymbolic operation match"));
             }
-        }
-
-        let query_lower = query.to_lowercase();
-
-        if let Some(fql) = fql {
-            self.command_from_fql(fql)
         } else {
-            self.heuristic_command_generation(&query_lower)
+            return Err(anyhow!("Domain registry not available"));
         }
     }
 
