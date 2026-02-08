@@ -11,7 +11,8 @@
 use crate::services::graph_builder::GraphBuilder;
 use crate::services::learning_service::LearningService;
 use domain::{
-    formal_query_language::{FqlParser, FqlQuery},
+    domain_config::{types::GeneratedCommand, DomainRegistry},
+    formal_query_language::{FqlAction, FqlParser, FqlQuery, FqlTarget},
     services::{ProofGenerator, SafetyProof},
     safety::{SafetyEngine, SafetyReport},
 };
@@ -26,6 +27,7 @@ use infrastructure::{
     syntax_grammar_validator::SyntaxGrammarValidator,
 };
 use shared::types::Result;
+use std::collections::HashSet;
 use std::path::PathBuf;
 
 /// Configuration for neurosymbolic processing
@@ -59,6 +61,17 @@ impl Default for NeurosymbolicConfig {
             block_on_invalid_syntax: true,
         }
     }
+}
+
+/// Optional structured intent signal from upstream analysis (LLM or rules)
+#[derive(Debug, Clone, Default)]
+pub struct IntentSignal {
+    pub category: Option<String>,
+    pub action: Option<String>,
+    pub target: Option<String>,
+    pub objects: Vec<String>,
+    pub constraints: Vec<String>,
+    pub params: std::collections::HashMap<String, String>,
 }
 
 /// Result of neurosymbolic processing
@@ -180,6 +193,7 @@ pub struct IntegratedNeurosymbolicService {
     experience_db_path: PathBuf,
     knowledge_graph_path: PathBuf,
     manpage_cache: ManpageCache,
+    domain_registry: Option<DomainRegistry>,
 }
 
 impl IntegratedNeurosymbolicService {
@@ -195,6 +209,11 @@ impl IntegratedNeurosymbolicService {
         let cache_dir = PathBuf::from(home).join(".config/vibe_cli");
         let _ = std::fs::create_dir_all(&cache_dir);
 
+        let domains_dir = cache_dir.join("domains");
+        let shared_dir = cache_dir.join("shared_entities");
+        let _ = std::fs::create_dir_all(&domains_dir);
+        let _ = std::fs::create_dir_all(&shared_dir);
+
         let manpage_cache = ManpageCache::new(cache_dir.join("manpage_cache.db"))?;
         let experience_db_path = cache_dir.join("experience.db");
         let knowledge_graph_path = cache_dir.join("knowledge_graph.db");
@@ -202,6 +221,13 @@ impl IntegratedNeurosymbolicService {
         let risk_scorer = RiskScorer::new().with_experience_buffer(risk_buffer);
         let proof_generator = ProofGenerator::new();
         let induction_engine = InductionEngine::new(cache_dir.join("induction.db")).ok();
+
+        let domain_registry = DomainRegistry::new(
+            domains_dir.clone(),
+            domains_dir.clone(),
+            shared_dir.clone(),
+        )
+        .ok();
 
         if let Ok(builder) = GraphBuilder::new() {
             if let Ok((entities, _)) = builder.get_stats() {
@@ -223,18 +249,28 @@ impl IntegratedNeurosymbolicService {
             experience_db_path,
             knowledge_graph_path,
             manpage_cache,
+            domain_registry,
         })
     }
 
     /// Process a query through the complete neurosymbolic pipeline
     pub fn process(&mut self, query: &str) -> Result<NeurosymbolicResult> {
+        self.process_with_intent(query, None)
+    }
+
+    /// Process with optional upstream intent signal
+    pub fn process_with_intent(
+        &mut self,
+        query: &str,
+        intent: Option<&IntentSignal>,
+    ) -> Result<NeurosymbolicResult> {
         let mut trace = vec![];
         trace.push(format!("Processing query: '{}'", query));
 
         // Step 1: FQL Autoformalization
         let fql = if self.config.enable_fql {
             trace.push("Step 1: Parsing to FQL...".to_string());
-            let parsed = self.fql_parser.parse(query);
+            let parsed = self.fql_from_intent_or_query(query, intent);
             if let Some(ref f) = parsed {
                 trace.push(format!("  FQL: {}", f.to_fql_string()));
             }
@@ -257,7 +293,7 @@ impl IntegratedNeurosymbolicService {
 
         // Step 3: Generate command (simplified - would use domain config)
         trace.push("Step 3: Generating command...".to_string());
-        let command = self.generate_command(query, fql.as_ref())?;
+        let command = self.generate_command(query, fql.as_ref(), learning_context.as_deref(), &mut trace)?;
         trace.push(format!("  Generated: {}", command));
 
         // Step 4: Safety Validation
@@ -331,16 +367,44 @@ impl IntegratedNeurosymbolicService {
     }
 
     /// Generate command from query and FQL
-    fn generate_command(&self, query: &str, fql: Option<&FqlQuery>) -> Result<String> {
-        // For now, simple heuristic generation
-        // In production, this would use the domain config system
+    fn generate_command(
+        &mut self,
+        query: &str,
+        fql: Option<&FqlQuery>,
+        learning_context: Option<&str>,
+        trace: &mut Vec<String>,
+    ) -> Result<String> {
+        if let Some(registry) = &self.domain_registry {
+            if let Some(resolved) = registry.resolve_operation(query, fql) {
+                trace.push(format!(
+                    "  Resolved operation: {} ({:.0}%)",
+                    resolved.op_id,
+                    resolved.confidence * 100.0
+                ));
+
+                if let Some((_, operation)) = registry.get_operation(&resolved.op_id) {
+                    let mut generated = registry
+                        .command_generator()
+                        .generate(operation, &resolved.inputs);
+
+                    if let Some(context) = learning_context {
+                        generated = self.filter_with_learning_context(&generated, context);
+                    }
+
+                    if let Some(best) =
+                        self.select_best_command(&mut generated, trace)
+                    {
+                        return Ok(best);
+                    }
+                }
+            }
+        }
+
         let query_lower = query.to_lowercase();
 
         if let Some(fql) = fql {
-            // Use FQL to generate command
             self.command_from_fql(fql)
         } else {
-            // Fallback: simple keyword matching
             self.heuristic_command_generation(&query_lower)
         }
     }
@@ -391,6 +455,170 @@ impl IntegratedNeurosymbolicService {
         } else {
             Ok(format!("echo '{}'", query))
         }
+    }
+
+    fn fql_from_intent_or_query(
+        &self,
+        query: &str,
+        intent: Option<&IntentSignal>,
+    ) -> Option<FqlQuery> {
+        if let Some(signal) = intent {
+            if let (Some(action_str), Some(target_str)) = (&signal.action, &signal.target) {
+                if let (Some(action), Some(target)) = (
+                    self.map_action(action_str),
+                    self.map_target(target_str, signal),
+                ) {
+                    let mut fql = FqlQuery::new(action, target);
+
+                    for c in &signal.constraints {
+                        if let Some(constraint) = self.map_constraint(c) {
+                            fql.constraints.push(constraint);
+                        }
+                    }
+
+                    if let Some(lines) = signal
+                        .params
+                        .get("lines")
+                        .and_then(|v| v.parse::<u64>().ok())
+                    {
+                        fql.constraints.push(domain::formal_query_language::FqlConstraint::Limit(
+                            lines,
+                        ));
+                    }
+
+                    return Some(fql);
+                }
+            }
+        }
+
+        self.fql_parser.parse(query)
+    }
+
+    fn map_action(&self, action: &str) -> Option<FqlAction> {
+        match action.to_lowercase().as_str() {
+            "list" => Some(FqlAction::List),
+            "show" | "display" => Some(FqlAction::Show),
+            "check" | "status" => Some(FqlAction::Check),
+            "monitor" => Some(FqlAction::Monitor),
+            "start" => Some(FqlAction::Start),
+            "stop" => Some(FqlAction::Stop),
+            "restart" | "reload" => Some(FqlAction::Restart),
+            "enable" => Some(FqlAction::Enable),
+            "disable" => Some(FqlAction::Disable),
+            "find" | "search" => Some(FqlAction::Find),
+            "read" | "tail" => Some(FqlAction::Read),
+            "delete" | "remove" | "clean" => Some(FqlAction::Delete),
+            _ => None,
+        }
+    }
+
+    fn map_target(&self, target: &str, signal: &IntentSignal) -> Option<FqlTarget> {
+        let target_lower = target.to_lowercase();
+        let object = signal.objects.first().cloned().unwrap_or_default();
+
+        match target_lower.as_str() {
+            "gpu" | "graphics" | "hardware" => Some(FqlTarget::Component("gpu".to_string())),
+            "memory" | "ram" => Some(FqlTarget::Memory),
+            "cpu" => Some(FqlTarget::Cpu),
+            "disk" => Some(FqlTarget::Disk("*".to_string())),
+            "log" | "logs" | "journalctl" => Some(FqlTarget::Log("*".to_string())),
+            "service" => {
+                if !object.is_empty() {
+                    Some(FqlTarget::Service(object))
+                } else {
+                    Some(FqlTarget::Service("*".to_string()))
+                }
+            }
+            "process" => {
+                if !object.is_empty() {
+                    Some(FqlTarget::Process(object))
+                } else {
+                    Some(FqlTarget::Process("*".to_string()))
+                }
+            }
+            "file" | "path" => {
+                if let Some(path) = signal.params.get("path") {
+                    Some(FqlTarget::Path(path.to_string()))
+                } else if !object.is_empty() {
+                    Some(FqlTarget::Path(object))
+                } else {
+                    Some(FqlTarget::Path("/".to_string()))
+                }
+            }
+            "network" => Some(FqlTarget::Resource("network".to_string())),
+            "user" => Some(FqlTarget::User("*".to_string())),
+            "package" => Some(FqlTarget::Package("*".to_string())),
+            _ => None,
+        }
+    }
+
+    fn map_constraint(&self, constraint: &str) -> Option<domain::formal_query_language::FqlConstraint> {
+        let c = constraint.to_lowercase();
+        if c.contains("safe") {
+            return Some(domain::formal_query_language::FqlConstraint::SafeDelete);
+        }
+        if c.contains("dry") {
+            return Some(domain::formal_query_language::FqlConstraint::DryRun);
+        }
+        if c.contains("sudo") || c.contains("root") {
+            return Some(domain::formal_query_language::FqlConstraint::RequiresSudo);
+        }
+        None
+    }
+
+    fn select_best_command(
+        &mut self,
+        candidates: &mut Vec<GeneratedCommand>,
+        trace: &mut Vec<String>,
+    ) -> Option<String> {
+        if candidates.is_empty() {
+            return None;
+        }
+
+        candidates.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        for candidate in candidates.iter() {
+            let validation = self.syntax_validator.validate(&candidate.command);
+            if validation.is_valid {
+                trace.push(format!(
+                    "  Manpage-validated generator: {}",
+                    candidate.generator_name
+                ));
+                return Some(candidate.command.clone());
+            }
+        }
+
+        trace.push("  Manpage validation found no valid candidates".to_string());
+        candidates.first().map(|c| c.command.clone())
+    }
+
+    fn filter_with_learning_context(
+        &self,
+        candidates: &[GeneratedCommand],
+        context: &str,
+    ) -> Vec<GeneratedCommand> {
+        let mut blocked = HashSet::new();
+        for line in context.lines() {
+            if let Some(rest) = line.trim().strip_prefix("Attempted: '") {
+                if let Some(cmd) = rest.strip_suffix('\'') {
+                    blocked.insert(cmd.to_string());
+                }
+            }
+        }
+
+        if blocked.is_empty() {
+            return candidates.to_vec();
+        }
+
+        candidates
+            .iter()
+            .filter(|c| !blocked.contains(&c.command))
+            .cloned()
+            .collect()
     }
 
     /// Determine if command can be executed

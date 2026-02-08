@@ -488,33 +488,28 @@ impl NeurosymbolicService {
             }
         };
 
-        let matches = registry.query_intent_detailed(query);
+        let resolved = registry.resolve_operation(query, None).ok_or_else(|| {
+            anyhow::anyhow!("No matching domain found for query: {}", query)
+        })?;
 
-        if matches.is_empty() {
-            return Err(anyhow::anyhow!(
-                "No matching domain found for query: {}",
-                query
-            ));
-        }
+        let domain = registry.get(&resolved.domain_id).unwrap();
+        let (_, operation) = registry.get_operation(&resolved.op_id).unwrap();
 
-        let best_match = &matches[0];
-        let domain = registry.get(&best_match.domain).unwrap();
-
-        let command_sequence = if let Some((_, operation, _)) = registry.find_operation(query) {
-            let generated = registry
-                .command_generator()
-                .generate(operation, &HashMap::new());
-            generated.into_iter().map(|c| c.command).collect()
-        } else {
+        let generated = registry
+            .command_generator()
+            .generate(operation, &resolved.inputs);
+        let command_sequence = if generated.is_empty() {
             vec![query.to_string()]
+        } else {
+            generated.into_iter().map(|c| c.command).collect()
         };
 
         let solution = Solution {
             id: format!("{}_solution", domain.id),
             description: format!(
                 "{} - {}",
-                best_match.matched_on.to_string(),
-                best_match.matched_value
+                resolved.matched_on.to_string(),
+                resolved.matched_value
             ),
             command_sequence,
             preconditions: vec![],
@@ -526,13 +521,13 @@ impl NeurosymbolicService {
         let ranked_solution = RankedSolution {
             id: solution.id.clone(),
             solution: solution.clone(),
-            symbolic_score: best_match.confidence,
+            symbolic_score: resolved.confidence,
             neural_score: 0.0,
-            combined_score: best_match.confidence,
+            combined_score: resolved.confidence,
             reasoning_trace: format!(
                 "Matched {} ({:.0}%)",
-                best_match.matched_on.to_string(),
-                best_match.confidence * 100.0
+                resolved.matched_on.to_string(),
+                resolved.confidence * 100.0
             ),
             risk_assessment: RiskAssessment {
                 overall_score: 0.1,
@@ -542,9 +537,9 @@ impl NeurosymbolicService {
             },
         };
 
-        let best_match_confidence = best_match.confidence;
-        let best_match_matched_value = best_match.matched_value.clone();
-        let best_match_matched_on_str = best_match.matched_on.to_string();
+        let best_match_confidence = resolved.confidence;
+        let best_match_matched_value = resolved.matched_value.clone();
+        let best_match_matched_on_str = resolved.matched_on.to_string();
         let domain_id = domain.id.clone();
         let query_string = query.to_string();
         let explanation = format!(

@@ -409,6 +409,7 @@ pub enum FqlConstraint {
     MaxMemory(String),
     MaxDisk(String),
     Timeout(u64),
+    Limit(u64),
 
     // Data constraints
     PreservePermissions,
@@ -436,6 +437,7 @@ impl fmt::Display for FqlConstraint {
             FqlConstraint::MaxMemory(m) => write!(f, "max_memory:{}", m),
             FqlConstraint::MaxDisk(d) => write!(f, "max_disk:{}", d),
             FqlConstraint::Timeout(t) => write!(f, "timeout:{}", t),
+            FqlConstraint::Limit(l) => write!(f, "limit:{}", l),
             FqlConstraint::PreservePermissions => write!(f, "preserve_permissions"),
             FqlConstraint::PreserveOwnership => write!(f, "preserve_ownership"),
             FqlConstraint::Recursive(r) => write!(f, "recursive:{}", r),

@@ -7,6 +7,7 @@ use super::types::*;
 use regex::Regex;
 
 /// Parser for converting natural language to FQL
+#[derive(Debug, Clone)]
 pub struct FqlParser {
     action_patterns: Vec<(Regex, FqlAction)>,
 }
@@ -180,7 +181,14 @@ impl FqlParser {
         }
 
         // Check for logs
-        if query.contains("log") || query.contains("logs") {
+        if query.contains("log")
+            || query.contains("logs")
+            || query.contains("journalctl")
+            || query.contains("syslog")
+            || query.contains("dmesg")
+            || query.contains("/var/log")
+            || query.contains("messages")
+        {
             return Some(FqlTarget::Log("*".to_string()));
         }
 
@@ -270,7 +278,30 @@ impl FqlParser {
             constraints.push(FqlConstraint::Quiet);
         }
 
+        if let Some(limit) = self.extract_limit(query) {
+            constraints.push(FqlConstraint::Limit(limit));
+        }
+
         constraints
+    }
+
+    fn extract_limit(&self, query: &str) -> Option<u64> {
+        let patterns = [
+            r"(?:last|tail|recent|past|previous)\s+(\d+)\s+lines?",
+            r"-n\s*(\d+)",
+        ];
+
+        for pattern in patterns {
+            if let Ok(re) = Regex::new(pattern) {
+                if let Some(cap) = re.captures(query) {
+                    if let Ok(val) = cap[1].parse::<u64>() {
+                        return Some(val);
+                    }
+                }
+            }
+        }
+
+        None
     }
 
     fn extract_scope(&self, query: &str) -> Option<FqlScope> {
@@ -406,6 +437,18 @@ mod tests {
 
         assert!(matches!(query.action, FqlAction::Show));
         assert!(matches!(query.target, FqlTarget::Component(ref s) if s == "gpu"));
+    }
+
+    #[test]
+    fn test_parse_journalctl_lines() {
+        let parser = FqlParser::new();
+        let query = parser.parse("check last 20 lines journalctl").unwrap();
+
+        assert!(matches!(query.target, FqlTarget::Log(_)));
+        assert!(query
+            .constraints
+            .iter()
+            .any(|c| matches!(c, FqlConstraint::Limit(20))));
     }
 
     #[test]

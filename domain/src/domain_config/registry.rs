@@ -2,65 +2,16 @@
 
 use crate::domain_config::loader::DomainLoader;
 use crate::domain_config::types::*;
+use crate::formal_query_language::{FqlAction, FqlConstraint, FqlParser, FqlQuery, FqlTarget};
+use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-static INTENT_SYNONYMS: &[(&str, &[&str])] = &[
-    ("list", &["display", "get", "view", "print", "ls", "ps"]),
-    ("show", &["display", "view", "print", "cat"]),
-    (
-        "processes",
-        &["process", "proc", "tasks", "programs", "services"],
-    ),
-    (
-        "files",
-        &["file", "filesystem", "fs", "directory", "dir", "folder"],
-    ),
-    ("disk", &["storage", "space", "df", "du", "partition"]),
-    ("memory", &["ram", "mem", "free", "usage"]),
-    (
-        "network",
-        &["net", "connection", "socket", "port", "ss", "netstat"],
-    ),
-    ("service", &["services", "daemon", "systemd", " systemctl"]),
-    ("user", &["users", "account", "passwd", "who"]),
-    (
-        "permission",
-        &["permissions", "chmod", "chown", "acl", "access"],
-    ),
-    ("search", &["find", "grep", "locate", "whereis", "which"]),
-    ("kill", &["terminate", "stop", "end", "pkill", "killall"]),
-    (
-        "start",
-        &["run", "execute", "begin", "launch", "enable", "start"],
-    ),
-    ("status", &["state", "health", "check", "verify", "info"]),
-    ("restart", &["reload", "reboot", "refresh", "reopen"]),
-    ("cpu", &["processor", "load", "top", "htop"]),
-    (
-        "log",
-        &[
-            "logs",
-            "journalctl",
-            "syslog",
-            "tail",
-            "journal",
-            "last",
-            "recent",
-            "lines",
-        ],
-    ),
-    (
-        "hardware",
-        &[
-            "gpu", "graphics", "nvidia", "amd", "vga", "card", "lspci", "lshw", "device", "specs",
-        ],
-    ),
-    (
-        "gpu",
-        &["graphics", "nvidia", "amd", "display", "vga", "card"],
-    ),
-];
+#[derive(Debug, Clone)]
+struct OperationSignature {
+    fql: FqlQuery,
+    confidence: f32,
+}
 
 /// Intent match result with detailed scoring
 #[derive(Debug, Clone)]
@@ -75,13 +26,13 @@ pub struct IntentMatch {
 pub enum MatchSource {
     DomainId,
     DomainDescription,
+    OperationIntent,
     OperationName,
     OperationDescription,
     OperationExample,
     EntityName,
     Relationship,
     TroubleshootingPattern,
-    Keyword,
 }
 
 impl std::fmt::Display for MatchSource {
@@ -89,20 +40,20 @@ impl std::fmt::Display for MatchSource {
         match self {
             MatchSource::DomainId => write!(f, "domain ID"),
             MatchSource::DomainDescription => write!(f, "domain description"),
+            MatchSource::OperationIntent => write!(f, "operation intent"),
             MatchSource::OperationName => write!(f, "operation name"),
             MatchSource::OperationDescription => write!(f, "operation description"),
             MatchSource::OperationExample => write!(f, "operation example"),
             MatchSource::EntityName => write!(f, "entity name"),
             MatchSource::Relationship => write!(f, "relationship"),
             MatchSource::TroubleshootingPattern => write!(f, "troubleshooting pattern"),
-            MatchSource::Keyword => write!(f, "keyword"),
         }
     }
 }
 
 impl Default for MatchSource {
     fn default() -> Self {
-        MatchSource::Keyword
+        MatchSource::OperationIntent
     }
 }
 
@@ -113,6 +64,8 @@ pub struct DomainRegistry {
     entities: HashMap<String, Entity>,
     command_generator: crate::domain_config::command_generator::CommandGenerator,
     inverted_index: HashMap<String, HashSet<String>>,
+    operation_signatures: HashMap<String, OperationSignature>,
+    fql_parser: FqlParser,
 }
 
 impl DomainRegistry {
@@ -127,6 +80,8 @@ impl DomainRegistry {
 
         let mut entities = HashMap::new();
         let mut inverted_index: HashMap<String, HashSet<String>> = HashMap::new();
+        let fql_parser = FqlParser::new();
+        let mut operation_signatures: HashMap<String, OperationSignature> = HashMap::new();
 
         for (name, domain) in &domains {
             for (entity_name, entity) in &domain.entities {
@@ -155,6 +110,11 @@ impl DomainRegistry {
                         Self::add_to_index(&mut inverted_index, word, &op.id);
                     }
                 }
+
+                if let Some(signature) = Self::build_operation_signature(&fql_parser, op) {
+                    let key = Self::operation_key(name, &op.id);
+                    operation_signatures.insert(key, signature);
+                }
             }
         }
 
@@ -163,6 +123,8 @@ impl DomainRegistry {
             entities,
             command_generator: crate::domain_config::command_generator::CommandGenerator::new(),
             inverted_index,
+            operation_signatures,
+            fql_parser,
         })
     }
 
@@ -188,10 +150,13 @@ impl DomainRegistry {
     /// Query domains by intent with detailed matching
     pub fn query_intent_detailed(&self, intent: &str) -> Vec<IntentMatch> {
         let mut matches = Vec::new();
-        let expanded_intent = self.expand_synonyms(intent);
+        let query_fql = match self.fql_parser.parse(intent) {
+            Some(fql) => fql,
+            None => return matches,
+        };
 
         for domain in self.enabled_domains() {
-            if let Some(m) = self.match_intent_detailed(domain, intent, &expanded_intent) {
+            if let Some(m) = self.match_intent_detailed(domain, intent, &query_fql) {
                 matches.push(m);
             }
         }
@@ -208,31 +173,12 @@ impl DomainRegistry {
             .collect()
     }
 
-    /// Expand intent with synonyms for better matching
-    fn expand_synonyms(&self, intent: &str) -> String {
-        let mut expanded = intent.to_lowercase();
-        for (word, synonyms) in INTENT_SYNONYMS {
-            for synonym in *synonyms {
-                if intent.to_lowercase().contains(synonym) {
-                    for s in *synonyms {
-                        if !expanded.contains(s) {
-                            expanded.push(' ');
-                            expanded.push_str(s);
-                        }
-                    }
-                    break;
-                }
-            }
-        }
-        expanded
-    }
-
     /// Match an intent to a domain with detailed scoring
     fn match_intent_detailed(
         &self,
         domain: &Domain,
         intent: &str,
-        expanded_intent: &str,
+        query_fql: &FqlQuery,
     ) -> Option<IntentMatch> {
         let intent_lower = intent.to_lowercase();
 
@@ -254,89 +200,23 @@ impl DomainRegistry {
             });
         }
 
-        // Priority keyword matching for hardware/system info
-        let hardware_keywords = [
-            "gpu", "vga", "graphics", "nvidia", "amd", "lspci", "lshw", "hardware", "card",
-        ];
-
-        let log_keywords = [
-            "log",
-            "logs",
-            "journalctl",
-            "journal",
-            "syslog",
-            "tail",
-            "last",
-            "recent",
-            "lines",
-        ];
-
-        let is_hardware_query = hardware_keywords.iter().any(|k| intent_lower.contains(k));
-        let is_log_query = log_keywords.iter().any(|k| intent_lower.contains(k));
-        let is_memory_query = intent_lower.contains("memory")
-            || intent_lower.contains("ram")
-            || intent_lower.contains("mem");
-
-        let intent_words: Vec<&str> = intent_lower.split_whitespace().collect();
-
-        // First pass: find best matching operation
+        // Find best matching operation by semantic intent signature
         let mut best_match: Option<(f32, &Operation)> = None;
 
         for op in &domain.operations {
-            let op_lower = op.name.to_lowercase();
-            let desc_lower = op.description.to_lowercase();
-
-            let confidence = if is_hardware_query && op_lower.contains("hardware") {
-                // Boost hardware operations for hardware queries
-                0.95
-            } else if is_log_query && op_lower.contains("log") {
-                // Boost log operations for log queries (e.g., journalctl)
-                0.95
-            } else if is_memory_query && op_lower.contains("memory") {
-                // Boost memory operations for memory queries
-                0.95
-            } else if intent_lower.contains("journalctl") && op_lower.contains("log") {
-                // Explicit journalctl mention + log operation = very high confidence
-                0.98
-            } else if self.fuzzy_match(&intent_lower, &op_lower) {
-                // Check if this is a direct word match (more confident)
-                let op_words: Vec<&str> = op_lower.split_whitespace().collect();
-                let intent_has_op_words = op_words.iter().any(|ow| {
-                    intent_words.iter().any(|iw| {
-                        iw == ow
-                            || (iw.len() > 3 && ow.len() > 3 && {
-                                let dist = self.levenshtein_distance(iw, ow);
-                                let max_len = iw.len().max(ow.len());
-                                let ratio = (dist as f64) / (max_len as f64);
-                                ratio < 0.3
-                            })
-                    })
-                });
-                if intent_has_op_words {
-                    0.90 // Higher confidence for direct word match
-                } else {
-                    0.80 // Lower confidence for fuzzy match
-                }
-            } else if self.fuzzy_match(&intent_lower, &desc_lower) {
-                0.75
-            } else {
-                continue;
+            let key = Self::operation_key(&domain.id, &op.id);
+            let signature = match self.operation_signatures.get(&key) {
+                Some(sig) => sig,
+                None => continue,
             };
+
+            let confidence = self.score_fql_match(query_fql, &signature.fql);
+            if confidence <= 0.0 {
+                continue;
+            }
 
             if best_match.map(|(c, _)| confidence > c).unwrap_or(true) {
                 best_match = Some((confidence, op));
-            }
-
-            for example in &op.examples {
-                if self.fuzzy_match(&intent_lower, &example.description.to_lowercase()) {
-                    let example_confidence = 0.75;
-                    if best_match
-                        .map(|(c, _)| example_confidence > c)
-                        .unwrap_or(true)
-                    {
-                        best_match = Some((example_confidence, op));
-                    }
-                }
             }
         }
 
@@ -344,13 +224,13 @@ impl DomainRegistry {
             return Some(IntentMatch {
                 domain: domain.id.clone(),
                 confidence,
-                matched_on: MatchSource::OperationName,
-                matched_value: op.name.clone(),
+                matched_on: MatchSource::OperationIntent,
+                matched_value: op.id.clone(),
             });
         }
 
         for entity in domain.entities.values() {
-            if self.fuzzy_match(&intent_lower, &entity.name.to_lowercase()) {
+            if intent_lower.contains(&entity.name.to_lowercase()) {
                 return Some(IntentMatch {
                     domain: domain.id.clone(),
                     confidence: 0.6,
@@ -363,68 +243,6 @@ impl DomainRegistry {
         None
     }
 
-    /// Fuzzy string matching with Levenshtein distance
-    fn fuzzy_match(&self, intent: &str, target: &str) -> bool {
-        let intent_words: Vec<&str> = intent.split_whitespace().collect();
-        let target_words: Vec<&str> = target.split_whitespace().collect();
-
-        // Check for word-level intersection (must have at least 1 common word)
-        let intersection_count = intent_words
-            .iter()
-            .filter(|&&iw| target_words.iter().any(|&tw| iw == tw))
-            .count();
-
-        if intersection_count >= 1 {
-            return true;
-        }
-
-        // Levenshtein distance for similar words (both words must be > 3 chars)
-        for &i_word in &intent_words {
-            for &t_word in &target_words {
-                if i_word.len() > 3 && t_word.len() > 3 {
-                    let dist = self.levenshtein_distance(i_word, t_word);
-                    let max_len = i_word.len().max(t_word.len());
-                    let ratio = (dist as f64) / (max_len as f64);
-                    if max_len > 0 && ratio < 0.3 {
-                        return true;
-                    }
-                }
-            }
-        }
-
-        false
-    }
-
-    fn levenshtein_distance(&self, a: &str, b: &str) -> usize {
-        let a_bytes = a.as_bytes();
-        let b_bytes = b.as_bytes();
-        let (m, n) = (a_bytes.len(), b_bytes.len());
-
-        if m == 0 {
-            return n;
-        }
-        if n == 0 {
-            return m;
-        }
-
-        let mut prev_row: Vec<usize> = (0..=n).collect();
-        let mut curr_row = vec![0; n + 1];
-
-        for i in 1..=m {
-            curr_row[0] = i;
-            for j in 1..=n {
-                let cost = if a_bytes[i - 1] == b_bytes[j - 1] {
-                    0
-                } else {
-                    1
-                };
-                curr_row[j] = curr_row[j - 1].min(prev_row[j]).min(prev_row[j - 1] + cost);
-            }
-            std::mem::swap(&mut prev_row, &mut curr_row);
-        }
-
-        prev_row[n]
-    }
 
     /// Match an intent to a domain and return confidence
     fn match_intent(&self, domain: &Domain, intent: &str) -> i32 {
@@ -437,29 +255,9 @@ impl DomainRegistry {
 
     /// Find best operation for intent
     pub fn find_operation(&self, intent: &str) -> Option<(&Domain, &Operation, f32)> {
-        let matches = self.query_intent_detailed(intent);
-
-        for m in matches {
-            if m.matched_on == MatchSource::OperationName
-                || m.matched_on == MatchSource::OperationExample
-            {
-                if let Some((domain, op)) = self.get_operation_by_id(&m.matched_value) {
-                    return Some((domain, op, m.confidence));
-                }
-            }
-        }
-
-        for domain in self.enabled_domains() {
-            for op in &domain.operations {
-                if self.fuzzy_match(&intent.to_lowercase(), &op.name.to_lowercase())
-                    || self.fuzzy_match(&intent.to_lowercase(), &op.description.to_lowercase())
-                {
-                    return Some((domain, op, 0.7));
-                }
-            }
-        }
-
-        None
+        let resolved = self.resolve_operation(intent, None)?;
+        let (domain, op) = self.get_operation(&resolved.op_id)?;
+        Some((domain, op, resolved.confidence))
     }
 
     /// Get operation by ID from any domain
@@ -680,4 +478,430 @@ impl DomainRegistry {
     pub fn unavailable_tools(&self) -> Vec<String> {
         self.command_generator.unavailable_tools()
     }
+
+    /// Resolve the best operation for a query using semantic intent matching
+    pub fn resolve_operation(
+        &self,
+        query: &str,
+        fql: Option<&FqlQuery>,
+    ) -> Option<ResolvedOperation> {
+        let query_fql = match fql {
+            Some(fql) => fql.clone(),
+            None => self.fql_parser.parse(query)?,
+        };
+
+        let mut best: Option<(f32, String, String, MatchSource, String)> = None;
+
+        for domain in self.enabled_domains() {
+            for op in &domain.operations {
+                let key = Self::operation_key(&domain.id, &op.id);
+                let signature = match self.operation_signatures.get(&key) {
+                    Some(sig) => sig,
+                    None => continue,
+                };
+
+                let score = self.score_fql_match(&query_fql, &signature.fql);
+                if score <= 0.0 {
+                    continue;
+                }
+
+                if best.map(|(c, _, _, _, _)| score > c).unwrap_or(true) {
+                    best = Some((
+                        score,
+                        domain.id.clone(),
+                        op.id.clone(),
+                        MatchSource::OperationIntent,
+                        op.name.clone(),
+                    ));
+                }
+            }
+        }
+
+        let (confidence, domain_id, op_id, matched_on, matched_value) = best?;
+        let operation = self.get_operation(&op_id)?;
+        let inputs = self.extract_inputs(operation.1, query, Some(&query_fql));
+
+        Some(ResolvedOperation {
+            domain_id,
+            op_id,
+            confidence,
+            inputs,
+            matched_on,
+            matched_value,
+        })
+    }
+
+    fn operation_key(domain_id: &str, op_id: &str) -> String {
+        format!("{}.{}", domain_id, op_id)
+    }
+
+    fn build_operation_signature(
+        parser: &FqlParser,
+        op: &Operation,
+    ) -> Option<OperationSignature> {
+        let mut candidates: Vec<(FqlQuery, f32)> = Vec::new();
+        let mut texts = Vec::new();
+
+        if !op.intent.trim().is_empty() {
+            texts.push(op.intent.clone());
+        }
+        if !op.name.trim().is_empty() {
+            texts.push(op.name.clone());
+        }
+        if !op.description.trim().is_empty() {
+            texts.push(op.description.clone());
+        }
+        for example in &op.examples {
+            if !example.description.trim().is_empty() {
+                texts.push(example.description.clone());
+            }
+        }
+
+        for text in texts {
+            if let Some(fql) = parser.parse(&text) {
+                let confidence = parser.confidence_score(&text, &fql);
+                candidates.push((fql, confidence));
+            }
+        }
+
+        candidates
+            .into_iter()
+            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(fql, confidence)| OperationSignature { fql, confidence })
+    }
+
+    fn score_fql_match(&self, query: &FqlQuery, op: &FqlQuery) -> f32 {
+        let action_score = self.action_similarity(&query.action, &op.action);
+        let target_score = self.target_similarity(&query.target, &op.target);
+
+        let mut score = 0.0;
+        score += action_score * 0.55;
+        score += target_score * 0.40;
+
+        if query.pattern.is_some() && op.pattern.is_some() {
+            score += 0.05;
+        }
+
+        score.clamp(0.0, 1.0)
+    }
+
+    fn action_similarity(&self, a: &FqlAction, b: &FqlAction) -> f32 {
+        if a == b {
+            return 1.0;
+        }
+
+        let group = |action: &FqlAction| match action {
+            FqlAction::List | FqlAction::Show | FqlAction::Display => 1,
+            FqlAction::Check | FqlAction::Monitor | FqlAction::Verify | FqlAction::Validate => 2,
+            FqlAction::Start
+            | FqlAction::Stop
+            | FqlAction::Restart
+            | FqlAction::Enable
+            | FqlAction::Disable => 3,
+            FqlAction::Find | FqlAction::Search | FqlAction::Locate | FqlAction::Grep => 4,
+            _ => 9,
+        };
+
+        if group(a) == group(b) {
+            0.7
+        } else {
+            0.0
+        }
+    }
+
+    fn target_similarity(&self, a: &FqlTarget, b: &FqlTarget) -> f32 {
+        if a == b {
+            return 1.0;
+        }
+
+        let (a_cat, a_val) = self.target_category(a);
+        let (b_cat, b_val) = self.target_category(b);
+
+        if a_cat == b_cat {
+            if let (Some(av), Some(bv)) = (a_val, b_val) {
+                if av == bv {
+                    1.0
+                } else if av == "*" || bv == "*" {
+                    0.8
+                } else {
+                    0.6
+                }
+            } else {
+                0.7
+            }
+        } else if a_cat == TargetCategory::Resource || b_cat == TargetCategory::Resource {
+            0.4
+        } else {
+            0.0
+        }
+    }
+
+    fn target_category(&self, target: &FqlTarget) -> (TargetCategory, Option<String>) {
+        match target {
+            FqlTarget::File(v) => (TargetCategory::File, Some(v.clone())),
+            FqlTarget::Directory(v) => (TargetCategory::Directory, Some(v.clone())),
+            FqlTarget::Path(v) => (TargetCategory::Path, Some(v.clone())),
+            FqlTarget::Process(v) => (TargetCategory::Process, Some(v.clone())),
+            FqlTarget::Service(v) => (TargetCategory::Service, Some(v.clone())),
+            FqlTarget::Package(v) => (TargetCategory::Package, Some(v.clone())),
+            FqlTarget::User(v) => (TargetCategory::User, Some(v.clone())),
+            FqlTarget::Group(v) => (TargetCategory::Group, Some(v.clone())),
+            FqlTarget::NetworkInterface(v) => (TargetCategory::Network, Some(v.clone())),
+            FqlTarget::Port(_) => (TargetCategory::Network, None),
+            FqlTarget::Host(v) => (TargetCategory::Network, Some(v.clone())),
+            FqlTarget::Url(v) => (TargetCategory::Network, Some(v.clone())),
+            FqlTarget::Memory => (TargetCategory::Memory, None),
+            FqlTarget::Cpu => (TargetCategory::Cpu, None),
+            FqlTarget::Disk(v) => (TargetCategory::Disk, Some(v.clone())),
+            FqlTarget::Filesystem(v) => (TargetCategory::Filesystem, Some(v.clone())),
+            FqlTarget::Log(v) => (TargetCategory::Log, Some(v.clone())),
+            FqlTarget::Configuration(v) => (TargetCategory::Config, Some(v.clone())),
+            FqlTarget::Variable(v) => (TargetCategory::Variable, Some(v.clone())),
+            FqlTarget::Resource(v) => (TargetCategory::Resource, Some(v.clone())),
+            FqlTarget::Component(v) => (TargetCategory::Component, Some(v.clone())),
+            FqlTarget::Entity(v) => (TargetCategory::Entity, Some(v.clone())),
+            _ => (TargetCategory::Other, None),
+        }
+    }
+
+    fn extract_inputs(
+        &self,
+        op: &Operation,
+        query: &str,
+        fql: Option<&FqlQuery>,
+    ) -> HashMap<String, serde_json::Value> {
+        let mut inputs = HashMap::new();
+        let query_lower = query.to_lowercase();
+
+        for (name, _) in &op.input_schema {
+            if let Some(value) = self.extract_input_value(name, &query_lower, query, fql) {
+                inputs.insert(name.clone(), value);
+            }
+        }
+
+        inputs
+    }
+
+    fn extract_input_value(
+        &self,
+        name: &str,
+        query_lower: &str,
+        query: &str,
+        fql: Option<&FqlQuery>,
+    ) -> Option<serde_json::Value> {
+        match name {
+            "lines" => self.extract_lines(query_lower, fql).map(serde_json::Value::from),
+            "path" => self.extract_path(query, fql).map(serde_json::Value::from),
+            "service" => self.extract_service(query_lower, fql).map(serde_json::Value::from),
+            "action" => self.extract_action(query_lower).map(serde_json::Value::from),
+            "pattern" => self.extract_pattern(query).map(serde_json::Value::from),
+            "log" => self.extract_log(query_lower, query).map(serde_json::Value::from),
+            "protocol" => self.extract_protocol(query_lower).map(serde_json::Value::from),
+            "filter" => self.extract_filter(query_lower, fql).map(serde_json::Value::from),
+            "mode" => self.extract_mode(query_lower).map(serde_json::Value::from),
+            "owner" => self.extract_owner(query_lower).map(serde_json::Value::from),
+            "group" => self.extract_group(query_lower).map(serde_json::Value::from),
+            "target" => self.extract_target(query_lower).map(serde_json::Value::from),
+            "size" => self.extract_size(query_lower).map(serde_json::Value::from),
+            "name" => self.extract_name(query).map(serde_json::Value::from),
+            _ => None,
+        }
+    }
+
+    fn extract_lines(&self, query_lower: &str, fql: Option<&FqlQuery>) -> Option<u64> {
+        if let Some(fql) = fql {
+            for constraint in &fql.constraints {
+                if let FqlConstraint::Limit(limit) = constraint {
+                    return Some(*limit);
+                }
+            }
+        }
+
+        let patterns = [
+            r"(?:last|tail|recent|past|previous)\s+(\d+)\s+lines?",
+            r"-n\s*(\d+)",
+        ];
+
+        for pattern in patterns {
+            if let Ok(re) = Regex::new(pattern) {
+                if let Some(cap) = re.captures(query_lower) {
+                    if let Ok(val) = cap[1].parse::<u64>() {
+                        return Some(val);
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
+    fn extract_path(&self, query: &str, fql: Option<&FqlQuery>) -> Option<String> {
+        if let Some(fql) = fql {
+            match &fql.target {
+                FqlTarget::Path(p) | FqlTarget::Directory(p) | FqlTarget::File(p) => {
+                    return Some(p.clone())
+                }
+                _ => {}
+            }
+        }
+
+        let re = Regex::new(r"(/[^\\s]+)").ok()?;
+        re.captures(query)
+            .and_then(|cap| cap.get(1).map(|m| m.as_str().to_string()))
+    }
+
+    fn extract_service(&self, query_lower: &str, fql: Option<&FqlQuery>) -> Option<String> {
+        if let Some(fql) = fql {
+            if let FqlTarget::Service(svc) = &fql.target {
+                if !svc.is_empty() && svc != "*" {
+                    return Some(svc.clone());
+                }
+            }
+        }
+
+        let re = Regex::new(r"service\s+([a-z0-9._-]+)").ok()?;
+        if let Some(cap) = re.captures(query_lower) {
+            return Some(cap[1].to_string());
+        }
+
+        for svc in ["nginx", "apache", "mysql", "postgres", "redis", "docker", "ssh"] {
+            if query_lower.contains(svc) {
+                return Some(svc.to_string());
+            }
+        }
+
+        None
+    }
+
+    fn extract_action(&self, query_lower: &str) -> Option<String> {
+        for action in [
+            "status", "start", "stop", "restart", "reload", "enable", "disable", "list",
+        ] {
+            if query_lower.contains(action) {
+                return Some(action.to_string());
+            }
+        }
+        None
+    }
+
+    fn extract_pattern(&self, query: &str) -> Option<String> {
+        let re = Regex::new(r#""([^"]+)"|'([^']+)'"#).ok()?;
+        if let Some(cap) = re.captures(query) {
+            if let Some(m) = cap.get(1).or_else(|| cap.get(2)) {
+                return Some(m.as_str().to_string());
+            }
+        }
+
+        let re = Regex::new(r"(?:contains|containing|match(?:ing)?|grep)\s+([a-z0-9._-]+)")
+            .ok()?;
+        re.captures(&query.to_lowercase())
+            .and_then(|cap| cap.get(1).map(|m| m.as_str().to_string()))
+    }
+
+    fn extract_log(&self, query_lower: &str, query: &str) -> Option<String> {
+        if query_lower.contains("syslog") {
+            return Some("syslog".to_string());
+        }
+        if query_lower.contains("messages") {
+            return Some("messages".to_string());
+        }
+
+        let re = Regex::new(r"/var/log/([a-z0-9._-]+)").ok()?;
+        re.captures(query)
+            .and_then(|cap| cap.get(1).map(|m| m.as_str().to_string()))
+    }
+
+    fn extract_protocol(&self, query_lower: &str) -> Option<String> {
+        if query_lower.contains("tcp") {
+            return Some("tcp".to_string());
+        }
+        if query_lower.contains("udp") {
+            return Some("udp".to_string());
+        }
+        None
+    }
+
+    fn extract_filter(&self, query_lower: &str, fql: Option<&FqlQuery>) -> Option<String> {
+        if let Some(fql) = fql {
+            if let FqlTarget::Process(proc_name) = &fql.target {
+                if !proc_name.is_empty() && proc_name != "*" {
+                    return Some(proc_name.clone());
+                }
+            }
+        }
+
+        let re = Regex::new(r"process(?:es)?\s+([a-z0-9._-]+)").ok()?;
+        re.captures(query_lower)
+            .and_then(|cap| cap.get(1).map(|m| m.as_str().to_string()))
+    }
+
+    fn extract_mode(&self, query_lower: &str) -> Option<String> {
+        let re = Regex::new(r"\b([0-7]{3,4})\b").ok()?;
+        re.captures(query_lower)
+            .and_then(|cap| cap.get(1).map(|m| m.as_str().to_string()))
+    }
+
+    fn extract_owner(&self, query_lower: &str) -> Option<String> {
+        let re = Regex::new(r"(?:owner|user)\s+([a-z0-9._-]+)").ok()?;
+        re.captures(query_lower)
+            .and_then(|cap| cap.get(1).map(|m| m.as_str().to_string()))
+    }
+
+    fn extract_group(&self, query_lower: &str) -> Option<String> {
+        let re = Regex::new(r"(?:group)\s+([a-z0-9._-]+)").ok()?;
+        re.captures(query_lower)
+            .and_then(|cap| cap.get(1).map(|m| m.as_str().to_string()))
+    }
+
+    fn extract_target(&self, query_lower: &str) -> Option<String> {
+        let re = Regex::new(r"(?:pid|process)\s+([a-z0-9._-]+)").ok()?;
+        re.captures(query_lower)
+            .and_then(|cap| cap.get(1).map(|m| m.as_str().to_string()))
+    }
+
+    fn extract_size(&self, query_lower: &str) -> Option<String> {
+        let re = Regex::new(r"(\+?\d+(?:\.\d+)?\s*[kmgt]?b)").ok()?;
+        re.captures(query_lower)
+            .and_then(|cap| cap.get(1).map(|m| m.as_str().replace(' ', "")))
+    }
+
+    fn extract_name(&self, query: &str) -> Option<String> {
+        let re = Regex::new(r"(?:named|called)\s+([a-z0-9._-]+)").ok()?;
+        re.captures(&query.to_lowercase())
+            .and_then(|cap| cap.get(1).map(|m| m.as_str().to_string()))
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct ResolvedOperation {
+    pub domain_id: String,
+    pub op_id: String,
+    pub confidence: f32,
+    pub inputs: HashMap<String, serde_json::Value>,
+    pub matched_on: MatchSource,
+    pub matched_value: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum TargetCategory {
+    File,
+    Directory,
+    Path,
+    Process,
+    Service,
+    Package,
+    User,
+    Group,
+    Network,
+    Memory,
+    Cpu,
+    Disk,
+    Filesystem,
+    Log,
+    Config,
+    Variable,
+    Resource,
+    Component,
+    Entity,
+    Other,
 }

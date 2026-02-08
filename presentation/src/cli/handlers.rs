@@ -4,17 +4,19 @@ use super::cache::{CacheManager, CommandCandidate, ExplainCacheManager, RagCache
 use super::command_extraction::{extract_command_from_response, parse_agent_plan};
 use super::utils::{detect_system_info, project_cache_suffix};
 use application::services::integrated_neurosymbolic_service::{
-    IntegratedNeurosymbolicService, NeurosymbolicConfig as IntegratedConfig,
+    IntentSignal, IntegratedNeurosymbolicService, NeurosymbolicConfig as IntegratedConfig,
 };
 use application::services::neurosymbolic_service::{NeurosymbolicConfig, NeurosymbolicService};
 use application::services::rag_service::RagService;
 use colored::Colorize;
 use infrastructure::{config::Config, ollama_client::OllamaClient};
 use infrastructure::storage::experience_buffer::FailureType;
+use serde::Deserialize;
 use shared::confirmation::{ask_confirmation, ask_feedback};
 use shared::types::Message;
 use shared::types::Result;
 
+use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -165,6 +167,24 @@ pub struct IntentAnalysis {
     pub neurosymbolic_suitable: bool,
     pub reasoning: String,
     pub keywords: Vec<String>,
+    pub action: Option<String>,
+    pub target: Option<String>,
+    pub objects: Vec<String>,
+    pub constraints: Vec<String>,
+    pub params: HashMap<String, String>,
+}
+
+#[derive(Debug, Deserialize)]
+struct IntentAnalysisResponse {
+    intent_category: Option<String>,
+    neurosymbolic_suitable: Option<bool>,
+    reasoning: Option<String>,
+    keywords: Option<Vec<String>>,
+    action: Option<String>,
+    target: Option<String>,
+    objects: Option<Vec<String>>,
+    constraints: Option<Vec<String>>,
+    params: Option<HashMap<String, String>>,
 }
 
 pub struct CliHandlers {
@@ -491,52 +511,21 @@ User request: {}",
     async fn understand_intent(&self, query: &str) -> Result<IntentAnalysis> {
         let client = infrastructure::ollama_client::OllamaClient::new()?;
         let prompt = format!(
-            r#"Analyze this query and determine the best approach:
+            r#"Analyze this query and return STRICT JSON only with these keys:
 
-Query: "{}"
+{
+  "intent_category": "system_info|process|memory|disk|network|service|user|file|log|hardware|general|unknown",
+  "action": "list|show|check|monitor|start|stop|restart|enable|disable|find|read|delete|unknown",
+  "target": "process|memory|disk|network|service|user|file|log|hardware|gpu|package|system|unknown",
+  "objects": ["..."],
+  "constraints": ["..."],
+  "params": {"lines": "20", "pattern": "error", "service": "nginx", "path": "/var/log"},
+  "neurosymbolic_suitable": true,
+  "reasoning": "brief explanation",
+  "keywords": ["..."]
+}
 
-Respond in this format (exactly):
-INTENT: [system_info|process|memory|disk|network|service|user|file|log|hardware|general|unknown]
-NEUROSYMBOLIC_SUITABLE: [yes|no]
-REASONING: [brief explanation]
-KEYWORDS: [comma-separated keywords detected]
-
-Guidelines:
-- INTROSYMBOLIC_SUITABLE=yes for: system queries like process list, memory usage, disk space, network status, service management, user info, file operations, hardware info, log viewing
-- INTROSYMBOLIC_SUITABLE=no for: complex reasoning, code generation, file editing, creative tasks, general questions
-
-Examples:
-Query: "list running processes"
-INTENT: process
-NEUROSYMBOLIC_SUITABLE: yes
-REASONING: Standard system administration query about processes
-KEYWORDS: list, processes, running
-
-Query: "show my gpu name"
-INTENT: hardware
-NEUROSYMBOLIC_SUITABLE: yes
-REASONING: Hardware information query
-KEYWORDS: gpu, show, name, graphics
-
-Query: "how do I configure nginx"
-INTENT: general
-NEUROSYMBOLIC_SUITABLE: no
-REASONING: Requires configuration guidance, not command execution
-KEYWORDS: configure, nginx
-
-Query: "check last 20 lines journalctl"
-INTENT: log
-NEUROSYMBOLIC_SUITABLE: yes
-REASONING: Log viewing query with journalctl
-KEYWORDS: check, last, lines, journalctl, log
-
-Query: "fix my code"
-INTENT: general
-NEUROSYMBOLIC_SUITABLE: no
-REASONING: Requires code understanding and editing
-KEYWORDS: fix, code
-
-Now analyze this query:"#,
+Query: "{}""#,
             query
         );
 
@@ -545,6 +534,29 @@ Now analyze this query:"#,
     }
 
     fn parse_intent_analysis(&self, response: &str) -> Result<IntentAnalysis> {
+        if let Ok(parsed) = serde_json::from_str::<IntentAnalysisResponse>(response) {
+            let intent = parsed
+                .intent_category
+                .unwrap_or_else(|| "unknown".to_string());
+            let neurosymbolic_suitable = parsed.neurosymbolic_suitable.unwrap_or(true);
+            let reasoning = parsed
+                .reasoning
+                .unwrap_or_else(|| "Could not parse".to_string());
+            let keywords = parsed.keywords.unwrap_or_default();
+
+            return Ok(IntentAnalysis {
+                intent,
+                neurosymbolic_suitable,
+                reasoning,
+                keywords,
+                action: parsed.action,
+                target: parsed.target,
+                objects: parsed.objects.unwrap_or_default(),
+                constraints: parsed.constraints.unwrap_or_default(),
+                params: parsed.params.unwrap_or_default(),
+            });
+        }
+
         let mut intent = "unknown".to_string();
         let mut neurosymbolic_suitable = true;
         let mut reasoning = "Could not parse".to_string();
@@ -573,6 +585,11 @@ Now analyze this query:"#,
             neurosymbolic_suitable,
             reasoning,
             keywords,
+            action: None,
+            target: None,
+            objects: Vec::new(),
+            constraints: Vec::new(),
+            params: HashMap::new(),
         })
     }
 
@@ -608,9 +625,17 @@ Now analyze this query:"#,
 
         eprintln!("Processing query with neurosymbolic reasoning...");
         if self.integrated_service.is_some() {
+            let intent_signal = IntentSignal {
+                category: Some(intent_analysis.intent.clone()),
+                action: intent_analysis.action.clone(),
+                target: intent_analysis.target.clone(),
+                objects: intent_analysis.objects.clone(),
+                constraints: intent_analysis.constraints.clone(),
+                params: intent_analysis.params.clone(),
+            };
             let result = {
                 let service = self.integrated_service.as_mut().unwrap();
-                service.process(query)
+                service.process_with_intent(query, Some(&intent_signal))
             };
             match result {
                 Ok(result) => {
