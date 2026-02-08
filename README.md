@@ -44,6 +44,9 @@ No flags to remember. No man pages to read. Just natural language.
 | **RAG Context** | Codebase-aware responses using embeddings |
 | **Multi-Step Agent** | Complex task planning with safety validation |
 | **Neurosymbolic Reasoning** | Config-driven command generation |
+| **Autonomous Safety Stack** | FQL parsing, manpage-validated flags, risk scoring, safety proofs |
+| **Live Monitor** | Token-level flag validation during streaming generation |
+| **Learning Loop** | Experience buffer + "do not repeat" context injection |
 | **AI Interpretation** | Get readable summaries with `--ai-interpret` |
 | **Command Validation** | Multi-layer validation without command execution |
 
@@ -58,6 +61,18 @@ Intelligent command generation through JSON configurations:
 | Relationships | 8 | hierarchical, ownership, containment, usage, binding |
 | Inference Rules | 10 | zombie detection, high CPU/memory, disk full |
 | Troubleshooting | 5 | disk, service, CPU, memory, network issues |
+
+### Autonomous Neurosymbolic Stack
+
+When using `--neurosymbolic`, the CLI runs a full safety pipeline:
+
+1. **FQL Autoformalization**: NL → Formal Query Language for intent grounding  
+2. **Safety Engine**: Hard rules block catastrophic commands  
+3. **Manpage Validation**: Validates flags against local man pages  
+4. **Risk Scoring**: Probabilistic risk profile + mitigations  
+5. **Formal Proofs**: Safety certificates for high‑risk commands  
+6. **Learning + Induction**: Logs failures and induces new rules  
+7. **Knowledge Graph**: Auto‑discovery of system state (tools, OS, users, services)
 
 ### Supported File Types
 
@@ -150,9 +165,10 @@ vibe_cli --neurosymbolic-install <url_or_path>   # Install from URL
 
 Before any command is executed (from cache or newly generated), it passes through multiple validation layers:
 
-1. **Syntax Validation**: Checks for dangerous patterns and injection attacks
-2. **Availability Validation**: Uses `which` command to verify binary exists
-3. **Cache Validation**: Validates cached commands and removes invalid entries
+1. **Live Monitor**: Token-level flag validation during streaming (blocks invalid flags early)
+2. **Syntax Validation**: Checks for dangerous patterns and injection attacks
+3. **Availability Validation**: Uses `which` command to verify binary exists
+4. **Cache Validation**: Validates cached commands and removes invalid entries
 
 ### Example Usage
 
@@ -173,6 +189,10 @@ Executing 4 valid command(s)...
 - **Dangerous Patterns**: Blocks `rm -rf`, `dd if=`, `mkfs`, `format`, `shred`, etc.
 - **Shell Injection**: Prevents `; rm`, `&& rm`, `$(rm`, backticks, pipes
 - **Input Validation**: Empty commands and whitespace-only commands are rejected
+
+#### **Live Monitor**
+- **Token-Level Flag Checks**: Stops generation as soon as invalid flags appear
+- **Manpage-Backed**: Uses local man pages for flag validation
 
 #### **Availability Validation** 
 - **Binary Check**: Uses `which` to verify command exists in PATH
