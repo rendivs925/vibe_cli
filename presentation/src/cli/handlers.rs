@@ -897,12 +897,14 @@ Query: "{}""#,
 
         // Learning system: offer to add successful commands to domain
         if from_fallback && !last_successful_command.is_empty() {
-            if ask_confirmation(
-                "\nCommand succeeded! Learn this for future neurosymbolic queries?",
-                false,
-            )? {
-                self.learn_command(&last_successful_query, &last_successful_command)
-                    .await?;
+            if !self.is_known_operation(&last_successful_query, &last_successful_command) {
+                if ask_confirmation(
+                    "\nCommand succeeded! Learn this for future neurosymbolic queries?",
+                    false,
+                )? {
+                    self.learn_command(&last_successful_query, &last_successful_command)
+                        .await?;
+                }
             }
         }
 
@@ -911,6 +913,10 @@ Query: "{}""#,
 
     /// Learn a new command from successful fallback execution
     async fn learn_command(&self, query: &str, command: &str) -> Result<()> {
+        if self.is_known_operation(query, command) {
+            return Ok(());
+        }
+
         println!("\n{}", "=== Learning New Command ===".green().bold());
 
         // Extract operation name from query
@@ -988,6 +994,53 @@ Query: "{}""#,
         }
 
         Ok(())
+    }
+
+    fn is_known_operation(&self, query: &str, command: &str) -> bool {
+        let ops_file = self.config_dir().join("linux").join("operations.json");
+        if !ops_file.exists() {
+            return false;
+        }
+
+        let data = match std::fs::read_to_string(&ops_file) {
+            Ok(data) => data,
+            Err(_) => return false,
+        };
+
+        let operations: Vec<serde_json::Value> = match serde_json::from_str(&data) {
+            Ok(ops) => ops,
+            Err(_) => return false,
+        };
+
+        for op in operations {
+            let examples = op
+                .get("examples")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
+            for ex in examples {
+                if let Some(desc) = ex.get("description").and_then(|v| v.as_str()) {
+                    if desc.eq_ignore_ascii_case(query) {
+                        return true;
+                    }
+                }
+            }
+
+            let generators = op
+                .get("generators")
+                .and_then(|v| v.as_array())
+                .cloned()
+                .unwrap_or_default();
+            for gen in generators {
+                if let Some(template) = gen.get("template").and_then(|v| v.as_str()) {
+                    if template.trim() == command.trim() {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        false
     }
 
     fn generate_operation_name(query: &str) -> String {
