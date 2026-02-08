@@ -627,7 +627,12 @@ Environment:
                 || cmd.starts_with("sed ")
                 || cmd.starts_with("find ")
                 || cmd.starts_with("lspci ")
-                || cmd.starts_with("nvidia-smi");
+                || cmd.starts_with("nvidia-smi")
+                || cmd.starts_with("systemctl ")
+                || cmd.starts_with("service ")
+                || cmd.starts_with("sudo systemctl ")
+                || cmd.starts_with("sudo service ")
+                || cmd == "fastfetch";
 
             has_shell_features
         })

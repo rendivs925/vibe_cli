@@ -276,6 +276,7 @@ pub fn extract_commands(raw: &str, user_query: &str) -> Vec<CommandCandidate> {
                     | "id"
                     | "groups"
                     | "users"
+                    | "fastfetch"
             );
             return ok;
         }
