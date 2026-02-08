@@ -6,7 +6,7 @@
 //! - Users and permissions
 //! - Services and processes
 
-use crate::storage::knowledge_graph::{EntityType, KnowledgeGraph};
+use infrastructure::storage::knowledge_graph::{EntityType, KnowledgeGraph};
 use shared::types::Result;
 use std::collections::HashMap;
 use std::path::PathBuf;

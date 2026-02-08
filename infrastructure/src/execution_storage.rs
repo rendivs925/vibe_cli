@@ -63,9 +63,12 @@ impl ExecutionRepository for ExecutionStorage {
                 params![
                     execution.id(),
                     execution.command_line(),
-                    execution.executed_at().to_rfc3339(),
+                    execution.executed_at()
+                        .as_ref()
+                        .map(|dt| dt.to_rfc3339())
+                        .unwrap_or_default(),
                     execution.exit_code(),
-                    execution.duration_ms()
+                    execution.duration_ms().map(|d| d as i64)
                 ],
             )?;
             Ok(())
@@ -86,10 +89,11 @@ impl ExecutionRepository for ExecutionStorage {
                 let command_line: String = row.get(1)?;
                 let executed_at_str: String = row.get(2)?;
                 let exit_code: Option<i32> = row.get(3)?;
-                let duration_ms: Option<u64> = row.get(4)?;
+                let duration_ms: Option<i64> = row.get(4)?;
+                let duration_ms = duration_ms.map(|d| d as u64);
                 
                 let executed_at = chrono::DateTime::parse_from_rfc3339(&executed_at_str)
-                    .map_err(|e| AppError::database(format!("Invalid datetime format: {}", e)))?
+                    .map_err(|e| AppError::storage(format!("Invalid datetime format: {}", e)))?
                     .with_timezone(&chrono::Utc);
                 
                 let mut execution = CommandExecution::new(id, command_line, executed_at);
@@ -118,10 +122,11 @@ impl ExecutionRepository for ExecutionStorage {
                 let command_line: String = row.get(1)?;
                 let executed_at_str: String = row.get(2)?;
                 let exit_code: Option<i32> = row.get(3)?;
-                let duration_ms: Option<u64> = row.get(4)?;
+                let duration_ms: Option<i64> = row.get(4)?;
+                let duration_ms = duration_ms.map(|d| d as u64);
                 
                 let executed_at = chrono::DateTime::parse_from_rfc3339(&executed_at_str)
-                    .map_err(|e| AppError::database(format!("Invalid datetime format: {}", e)))?
+                    .map_err(|e| AppError::storage(format!("Invalid datetime format: {}", e)))?
                     .with_timezone(&chrono::Utc);
                 
                 let mut execution = CommandExecution::new(id, command_line, executed_at);
@@ -151,10 +156,11 @@ impl ExecutionRepository for ExecutionStorage {
                 let command_line: String = row.get(1)?;
                 let executed_at_str: String = row.get(2)?;
                 let exit_code: Option<i32> = row.get(3)?;
-                let duration_ms: Option<u64> = row.get(4)?;
+                let duration_ms: Option<i64> = row.get(4)?;
+                let duration_ms = duration_ms.map(|d| d as u64);
                 
                 let executed_at = chrono::DateTime::parse_from_rfc3339(&executed_at_str)
-                    .map_err(|e| AppError::database(format!("Invalid datetime format: {}", e)))?
+                    .map_err(|e| AppError::storage(format!("Invalid datetime format: {}", e)))?
                     .with_timezone(&chrono::Utc);
                 
                 let mut execution = CommandExecution::new(id, command_line, executed_at);
@@ -185,10 +191,11 @@ impl ExecutionRepository for ExecutionStorage {
                 let command_line: String = row.get(1)?;
                 let executed_at_str: String = row.get(2)?;
                 let exit_code: Option<i32> = row.get(3)?;
-                let duration_ms: Option<u64> = row.get(4)?;
+                let duration_ms: Option<i64> = row.get(4)?;
+                let duration_ms = duration_ms.map(|d| d as u64);
                 
                 let executed_at = chrono::DateTime::parse_from_rfc3339(&executed_at_str)
-                    .map_err(|e| AppError::database(format!("Invalid datetime format: {}", e)))?
+                    .map_err(|e| AppError::storage(format!("Invalid datetime format: {}", e)))?
                     .with_timezone(&chrono::Utc);
                 
                 let mut execution = CommandExecution::new(id, command_line, executed_at);

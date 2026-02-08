@@ -70,3 +70,21 @@ impl From<serde_json::Error> for AppError {
         AppError::serialization(err.to_string())
     }
 }
+
+impl From<std::io::Error> for AppError {
+    fn from(err: std::io::Error) -> Self {
+        AppError::io(err.to_string())
+    }
+}
+
+impl From<rusqlite::Error> for AppError {
+    fn from(err: rusqlite::Error) -> Self {
+        AppError::storage(err.to_string())
+    }
+}
+
+impl From<tokio::task::JoinError> for AppError {
+    fn from(err: tokio::task::JoinError) -> Self {
+        AppError::storage(err.to_string())
+    }
+}

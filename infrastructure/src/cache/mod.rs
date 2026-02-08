@@ -10,7 +10,6 @@ use std::fs::File;
 use std::io::{Read, Write};
 use std::path::PathBuf;
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct CommandCandidate {
@@ -216,7 +215,10 @@ impl CacheManager {
         path
     }
 
-    fn load_cache_file<T: serde::de::DeserializeOwned>(&self, cache_type: &str) -> Result<T> {
+    fn load_cache_file<T>(&self, cache_type: &str) -> Result<T>
+    where
+        T: serde::de::DeserializeOwned + Default,
+    {
         let cache_path = self.get_cache_path(cache_type);
 
         if !cache_path.exists() {
@@ -257,28 +259,6 @@ impl CacheManager {
         }
 
         Ok(())
-    }
-
-    fn load_cache_file<T: serde::de::DeserializeOwned>(&self, cache_type: &str) -> Result<T> {
-        let cache_path = self.get_cache_path(cache_type);
-
-        if !cache_path.exists() {
-            return Ok(T::default());
-        }
-
-        let data = std::fs::read(&cache_path)?;
-
-        if data.first().map(|&b| b == 0x1f).unwrap_or(false) {
-            let decoder = GzDecoder::new(&data[..]);
-            let mut decoder = decoder;
-            let mut decompressed = Vec::new();
-            decoder.read_to_end(&mut decompressed)?;
-            let cache: T = deserialize(&decompressed).unwrap_or_default();
-            Ok(cache)
-        } else {
-            let cache: T = deserialize(&data).unwrap_or_default();
-            Ok(cache)
-        }
     }
 
     pub fn load_command_cached(&self, prompt: &str) -> Result<Option<Vec<CommandCandidate>>> {

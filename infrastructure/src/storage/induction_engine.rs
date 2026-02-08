@@ -498,7 +498,7 @@ impl InductionEngine {
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![
                 pattern_id,
-                rule.name,
+                rule.rule_name,
                 condition_type,
                 condition_value,
                 action_type,

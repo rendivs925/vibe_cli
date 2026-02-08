@@ -10,3 +10,5 @@ serde_json.workspace = true
 dialoguer.workspace = true
 crossterm.workspace = true
 colored.workspace = true
+tokio.workspace = true
+rusqlite.workspace = true

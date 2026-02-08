@@ -15,7 +15,7 @@ use domain::{
 };
 use infrastructure::{
     manpage_crawler::ManpageCrawler,
-    storage::{experience_buffer::FailureType, ManpageCache},
+    storage::{experience_buffer::FailureType, knowledge_graph::KnowledgeGraph, ManpageCache},
     syntax_grammar_validator::SyntaxGrammarValidator,
 };
 use shared::types::Result;

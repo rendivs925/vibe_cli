@@ -66,7 +66,7 @@ pub struct RiskFactor {
 }
 
 /// Categories of risk
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum RiskCategory {
     Destructiveness,
     TargetSensitivity,

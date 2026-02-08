@@ -3,7 +3,7 @@
 //! Provides RAG-style retrieval of past experiences to prevent repeating mistakes
 //! and learns from user corrections.
 
-use crate::storage::experience_buffer::{ExperienceBuffer, FailureType};
+use infrastructure::storage::experience_buffer::{ExperienceBuffer, FailureType};
 use shared::types::Result;
 use std::path::PathBuf;
 

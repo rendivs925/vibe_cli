@@ -2603,8 +2603,10 @@ dependencies = [
  "colored",
  "crossterm",
  "dialoguer",
+ "rusqlite",
  "serde",
  "serde_json",
+ "tokio",
 ]
 
 [[package]]

@@ -2,8 +2,10 @@ use domain::domain_config::{CommandGenerator, DomainRegistry, OutputParser};
 use domain::neurosymbolic_entities::*;
 use domain::services::linux_symbolic_engine::LinuxSymbolicEngine;
 use domain::ConstraintSolver;
-use domain::RiskLevel;
 use infrastructure::ollama_client::OllamaClient;
+use infrastructure::storage::experience_buffer::FailureType;
+use infrastructure::storage::knowledge_graph::KnowledgeGraph;
+use infrastructure::storage::risk_scorer::RiskLevel;
 #[allow(unused_imports)]
 use serde::{Deserialize, Serialize};
 use shared::types::Result;
@@ -437,9 +439,12 @@ impl NeurosymbolicService {
                 }
             };
 
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let kg_path = PathBuf::from(&home).join(".config/vibe_cli/knowledge_graph.db");
+
         Ok(Self {
             llm_client: OllamaClient::new()?,
-            knowledge_graph: KnowledgeGraph::new(),
+            knowledge_graph: KnowledgeGraph::new(&kg_path)?,
             constraint_solver: ConstraintSolver::new(),
             domain_registry,
             command_generator: CommandGenerator::new(),
@@ -456,10 +461,12 @@ impl NeurosymbolicService {
     ) -> Result<Self> {
         let domain_registry =
             DomainRegistry::new(prebuilt_base.clone(), user_base.clone(), shared_base)?;
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let kg_path = PathBuf::from(&home).join(".config/vibe_cli/knowledge_graph.db");
 
         Ok(Self {
             llm_client: OllamaClient::new()?,
-            knowledge_graph: KnowledgeGraph::new(),
+            knowledge_graph: KnowledgeGraph::new(&kg_path)?,
             constraint_solver: ConstraintSolver::new(),
             domain_registry: Some(domain_registry),
             command_generator: CommandGenerator::new(),
@@ -1248,21 +1255,6 @@ impl NeurosymbolicService {
                 .unwrap_or(&"None".to_string()),
             solutions.first().map(|s| s.combined_score).unwrap_or(0.0)
         )
-    }
-}
-
-impl KnowledgeGraph {
-    pub fn new() -> Self {
-        Self {
-            entities: HashMap::new(),
-            relationships: Vec::new(),
-            constraints: Vec::new(),
-        }
-    }
-
-    async fn lookup_entity(&self, _name: &str) -> Result<Vec<QueryResult>> {
-        // Simplified entity lookup
-        Ok(vec![])
     }
 }
 
