@@ -506,6 +506,9 @@ pub fn extract_command_from_response(response: &str) -> String {
     } else {
         response.to_string()
     };
+    if let Some(cmd) = extract_command(&cleaned, "") {
+        return cmd;
+    }
     cleaned
         .trim_matches('`')
         .trim_matches('"')
