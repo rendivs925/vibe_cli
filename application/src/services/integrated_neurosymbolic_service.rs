@@ -318,24 +318,43 @@ impl IntegratedNeurosymbolicService {
     }
 
     /// Determine if command can be executed
+    /// NOTE: Dangerous commands are ALWAYS blocked, regardless of configuration
     fn determine_execution_status(
         &self,
         safety_report: &SafetyReport,
         syntax_valid: bool,
         invalid_flags: &[String],
     ) -> (bool, Option<String>) {
-        // Check safety
-        if self.config.block_on_safety && safety_report.is_blocked() {
+        // Check safety - DANGEROUS COMMANDS ARE ALWAYS BLOCKED
+        // This is a hard safety requirement that cannot be disabled
+        if safety_report.is_blocked() {
+            let violations: Vec<String> = safety_report
+                .blocked_violations()
+                .iter()
+                .map(|v| format!("{}: {}", v.rule_id, v.rule_name))
+                .collect();
+
             let reason = format!(
-                "Safety violations: {}",
-                safety_report
-                    .blocked_violations()
-                    .iter()
-                    .map(|v| v.rule_name.clone())
-                    .collect::<Vec<_>>()
-                    .join(", ")
+                "CRITICAL SAFETY VIOLATION - This command is dangerous and CANNOT be executed.\n  Violations: {}",
+                violations.join("\n  ")
             );
             return (false, Some(reason));
+        }
+
+        // Check for warnings if safety is enabled
+        if self.config.block_on_safety && !safety_report.is_safe() {
+            let warnings: Vec<String> = safety_report
+                .warning_violations()
+                .iter()
+                .map(|v| v.rule_name.clone())
+                .collect();
+
+            let reason = format!(
+                "Safety warnings require confirmation: {}",
+                warnings.join(", ")
+            );
+            // Return true but with warning - execution can proceed with user confirmation
+            return (true, Some(reason));
         }
 
         // Check syntax
