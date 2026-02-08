@@ -11,7 +11,7 @@
 use crate::storage::experience_buffer::{ExperienceBuffer, ExperienceEntry, FailureType};
 use crate::storage::knowledge_graph::{EntityType, KnowledgeGraph};
 use rusqlite::{params, Connection, Result as SqliteResult};
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::path::Path;
 
 /// A discovered pattern from failure analysis
@@ -604,7 +604,10 @@ impl InductionEngine {
                 let (action_type, action_value) = self.serialize_action(&rule.action);
 
                 let mut attrs = HashMap::new();
-                attrs.insert("pattern_type".to_string(), pattern.pattern_type.as_str().to_string());
+                attrs.insert(
+                    "pattern_type".to_string(),
+                    pattern.pattern_type.as_str().to_string(),
+                );
                 attrs.insert("description".to_string(), pattern.description.clone());
                 attrs.insert("confidence".to_string(), pattern.confidence.to_string());
                 attrs.insert("condition_type".to_string(), condition_type);

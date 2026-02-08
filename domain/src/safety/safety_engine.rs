@@ -6,7 +6,7 @@
 use super::{
     hard_rules::{HardRules, RuleAction, SafetyRule},
     safety_report::{SafetyReport, SafetyViolation},
-    RiskLevel, ViolationType,
+    RiskLevel,
 };
 use regex::Regex;
 use std::collections::HashMap;
@@ -29,7 +29,7 @@ struct CompiledRule {
 
 /// Statistics for rule effectiveness
 #[derive(Debug, Clone, Default)]
-struct RuleStats {
+pub(crate) struct RuleStats {
     /// Times this rule matched
     matches: u64,
     /// Last match timestamp
@@ -144,7 +144,8 @@ impl SafetyEngine {
     }
 
     /// Get rule statistics
-    pub fn get_stats(&self) -> &HashMap<String, RuleStats> {
+    #[allow(dead_code)]
+    pub(crate) fn get_stats(&self) -> &HashMap<String, RuleStats> {
         &self.stats
     }
 

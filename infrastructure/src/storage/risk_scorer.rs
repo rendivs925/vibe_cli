@@ -7,7 +7,7 @@
 //! - Historical success rates
 //! - System impact scope
 
-use crate::storage::experience_buffer::{ExperienceBuffer, FailureType};
+use crate::storage::experience_buffer::ExperienceBuffer;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

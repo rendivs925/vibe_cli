@@ -9,12 +9,9 @@ pub use crate::cli::utils::{
     detect_system_info, find_project_root, floor_char_boundary, project_cache_suffix,
 };
 
-use crate::cli::cache::{CacheManager, CommandCandidate};
 use clap::Parser;
 use infrastructure::config::Config;
-use serde::{Deserialize, Serialize};
 use shared::types::Result;
-use std::io::{self, Write};
 
 #[derive(Parser)]
 #[command(name = "vibe_cli")]

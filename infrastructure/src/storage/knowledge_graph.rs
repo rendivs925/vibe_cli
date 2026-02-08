@@ -377,7 +377,7 @@ impl KnowledgeGraph {
         entity_id: i64,
         rel_type: Option<&str>,
     ) -> SqliteResult<Vec<(Relationship, Entity)>> {
-        let query = if let Some(rt) = rel_type {
+        let query = if let Some(_rt) = rel_type {
             "SELECT r.id, r.to_entity, r.rel_type
              FROM relationships r
              WHERE r.from_entity = ?1 AND r.rel_type = ?2"

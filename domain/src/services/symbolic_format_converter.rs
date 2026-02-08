@@ -89,7 +89,7 @@ impl SymbolicFormatConverter {
                 vec![],
                 json!({ "operand_count": operands.len() }),
             ),
-            LegacyConstraint::Not { operand } => ("Not".to_string(), vec![], json!({})),
+            LegacyConstraint::Not { .. } => ("Not".to_string(), vec![], json!({})),
             LegacyConstraint::InSet { value, set } => (
                 "InSet".to_string(),
                 vec![],

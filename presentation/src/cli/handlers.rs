@@ -1,10 +1,10 @@
 use crate::cli::streaming::request_command_stream_then_confirm;
 
-use super::cache::{CacheManager, CommandCandidate, ExplainCacheManager, RagCacheManager};
+use super::cache::{CacheManager, ExplainCacheManager, RagCacheManager};
 use super::command_extraction::{extract_command_from_response, parse_agent_plan};
 use super::utils::{detect_system_info, project_cache_suffix};
 use application::services::integrated_neurosymbolic_service::{
-    IntentSignal, IntegratedNeurosymbolicService, NeurosymbolicConfig as IntegratedConfig,
+    IntentSignal, IntegratedNeurosymbolicService,
 };
 use application::services::neurosymbolic_service::{NeurosymbolicConfig, NeurosymbolicService};
 use application::services::rag_service::RagService;
@@ -2046,7 +2046,7 @@ Query: "{}""#,
     }
 
     pub fn handle_clear_cache(&self) -> Result<()> {
-        let mut cache_paths = vec![
+        let cache_paths = vec![
             self.cache_manager.cache_path().clone(),
             self.explain_cache_manager.cache_path().clone(),
             self.rag_cache_manager.cache_path().clone(),

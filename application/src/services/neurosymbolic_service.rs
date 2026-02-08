@@ -1,9 +1,7 @@
 use domain::domain_config::{CommandGenerator, DomainRegistry, OutputParser};
 use domain::neurosymbolic_entities::*;
-use domain::services::linux_symbolic_engine::LinuxSymbolicEngine;
-use domain::ConstraintSolver;
+use domain::services::ConstraintSolver;
 use infrastructure::ollama_client::OllamaClient;
-use infrastructure::storage::experience_buffer::FailureType;
 use infrastructure::storage::knowledge_graph::KnowledgeGraph as InfraKnowledgeGraph;
 use infrastructure::storage::risk_scorer::RiskLevel;
 #[allow(unused_imports)]
@@ -27,7 +25,9 @@ pub struct NeurosymbolicService {
     knowledge_graph: InfraKnowledgeGraph,
     constraint_solver: ConstraintSolver,
     domain_registry: Option<DomainRegistry>,
+    #[allow(dead_code)]
     command_generator: CommandGenerator,
+    #[allow(dead_code)]
     output_parser: OutputParser,
 }
 
@@ -353,8 +353,11 @@ pub struct VerificationPoint {
 /// Simplified in-memory knowledge graph for reasoning
 #[derive(Debug, Clone)]
 pub struct InMemoryKnowledgeGraph {
+    #[allow(dead_code)]
     entities: HashMap<String, KnowledgeEntity>,
+    #[allow(dead_code)]
     relationships: Vec<Relationship>,
+    #[allow(dead_code)]
     constraints: Vec<Constraint>,
 }
 
@@ -407,7 +410,7 @@ pub enum Relationship {
 }
 
 impl NeurosymbolicService {
-    pub async fn new(config: NeurosymbolicConfig) -> Result<Self> {
+    pub async fn new(_config: NeurosymbolicConfig) -> Result<Self> {
         let home = env::var("HOME").unwrap_or_else(|_| "/home/rendi".to_string());
         let config_dir = PathBuf::from(home).join(".config/vibe_cli");
 
@@ -454,7 +457,7 @@ impl NeurosymbolicService {
 
     /// Create service with custom domain paths
     pub async fn with_domains(
-        config: NeurosymbolicConfig,
+        _config: NeurosymbolicConfig,
         prebuilt_base: PathBuf,
         user_base: PathBuf,
         shared_base: PathBuf,
@@ -547,10 +550,6 @@ impl NeurosymbolicService {
             domain_id,
             resolved.matched_on.to_string()
         );
-        let solution_id = solution.id.clone();
-        let solution_desc = solution.description.clone();
-        let command_seq = solution.command_sequence.clone();
-
         let execution_plan = self
             .generate_execution_plan(&[ranked_solution.clone()])
             .await?;
@@ -608,6 +607,7 @@ impl NeurosymbolicService {
     }
 
     /// Generate commands from domain configuration
+    #[allow(dead_code)]
     fn generate_commands_from_domain(
         &self,
         domain: &domain::domain_config::Domain,

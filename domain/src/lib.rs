@@ -3,6 +3,8 @@
 // This module contains the core business logic and entities of Vibe CLI application.
 // It has no dependencies on external frameworks or infrastructure concerns.
 
+#![allow(ambiguous_glob_reexports)]
+
 pub mod domain_config;
 pub mod entities;
 pub mod formal_query_language;
@@ -17,11 +19,8 @@ pub use entities::*;
 pub use formal_query_language::*;
 pub use repositories::*;
 pub use safety::*;
-pub use services::*;
 pub use value_objects::*;
 
 // Additional re-exports for specific types
 pub use repositories::embedding_repository::EmbeddingStats;
-pub use repositories::symbolic_reasoning_repository::*;
 pub use services::command_planner::CommandPlanResult;
-pub use services::symbolic_format_converter::*;

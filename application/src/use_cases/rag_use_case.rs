@@ -181,7 +181,6 @@ impl RagUseCase {
             if word_count + words.len() > chunk_size && !current_chunk.is_empty() {
                 chunks.push(current_chunk.join(" "));
                 current_chunk.clear();
-                word_count = 0;
 
                 // Add overlap
                 let overlap_words = words

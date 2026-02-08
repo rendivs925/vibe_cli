@@ -1,6 +1,5 @@
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
-use std::collections::HashMap;
 
 /// Query value object representing a search query
 #[derive(Debug, Clone, Serialize, Deserialize)]

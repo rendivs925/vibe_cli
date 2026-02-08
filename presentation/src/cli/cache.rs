@@ -132,6 +132,7 @@ impl CacheManager {
         intersection.len() as f64 / union.len() as f64
     }
 
+    #[allow(dead_code)]
     fn clean_command_output(raw: &str) -> String {
         let trimmed = raw.trim();
         if trimmed.starts_with("```") && trimmed.ends_with("```") {

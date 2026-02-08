@@ -10,6 +10,7 @@ use std::path::PathBuf;
 #[derive(Debug, Clone)]
 struct OperationSignature {
     fql: FqlQuery,
+    #[allow(dead_code)]
     confidence: f32,
 }
 
@@ -63,6 +64,7 @@ pub struct DomainRegistry {
     domains: HashMap<String, Domain>,
     entities: HashMap<String, Entity>,
     command_generator: crate::domain_config::command_generator::CommandGenerator,
+    #[allow(dead_code)]
     inverted_index: HashMap<String, HashSet<String>>,
     operation_signatures: HashMap<String, OperationSignature>,
     fql_parser: FqlParser,
@@ -243,8 +245,8 @@ impl DomainRegistry {
         None
     }
 
-
     /// Match an intent to a domain and return confidence
+    #[allow(dead_code)]
     fn match_intent(&self, domain: &Domain, intent: &str) -> i32 {
         self.query_intent_detailed(intent)
             .into_iter()
@@ -277,6 +279,7 @@ impl DomainRegistry {
         None
     }
 
+    #[allow(dead_code)]
     fn get_operation_by_id(&self, op_id: &str) -> Option<(&Domain, &Operation)> {
         self.get_operation(op_id)
     }
@@ -505,7 +508,11 @@ impl DomainRegistry {
                     continue;
                 }
 
-                if best.as_ref().map(|(c, _, _, _, _)| score > *c).unwrap_or(true) {
+                if best
+                    .as_ref()
+                    .map(|(c, _, _, _, _)| score > *c)
+                    .unwrap_or(true)
+                {
                     best = Some((
                         score,
                         domain.id.clone(),
@@ -535,10 +542,7 @@ impl DomainRegistry {
         format!("{}.{}", domain_id, op_id)
     }
 
-    fn build_operation_signature(
-        parser: &FqlParser,
-        op: &Operation,
-    ) -> Option<OperationSignature> {
+    fn build_operation_signature(parser: &FqlParser, op: &Operation) -> Option<OperationSignature> {
         let mut candidates: Vec<(FqlQuery, f32)> = Vec::new();
         let mut texts = Vec::new();
 
@@ -690,18 +694,32 @@ impl DomainRegistry {
         fql: Option<&FqlQuery>,
     ) -> Option<serde_json::Value> {
         match name {
-            "lines" => self.extract_lines(query_lower, fql).map(serde_json::Value::from),
+            "lines" => self
+                .extract_lines(query_lower, fql)
+                .map(serde_json::Value::from),
             "path" => self.extract_path(query, fql).map(serde_json::Value::from),
-            "service" => self.extract_service(query_lower, fql).map(serde_json::Value::from),
-            "action" => self.extract_action(query_lower).map(serde_json::Value::from),
+            "service" => self
+                .extract_service(query_lower, fql)
+                .map(serde_json::Value::from),
+            "action" => self
+                .extract_action(query_lower)
+                .map(serde_json::Value::from),
             "pattern" => self.extract_pattern(query).map(serde_json::Value::from),
-            "log" => self.extract_log(query_lower, query).map(serde_json::Value::from),
-            "protocol" => self.extract_protocol(query_lower).map(serde_json::Value::from),
-            "filter" => self.extract_filter(query_lower, fql).map(serde_json::Value::from),
+            "log" => self
+                .extract_log(query_lower, query)
+                .map(serde_json::Value::from),
+            "protocol" => self
+                .extract_protocol(query_lower)
+                .map(serde_json::Value::from),
+            "filter" => self
+                .extract_filter(query_lower, fql)
+                .map(serde_json::Value::from),
             "mode" => self.extract_mode(query_lower).map(serde_json::Value::from),
             "owner" => self.extract_owner(query_lower).map(serde_json::Value::from),
             "group" => self.extract_group(query_lower).map(serde_json::Value::from),
-            "target" => self.extract_target(query_lower).map(serde_json::Value::from),
+            "target" => self
+                .extract_target(query_lower)
+                .map(serde_json::Value::from),
             "size" => self.extract_size(query_lower).map(serde_json::Value::from),
             "name" => self.extract_name(query).map(serde_json::Value::from),
             _ => None,
@@ -764,7 +782,9 @@ impl DomainRegistry {
             return Some(cap[1].to_string());
         }
 
-        for svc in ["nginx", "apache", "mysql", "postgres", "redis", "docker", "ssh"] {
+        for svc in [
+            "nginx", "apache", "mysql", "postgres", "redis", "docker", "ssh",
+        ] {
             if query_lower.contains(svc) {
                 return Some(svc.to_string());
             }
@@ -792,8 +812,7 @@ impl DomainRegistry {
             }
         }
 
-        let re = Regex::new(r"(?:contains|containing|match(?:ing)?|grep)\s+([a-z0-9._-]+)")
-            .ok()?;
+        let re = Regex::new(r"(?:contains|containing|match(?:ing)?|grep)\s+([a-z0-9._-]+)").ok()?;
         re.captures(&query.to_lowercase())
             .and_then(|cap| cap.get(1).map(|m| m.as_str().to_string()))
     }

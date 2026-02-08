@@ -1,6 +1,5 @@
 use async_trait::async_trait;
 use domain::repositories::symbolic_reasoning_repository::*;
-use memmap2::Mmap;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;

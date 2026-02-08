@@ -3,7 +3,7 @@
 //! Application service that integrates the enhanced safety kernel
 //! with the existing safety infrastructure.
 
-use domain::safety::{SafetyEngine, SafetyReport, SafetyViolation};
+use domain::safety::{SafetyEngine, SafetyReport};
 use infrastructure::storage::SafetyViolationStorage;
 use shared::types::Result;
 use std::path::PathBuf;

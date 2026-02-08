@@ -1,11 +1,9 @@
 use bincode::{deserialize, serialize};
 use flate2::read::GzDecoder;
 use flate2::write::GzEncoder;
-use memmap2::Mmap;
 use serde::{Deserialize, Serialize};
 use shared::types::Result;
 use std::collections::HashSet;
-use std::fs;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -80,18 +78,14 @@ pub struct RagCacheEntry {
 
 pub struct CacheManager {
     cache_dir: PathBuf,
-    memory_mapped_io: bool,
 }
 
 impl CacheManager {
-    pub fn new(cache_dir: PathBuf, memory_mapped_io: bool) -> Self {
-        Self {
-            cache_dir,
-            memory_mapped_io,
-        }
+    pub fn new(cache_dir: PathBuf, _memory_mapped_io: bool) -> Self {
+        Self { cache_dir }
     }
 
-    fn validate_command_syntax(command: &str) -> bool {
+    fn validate_command_syntax(&self, command: &str) -> bool {
         // Check if command contains any dangerous patterns
         let dangerous_patterns = [
             "rm -rf", "rm -r", "dd if=", "mkfs", "format", "shred", "wipe", "fdisk", "sfdisk",
@@ -120,7 +114,7 @@ impl CacheManager {
         true
     }
 
-    fn validate_command_exists(command: &str) -> bool {
+    fn validate_command_exists(&self, command: &str) -> bool {
         // Extract the first word as the command
         let parts: Vec<&str> = command.split_whitespace().collect();
         if parts.is_empty() {
@@ -150,16 +144,16 @@ impl CacheManager {
         }
     }
 
-    fn validate_command(command: &str) -> bool {
+    fn validate_command(&self, command: &str) -> bool {
         if command.trim().is_empty() {
             return false;
         }
 
-        if !Self::validate_command_syntax(command) {
+        if !self.validate_command_syntax(command) {
             return false;
         }
 
-        if !Self::validate_command_exists(command) {
+        if !self.validate_command_exists(command) {
             return false;
         }
 
@@ -196,6 +190,7 @@ impl CacheManager {
         intersection.len() as f64 / union.len() as f64
     }
 
+    #[allow(dead_code)]
     fn clean_command_output(raw: &str) -> String {
         let trimmed = raw.trim();
         if trimmed.starts_with("```") && trimmed.ends_with("```") {
@@ -286,7 +281,7 @@ impl CacheManager {
                 let valid_candidates: Vec<CommandCandidate> = entry
                     .candidates
                     .iter()
-                    .filter(|candidate| Self::validate_command(&candidate.command))
+                    .filter(|candidate| self.validate_command(&candidate.command))
                     .cloned()
                     .collect();
 
@@ -320,7 +315,7 @@ impl CacheManager {
                 let valid_candidates: Vec<CommandCandidate> = entry
                     .candidates
                     .iter()
-                    .filter(|candidate| Self::validate_command(&candidate.command))
+                    .filter(|candidate| self.validate_command(&candidate.command))
                     .cloned()
                     .collect();
 

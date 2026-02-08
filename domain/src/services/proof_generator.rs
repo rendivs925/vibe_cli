@@ -10,8 +10,7 @@
 //! - Resource bounds: Command respects resource limits
 
 use crate::formal_query_language::{FqlAction, FqlConstraint, FqlQuery};
-use crate::safety::{SafetyReport, ViolationType};
-use std::collections::HashMap;
+use crate::safety::SafetyReport;
 
 /// A formal safety proof
 #[derive(Debug, Clone)]
@@ -85,13 +84,13 @@ pub enum Predicate {
 }
 
 /// Proof generator engine
+#[allow(dead_code)]
 pub struct ProofGenerator {
     axioms: Vec<String>,
     safety_rules: Vec<String>,
 }
 
 impl ProofGenerator {
-    /// Create new proof generator
     pub fn new() -> Self {
         Self {
             axioms: Self::default_axioms(),

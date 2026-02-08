@@ -6,14 +6,20 @@ use std::collections::HashMap;
 /// Core symbolic reasoning engine for Linux system administration
 pub struct LinuxSymbolicEngine {
     current_state: LinuxSystemState,
+    #[allow(dead_code)]
     knowledge_base: HashMap<String, SymbolicValue>,
+    #[allow(dead_code)]
     constraint_solver: ConstraintSolver,
 }
 
 /// Constraint satisfaction solver
+#[allow(dead_code)]
 pub struct ConstraintSolver {
+    #[allow(dead_code)]
     variables: HashMap<String, SymbolicVariable>,
+    #[allow(dead_code)]
     constraints: Vec<Constraint>,
+    #[allow(dead_code)]
     domain_knowledge: HashMap<String, ValueDomain>,
 }
 
@@ -720,6 +726,7 @@ impl LinuxSymbolicEngine {
         }
     }
 
+    #[allow(dead_code)]
     fn extract_port_from_address(&self, address: &str) -> Option<u16> {
         address.split(':').nth(1)?.parse::<u16>().ok()
     }
@@ -1085,7 +1092,7 @@ impl ConstraintSolver {
                         );
                     }
                 }
-                Constraint::Equals { left, right } => {
+                Constraint::Equals { left, .. } => {
                     // Simplified: assume equality holds
                     assignments.insert(format!("equals_{}", i), SymbolicValue::clone(&left));
                 }

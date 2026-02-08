@@ -2,7 +2,7 @@
 //!
 //! SQLite-backed storage for safety violations and learning data
 
-use domain::safety::{RiskLevel, SafetyViolation, ViolationType};
+use domain::safety::SafetyViolation;
 use rusqlite::{params, Connection, Result as SqliteResult};
 use std::path::Path;
 

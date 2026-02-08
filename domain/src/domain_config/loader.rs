@@ -183,7 +183,7 @@ impl DomainLoader {
             if let Some(prebuilt_entity) = merged_entities.get(&name) {
                 // Merge properties (user can add/override)
                 let mut merged_props = prebuilt_entity.core_properties.clone();
-                let user_prop_names: std::collections::HashSet<String> = entity
+                let _user_prop_names: std::collections::HashSet<String> = entity
                     .core_properties
                     .iter()
                     .map(|p| p.name.clone())

@@ -1,5 +1,4 @@
 use crate::cli::cache::CommandCandidate;
-use std::collections::HashSet;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Source {
