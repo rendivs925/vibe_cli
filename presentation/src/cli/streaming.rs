@@ -10,6 +10,7 @@ use crate::cli::utils::*;
 use anyhow::Context;
 use futures_util::StreamExt;
 use infrastructure::config::Config;
+use infrastructure::syntax_grammar_validator::SyntaxGrammarValidator;
 use serde::{Deserialize, Serialize};
 use tokio::io::{AsyncBufReadExt, BufReader as AsyncBufReader};
 use tokio_util::io::StreamReader;
@@ -253,6 +254,148 @@ pub fn restore_cursor_and_clear_to_end() {
     io::stdout().flush().ok();
 }
 
+#[derive(Debug, Clone)]
+struct LiveMonitorViolation {
+    command: String,
+    invalid_flags: Vec<String>,
+}
+
+struct LiveMonitor {
+    validator: SyntaxGrammarValidator,
+    pending_line: String,
+}
+
+impl LiveMonitor {
+    fn new() -> Self {
+        Self {
+            validator: SyntaxGrammarValidator::new(),
+            pending_line: String::new(),
+        }
+    }
+
+    fn feed(&mut self, chunk: &str) -> Option<LiveMonitorViolation> {
+        let mut combined = String::new();
+        combined.push_str(&self.pending_line);
+        combined.push_str(chunk);
+
+        let mut lines = combined.split('\n').peekable();
+        while let Some(line) = lines.next() {
+            let is_last = lines.peek().is_none();
+            if is_last {
+                self.pending_line = line.to_string();
+                break;
+            }
+
+            if let Some(violation) = self.validate_line(line) {
+                return Some(violation);
+            }
+        }
+
+        if self.pending_line.ends_with(' ') || self.pending_line.ends_with('\t') {
+            if let Some(violation) = self.validate_line(&self.pending_line) {
+                return Some(violation);
+            }
+        }
+
+        None
+    }
+
+    fn validate_line(&mut self, line: &str) -> Option<LiveMonitorViolation> {
+        let trimmed = line.trim();
+        if !is_command_like(trimmed) {
+            return None;
+        }
+
+        let segment = first_command_segment(trimmed);
+        let normalized = strip_sudo_prefix(segment);
+        if normalized.trim().is_empty() {
+            return None;
+        }
+
+        let validation = self.validator.validate(&normalized);
+        if !validation.is_valid && !validation.invalid_flags.is_empty() {
+            return Some(LiveMonitorViolation {
+                command: normalized,
+                invalid_flags: validation.invalid_flags,
+            });
+        }
+
+        None
+    }
+}
+
+fn is_command_like(line: &str) -> bool {
+    let trimmed = line.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    if trimmed.starts_with("```") || trimmed.starts_with('#') {
+        return false;
+    }
+
+    let has_shell_features = trimmed.contains('|')
+        || trimmed.contains("&&")
+        || trimmed.contains(';')
+        || trimmed.contains(" -")
+        || trimmed.contains("--")
+        || trimmed.contains("$(");
+    if !has_shell_features {
+        return false;
+    }
+
+    let first = trimmed.split_whitespace().next().unwrap_or("");
+    if first.is_empty() {
+        return false;
+    }
+
+    let first_char = first.chars().next().unwrap_or('_');
+    first_char.is_ascii_alphanumeric() || first_char == '.' || first_char == '/'
+}
+
+fn strip_sudo_prefix(command: &str) -> String {
+    let tokens: Vec<&str> = command.split_whitespace().collect();
+    if tokens.is_empty() || tokens[0] != "sudo" {
+        return command.to_string();
+    }
+
+    let mut idx = 1;
+    while idx < tokens.len() {
+        let token = tokens[idx];
+        if token.starts_with('-') {
+            if matches!(token, "-u" | "-g" | "-h" | "-p" | "-U") {
+                idx += 2;
+                continue;
+            }
+            idx += 1;
+            continue;
+        }
+        break;
+    }
+
+    if idx >= tokens.len() {
+        command.to_string()
+    } else {
+        tokens[idx..].join(" ")
+    }
+}
+
+fn first_command_segment(command: &str) -> &str {
+    let mut split_at: Option<usize> = None;
+    for pat in ["&&", "||", "|", ";"] {
+        if let Some(idx) = command.find(pat) {
+            split_at = match split_at {
+                Some(existing) => Some(existing.min(idx)),
+                None => Some(idx),
+            };
+        }
+    }
+
+    match split_at {
+        Some(idx) => command[..idx].trim(),
+        None => command,
+    }
+}
+
 pub async fn stream_assistant_content(
     client: &reqwest::Client,
     config: &Config,
@@ -283,6 +426,7 @@ pub async fn stream_assistant_content(
 
     let mut full = String::new();
     let mut printed_anything = false;
+    let mut live_monitor = LiveMonitor::new();
 
     while let Some(line) = lines.next_line().await? {
         let line = line.trim();
@@ -299,6 +443,15 @@ pub async fn stream_assistant_content(
             let chunk = &v.message.content;
 
             full.push_str(chunk);
+
+            if let Some(violation) = live_monitor.feed(chunk) {
+                println!();
+                println!(
+                    "LiveMonitor blocked invalid flags: {:?} in '{}'",
+                    violation.invalid_flags, violation.command
+                );
+                return Err(anyhow::anyhow!("live_monitor_invalid_flag"));
+            }
 
             printed_anything = true;
             print!("{chunk}");
@@ -385,7 +538,16 @@ Environment:
     // Optional: keep your cursor UX (no retries, but still cleanly prints one attempt)
     save_cursor();
 
-    let (raw, printed_anything) = stream_assistant_content(&client, config, &req_messages).await?;
+    let (raw, printed_anything) =
+        match stream_assistant_content(&client, config, &req_messages).await {
+            Ok(result) => result,
+            Err(e) => {
+                if e.to_string().contains("live_monitor_invalid_flag") {
+                    return Ok(None);
+                }
+                return Err(e);
+            }
+        };
 
     if printed_anything {
         println!();
