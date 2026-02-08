@@ -394,6 +394,8 @@ impl IntegratedNeurosymbolicService {
                     }
                     return Err(anyhow!("No valid command candidates"));
                 }
+
+                return Err(anyhow!("Resolved operation not found"));
             } else {
                 return Err(anyhow!("No neurosymbolic operation match"));
             }
@@ -516,11 +518,11 @@ impl IntegratedNeurosymbolicService {
                 let query_lower = query.to_lowercase();
                 let target_norm = target_str.to_lowercase();
 
-                if (target_norm == "system"
+                if target_norm == "system"
                     || target_norm == "unknown"
                     || action_str.to_lowercase() == "unknown"
                     || (query_lower.contains("process") && target_norm != "process")
-                    || (query_lower.contains("journal") && target_norm != "log"))
+                    || (query_lower.contains("journal") && target_norm != "log")
                 {
                     return self.fql_parser.parse(query);
                 }
