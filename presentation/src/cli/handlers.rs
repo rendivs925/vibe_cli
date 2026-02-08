@@ -166,7 +166,6 @@ pub struct IntentAnalysis {
     pub intent: String,
     pub neurosymbolic_suitable: bool,
     pub reasoning: String,
-    pub keywords: Vec<String>,
     pub action: Option<String>,
     pub target: Option<String>,
     pub objects: Vec<String>,
@@ -179,7 +178,6 @@ struct IntentAnalysisResponse {
     intent_category: Option<String>,
     neurosymbolic_suitable: Option<bool>,
     reasoning: Option<String>,
-    keywords: Option<Vec<String>>,
     action: Option<String>,
     target: Option<String>,
     objects: Option<Vec<String>>,
@@ -522,7 +520,6 @@ User request: {}",
   "params": {{"lines": "20", "pattern": "error", "service": "nginx", "path": "/var/log"}},
   "neurosymbolic_suitable": true,
   "reasoning": "brief explanation",
-  "keywords": ["..."]
 }}
 
 Query: "{}""#,
@@ -542,13 +539,10 @@ Query: "{}""#,
             let reasoning = parsed
                 .reasoning
                 .unwrap_or_else(|| "Could not parse".to_string());
-            let keywords = parsed.keywords.unwrap_or_default();
-
             return Ok(IntentAnalysis {
                 intent,
                 neurosymbolic_suitable,
                 reasoning,
-                keywords,
                 action: parsed.action,
                 target: parsed.target,
                 objects: parsed.objects.unwrap_or_default(),
@@ -560,8 +554,6 @@ Query: "{}""#,
         let mut intent = "unknown".to_string();
         let mut neurosymbolic_suitable = true;
         let mut reasoning = "Could not parse".to_string();
-        let mut keywords = Vec::new();
-
         for line in response.lines() {
             let line = line.trim();
             if line.starts_with("INTENT:") {
@@ -574,9 +566,6 @@ Query: "{}""#,
                 neurosymbolic_suitable = val.to_lowercase() == "yes";
             } else if line.starts_with("REASONING:") {
                 reasoning = line.replace("REASONING:", "").trim().to_string();
-            } else if line.starts_with("KEYWORDS:") {
-                let kw = line.replace("KEYWORDS:", "").trim().to_string();
-                keywords = kw.split(',').map(|s| s.trim().to_string()).collect();
             }
         }
 
@@ -584,7 +573,6 @@ Query: "{}""#,
             intent,
             neurosymbolic_suitable,
             reasoning,
-            keywords,
             action: None,
             target: None,
             objects: Vec::new(),
@@ -605,10 +593,6 @@ Query: "{}""#,
         println!("\n{}", "=== Intent Analysis ===".green().bold());
         println!("Intent: {}", intent_analysis.intent.cyan());
         println!("Reasoning: {}", intent_analysis.reasoning.white());
-
-        if !intent_analysis.keywords.is_empty() {
-            println!("Keywords: {}", intent_analysis.keywords.join(", ").yellow());
-        }
 
         if !intent_analysis.neurosymbolic_suitable {
             println!(
