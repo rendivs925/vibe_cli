@@ -1423,6 +1423,7 @@ dependencies = [
  "md5",
  "memmap2",
  "rayon",
+ "regex",
  "reqwest",
  "rmp-serde",
  "rusqlite",
