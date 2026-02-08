@@ -20,6 +20,7 @@ use infrastructure::{
         experience_buffer::{ExperienceBuffer, FailureType},
         induction_engine::InductionEngine,
         risk_scorer::{RiskLevel, RiskProfile, RiskScorer},
+        knowledge_graph::KnowledgeGraph,
         ManpageCache,
     },
     syntax_grammar_validator::SyntaxGrammarValidator,
@@ -177,6 +178,7 @@ pub struct IntegratedNeurosymbolicService {
     proof_generator: ProofGenerator,
     induction_engine: Option<InductionEngine>,
     experience_db_path: PathBuf,
+    knowledge_graph_path: PathBuf,
     manpage_cache: ManpageCache,
 }
 
@@ -195,6 +197,7 @@ impl IntegratedNeurosymbolicService {
 
         let manpage_cache = ManpageCache::new(cache_dir.join("manpage_cache.db"))?;
         let experience_db_path = cache_dir.join("experience.db");
+        let knowledge_graph_path = cache_dir.join("knowledge_graph.db");
         let risk_buffer = ExperienceBuffer::new(&experience_db_path)?;
         let risk_scorer = RiskScorer::new().with_experience_buffer(risk_buffer);
         let proof_generator = ProofGenerator::new();
@@ -218,6 +221,7 @@ impl IntegratedNeurosymbolicService {
             proof_generator,
             induction_engine,
             experience_db_path,
+            knowledge_graph_path,
             manpage_cache,
         })
     }
@@ -466,7 +470,11 @@ impl IntegratedNeurosymbolicService {
 
             if let Some(engine) = &self.induction_engine {
                 if let Ok(buffer) = ExperienceBuffer::new(&self.experience_db_path) {
-                    let _ = engine.mine_patterns(&buffer);
+                    if let Ok(patterns) = engine.mine_patterns(&buffer) {
+                        if let Ok(graph) = KnowledgeGraph::new(&self.knowledge_graph_path) {
+                            let _ = engine.apply_rules_to_graph(&graph, &patterns);
+                        }
+                    }
                 }
             }
         }

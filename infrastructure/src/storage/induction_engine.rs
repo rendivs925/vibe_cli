@@ -9,6 +9,7 @@
 //! - "Docker commands fail when service is not running"
 
 use crate::storage::experience_buffer::{ExperienceBuffer, ExperienceEntry, FailureType};
+use crate::storage::knowledge_graph::{EntityType, KnowledgeGraph};
 use rusqlite::{params, Connection, Result as SqliteResult};
 use std::collections::{HashMap, HashSet};
 use std::path::Path;
@@ -579,6 +580,45 @@ impl InductionEngine {
         })?;
 
         patterns.collect()
+    }
+
+    /// Apply induced rules to the knowledge graph as configuration entities
+    pub fn apply_rules_to_graph(
+        &self,
+        graph: &KnowledgeGraph,
+        patterns: &[InducedPattern],
+    ) -> SqliteResult<usize> {
+        let mut applied = 0;
+
+        for pattern in patterns {
+            if let Some(rule) = &pattern.induced_rule {
+                let rule_name = format!("induced_rule:{}", rule.rule_name);
+                if graph
+                    .find_entity(EntityType::Configuration, &rule_name)?
+                    .is_some()
+                {
+                    continue;
+                }
+
+                let (condition_type, condition_value) = self.serialize_condition(&rule.condition);
+                let (action_type, action_value) = self.serialize_action(&rule.action);
+
+                let mut attrs = HashMap::new();
+                attrs.insert("pattern_type".to_string(), pattern.pattern_type.as_str().to_string());
+                attrs.insert("description".to_string(), pattern.description.clone());
+                attrs.insert("confidence".to_string(), pattern.confidence.to_string());
+                attrs.insert("condition_type".to_string(), condition_type);
+                attrs.insert("condition_value".to_string(), condition_value);
+                attrs.insert("action_type".to_string(), action_type);
+                attrs.insert("action_value".to_string(), action_value);
+                attrs.insert("enabled".to_string(), rule.enabled.to_string());
+
+                graph.add_entity(EntityType::Configuration, &rule_name, attrs)?;
+                applied += 1;
+            }
+        }
+
+        Ok(applied)
     }
 
     /// Get statistics
