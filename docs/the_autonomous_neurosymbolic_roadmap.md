@@ -29,6 +29,7 @@ _Goal: Eliminate syntax hallucinations and ground all actions in formal logic._
 
 Instead of generating Bash directly, the system translates user intent into a **Formal Query Language (FQL)**.
 
+- **Status:** [x] Implemented and wired.
 - **Feature:** `FqlParser` + `IntentSignal`.
 - **Function:** Converts natural language (e.g., "clean logs") into structured logic: `ACTION(delete) & TARGET(log:*) & CONSTRAINT(safe_delete)`.
 - **Benefit:** Decouples intent understanding from command syntax generation.
@@ -37,12 +38,14 @@ Instead of generating Bash directly, the system translates user intent into a **
 
 Commands are validated against local documentation before selection.
 
+- **Status:** [x] Implemented and wired.
 - **Feature:** `ManpageCrawler` + `SyntaxGrammarValidator`.
 - **Function:** Parses `man <tool>` or `<tool> --help` and **filters out invalid flag candidates**.
 - **Benefit:** Prevents invalid flags from being selected.
 
 ### **1.3. Basic Symbolic Validation**
 
+- **Status:** [x] Implemented and wired.
 - **Feature:** `SafetyEngine` with `HardRules`.
 - **Function:** Rejects dangerous commands (e.g., root deletion) before execution.
 - **Benefit:** Prevents catastrophic actions.
@@ -55,18 +58,22 @@ _Goal: Enable the system to learn from mistakes and refine its logic._
 
 ### **2.1. Step-by-Step Symbolic Backtracking**
 
+- **Status:** [~] Partial.
 - **Feature:** Manpage-validated **candidate selection** (live candidate pruning).
 - **Function:** Invalid commands are pruned before execution.
 - **Benefit:** Reduces hallucination loops and wasted attempts.
+- **Gap:** Token-level LLM decoding monitor is not implemented; pruning happens after candidate generation.
 
 ### **2.2. The Experience Buffer (Memory)**
 
+- **Status:** [x] Implemented and wired.
 - **Feature:** `ExperienceBuffer` + `LearningService`.
 - **Function:** Stores `query`, `command`, `failure_type`, and `corrections`.
 - **Benefit:** Enables persistence of mistakes and best approaches.
 
 ### **2.3. Neural Context Injection (RAG for Logic)**
 
+- **Status:** [x] Implemented and wired.
 - **Feature:** `LearningService::get_context_for_query`.
 - **Function:** Produces a **"Do Not Repeat"** list and recommended approaches; these are used to **filter candidate commands**.
 - **Benefit:** Prevents repeating known failures.
@@ -79,18 +86,21 @@ _Goal: Build a system model and learn local operational rules._
 
 ### **3.1. Knowledge Graph (KG) Construction**
 
+- **Status:** [x] Implemented and wired.
 - **Feature:** `KnowledgeGraph` + `GraphBuilder`.
 - **Function:** Stores local entities (services, files, tools) and relationships.
 - **Benefit:** Adds system-specific context beyond manpages.
 
 ### **3.2. Autonomous Rule Induction**
 
+- **Status:** [x] Implemented and wired.
 - **Feature:** `InductionEngine`.
 - **Function:** Mines failure patterns from the experience buffer and writes new rules to the KG.
 - **Benefit:** Learns machine-specific quirks automatically.
 
 ### **3.3. Probabilistic Symbolic Reasoning**
 
+- **Status:** [x] Implemented and wired.
 - **Feature:** `RiskScorer`.
 - **Function:** Produces a probabilistic risk profile and mitigation steps based on command + history.
 - **Benefit:** Handles real-world edge cases safely.
@@ -103,10 +113,12 @@ _Goal: Provide mathematical proof of safety for critical operations._
 
 ### **4.1. Formal Verification Certificate**
 
+- **Status:** [~] Partial.
 - **Feature:** `ProofGenerator`.
 - **Function:** Generates a safety proof for high-risk commands.
 - **Output:** A user-readable proof summary before execution.
 - **Benefit:** High-assurance validation for destructive actions.
+- **Gap:** Proofs are heuristic; no external SMT solver integration yet.
 
 ---
 
