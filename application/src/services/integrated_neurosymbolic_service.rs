@@ -426,18 +426,45 @@ impl IntegratedNeurosymbolicService {
         };
 
         // Add flags based on constraints
+        let mut target_needs_append = true;
+        let mut line_limit: Option<u64> = None;
+
         for constraint in &fql.constraints {
             match constraint {
                 domain::formal_query_language::FqlConstraint::Recursive(_) => {
                     command.push_str(" -r")
                 }
                 domain::formal_query_language::FqlConstraint::Force(_) => command.push_str(" -f"),
+                domain::formal_query_language::FqlConstraint::Limit(limit) => {
+                    line_limit = Some(*limit)
+                }
                 _ => {}
             }
         }
 
-        // Add target
-        command.push_str(&format!(" {}", fql.target));
+        match &fql.target {
+            domain::formal_query_language::FqlTarget::Log(_) => {
+                command = "journalctl".to_string();
+                if let Some(limit) = line_limit {
+                    command.push_str(&format!(" -n {}", limit));
+                }
+                target_needs_append = false;
+            }
+            domain::formal_query_language::FqlTarget::Memory => {
+                command = "free -h".to_string();
+                target_needs_append = false;
+            }
+            domain::formal_query_language::FqlTarget::Cpu => {
+                command = "top -bn1 | head -20".to_string();
+                target_needs_append = false;
+            }
+            _ => {}
+        }
+
+        if target_needs_append {
+            // Add target when the base command expects it
+            command.push_str(&format!(" {}", fql.target));
+        }
 
         Ok(command)
     }

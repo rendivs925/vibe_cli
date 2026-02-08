@@ -535,7 +535,10 @@ Query: "{}""#,
             let intent = parsed
                 .intent_category
                 .unwrap_or_else(|| "unknown".to_string());
-            let neurosymbolic_suitable = parsed.neurosymbolic_suitable.unwrap_or(true);
+            let mut neurosymbolic_suitable = parsed.neurosymbolic_suitable.unwrap_or(true);
+            if intent == "log" {
+                neurosymbolic_suitable = true;
+            }
             let reasoning = parsed
                 .reasoning
                 .unwrap_or_else(|| "Could not parse".to_string());
