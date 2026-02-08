@@ -84,10 +84,6 @@ pub struct Cli {
     #[arg(long)]
     pub no_learning: bool,
 
-    /// Disable safety validation
-    #[arg(long)]
-    pub no_safety: bool,
-
     /// Output FQL (Formal Query Language) representation
     #[arg(long)]
     pub fql_output: bool,
