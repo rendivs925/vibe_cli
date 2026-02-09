@@ -182,7 +182,7 @@ struct IntentAnalysisResponse {
     target: Option<String>,
     objects: Option<Vec<String>>,
     constraints: Option<Vec<String>>,
-    params: Option<HashMap<String, String>>,
+    params: Option<HashMap<String, serde_json::Value>>,
 }
 
 pub struct CliHandlers {
@@ -567,6 +567,17 @@ Query: "{}""#,
             let reasoning = parsed
                 .reasoning
                 .unwrap_or_else(|| "Could not parse".to_string());
+            let params = parsed
+                .params
+                .unwrap_or_default()
+                .into_iter()
+                .filter_map(|(k, v)| match v {
+                    serde_json::Value::String(s) => Some((k, s)),
+                    serde_json::Value::Number(n) => Some((k, n.to_string())),
+                    serde_json::Value::Bool(b) => Some((k, b.to_string())),
+                    _ => None,
+                })
+                .collect::<HashMap<String, String>>();
             return Ok(IntentAnalysis {
                 intent,
                 neurosymbolic_suitable,
@@ -575,7 +586,7 @@ Query: "{}""#,
                 target: parsed.target.map(|t| Self::normalize_single_label(&t)),
                 objects: parsed.objects.unwrap_or_default(),
                 constraints: parsed.constraints.unwrap_or_default(),
-                params: parsed.params.unwrap_or_default(),
+                params,
             });
         }
 
