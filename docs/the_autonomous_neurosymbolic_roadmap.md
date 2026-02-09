@@ -8,13 +8,17 @@ Evolve Vibe CLI from a "command generator" into a **self-correcting, environment
 
 ## **Current Implementation (Aligned to the Roadmap)**
 
-**Intent Pipeline (No Keyword Matching for Domain Resolution)**
+**Intent Pipeline (Single Integrated Path)**
 - **Intent Signal (Neural)**: Upstream analysis produces a structured `IntentSignal` with `action`, `target`, `objects`, `constraints`, and `params`.
 - **FQL Autoformalization (Symbolic)**: The signal is converted into `FqlQuery` when possible; otherwise, the query is parsed via `FqlParser`.
-- **Semantic Operation Resolver**: Domain operations are matched by **FQL signature** (action + target + pattern), not fuzzy or keyword matching.
+- **Semantic Operation Resolver**: Domain operations are matched primarily by **FQL signature** (action + target + pattern).
 - **Input Extraction**: Operation inputs are extracted from the query/FQL (paths, service names, log line counts, patterns) and fed into the generator.
 
-**Command Pipeline**
+**Known Heuristics (Still Present)**
+- Domain resolution still includes limited string-based checks (domain id/description/entity name).
+- Input extraction uses regex and string heuristics for services, logs, actions, and filters.
+
+**Command Pipeline (Config-Driven Only)**
 - **Document-Constrained Selection**: Generated candidates are **validated against manpages** and the best valid command is chosen before execution.
 - **Safety + Risk + Proof**: Hard safety rules run first, probabilistic risk scoring follows, and formal proofs are produced for critical operations.
 - **Learning Feedback**: The experience buffer is queried to filter out previously failed approaches before choosing a command.
