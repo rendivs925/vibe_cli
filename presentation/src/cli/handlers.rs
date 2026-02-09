@@ -348,7 +348,7 @@ User request: {}",
                 return Ok(());
             }
 
-            let (valid_candidates, validation, suggestion) =
+            let (valid_candidates, has_symbolic, validation, suggestion) =
                 self.filter_candidates_by_domain(query, candidates);
 
             if !valid_candidates.is_empty() {
@@ -358,12 +358,13 @@ User request: {}",
                 return Ok(());
             }
 
-            if attempts == 1 {
+            if attempts == 1 && has_symbolic {
                 if let Some(symbolic) = suggestion.as_ref() {
-                if let Some(cmd) = self.select_symbolic_command(symbolic, query)? {
-                    self.execute_or_interpret(query, &cmd, ai_interpret).await?;
+                    let chosen = self.select_symbolic_command(symbolic, query)?;
+                    if let Some(cmd) = chosen {
+                        self.execute_or_interpret(query, &cmd, ai_interpret).await?;
+                    }
                     return Ok(());
-                }
                 }
             }
 
@@ -462,11 +463,12 @@ User request: {}",
         candidates: Vec<CommandCandidate>,
     ) -> (
         Vec<CommandCandidate>,
+        bool,
         Option<DomainCommandValidation>,
         Option<SymbolicCommandSuggestion>,
     ) {
         let Some(service) = self.integrated_service.as_ref() else {
-            return (candidates, None, None);
+            return (candidates, false, None, None);
         };
 
         let failed_commands = service
@@ -474,6 +476,7 @@ User request: {}",
             .unwrap_or_default();
 
         let mut valid = Vec::new();
+        let mut has_symbolic = false;
         let mut last_validation: Option<DomainCommandValidation> = None;
         let suggestion = service.suggest_commands_from_domains(query);
         let suggestion_for_validation = suggestion.as_ref();
@@ -486,18 +489,21 @@ User request: {}",
                 Some(s) => service.validate_command_against_suggestion(&candidate.command, s),
                 None => service.validate_command_against_domain(query, &candidate.command),
             };
+            let mut updated = candidate.clone();
             if validation.is_valid {
-                let mut updated = candidate.clone();
+                has_symbolic = true;
                 if let Some(suggestion) = validation.suggestion.as_ref() {
-                    updated = updated.with_label(format!("symbolic: {}", suggestion.op_id));
+                    updated = updated.with_label(format!("recommended (symbolic: {})", suggestion.op_id));
+                } else {
+                    updated = updated.with_label("recommended (symbolic)".to_string());
                 }
-                valid.push(updated);
             } else if last_validation.is_none() {
                 last_validation = Some(validation);
             }
+            valid.push(updated);
         }
 
-        (valid, last_validation, suggestion)
+        (valid, has_symbolic, last_validation, suggestion)
     }
 
     fn build_domain_critique_prompt(

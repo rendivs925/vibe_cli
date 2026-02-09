@@ -171,9 +171,7 @@ fn handle_cached_candidates(
     if valid_candidates.len() == 1 {
         let candidate = &valid_candidates[0];
         println!("Found cached command: {}", candidate.command);
-        if let Some(label) = &candidate.label {
-            println!("Label: {}", label);
-        }
+        let _ = candidate;
         return confirm_and_run_cached_command(&candidate.command);
     }
 
@@ -226,9 +224,7 @@ fn handle_candidate_selection(
     if candidates.len() == 1 {
         let candidate = &candidates[0];
         println!("Generated command: {}", candidate.command);
-        if let Some(label) = &candidate.label {
-            println!("Label: {}", label);
-        }
+        let _ = candidate;
         return confirm_and_run_generated_command(&candidate.command);
     }
 

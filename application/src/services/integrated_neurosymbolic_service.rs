@@ -318,6 +318,11 @@ impl IntegratedNeurosymbolicService {
         let registry = self.domain_registry.as_ref()?;
         let fql = self.fql_parser.parse(query)?;
         let resolved = registry.resolve_operation(query, Some(&fql))?;
+        if let Some((action_score, target_score, _total)) = registry.match_scores(&fql, &resolved.op_id) {
+            if target_score < 0.6 || action_score < 0.5 {
+                return None;
+            }
+        }
         let operation = registry.get_operation(&resolved.op_id)?.1;
         let generated = registry
             .command_generator()

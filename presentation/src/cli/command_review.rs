@@ -25,11 +25,16 @@ impl CommandReview {
         self.reasons.is_empty()
     }
 
-    pub fn label(&self) -> Option<String> {
+    pub fn label_with_existing(&self, existing: Option<&str>) -> Option<String> {
         if self.warnings.is_empty() {
-            None
+            existing.map(|s| s.to_string())
         } else {
-            Some(self.warnings.join("; "))
+            let warnings = self.warnings.join("; ");
+            if let Some(label) = existing {
+                Some(format!("{}; {}", label, warnings))
+            } else {
+                Some(warnings)
+            }
         }
     }
 }
@@ -40,14 +45,21 @@ pub fn review_candidates(
     validator: &mut SyntaxGrammarValidator,
 ) -> ReviewedCandidates {
     let keywords = query_keywords(user_query);
+    let suppress_low_relevance = candidates.len() == 1;
     let mut usable = Vec::new();
     let mut rejected = Vec::new();
 
     for candidate in candidates {
-        let review = review_command(&candidate.command, &keywords, validator);
+        let review = review_command(
+            &candidate.command,
+            &keywords,
+            validator,
+            candidate.label.as_deref(),
+            suppress_low_relevance,
+        );
         if review.is_usable() {
             let mut updated = candidate.clone();
-            if let Some(label) = review.label() {
+            if let Some(label) = review.label_with_existing(updated.label.as_deref()) {
                 updated = updated.with_label(label);
             }
             usable.push(updated);
@@ -66,6 +78,8 @@ fn review_command(
     command: &str,
     keywords: &[String],
     validator: &mut SyntaxGrammarValidator,
+    existing_label: Option<&str>,
+    suppress_low_relevance: bool,
 ) -> CommandReview {
     let mut warnings = Vec::new();
     let mut reasons = Vec::new();
@@ -122,9 +136,9 @@ fn review_command(
         warnings.push("manpage unavailable".to_string());
     }
 
-    if !matches_query(command, keywords) {
-        warnings.push("low relevance to request".to_string());
-    }
+    let is_symbolic = existing_label
+        .map(|label| label.contains("symbolic"))
+        .unwrap_or(false);
 
     CommandReview { warnings, reasons }
 }
