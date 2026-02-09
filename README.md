@@ -63,18 +63,15 @@ Intelligent command generation through JSON configurations:
 
 ### Workflow
 
-Every request goes through a deterministic pipeline. `--neurosymbolic` prioritizes domain configs, then falls back to LLM if needed:
+Every request goes through a deterministic pipeline. `--neurosymbolic` uses the LLM to propose commands, then validates them against the symbolic domain. If validation fails, it self-critiques and retries; otherwise it falls back to standard LLM generation:
 
-1. **Intent Parsing**: Extract action, target, constraints
-2. **FQL Autoformalization**: Convert intent to Formal Query Language
-3. **Operation Resolution**: Match FQL to a domain operation signature
-4. **Self-Critique**: Reject mismatched operations using action and target similarity
-5. **Command Generation**: Produce candidate commands from templates
-6. **Safety Engine**: Block dangerous commands
-7. **Manpage Validation**: Validate flags, retry once without invalid flags
-8. **Risk Scoring**: Compute risk profile and mitigations
-9. **Execution**: Prompt and run command(s)
-10. **Learning**: If LLM fallback succeeds, offer to save new operation and reload domain registry
+1. **LLM Propose**: Generate candidate commands (normal LLM output).
+2. **Symbolic Verification**: Match the candidates against domain operation templates (FQL + signatures).
+3. **Self-Critique Loop**: If mismatched, re-prompt with allowed templates and retry.
+4. **Safety Engine**: Block dangerous commands.
+5. **Manpage Validation**: Validate flags, retry once without invalid flags.
+6. **Execution**: Prompt and run command(s).
+7. **Learning**: If fallback succeeds, offer to save new operation and reload domain registry.
 
 ### Supported File Types
 

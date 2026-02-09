@@ -71,6 +71,90 @@ fn review_for_selection(
     review_candidates(candidates, user_query, &mut validator)
 }
 
+fn build_system_instruction(platform: &str, cwd: &str, project_root: &str) -> String {
+    format!(
+        r#"You are a CLI assistant.
+
+STRICT OUTPUT CONTRACT:
+- No JSON
+
+Environment:
+- platform: {platform}
+- cwd: {cwd}
+- project_root: {project_root}
+"#
+    )
+}
+
+pub async fn request_command_candidates_from_llm(
+    config: &Config,
+    messages: &[Message],
+    user_query_override: Option<&str>,
+) -> anyhow::Result<(String, Vec<CommandCandidate>)> {
+    let client = reqwest::Client::new();
+
+    let cwd = std::env::current_dir()
+        .map(|p| p.display().to_string())
+        .unwrap_or_else(|_| "/home/user".to_string());
+    let project_root = find_project_root().unwrap_or_else(|| cwd.clone());
+
+    let platform = if cfg!(target_os = "linux") {
+        "linux"
+    } else if cfg!(target_os = "macos") {
+        "macos"
+    } else if cfg!(target_os = "windows") {
+        "windows"
+    } else {
+        "unknown"
+    };
+
+    let user_query = user_query_override
+        .map(|q| q.to_string())
+        .unwrap_or_else(|| {
+            messages
+                .iter()
+                .rev()
+                .find(|m| m.role == "user")
+                .map(|m| m.content.as_str())
+                .unwrap_or("")
+                .to_string()
+        });
+
+    let instruction = build_system_instruction(platform, &cwd, &project_root);
+
+    let mut req_messages: Vec<Message> = Vec::with_capacity(messages.len() + 1);
+    req_messages.push(Message {
+        role: "system".to_string(),
+        content: instruction,
+    });
+    req_messages.extend_from_slice(messages);
+
+    save_cursor();
+
+    let (raw, printed_anything) =
+        match stream_assistant_content(&client, config, &req_messages).await {
+            Ok(result) => result,
+            Err(e) => {
+                if e.to_string().contains("live_monitor_invalid_flag") {
+                    return Ok((user_query, Vec::new()));
+                }
+                return Err(e);
+            }
+        };
+
+    if printed_anything {
+        println!();
+    }
+
+    let all_candidates = extract_commands(&raw, &user_query);
+    let valid_candidates: Vec<CommandCandidate> = all_candidates
+        .into_iter()
+        .filter(|c| !c.command.is_empty())
+        .collect();
+
+    Ok((user_query, valid_candidates))
+}
+
 fn handle_cached_candidates(
     candidates: Vec<CommandCandidate>,
     user_query: &str,
@@ -180,6 +264,13 @@ fn handle_candidate_selection(
             handle_candidate_selection(candidates, user_query)
         }
     }
+}
+
+pub fn select_command_from_candidates(
+    candidates: Vec<CommandCandidate>,
+    user_query: &str,
+) -> anyhow::Result<Option<String>> {
+    handle_candidate_selection(candidates, user_query)
 }
 
 pub fn normalize_ollama_url(base: &str) -> String {
@@ -474,16 +565,8 @@ pub async fn request_command_stream_then_confirm(
     }
 
     let instruction = format!(
-        r#"You are a CLI assistant.
-        
-STRICT OUTPUT CONTRACT:
-- No JSON
-
-Environment:
-- platform: {platform}
-- cwd: {cwd}
-- project_root: {project_root}
-"#
+        r#"{}"#,
+        build_system_instruction(platform, &cwd, &project_root)
     );
 
     // Build messages to send: inject as system message for this request.

@@ -1,47 +1,23 @@
-use crate::cli::streaming::request_command_stream_then_confirm;
+use crate::cli::streaming::{
+    request_command_candidates_from_llm, request_command_stream_then_confirm,
+    select_command_from_candidates,
+};
 
-use super::cache::{CacheManager, ExplainCacheManager, RagCacheManager};
+use super::cache::{CacheManager, CommandCandidate, ExplainCacheManager, RagCacheManager};
 use super::command_extraction::{extract_command_from_response, parse_agent_plan};
 use super::utils::{detect_system_info, project_cache_suffix};
 use application::services::integrated_neurosymbolic_service::{
-    IntegratedNeurosymbolicService, IntentSignal,
+    DomainCommandValidation, IntegratedNeurosymbolicService,
 };
 use application::services::rag_service::RagService;
 use colored::Colorize;
-use infrastructure::storage::experience_buffer::FailureType;
 use infrastructure::{config::Config, ollama_client::OllamaClient};
-use serde::Deserialize;
 use shared::confirmation::{ask_confirmation, ask_feedback};
 use shared::types::Message;
 use shared::types::Result;
 
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Command;
-
-#[derive(Debug, Clone)]
-pub struct IntentAnalysis {
-    pub intent: String,
-    pub neurosymbolic_suitable: bool,
-    pub reasoning: String,
-    pub action: Option<String>,
-    pub target: Option<String>,
-    pub objects: Vec<String>,
-    pub constraints: Vec<String>,
-    pub params: HashMap<String, String>,
-}
-
-#[derive(Debug, Deserialize)]
-struct IntentAnalysisResponse {
-    intent_category: Option<String>,
-    neurosymbolic_suitable: Option<bool>,
-    reasoning: Option<String>,
-    action: Option<String>,
-    target: Option<String>,
-    objects: Option<Vec<String>>,
-    constraints: Option<Vec<String>>,
-    params: Option<HashMap<String, serde_json::Value>>,
-}
 
 pub struct CliHandlers {
     cache_manager: CacheManager,
@@ -360,333 +336,65 @@ User request: {}",
         self.handle_chat().await
     }
 
-    async fn understand_intent(&self, query: &str) -> Result<IntentAnalysis> {
-        let client = infrastructure::ollama_client::OllamaClient::new()?;
-        let prompt = format!(
-            r#"You must respond with ONLY valid JSON. No markdown, no explanation, no text before or after.
-
-Analyze this query: "{}"
-
-Return this exact JSON structure (all fields required):
-{{
-  "intent_category": "system_info",
-  "action": "check",
-  "target": "disk",
-  "objects": [],
-  "constraints": [],
-  "params": {{}},
-  "neurosymbolic_suitable": true,
-  "reasoning": "1-2 sentence explanation of your interpretation"
-}}
-
-Rules:
-- intent_category: system_info|process|memory|disk|network|service|user|file|log|hardware|package|general
-- action: list|show|check|monitor|start|stop|restart|enable|disable|find|read|delete|install|uninstall|upgrade|downgrade
-- target: process|memory|disk|network|service|user|file|log|hardware|gpu|package|system
-- neurosymbolic_suitable: true for most queries, false for tasks likely outside symbolic ops (e.g., package install if no operation exists)
-- reasoning: 1-2 sentence explanation of your interpretation
-
-Query to analyze: "{}""#,
-            query, query
-        );
-
-        for _ in 0..3 {
-            let response = client.generate_response(&prompt).await?;
-            let parsed = self.parse_intent_analysis(&response)?;
-            let has_signal = parsed.intent != "unknown"
-                || parsed.action.as_deref().unwrap_or("unknown") != "unknown"
-                || parsed.target.as_deref().unwrap_or("unknown") != "unknown";
-            if has_signal {
-                return Ok(parsed);
-            }
-        }
-
-        if let Some(service) = self.integrated_service.as_ref() {
-            if let Some(suggestion) = service.suggest_intent_from_domains(query) {
-                return Ok(IntentAnalysis {
-                    intent: suggestion.intent,
-                    neurosymbolic_suitable: true,
-                    reasoning: suggestion.reasoning,
-                    action: suggestion.action,
-                    target: suggestion.target,
-                    objects: suggestion.objects,
-                    constraints: suggestion.constraints,
-                    params: suggestion.params,
-                });
-            }
-        }
-
-        Ok(IntentAnalysis {
-            intent: "unknown".to_string(),
-            neurosymbolic_suitable: false,
-            reasoning: "No intent signal from LLM or domain registry".to_string(),
-            action: None,
-            target: None,
-            objects: Vec::new(),
-            constraints: Vec::new(),
-            params: HashMap::new(),
-        })
-    }
-
-    fn parse_intent_analysis(&self, response: &str) -> Result<IntentAnalysis> {
-        let response = response.trim();
-        let cleaned = if response.starts_with("```") && response.ends_with("```") {
-            let start = response.find('\n').unwrap_or(0) + 1;
-            let end = response.len().saturating_sub(3);
-            response[start..end].trim().to_string()
-        } else if response.starts_with("```json") {
-            let start = response.find('\n').unwrap_or(0) + 1;
-            let end = response.len().saturating_sub(3);
-            response[start..end].trim().to_string()
-        } else {
-            response.to_string()
-        };
-
-        if let Ok(parsed) = serde_json::from_str::<IntentAnalysisResponse>(&cleaned) {
-            let intent = parsed
-                .intent_category
-                .unwrap_or_else(|| "unknown".to_string());
-            let intent = Self::normalize_single_label(&intent);
-            let mut neurosymbolic_suitable = parsed.neurosymbolic_suitable.unwrap_or(true);
-            if intent == "log" {
-                neurosymbolic_suitable = true;
-            }
-            let reasoning = parsed
-                .reasoning
-                .unwrap_or_else(|| "Parsed from JSON response".to_string());
-            let params = parsed
-                .params
-                .unwrap_or_default()
-                .into_iter()
-                .filter_map(|(k, v)| match v {
-                    serde_json::Value::String(s) => Some((k, s)),
-                    serde_json::Value::Number(n) => Some((k, n.to_string())),
-                    serde_json::Value::Bool(b) => Some((k, b.to_string())),
-                    _ => None,
-                })
-                .collect::<HashMap<String, String>>();
-            return Ok(IntentAnalysis {
-                intent,
-                neurosymbolic_suitable,
-                reasoning,
-                action: parsed.action.map(|a| Self::normalize_single_label(&a)),
-                target: parsed.target.map(|t| Self::normalize_single_label(&t)),
-                objects: parsed.objects.unwrap_or_default(),
-                constraints: parsed.constraints.unwrap_or_default(),
-                params,
-            });
-        }
-
-        if std::env::var("VIBE_CLI_INTENT_DEBUG")
-            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
-            .unwrap_or(false)
-        {
-            eprintln!("Intent parse failed. Raw response:\n{}", response);
-        }
-
-        let mut intent = "unknown".to_string();
-        let mut neurosymbolic_suitable = true;
-        let mut reasoning = String::new();
-        let mut action = None;
-        let mut target = None;
-
-        for line in response.lines() {
-            let line = line.trim();
-            if line.starts_with("INTENT:") {
-                intent = line.replace("INTENT:", "").trim().to_string();
-            } else if line.starts_with("NEUROSYMBOLIC_SUITABLE:") {
-                let val = line
-                    .replace("NEUROSYMBOLIC_SUITABLE:", "")
-                    .trim()
-                    .to_string();
-                neurosymbolic_suitable = val.to_lowercase() == "yes";
-            } else if line.starts_with("REASONING:") {
-                reasoning = line.replace("REASONING:", "").trim().to_string();
-            } else if line.starts_with("ACTION:") {
-                action = Some(line.replace("ACTION:", "").trim().to_string());
-            } else if line.starts_with("TARGET:") {
-                target = Some(line.replace("TARGET:", "").trim().to_string());
-            }
-        }
-
-        if intent != "unknown" || action.is_some() || target.is_some() {
-            if reasoning.is_empty() {
-                reasoning = format!("Extracted from response: intent={}, action={:?}, target={:?}", intent, action, target);
-            }
-            return Ok(IntentAnalysis {
-                intent,
-                neurosymbolic_suitable,
-                reasoning,
-                action,
-                target,
-                objects: Vec::new(),
-                constraints: Vec::new(),
-                params: HashMap::new(),
-            });
-        }
-
-        Ok(IntentAnalysis {
-            intent: "unknown".to_string(),
-            neurosymbolic_suitable: false,
-            reasoning: "Could not parse LLM response - returning for keyword-based fallback".to_string(),
-            action: None,
-            target: None,
-            objects: Vec::new(),
-            constraints: Vec::new(),
-            params: HashMap::new(),
-        })
-    }
-
-    fn normalize_single_label(input: &str) -> String {
-        input
-            .split('|')
-            .map(|s| s.trim())
-            .find(|s| !s.is_empty())
-            .unwrap_or("unknown")
-            .to_string()
-    }
-
     pub async fn handle_neurosymbolic(&mut self, query: &str, ai_interpret: bool) -> Result<()> {
         if self.integrated_service.is_none() {
-            eprintln!("Initializing integrated neurosymbolic service...");
             self.integrated_service = IntegratedNeurosymbolicService::new().ok();
         }
 
-        eprintln!("Analyzing query intent...");
-        let mut intent_analysis = self.understand_intent(query).await?;
-        if matches!(
-            intent_analysis.action.as_deref(),
-            Some("install" | "uninstall" | "upgrade" | "downgrade")
-        ) {
-            intent_analysis.neurosymbolic_suitable = false;
-            intent_analysis.reasoning = format!(
-                "{} (package install/upgrade actions currently handled by LLM fallback)",
-                intent_analysis.reasoning
-            );
-        }
+        let mut attempts = 0;
+        let max_attempts = 3;
+        let mut critique_feedback: Option<String> = None;
 
-        println!("\n{}", "=== Intent Analysis ===".green().bold());
-        println!("Intent: {}", intent_analysis.intent.cyan());
-        println!("Reasoning: {}", intent_analysis.reasoning.white());
+        loop {
+            attempts += 1;
 
-        if !intent_analysis.neurosymbolic_suitable {
-            println!(
-                "\n{}",
-                format!(
-                    "Neurosymbolic not suitable ({}), using LLM...",
-                    intent_analysis.intent
-                )
-                .yellow()
-            );
-            eprintln!("Falling back to LLM...");
-            return self.handle_query(query, ai_interpret, true).await;
-        }
-
-        eprintln!("Processing query with neurosymbolic reasoning...");
-        let intent_signal = IntentSignal {
-            category: Some(intent_analysis.intent.clone()),
-            action: intent_analysis.action.clone(),
-            target: intent_analysis.target.clone(),
-            objects: intent_analysis.objects.clone(),
-            constraints: intent_analysis.constraints.clone(),
-            params: intent_analysis.params.clone(),
-        };
-        let result = {
-            let service = self
-                .integrated_service
-                .as_mut()
-                .ok_or_else(|| anyhow::anyhow!("Integrated neurosymbolic service unavailable"))?;
-            service.process_with_intent(query, Some(&intent_signal))
-        };
-        match result {
-            Ok(result) => {
-                println!(
-                    "\n{}",
-                    "=== Integrated Neurosymbolic Response ===".green().bold()
-                );
-                println!("{}", result.format_display());
-
-                if !result.can_execute {
-                    if let Some(reason) = result.block_reason.as_deref() {
-                        println!("{}", reason.red());
-                    }
-
-                    let failure_type = if result.safety_report.is_blocked() {
-                        FailureType::SafetyViolation
-                    } else if !result.syntax_valid {
-                        FailureType::InvalidFlag
-                    } else {
-                        FailureType::Other
-                    };
-
-                    if let Some(service) = self.integrated_service.as_ref() {
-                        let _ = service.record_failure(
-                            query,
-                            &result.command,
-                            failure_type,
-                            result.block_reason.as_deref(),
-                        );
-                    }
-                    return Ok(());
+            let user_message = if let Some(feedback) = critique_feedback.as_ref() {
+                Message {
+                    role: "user".to_string(),
+                    content: feedback.clone(),
                 }
-
-                if let Some(reason) = result.block_reason.as_deref() {
-                    println!("{}", reason.yellow());
+            } else {
+                Message {
+                    role: "user".to_string(),
+                    content: query.to_string(),
                 }
+            };
 
-                if ask_confirmation("Execute this command?", false)? {
-                    println!("\n{}", format!("Executing: {}", result.command).yellow());
-                    let output = Command::new("bash")
-                        .arg("-c")
-                        .arg(&result.command)
-                        .output()?;
-                    let stdout = String::from_utf8_lossy(&output.stdout);
-                    let stderr = String::from_utf8_lossy(&output.stderr);
-                    let full_output = format!(
-                        "{}{}",
-                        stdout,
-                        if !stderr.is_empty() {
-                            format!("\nErrors:\n{}", stderr)
-                        } else {
-                            String::new()
-                        }
-                    );
+            let messages = vec![user_message];
+            let (_, candidates) =
+                request_command_candidates_from_llm(&self.config, &messages, Some(query)).await?;
 
-                    if ai_interpret {
-                        self.interpret_output(query, &full_output).await?;
-                    } else {
-                        println!("{}", stdout);
-                    }
-
-                    if let Some(service) = self.integrated_service.as_ref() {
-                        if output.status.success() {
-                            let _ = service.record_success(query, &result.command);
-                        } else {
-                            println!("{}", format!("Command failed: {}", stderr).red());
-                            let _ = service.record_failure(
-                                query,
-                                &result.command,
-                                FailureType::ExecutionFailed,
-                                Some(stderr.trim()),
-                            );
-                        }
-                    }
-                } else if let Some(service) = self.integrated_service.as_ref() {
-                    let _ = service.record_failure(
-                        query,
-                        &result.command,
-                        FailureType::UserCancelled,
-                        Some("User cancelled execution"),
-                    );
-                }
+            if candidates.is_empty() {
+                return Ok(());
             }
-            Err(e) => {
-                eprintln!("Integrated neurosymbolic processing failed: {:?}", e);
+
+            let (valid_candidates, validation) =
+                self.filter_candidates_by_domain(query, candidates);
+
+            if !valid_candidates.is_empty() {
+                if let Some(cmd) = select_command_from_candidates(valid_candidates, query)? {
+                    self.execute_or_interpret(query, &cmd, ai_interpret).await?;
+                }
+                return Ok(());
+            }
+
+            let Some(validation) = validation else {
+                eprintln!("No symbolic match available; falling back to standard query...");
+                return self.handle_query(query, ai_interpret, true).await;
+            };
+
+            if attempts >= max_attempts {
+                let reason = validation
+                    .reason
+                    .as_deref()
+                    .unwrap_or("symbolic validation failed");
+                eprintln!("Symbolic validation failed: {}", reason);
                 eprintln!("Falling back to standard query...");
-                self.handle_query(query, ai_interpret, true).await?;
+                return self.handle_query(query, ai_interpret, true).await;
             }
+
+            critique_feedback = Some(self.build_domain_critique_prompt(query, &validation));
         }
-        Ok(())
     }
 
     pub async fn handle_query(
@@ -750,6 +458,102 @@ Query to analyze: "{}""#,
                     self.learn_command(&last_successful_query, &last_successful_command)
                         .await?;
                 }
+            }
+        }
+
+        Ok(())
+    }
+
+    fn filter_candidates_by_domain(
+        &self,
+        query: &str,
+        candidates: Vec<CommandCandidate>,
+    ) -> (Vec<CommandCandidate>, Option<DomainCommandValidation>) {
+        let Some(service) = self.integrated_service.as_ref() else {
+            return (candidates, None);
+        };
+
+        let mut valid = Vec::new();
+        let mut last_validation: Option<DomainCommandValidation> = None;
+
+        for candidate in candidates {
+            let validation = service.validate_command_against_domain(query, &candidate.command);
+            if validation.is_valid {
+                let mut updated = candidate.clone();
+                if let Some(suggestion) = validation.suggestion.as_ref() {
+                    updated = updated.with_label(format!("symbolic: {}", suggestion.op_id));
+                }
+                valid.push(updated);
+            } else if last_validation.is_none() {
+                last_validation = Some(validation);
+            }
+        }
+
+        (valid, last_validation)
+    }
+
+    fn build_domain_critique_prompt(
+        &self,
+        query: &str,
+        validation: &DomainCommandValidation,
+    ) -> String {
+        let reason = validation
+            .reason
+            .as_deref()
+            .unwrap_or("command does not match symbolic domain");
+        let mut allowed = String::new();
+        if let Some(suggestion) = validation.suggestion.as_ref() {
+            let mut cmds = suggestion.commands.clone();
+            cmds.truncate(6);
+            if !cmds.is_empty() {
+                allowed = format!(
+                    "\nAllowed command templates:\n{}",
+                    cmds.iter()
+                        .map(|c| format!("- {}", c))
+                        .collect::<Vec<String>>()
+                        .join("\n")
+                );
+            }
+        }
+
+        format!(
+            "Your previous command does not align with the symbolic domain.\nReason: {}\n\nUser query: \"{}\"\n{}\n\nReturn ONLY the corrected command(s), no JSON, no prose.",
+            reason, query, allowed
+        )
+    }
+
+    async fn execute_or_interpret(
+        &self,
+        query: &str,
+        cmd: &str,
+        ai_interpret: bool,
+    ) -> Result<()> {
+        let output = Command::new("bash").arg("-c").arg(cmd).output()?;
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let full_output = format!(
+            "{}{}",
+            stdout,
+            if !stderr.is_empty() {
+                format!("\nErrors:\n{}", stderr)
+            } else {
+                String::new()
+            }
+        );
+
+        if ai_interpret {
+            self.interpret_output(query, &full_output).await?;
+        } else {
+            println!("{}", stdout);
+        }
+
+        if !output.status.success() {
+            println!(
+                "{}",
+                format!("Command failed with exit code: {:?}", output.status.code()).red()
+            );
+            if !stderr.is_empty() {
+                println!("{}", stderr.red());
             }
         }
 

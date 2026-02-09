@@ -87,6 +87,21 @@ pub struct IntentSuggestion {
     pub confidence: f32,
 }
 
+#[derive(Debug, Clone)]
+pub struct SymbolicCommandSuggestion {
+    pub op_id: String,
+    pub op_name: String,
+    pub commands: Vec<String>,
+    pub confidence: f32,
+}
+
+#[derive(Debug, Clone)]
+pub struct DomainCommandValidation {
+    pub is_valid: bool,
+    pub reason: Option<String>,
+    pub suggestion: Option<SymbolicCommandSuggestion>,
+}
+
 /// Result of neurosymbolic processing
 #[derive(Debug, Clone)]
 pub struct NeurosymbolicResult {
@@ -297,6 +312,78 @@ impl IntegratedNeurosymbolicService {
             reasoning,
             confidence: resolved.confidence,
         })
+    }
+
+    pub fn suggest_commands_from_domains(&self, query: &str) -> Option<SymbolicCommandSuggestion> {
+        let registry = self.domain_registry.as_ref()?;
+        let fql = self.fql_parser.parse(query)?;
+        let resolved = registry.resolve_operation(query, Some(&fql))?;
+        let operation = registry.get_operation(&resolved.op_id)?.1;
+        let generated = registry
+            .command_generator()
+            .generate(operation, &resolved.inputs);
+        let mut commands: Vec<String> = generated.into_iter().map(|g| g.command).collect();
+        commands.sort();
+        commands.dedup();
+
+        Some(SymbolicCommandSuggestion {
+            op_id: resolved.op_id,
+            op_name: operation.name.clone(),
+            commands,
+            confidence: resolved.confidence,
+        })
+    }
+
+    pub fn validate_command_against_domain(
+        &self,
+        query: &str,
+        command: &str,
+    ) -> DomainCommandValidation {
+        let suggestion = self.suggest_commands_from_domains(query);
+        let Some(suggestion) = suggestion else {
+            return DomainCommandValidation {
+                is_valid: false,
+                reason: Some("no matching symbolic operation".to_string()),
+                suggestion: None,
+            };
+        };
+
+        let normalized = normalize_command(command);
+        let mut matches = false;
+
+        for candidate in &suggestion.commands {
+            let cand_norm = normalize_command(candidate);
+            if normalized == cand_norm {
+                matches = true;
+                break;
+            }
+            let normalized_no_sudo = normalized
+                .strip_prefix("sudo ")
+                .unwrap_or(&normalized)
+                .to_string();
+            let cand_no_sudo = cand_norm
+                .strip_prefix("sudo ")
+                .unwrap_or(&cand_norm)
+                .to_string();
+            if normalized_no_sudo == cand_no_sudo {
+                matches = true;
+                break;
+            }
+        }
+
+        if matches {
+            DomainCommandValidation {
+                is_valid: true,
+                reason: None,
+                suggestion: Some(suggestion),
+            }
+        } else {
+            DomainCommandValidation {
+                is_valid: false,
+                reason: Some("command not in symbolic operation templates".to_string()),
+                suggestion: Some(suggestion),
+            }
+        }
     }
 
 
@@ -1030,6 +1117,15 @@ impl IntegratedNeurosymbolicService {
     pub fn config(&self) -> &NeurosymbolicConfig {
         &self.config
     }
+}
+
+fn normalize_command(command: &str) -> String {
+    let trimmed = command.trim().trim_end_matches(';').trim();
+    trimmed
+        .split_whitespace()
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<&str>>()
+        .join(" ")
 }
 
 impl Default for IntegratedNeurosymbolicService {
