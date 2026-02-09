@@ -349,38 +349,42 @@ impl IntegratedNeurosymbolicService {
         };
 
         let normalized = normalize_command(command);
+        let mut match_reason: Option<String> = None;
         let mut matches = false;
 
+        let mut first_reason: Option<String> = None;
         for candidate in &suggestion.commands {
             let cand_norm = normalize_command(candidate);
-            if normalized == cand_norm {
+            if normalized == cand_norm || strip_sudo(&normalized) == strip_sudo(&cand_norm) {
                 matches = true;
+                match_reason = Some("exact match".to_string());
                 break;
             }
-            let normalized_no_sudo = normalized
-                .strip_prefix("sudo ")
-                .unwrap_or(&normalized)
-                .to_string();
-            let cand_no_sudo = cand_norm
-                .strip_prefix("sudo ")
-                .unwrap_or(&cand_norm)
-                .to_string();
-            if normalized_no_sudo == cand_no_sudo {
+
+            if command_matches_template(command, candidate) {
                 matches = true;
+                match_reason = Some("tool and flag match".to_string());
                 break;
+            }
+
+            if first_reason.is_none() {
+                first_reason = mismatch_reason(command, candidate);
             }
         }
 
         if matches {
             DomainCommandValidation {
                 is_valid: true,
-                reason: None,
+                reason: match_reason,
                 suggestion: Some(suggestion),
             }
         } else {
             DomainCommandValidation {
                 is_valid: false,
-                reason: Some("command not in symbolic operation templates".to_string()),
+                reason: Some(
+                    first_reason
+                        .unwrap_or_else(|| "command not in symbolic operation templates".to_string()),
+                ),
                 suggestion: Some(suggestion),
             }
         }
@@ -1126,6 +1130,180 @@ fn normalize_command(command: &str) -> String {
         .filter(|s| !s.is_empty())
         .collect::<Vec<&str>>()
         .join(" ")
+}
+
+fn strip_sudo(command: &str) -> String {
+    command
+        .strip_prefix("sudo ")
+        .unwrap_or(command)
+        .to_string()
+}
+
+#[derive(Debug)]
+struct CommandSegment {
+    cmd: String,
+    flags: Vec<String>,
+}
+
+fn command_matches_template(command: &str, template: &str) -> bool {
+    let cmd_segments = parse_segments(command);
+    let tpl_segments = parse_segments(template);
+    if cmd_segments.is_empty() || tpl_segments.is_empty() {
+        return false;
+    }
+    if cmd_segments.len() != tpl_segments.len() {
+        return false;
+    }
+
+    for (cmd_seg, tpl_seg) in cmd_segments.iter().zip(tpl_segments.iter()) {
+        if cmd_seg.cmd != tpl_seg.cmd {
+            return false;
+        }
+        if !flags_subset(&tpl_seg.flags, &cmd_seg.flags) {
+            return false;
+        }
+    }
+
+    true
+}
+
+fn mismatch_reason(command: &str, template: &str) -> Option<String> {
+    let cmd_segments = parse_segments(command);
+    let tpl_segments = parse_segments(template);
+    if cmd_segments.is_empty() || tpl_segments.is_empty() {
+        return Some("unable to parse command segments".to_string());
+    }
+    if cmd_segments.len() != tpl_segments.len() {
+        return Some(format!(
+            "segment count mismatch (got {}, expected {})",
+            cmd_segments.len(),
+            tpl_segments.len()
+        ));
+    }
+
+    for (cmd_seg, tpl_seg) in cmd_segments.iter().zip(tpl_segments.iter()) {
+        if cmd_seg.cmd != tpl_seg.cmd {
+            return Some(format!(
+                "tool mismatch (got '{}', expected '{}')",
+                cmd_seg.cmd, tpl_seg.cmd
+            ));
+        }
+        let missing = missing_flags(&tpl_seg.flags, &cmd_seg.flags);
+        if !missing.is_empty() {
+            return Some(format!("missing flags: {}", missing.join(", ")));
+        }
+    }
+
+    None
+}
+
+fn parse_segments(command: &str) -> Vec<CommandSegment> {
+    let normalized = normalize_command(command);
+    if normalized.is_empty() {
+        return Vec::new();
+    }
+
+    let mut segments = Vec::new();
+    let mut current = String::new();
+    let mut chars = normalized.chars().peekable();
+
+    while let Some(ch) = chars.next() {
+        if ch == '|' {
+            segments.push(current.trim().to_string());
+            current.clear();
+            continue;
+        }
+        if ch == ';' {
+            segments.push(current.trim().to_string());
+            current.clear();
+            continue;
+        }
+        if ch == '&' {
+            if matches!(chars.peek(), Some('&')) {
+                chars.next();
+                segments.push(current.trim().to_string());
+                current.clear();
+                continue;
+            }
+        }
+        current.push(ch);
+    }
+
+    if !current.trim().is_empty() {
+        segments.push(current.trim().to_string());
+    }
+
+    segments
+        .into_iter()
+        .filter_map(|seg| parse_segment(&seg))
+        .collect()
+}
+
+fn parse_segment(segment: &str) -> Option<CommandSegment> {
+    let mut parts: Vec<&str> = segment.split_whitespace().collect();
+    if parts.is_empty() {
+        return None;
+    }
+
+    if parts[0] == "sudo" {
+        parts.remove(0);
+    }
+
+    if parts.is_empty() {
+        return None;
+    }
+
+    let cmd = parts[0].to_string();
+    let mut flags = Vec::new();
+    let mut skip_next = false;
+
+    for (i, part) in parts.iter().enumerate() {
+        if i == 0 {
+            continue;
+        }
+        if skip_next {
+            skip_next = false;
+            continue;
+        }
+
+        if part.starts_with('-') && *part != "-" {
+            if !part.starts_with("--") && part.len() > 2 {
+                for c in part.chars().skip(1) {
+                    flags.push(format!("-{}", c));
+                }
+            } else {
+                flags.push(part.to_string());
+            }
+
+            if i + 1 < parts.len() && !parts[i + 1].starts_with('-') {
+                skip_next = true;
+            }
+        }
+    }
+
+    Some(CommandSegment { cmd, flags })
+}
+
+fn flags_subset(required: &[String], actual: &[String]) -> bool {
+    if required.is_empty() {
+        return true;
+    }
+    let set: std::collections::HashSet<&str> =
+        actual.iter().map(|s| s.as_str()).collect();
+    required.iter().all(|f| set.contains(f.as_str()))
+}
+
+fn missing_flags(required: &[String], actual: &[String]) -> Vec<String> {
+    if required.is_empty() {
+        return Vec::new();
+    }
+    let set: std::collections::HashSet<&str> =
+        actual.iter().map(|s| s.as_str()).collect();
+    required
+        .iter()
+        .filter(|f| !set.contains(f.as_str()))
+        .cloned()
+        .collect()
 }
 
 impl Default for IntegratedNeurosymbolicService {
