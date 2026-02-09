@@ -174,6 +174,22 @@ impl LearningService {
         Ok(self.buffer.get_lessons_learned(query)?)
     }
 
+    /// Get previously failed commands for similar queries
+    pub fn get_failed_commands(&self, query: &str, limit: usize) -> Result<Vec<String>> {
+        if !self.enabled {
+            return Ok(Vec::new());
+        }
+        let limit_i64 = i64::try_from(limit).unwrap_or(i64::MAX);
+        let failures = self.buffer.find_similar_failures(query, limit_i64)?;
+        let mut commands: Vec<String> = failures
+            .into_iter()
+            .map(|entry| entry.attempted_command)
+            .collect();
+        commands.sort();
+        commands.dedup();
+        Ok(commands)
+    }
+
     /// Get success rate for query pattern
     pub fn get_success_rate(&self, query: &str) -> Result<f32> {
         Ok(self.buffer.get_success_rate(query)?)

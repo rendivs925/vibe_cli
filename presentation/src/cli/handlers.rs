@@ -17,6 +17,7 @@ use shared::types::Message;
 use shared::types::Result;
 
 use std::path::PathBuf;
+use infrastructure::storage::experience_buffer::FailureType;
 use std::process::Command;
 
 pub struct CliHandlers {
@@ -348,6 +349,13 @@ User request: {}",
         loop {
             attempts += 1;
 
+            let mut messages: Vec<Message> = Vec::new();
+            if critique_feedback.is_none() {
+                if let Some(ctx) = self.build_learning_context_message(query) {
+                    messages.push(ctx);
+                }
+            }
+
             let user_message = if let Some(feedback) = critique_feedback.as_ref() {
                 Message {
                     role: "user".to_string(),
@@ -360,7 +368,7 @@ User request: {}",
                 }
             };
 
-            let messages = vec![user_message];
+            messages.push(user_message);
             let (_, candidates) =
                 request_command_candidates_from_llm(&self.config, &messages, Some(query)).await?;
 
@@ -389,6 +397,9 @@ User request: {}",
                     .as_deref()
                     .unwrap_or("symbolic validation failed");
                 eprintln!("Symbolic validation failed: {}", reason);
+                if let Some(service) = self.integrated_service.as_ref() {
+                    let _ = service.record_failure(query, "", FailureType::Other, Some(reason));
+                }
                 eprintln!("Falling back to standard query...");
                 return self.handle_query(query, ai_interpret, true).await;
             }
@@ -473,10 +484,17 @@ User request: {}",
             return (candidates, None);
         };
 
+        let failed_commands = service
+            .failed_commands_for_query(query, 5)
+            .unwrap_or_default();
+
         let mut valid = Vec::new();
         let mut last_validation: Option<DomainCommandValidation> = None;
 
         for candidate in candidates {
+            if is_disallowed_by_learning(&candidate.command, &failed_commands) {
+                continue;
+            }
             let validation = service.validate_command_against_domain(query, &candidate.command);
             if validation.is_valid {
                 let mut updated = candidate.clone();
@@ -555,6 +573,16 @@ User request: {}",
             if !stderr.is_empty() {
                 println!("{}", stderr.red());
             }
+            if let Some(service) = self.integrated_service.as_ref() {
+                let _ = service.record_failure(
+                    query,
+                    cmd,
+                    FailureType::ExecutionFailed,
+                    Some(stderr.trim()),
+                );
+            }
+        } else if let Some(service) = self.integrated_service.as_ref() {
+            let _ = service.record_success(query, cmd);
         }
 
         Ok(())
@@ -1233,4 +1261,45 @@ User request: {}",
 
         Ok(())
     }
+
+    fn build_learning_context_message(&self, query: &str) -> Option<Message> {
+        let service = self.integrated_service.as_ref()?;
+        let context = service.learning_context(query).ok()??;
+        if context.trim().is_empty() {
+            None
+        } else {
+            Some(Message {
+                role: "system".to_string(),
+                content: context,
+            })
+        }
+    }
+}
+
+fn is_disallowed_by_learning(command: &str, failed_commands: &[String]) -> bool {
+    if failed_commands.is_empty() {
+        return false;
+    }
+    let normalized = normalize_command(command);
+    let normalized_no_sudo = strip_sudo_prefix(&normalized);
+
+    failed_commands.iter().any(|failed| {
+        let failed_norm = normalize_command(failed);
+        let failed_no_sudo = strip_sudo_prefix(&failed_norm);
+        normalized == failed_norm || normalized_no_sudo == failed_no_sudo
+    })
+}
+
+fn normalize_command(command: &str) -> String {
+    command
+        .trim()
+        .trim_end_matches(';')
+        .split_whitespace()
+        .filter(|s| !s.is_empty())
+        .collect::<Vec<&str>>()
+        .join(" ")
+}
+
+fn strip_sudo_prefix(command: &str) -> String {
+    command.strip_prefix("sudo ").unwrap_or(command).to_string()
 }

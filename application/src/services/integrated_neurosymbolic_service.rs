@@ -334,6 +334,25 @@ impl IntegratedNeurosymbolicService {
         })
     }
 
+    pub fn learning_context(&self, query: &str) -> Result<Option<String>> {
+        if !self.config.enable_learning {
+            return Ok(None);
+        }
+        let context = self.learning_service.format_learning_context(query)?;
+        if context.trim().is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(context))
+        }
+    }
+
+    pub fn failed_commands_for_query(&self, query: &str, limit: usize) -> Result<Vec<String>> {
+        if !self.config.enable_learning {
+            return Ok(Vec::new());
+        }
+        self.learning_service.get_failed_commands(query, limit)
+    }
+
     pub fn validate_command_against_domain(
         &self,
         query: &str,
