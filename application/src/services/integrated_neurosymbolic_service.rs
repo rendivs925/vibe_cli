@@ -366,7 +366,14 @@ impl IntegratedNeurosymbolicService {
                 suggestion: None,
             };
         };
+        self.validate_command_against_suggestion(command, &suggestion)
+    }
 
+    pub fn validate_command_against_suggestion(
+        &self,
+        command: &str,
+        suggestion: &SymbolicCommandSuggestion,
+    ) -> DomainCommandValidation {
         let normalized = normalize_command(command);
         let mut match_reason: Option<String> = None;
         let mut matches = false;
@@ -395,7 +402,7 @@ impl IntegratedNeurosymbolicService {
             DomainCommandValidation {
                 is_valid: true,
                 reason: match_reason,
-                suggestion: Some(suggestion),
+                suggestion: Some(suggestion.clone()),
             }
         } else {
             DomainCommandValidation {
@@ -404,7 +411,7 @@ impl IntegratedNeurosymbolicService {
                     first_reason
                         .unwrap_or_else(|| "command not in symbolic operation templates".to_string()),
                 ),
-                suggestion: Some(suggestion),
+                suggestion: Some(suggestion.clone()),
             }
         }
     }

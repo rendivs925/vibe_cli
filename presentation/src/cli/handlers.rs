@@ -7,7 +7,7 @@ use super::cache::{CacheManager, CommandCandidate, ExplainCacheManager, RagCache
 use super::command_extraction::{extract_command_from_response, parse_agent_plan};
 use super::utils::{detect_system_info, project_cache_suffix};
 use application::services::integrated_neurosymbolic_service::{
-    DomainCommandValidation, IntegratedNeurosymbolicService,
+    DomainCommandValidation, IntegratedNeurosymbolicService, SymbolicCommandSuggestion,
 };
 use application::services::rag_service::RagService;
 use colored::Colorize;
@@ -376,7 +376,7 @@ User request: {}",
                 return Ok(());
             }
 
-            let (valid_candidates, validation) =
+            let (valid_candidates, validation, suggestion) =
                 self.filter_candidates_by_domain(query, candidates);
 
             if !valid_candidates.is_empty() {
@@ -384,6 +384,15 @@ User request: {}",
                     self.execute_or_interpret(query, &cmd, ai_interpret).await?;
                 }
                 return Ok(());
+            }
+
+            if attempts == 1 {
+                if let Some(symbolic) = suggestion.as_ref() {
+                if let Some(cmd) = self.select_symbolic_command(symbolic, query)? {
+                    self.execute_or_interpret(query, &cmd, ai_interpret).await?;
+                    return Ok(());
+                }
+                }
             }
 
             let Some(validation) = validation else {
@@ -479,9 +488,13 @@ User request: {}",
         &self,
         query: &str,
         candidates: Vec<CommandCandidate>,
-    ) -> (Vec<CommandCandidate>, Option<DomainCommandValidation>) {
+    ) -> (
+        Vec<CommandCandidate>,
+        Option<DomainCommandValidation>,
+        Option<SymbolicCommandSuggestion>,
+    ) {
         let Some(service) = self.integrated_service.as_ref() else {
-            return (candidates, None);
+            return (candidates, None, None);
         };
 
         let failed_commands = service
@@ -490,12 +503,17 @@ User request: {}",
 
         let mut valid = Vec::new();
         let mut last_validation: Option<DomainCommandValidation> = None;
+        let suggestion = service.suggest_commands_from_domains(query);
+        let suggestion_for_validation = suggestion.as_ref();
 
         for candidate in candidates {
             if is_disallowed_by_learning(&candidate.command, &failed_commands) {
                 continue;
             }
-            let validation = service.validate_command_against_domain(query, &candidate.command);
+            let validation = match suggestion_for_validation {
+                Some(s) => service.validate_command_against_suggestion(&candidate.command, s),
+                None => service.validate_command_against_domain(query, &candidate.command),
+            };
             if validation.is_valid {
                 let mut updated = candidate.clone();
                 if let Some(suggestion) = validation.suggestion.as_ref() {
@@ -507,7 +525,7 @@ User request: {}",
             }
         }
 
-        (valid, last_validation)
+        (valid, last_validation, suggestion)
     }
 
     fn build_domain_critique_prompt(
@@ -1273,6 +1291,35 @@ User request: {}",
                 content: context,
             })
         }
+    }
+
+    fn select_symbolic_command(
+        &self,
+        suggestion: &SymbolicCommandSuggestion,
+        query: &str,
+    ) -> Result<Option<String>> {
+        let mut commands = suggestion.commands.clone();
+        commands.truncate(6);
+
+        let failed_commands = self
+            .integrated_service
+            .as_ref()
+            .and_then(|s| s.failed_commands_for_query(query, 5).ok())
+            .unwrap_or_default();
+
+        let mut candidates: Vec<CommandCandidate> = commands
+            .into_iter()
+            .filter(|cmd| !is_disallowed_by_learning(cmd, &failed_commands))
+            .map(|cmd| {
+                CommandCandidate::new(cmd).with_label(format!("symbolic: {}", suggestion.op_id))
+            })
+            .collect();
+
+        if candidates.is_empty() {
+            return Ok(None);
+        }
+
+        select_command_from_candidates(candidates, query)
     }
 }
 
