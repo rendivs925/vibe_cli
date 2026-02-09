@@ -45,10 +45,9 @@ No flags to remember. No man pages to read. Just natural language.
 | **Multi-Step Agent** | Complex task planning with safety validation |
 | **Neurosymbolic Reasoning** | Config-driven command generation |
 | **Autonomous Safety Stack** | FQL parsing, manpage-validated flags, risk scoring, safety proofs |
-| **Live Monitor** | Token-level flag validation during streaming generation |
 | **Learning Loop** | Experience buffer + "do not repeat" context injection |
 | **AI Interpretation** | Get readable summaries with `--ai-interpret` |
-| **Command Validation** | Multi-layer validation without command execution |
+| **Syntax Validation** | Manpage-backed flag validation before execution |
 
 ### Neurosymbolic Domain System
 
@@ -159,79 +158,29 @@ vibe_cli --neurosymbolic-install <url_or_path>   # Install from URL
 
 ## Command Validation
 
-**Multi-layer safety validation that never executes commands during checking.**
+**Neurosymbolic commands are validated before execution.**
 
 ### How It Works
 
-Before any command is executed (from cache or newly generated), it passes through multiple validation layers:
+Before a neurosymbolic command is executed, it passes through:
 
-1. **Live Monitor**: Token-level flag validation during streaming (blocks invalid flags early)
-2. **Syntax Validation**: Checks for dangerous patterns and injection attacks
-3. **Availability Validation**: Uses `which` command to verify binary exists
-4. **Cache Validation**: Validates cached commands and removes invalid entries
-
-### Example Usage
-
-```bash
-$ vibe_cli --neurosymbolic "show my gpu name"
-
-Command Validation: 4/10 valid
-Invalid commands:
-  X lshw -short: Command not found (try: apt install lshw)
-  X inxi -G: Command not found (try: apt install inxi)
-
-Executing 4 valid command(s)...
-```
-
-### Validation Types
-
-#### **Security Validation**
-- **Dangerous Patterns**: Blocks `rm -rf`, `dd if=`, `mkfs`, `format`, `shred`, etc.
-- **Shell Injection**: Prevents `; rm`, `&& rm`, `$(rm`, backticks, pipes
-- **Input Validation**: Empty commands and whitespace-only commands are rejected
-
-#### **Live Monitor**
-- **Token-Level Flag Checks**: Stops generation as soon as invalid flags appear
-- **Manpage-Backed**: Uses local man pages for flag validation
-
-#### **Availability Validation** 
-- **Binary Check**: Uses `which` to verify command exists in PATH
-- **Built-in Handling**: Recognizes common shell built-ins (`echo`, `cd`, `pwd`, `ls`, etc.)
-- **No Execution**: Validated commands are never executed during checking
-
-#### **Cache Intelligence**
-- **Automatic Cleanup**: Invalid cached commands are removed automatically
-- **Seamless Regeneration**: New commands generated when cache is invalid
-- **Performance**: Valid cached commands served instantly, invalid ones regenerated
-
-#### **Helpful Error Messages**
-- **Install Suggestions**: Recommends package installation for missing commands
-- **Pattern Identification**: Shows which validation rule was triggered
-- **Alternatives**: Suggests safer alternatives when dangerous commands are blocked
+1. **Safety Engine**: Hard rules block catastrophic commands
+2. **Manpage Validation**: Flags are checked against local man pages
+3. **Risk Scoring**: Risk profile and mitigations are computed
 
 ### Validation Flow
 
 ```
 Input Command
        ↓
-Cache Lookup → Validate Cached Commands
+Safety Engine → Block/Allow
        ↓
-Generate New → Validate Generated Commands
+Manpage Validation → Strip invalid flags (retry once)
        ↓
-Security Check → Block/Allow Based on Rules
+Risk Scoring → Report + Mitigations
        ↓
-Execution → Run Only Validated Commands
+Execution
 ```
-
-### Safety First Approach
-
-* **Never executes commands during validation**  
-* Uses `which` for safe binary availability checking  
-* Blocks destructive operations and injection attacks  
-* Maintains cache hygiene automatically  
-* Provides clear, actionable error messages  
-
-This ensures that both cached and newly generated commands are safe before they ever reach the user's shell.
 
 ---
 
@@ -254,7 +203,7 @@ Template: journalctl -n 20
 Saved to: ~/.config/vibe_cli/domains/linux/operations.json
 ```
 
-The new operation is immediately available for future queries.
+The new operation is available after restart or `--neurosymbolic-init`.
 
 ---
 
