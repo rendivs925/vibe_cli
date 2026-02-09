@@ -154,6 +154,39 @@ vibe_cli --neurosymbolic-remove <domain>         # Remove domain
 vibe_cli --neurosymbolic-install <url_or_path>   # Install from URL
 ```
 
+### Managing Domains
+
+Add a new domain:
+
+```bash
+vibe_cli --neurosymbolic-add linux
+```
+
+Edit an existing domain:
+
+```bash
+vibe_cli --neurosymbolic-edit linux
+```
+
+Remove a domain:
+
+```bash
+vibe_cli --neurosymbolic-remove linux
+```
+
+List installed domains:
+
+```bash
+vibe_cli --neurosymbolic-list
+```
+
+Install a domain from a local path or URL:
+
+```bash
+vibe_cli --neurosymbolic-install /path/to/domain
+vibe_cli --neurosymbolic-install https://example.com/linux-domain.zip
+```
+
 ---
 
 ## Command Validation
