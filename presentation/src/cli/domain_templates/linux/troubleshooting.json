@@ -1,0 +1,131 @@
+[
+  {
+    "pattern_id": "high_cpu",
+    "name": "High CPU Usage",
+    "symptoms": [
+      {"metric": "cpu", "observation": "high cpu"},
+      {"metric": "load", "observation": "high load average"}
+    ],
+    "likely_causes": [
+      {"cause": "runaway_process", "probability": 0.6},
+      {"cause": "dos_attack", "probability": 0.2},
+      {"cause": "hardware_issue", "probability": 0.1},
+      {"cause": "configuration_error", "probability": 0.1}
+    ],
+    "checks": [
+      {"step": "Find CPU hog", "command": "top -bn1 | head -20"},
+      {"step": "Check per-core usage", "command": "mpstat -P ALL 1"},
+      {"step": "Check system load", "command": "uptime && cat /proc/loadavg"}
+    ],
+    "actions": [
+      {"action": "identify_hog", "methods": ["top", "htop", "ps"]},
+      {"action": "kill_process", "methods": ["kill", "pkill"]},
+      {"action": "restart_service", "methods": ["systemctl restart"]}
+    ]
+  },
+  {
+    "pattern_id": "high_memory",
+    "name": "High Memory Usage",
+    "symptoms": [
+      {"metric": "memory", "observation": "high memory usage"},
+      {"metric": "oom", "observation": "out of memory"}
+    ],
+    "likely_causes": [
+      {"cause": "memory_leak", "probability": 0.5},
+      {"cause": "too_many_processes", "probability": 0.3},
+      {"cause": "insufficient_ram", "probability": 0.2}
+    ],
+    "checks": [
+      {"step": "Memory usage", "command": "free -m"},
+      {"step": "Top consumers", "command": "ps aux --sort=-%mem | head -10"},
+      {"step": "Memory details", "command": "cat /proc/meminfo"}
+    ],
+    "actions": [
+      {"action": "free_memory", "methods": ["kill", "service_restart"]},
+      {"action": "add_swap", "methods": ["dd", "mkswap", "swapon"]},
+      {"action": "optimize_config", "methods": ["edit_config"]}
+    ]
+  },
+  {
+    "pattern_id": "disk_full",
+    "name": "Disk Space Issues",
+    "symptoms": [
+      {"metric": "disk", "observation": "disk full"},
+      {"metric": "disk", "observation": "no space left"},
+      {"metric": "inode", "observation": "inode exhaustion"}
+    ],
+    "likely_causes": [
+      {"cause": "log_files", "probability": 0.4},
+      {"cause": "temp_files", "probability": 0.3},
+      {"cause": "large_data", "probability": 0.2},
+      {"cause": "too_many_files", "probability": 0.1}
+    ],
+    "checks": [
+      {"step": "Disk by size", "command": "du -sh /var/* | sort -h | tail -10"},
+      {"step": "Large files", "command": "find /var -type f -size +100M"},
+      {"step": "Inode usage", "command": "df -i"},
+      {"step": "Old files", "command": "find /var -type f -mtime +30"}
+    ],
+    "actions": [
+      {"action": "clean_logs", "methods": ["truncate", "rm"]},
+      {"action": "rotate_logs", "methods": ["logrotate"]},
+      {"action": "clear_cache", "methods": ["sync", "echo 3 > /proc/sys/vm/drop_caches"]},
+      {"action": "extend_storage", "methods": ["lvm", "resize2fs"]}
+    ]
+  },
+  {
+    "pattern_id": "service_down",
+    "name": "Service Not Running",
+    "symptoms": [
+      {"metric": "service", "observation": "service not running"},
+      {"metric": "service", "observation": "connection refused"},
+      {"metric": "port", "observation": "port not listening"}
+    ],
+    "likely_causes": [
+      {"cause": "service_crashed", "probability": 0.4},
+      {"cause": "configuration_error", "probability": 0.3},
+      {"cause": "dependency_down", "probability": 0.2},
+      {"cause": "port_in_use", "probability": 0.1}
+    ],
+    "checks": [
+      {"step": "Service status", "command": "systemctl status {{service}}"},
+      {"step": "Recent logs", "command": "journalctl -u {{service}} --since '1 hour ago'"},
+      {"step": "Port status", "command": "ss -tulpn | grep {{port}}"},
+      {"step": "Dependency status", "command": "systemctl list-dependencies {{service}}"}
+    ],
+    "actions": [
+      {"action": "restart_service", "methods": ["systemctl restart"]},
+      {"action": "fix_config", "methods": ["edit_config", "systemctl daemon-reload"]},
+      {"action": "free_port", "methods": ["kill", "lsof"]},
+      {"action": "start_dependency", "methods": ["systemctl start"]}
+    ]
+  },
+  {
+    "pattern_id": "network_issue",
+    "name": "Network Connectivity Issues",
+    "symptoms": [
+      {"metric": "network", "observation": "connection timeout"},
+      {"metric": "network", "observation": "network unreachable"},
+      {"metric": "dns", "observation": "dns failure"}
+    ],
+    "likely_causes": [
+      {"cause": "interface_down", "probability": 0.3},
+      {"cause": "route_problem", "probability": 0.3},
+      {"cause": "dns_issue", "probability": 0.2},
+      {"cause": "firewall_block", "probability": 0.2}
+    ],
+    "checks": [
+      {"step": "Interface status", "command": "ip addr show"},
+      {"step": "Routing table", "command": "ip route show"},
+      {"step": "DNS resolution", "command": "nslookup google.com"},
+      {"step": "Firewall status", "command": "iptables -L -n"},
+      {"step": "Ping test", "command": "ping -c 3 8.8.8.8"}
+    ],
+    "actions": [
+      {"action": "restart_network", "methods": ["systemctl restart networking"]},
+      {"action": "fix_route", "methods": ["ip route add"]},
+      {"action": "fix_dns", "methods": ["edit_resolv.conf"]},
+      {"action": "open_port", "methods": ["iptables -A"]}
+    ]
+  }
+]

@@ -1,0 +1,20 @@
+{
+  "name": "Service",
+  "description": "A system service managed by systemd",
+  "core_properties": [
+    {"name": "name", "type": "string", "meaning": "Service name"},
+    {"name": "state", "type": "string", "meaning": "Service state (active/inactive/failed)"},
+    {"name": "enabled", "type": "boolean", "meaning": "Whether service is enabled at boot"},
+    {"name": "main_pid", "type": "integer", "meaning": "Main process PID"},
+    {"name": "memory_usage", "type": "number", "meaning": "Memory usage in MB"},
+    {"name": "cpu_usage", "type": "number", "meaning": "CPU usage percentage"},
+    {"name": "active_since", "type": "string", "meaning": "Time service became active"},
+    {"name": "description", "type": "string", "meaning": "Service description"},
+    {"name": "unit_file", "type": "string", "meaning": "Unit file path"}
+  ],
+  "derived_properties": [
+    {"name": "is_running", "expression": "state == 'active'"},
+    {"name": "is_failed", "expression": "state == 'failed'"},
+    {"name": "is_active", "expression": "state == 'active'"}
+  ]
+}

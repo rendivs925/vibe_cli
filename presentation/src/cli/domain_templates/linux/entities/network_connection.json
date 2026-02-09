@@ -1,0 +1,20 @@
+{
+  "name": "NetworkConnection",
+  "description": "A network connection or listening port",
+  "core_properties": [
+    {"name": "local_addr", "type": "string", "meaning": "Local IP:port"},
+    {"name": "remote_addr", "type": "string", "meaning": "Remote IP:port"},
+    {"name": "state", "type": "string", "meaning": "Connection state (LISTEN/ESTABLISHED/TIME_WAIT)"},
+    {"name": "protocol", "type": "string", "meaning": "Protocol (tcp/udp)"},
+    {"name": "process", "type": "string", "meaning": "Process owning the connection"},
+    {"name": "pid", "type": "integer", "meaning": "Process ID"},
+    {"name": "recv_q", "type": "integer", "meaning": "Receive queue size"},
+    {"name": "send_q", "type": "integer", "meaning": "Send queue size"}
+  ],
+  "derived_properties": [
+    {"name": "is_listening", "expression": "state == 'LISTEN'"},
+    {"name": "is_established", "expression": "state == 'ESTABLISHED'"},
+    {"name": "is_tcp", "expression": "protocol == 'tcp'"},
+    {"name": "is_udp", "expression": "protocol == 'udp'"}
+  ]
+}

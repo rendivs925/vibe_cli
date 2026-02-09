@@ -1,0 +1,10 @@
+[
+  {"name": "process_has_parent", "type": "hierarchical", "from": "Process", "to": "Process", "meaning": "Process has parent process"},
+  {"name": "process_owns_connection", "type": "ownership", "from": "Process", "to": "NetworkConnection", "meaning": "Process owns network connection"},
+  {"name": "file_belongs_to_filesystem", "type": "containment", "from": "File", "to": "Filesystem", "meaning": "File resides on filesystem"},
+  {"name": "user_owns_process", "type": "ownership", "from": "User", "to": "Process", "meaning": "User started process"},
+  {"name": "service_creates_process", "type": "creation", "from": "Service", "to": "Process", "meaning": "Service manages process"},
+  {"name": "filesystem_mounted_at", "type": "location", "from": "Filesystem", "to": "File", "meaning": "Filesystem contains path"},
+  {"name": "process_uses_file", "type": "usage", "from": "Process", "to": "File", "meaning": "Process has file open"},
+  {"name": "connection_binds_to_port", "type": "binding", "from": "NetworkConnection", "to": "Port", "meaning": "Connection uses port"}
+]

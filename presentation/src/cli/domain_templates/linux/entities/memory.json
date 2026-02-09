@@ -1,0 +1,20 @@
+{
+  "name": "MemoryInfo",
+  "description": "System memory information",
+  "core_properties": [
+    {"name": "total", "type": "string", "meaning": "Total RAM"},
+    {"name": "used", "type": "string", "meaning": "Used RAM"},
+    {"name": "free", "type": "string", "meaning": "Free RAM"},
+    {"name": "shared", "type": "string", "meaning": "Shared memory"},
+    {"name": "buffers", "type": "string", "meaning": "Buffers"},
+    {"name": "available", "type": "string", "meaning": "Available memory"},
+    {"name": "swap_total", "type": "string", "meaning": "Total swap"},
+    {"name": "swap_used", "type": "string", "meaning": "Used swap"},
+    {"name": "swap_free", "type": "string", "meaning": "Free swap"}
+  ],
+  "derived_properties": [
+    {"name": "is_low_memory", "expression": "available < '1G'"},
+    {"name": "is_using_swap", "expression": "swap_used > '0'"},
+    {"name": "memory_pressure", "expression": "(used / total) * 100"}
+  ]
+}

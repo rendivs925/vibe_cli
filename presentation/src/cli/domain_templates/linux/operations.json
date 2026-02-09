@@ -1,0 +1,256 @@
+[
+  {
+    "op_id": "list_processes",
+    "name": "List processes",
+    "description": "List running processes with detailed information",
+    "input_schema": {
+      "filter": {"type": "string", "optional": true},
+      "sort": {"type": "string", "optional": true}
+    },
+    "generators": [
+      {"name": "ps_standard", "tool": "ps", "template": "ps aux", "when": []},
+      {"name": "ps_tree", "tool": "ps", "template": "ps auxf", "when": []},
+      {"name": "ps_sort_cpu", "tool": "ps", "template": "ps aux --sort=-%cpu", "when": []},
+      {"name": "ps_sort_mem", "tool": "ps", "template": "ps aux --sort=-%mem", "when": []}
+    ],
+    "examples": [
+      {"description": "List all processes", "inputs": {}},
+      {"description": "Show process tree", "inputs": {"sort": "tree"}},
+      {"description": "Find nginx processes", "inputs": {"filter": "nginx"}}
+    ]
+  },
+  {
+    "op_id": "check_memory",
+    "name": "Check memory usage",
+    "description": "Display memory and swap usage",
+    "input_schema": {},
+    "generators": [
+      {"name": "free_standard", "tool": "free", "template": "free -h", "when": []},
+      {"name": "free_detailed", "tool": "free", "template": "free -m -t", "when": []}
+    ],
+    "examples": [
+      {"description": "Memory summary", "inputs": {}}
+    ]
+  },
+  {
+    "op_id": "check_disk_usage",
+    "name": "Check disk usage",
+    "description": "Show disk space usage by filesystem",
+    "input_schema": {
+      "path": {"type": "string", "optional": true},
+      "type": {"type": "string", "optional": true}
+    },
+    "generators": [
+      {"name": "df_standard", "tool": "df", "template": "df -h", "when": []},
+      {"name": "df_inodes", "tool": "df", "template": "df -i", "when": []},
+      {"name": "du_standard", "tool": "du", "template": "du -sh {{path}}", "when": [{"name": "path"}]},
+      {"name": "ncdu_scan", "tool": "ncdu", "template": "ncdu -q -o /tmp/ncdu.json {{path}}", "when": [{"name": "path"}]}
+    ],
+    "examples": [
+      {"description": "Disk space summary", "inputs": {}},
+      {"description": "Check /var usage", "inputs": {"path": "/var"}}
+    ]
+  },
+  {
+    "op_id": "check_cpu_load",
+    "name": "Check CPU load",
+    "description": "Display system load averages and CPU info",
+    "input_schema": {},
+    "generators": [
+      {"name": "uptime_standard", "tool": "uptime", "template": "uptime", "when": []},
+      {"name": "top_header", "tool": "top", "template": "top -bn1 | head -20", "when": []},
+      {"name": "lscpu_info", "tool": "lscpu", "template": "lscpu", "when": []}
+    ],
+    "examples": [
+      {"description": "Current load", "inputs": {}}
+    ]
+  },
+  {
+    "op_id": "manage_service",
+    "name": "Manage system services",
+    "description": "Start, stop, restart, or check status of services",
+    "input_schema": {
+      "action": {"type": "string"},
+      "service": {"type": "string"}
+    },
+    "generators": [
+      {"name": "systemctl_status", "tool": "systemctl", "template": "systemctl status {{service}}", "when": [{"name": "action", "equals": "status"}]},
+      {"name": "systemctl_start", "tool": "systemctl", "template": "sudo systemctl start {{service}}", "when": [{"name": "action", "equals": "start"}]},
+      {"name": "systemctl_stop", "tool": "systemctl", "template": "sudo systemctl stop {{service}}", "when": [{"name": "action", "equals": "stop"}]},
+      {"name": "systemctl_restart", "tool": "systemctl", "template": "sudo systemctl restart {{service}}", "when": [{"name": "action", "equals": "restart"}]},
+      {"name": "systemctl_reload", "tool": "systemctl", "template": "sudo systemctl reload {{service}}", "when": [{"name": "action", "equals": "reload"}]},
+      {"name": "systemctl_enable", "tool": "systemctl", "template": "sudo systemctl enable {{service}}", "when": [{"name": "action", "equals": "enable"}]},
+      {"name": "systemctl_disable", "tool": "systemctl", "template": "sudo systemctl disable {{service}}", "when": [{"name": "action", "equals": "disable"}]},
+      {"name": "systemctl_list", "tool": "systemctl", "template": "systemctl list-units --type=service --state=running", "when": [{"name": "action", "equals": "list"}]}
+    ],
+    "examples": [
+      {"description": "Check nginx status", "inputs": {"action": "status", "service": "nginx"}},
+      {"description": "Restart docker", "inputs": {"action": "restart", "service": "docker"}}
+    ]
+  },
+  {
+    "op_id": "check_network",
+    "name": "Check network status",
+    "description": "Display network connections, interfaces, and statistics",
+    "input_schema": {
+      "protocol": {"type": "string", "optional": true},
+      "state": {"type": "string", "optional": true}
+    },
+    "generators": [
+      {"name": "ss_listen", "tool": "ss", "template": "ss -tulpn", "when": []},
+      {"name": "ss_all", "tool": "ss", "template": "ss -tan", "when": []},
+      {"name": "ss_udp", "tool": "ss", "template": "ss -u", "when": [{"name": "protocol", "equals": "udp"}]},
+      {"name": "ip_addr", "tool": "ip", "template": "ip addr show", "when": []},
+      {"name": "ip_route", "tool": "ip", "template": "ip route show", "when": []},
+      {"name": "netstat_listen", "tool": "netstat", "template": "netstat -tulpn", "when": []}
+    ],
+    "examples": [
+      {"description": "Listening ports", "inputs": {}},
+      {"description": "All connections", "inputs": {"protocol": "tcp"}}
+    ]
+  },
+  {
+    "op_id": "check_users",
+    "name": "Check logged-in users",
+    "description": "Show currently logged-in users",
+    "input_schema": {},
+    "generators": [
+      {"name": "who_standard", "tool": "who", "template": "who", "when": []},
+      {"name": "w_detailed", "tool": "w", "template": "w", "when": []},
+      {"name": "last_users", "tool": "last", "template": "last -20", "when": []}
+    ],
+    "examples": [
+      {"description": "Who is logged in", "inputs": {}}
+    ]
+  },
+  {
+    "op_id": "manage_file_permissions",
+    "name": "Manage file permissions",
+    "description": "Change file permissions and ownership",
+    "input_schema": {
+      "path": {"type": "string"},
+      "mode": {"type": "string", "optional": true},
+      "owner": {"type": "string", "optional": true},
+      "group": {"type": "string", "optional": true},
+      "recursive": {"type": "boolean", "optional": true}
+    },
+    "generators": [
+      {"name": "chmod_mode", "tool": "chmod", "template": "chmod {{mode}} {{path}}", "when": [{"name": "mode"}]},
+      {"name": "chmod_recursive", "tool": "chmod", "template": "chmod -R {{mode}} {{path}}", "when": [{"name": "mode"}, {"name": "recursive", "equals": true}]},
+      {"name": "chown_user", "tool": "chown", "template": "chown {{owner}} {{path}}", "when": [{"name": "owner"}]},
+      {"name": "chown_both", "tool": "chown", "template": "chown {{owner}}:{{group}} {{path}}", "when": [{"name": "owner"}, {"name": "group"}]},
+      {"name": "chgrp_group", "tool": "chgrp", "template": "chgrp {{group}} {{path}}", "when": [{"name": "group"}]}
+    ],
+    "examples": [
+      {"description": "Make executable", "inputs": {"path": "/usr/local/bin/script.sh", "mode": "755"}},
+      {"description": "Change owner recursively", "inputs": {"path": "/var/www", "owner": "www-data", "recursive": true}}
+    ]
+  },
+  {
+    "op_id": "find_files",
+    "name": "Find files",
+    "description": "Search for files by name, type, or pattern",
+    "input_schema": {
+      "path": {"type": "string", "optional": true},
+      "name": {"type": "string", "optional": true},
+      "type": {"type": "string", "optional": true},
+      "size": {"type": "string", "optional": true},
+      "mtime": {"type": "string", "optional": true}
+    },
+    "generators": [
+      {"name": "find_name", "tool": "find", "template": "find {{path}} -name \"{{name}}\"", "when": [{"name": "name"}]},
+      {"name": "find_type", "tool": "find", "template": "find {{path}} -type {{type}}", "when": [{"name": "type"}]},
+      {"name": "find_size", "tool": "find", "template": "find {{path}} -size {{size}}", "when": [{"name": "size"}]},
+      {"name": "find_mtime", "tool": "find", "template": "find {{path}} -mtime {{mtime}}", "when": [{"name": "mtime"}]},
+      {"name": "locate_fast", "tool": "locate", "template": "locate \"{{name}}\"", "when": [{"name": "name"}]},
+      {"name": "which_cmd", "tool": "which", "template": "which {{name}}", "when": [{"name": "name"}]},
+      {"name": "whereis_cmd", "tool": "whereis", "template": "whereis {{name}}", "when": [{"name": "name"}]}
+    ],
+    "examples": [
+      {"description": "Find config files", "inputs": {"name": "*.conf", "path": "/etc"}},
+      {"description": "Find large files", "inputs": {"size": "+100M", "path": "/var"}}
+    ]
+  },
+  {
+    "op_id": "check_logs",
+    "name": "Check system logs",
+    "description": "View and search system logs",
+    "input_schema": {
+      "log": {"type": "string", "optional": true},
+      "pattern": {"type": "string", "optional": true},
+      "lines": {"type": "number", "optional": true}
+    },
+    "generators": [
+      {"name": "journalctl_recent", "tool": "journalctl", "template": "journalctl -n {{lines}}", "when": []},
+      {"name": "journalctl_errors", "tool": "journalctl", "template": "journalctl -p err -n {{lines}}", "when": []},
+      {"name": "journalctl_grep", "tool": "journalctl", "template": "journalctl | grep \"{{pattern}}\"", "when": [{"name": "pattern"}]},
+      {"name": "tail_syslog", "tool": "tail", "template": "tail -n {{lines}} /var/log/syslog", "when": []},
+      {"name": "tail_messages", "tool": "tail", "template": "tail -n {{lines}} /var/log/messages", "when": []},
+      {"name": "grep_log", "tool": "grep", "template": "grep \"{{pattern}}\" /var/log/{{log}}", "when": [{"name": "pattern"}, {"name": "log"}]}
+    ],
+    "examples": [
+      {"description": "Recent logs", "inputs": {"lines": 50}},
+      {"description": "Find errors", "inputs": {"pattern": "error", "lines": 100}}
+    ]
+  },
+  {
+    "op_id": "kill_process",
+    "name": "Kill process",
+    "description": "Terminate processes by PID or name",
+    "input_schema": {
+      "target": {"type": "string"},
+      "signal": {"type": "string", "optional": true},
+      "force": {"type": "boolean", "optional": true}
+    },
+    "generators": [
+      {"name": "kill_term", "tool": "kill", "template": "kill {{target}}", "when": []},
+      {"name": "kill_sig", "tool": "kill", "template": "kill -{{signal}} {{target}}", "when": [{"name": "signal"}]},
+      {"name": "killall_name", "tool": "killall", "template": "killall {{target}}", "when": []},
+      {"name": "pkill_pattern", "tool": "pkill", "template": "pkill {{target}}", "when": []},
+      {"name": "kill_force", "tool": "kill", "template": "kill -9 {{target}}", "when": [{"name": "force", "equals": true}]}
+    ],
+    "examples": [
+      {"description": "Kill by PID", "inputs": {"target": "1234"}},
+      {"description": "Force kill", "inputs": {"target": "nginx", "force": true}}
+    ]
+  },
+  {
+    "op_id": "check_package_manager",
+    "name": "Check installed packages",
+    "description": "List installed packages",
+    "input_schema": {
+      "manager": {"type": "string", "optional": true},
+      "pattern": {"type": "string", "optional": true}
+    },
+    "generators": [
+      {"name": "apt_list", "tool": "dpkg", "template": "dpkg -l", "when": []},
+      {"name": "apt_search", "tool": "apt", "template": "apt list --installed", "when": []},
+      {"name": "apt_search_pattern", "tool": "apt", "template": "dpkg -l | grep {{pattern}}", "when": [{"name": "pattern"}]},
+      {"name": "rpm_list", "tool": "rpm", "template": "rpm -qa", "when": []},
+      {"name": "yum_search", "tool": "yum", "template": "yum list installed", "when": []}
+    ],
+    "examples": [
+      {"description": "List all packages", "inputs": {}},
+      {"description": "Search for package", "inputs": {"pattern": "nginx"}}
+    ]
+  },
+  {
+    "op_id": "check_docker",
+    "name": "Check Docker status",
+    "description": "Display Docker containers, images, and stats",
+    "input_schema": {
+      "action": {"type": "string", "optional": true}
+    },
+    "generators": [
+      {"name": "docker_ps", "tool": "docker", "template": "docker ps -a", "when": []},
+      {"name": "docker_images", "tool": "docker", "template": "docker images", "when": []},
+      {"name": "docker_stats", "tool": "docker", "template": "docker stats --no-stream", "when": []},
+      {"name": "docker_logs", "tool": "docker", "template": "docker logs --tail 100 {{action}}", "when": [{"name": "action"}]},
+      {"name": "docker_ps_filter", "tool": "docker", "template": "docker ps --filter \"name={{action}}\"", "when": [{"name": "action"}]}
+    ],
+    "examples": [
+      {"description": "List containers", "inputs": {}},
+      {"description": "Container stats", "inputs": {"action": "stats"}}
+    ]
+  }
+]

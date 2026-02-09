@@ -1,0 +1,62 @@
+[
+  {
+    "rule_id": "zombie_detect",
+    "name": "Zombie Detection",
+    "if": [{"entity": "Process", "prop": "state", "equals": "Z"}],
+    "then": [{"conclude": "zombie_process", "confidence": 0.99, "recommendation": "Kill the parent process or restart the service"}]
+  },
+  {
+    "rule_id": "high_cpu_process",
+    "name": "High CPU Detection",
+    "if": [{"entity": "Process", "prop": "cpu", "gt": 80}],
+    "then": [{"conclude": "cpu_heavy_process", "confidence": 0.95, "recommendation": "Investigate process, consider killing if not essential"}]
+  },
+  {
+    "rule_id": "high_memory_process",
+    "name": "High Memory Detection",
+    "if": [{"entity": "Process", "prop": "mem", "gt": 50}],
+    "then": [{"conclude": "memory_heavy_process", "confidence": 0.95, "recommendation": "Check for memory leaks, consider restarting service"}]
+  },
+  {
+    "rule_id": "disk_full",
+    "name": "Full Disk Detection",
+    "if": [{"entity": "Filesystem", "prop": "use_percent", "gt": 90}],
+    "then": [{"conclude": "disk_space_critical", "confidence": 0.99, "recommendation": "Clean up logs, temporary files, or expand storage"}]
+  },
+  {
+    "rule_id": "inode_full",
+    "name": "Inode Exhaustion Detection",
+    "if": [{"entity": "Filesystem", "prop": "inode_free", "lt": 1000}],
+    "then": [{"conclude": "inode_exhaustion", "confidence": 0.99, "recommendation": "Find and remove small files, increase inodes"}]
+  },
+  {
+    "rule_id": "low_memory",
+    "name": "Low Memory Detection",
+    "if": [{"entity": "MemoryInfo", "prop": "available", "matches": "[0-9]+M"}],
+    "then": [{"conclude": "system_low_memory", "confidence": 0.90, "recommendation": "Free memory by stopping processes or adding RAM"}]
+  },
+  {
+    "rule_id": "swap_usage",
+    "name": "Swap Usage Detection",
+    "if": [{"entity": "MemoryInfo", "prop": "swap_used", "matches": "[1-9]"}],
+    "then": [{"conclude": "heavy_swap_usage", "confidence": 0.85, "recommendation": "Add RAM or reduce memory usage"}]
+  },
+  {
+    "rule_id": "service_failed",
+    "name": "Failed Service Detection",
+    "if": [{"entity": "Service", "prop": "state", "equals": "failed"}],
+    "then": [{"conclude": "service_failure", "confidence": 0.99, "recommendation": "Check logs and restart service"}]
+  },
+  {
+    "rule_id": "port_listening",
+    "name": "Listening Port Detection",
+    "if": [{"entity": "NetworkConnection", "prop": "state", "equals": "LISTEN"}],
+    "then": [{"conclude": "exposed_service", "confidence": 0.80, "recommendation": "Verify this service should be exposed"}]
+  },
+  {
+    "rule_id": "orphaned_process",
+    "name": "Orphaned Process Detection",
+    "if": [{"entity": "Process", "prop": "ppid", "equals": "1"}],
+    "then": [{"conclude": "orphaned_process", "confidence": 0.70, "recommendation": "Process parent died, may need cleanup"}]
+  }
+]

@@ -1,0 +1,78 @@
+[
+  {
+    "template_id": "service_not_running",
+    "goal": "service is not running",
+    "inputs": [{"name": "service", "type": "string", "example": "nginx"}],
+    "steps": [
+      {"step": 1, "check": "systemctl status {{service}}", "logic": "Confirm inactive/failed state and capture error summary.", "next": ["step:2"]},
+      {"step": 2, "check": "journalctl -u {{service}} --since '1 hour ago'", "logic": "Identify the last failure and error signature.", "next": ["step:3"]},
+      {"step": 3, "check": "systemctl list-dependencies {{service}}", "logic": "Verify dependencies are active; note any failed units.", "next": ["step:4"]},
+      {"step": 4, "check": "systemctl restart {{service}}", "logic": "Attempt restart after resolving config or dependency issues.", "next": ["step:5"]},
+      {"step": 5, "check": "systemctl status {{service}}", "logic": "Confirm service is active and stable.", "next": []}
+    ],
+    "outputs": [{"name": "diagnosis", "type": "string"}]
+  },
+  {
+    "template_id": "disk_full",
+    "goal": "disk is full",
+    "inputs": [{"name": "path", "type": "string", "example": "/var"}],
+    "steps": [
+      {"step": 1, "check": "df -h", "logic": "Identify the filesystem at or near 100 percent usage.", "next": ["step:2"]},
+      {"step": 2, "check": "du -sh {{path}}/* | sort -h | tail -10", "logic": "Find top directories by size under the target path.", "next": ["step:3"]},
+      {"step": 3, "check": "find {{path}} -type f -size +100M -ls", "logic": "Locate large files to clean or move.", "next": ["step:4"]},
+      {"step": 4, "check": "find {{path}} -type f -mtime +30 -ls", "logic": "Identify old files and candidate log archives.", "next": ["step:5"]},
+      {"step": 5, "check": "df -h", "logic": "Verify reclaimed space and confirm steady-state.", "next": []}
+    ],
+    "outputs": [{"name": "remediation", "type": "string"}]
+  },
+  {
+    "template_id": "high_cpu",
+    "goal": "high cpu usage",
+    "inputs": [],
+    "steps": [
+      {"step": 1, "check": "uptime", "logic": "Confirm elevated load averages relative to CPU count.", "next": ["step:2"]},
+      {"step": 2, "check": "ps aux --sort=-%cpu | head -10", "logic": "Identify top CPU consumers.", "next": ["step:3"]},
+      {"step": 3, "check": "top -H -p {{process}}", "logic": "If a single process dominates, inspect its threads.", "next": ["step:4"]},
+      {"step": 4, "check": "strace -p {{process}} -c -f -o /tmp/strace.txt", "logic": "Collect syscall profile to identify tight loops or I/O waits.", "next": ["step:5"]},
+      {"step": 5, "check": "systemctl status {{service}}", "logic": "If a service owns the process, validate its health and config.", "next": []}
+    ],
+    "outputs": [{"name": "root_cause", "type": "string"}]
+  },
+  {
+    "template_id": "memory_pressure",
+    "goal": "memory is low",
+    "inputs": [],
+    "steps": [
+      {"step": 1, "check": "free -h", "logic": "Confirm available memory and swap usage.", "next": ["step:2"]},
+      {"step": 2, "check": "ps aux --sort=-%mem | head -10", "logic": "Identify top memory consumers.", "next": ["step:3"]},
+      {"step": 3, "check": "cat /proc/meminfo", "logic": "Validate reclaimable cache and slab usage.", "next": ["step:4"]},
+      {"step": 4, "check": "journalctl -k | tail -n 200", "logic": "Check for OOM killer events.", "next": ["step:5"]},
+      {"step": 5, "check": "systemctl restart {{service}}", "logic": "Restart leaking services after confirmation.", "next": []}
+    ],
+    "outputs": [{"name": "mitigation", "type": "string"}]
+  },
+  {
+    "template_id": "network_connectivity",
+    "goal": "network is unreachable",
+    "inputs": [],
+    "steps": [
+      {"step": 1, "check": "ip addr show", "logic": "Confirm interface state and address assignment.", "next": ["step:2"]},
+      {"step": 2, "check": "ip route show", "logic": "Validate default route and routing table.", "next": ["step:3"]},
+      {"step": 3, "check": "ping -c 3 8.8.8.8", "logic": "Test basic connectivity to a public IP.", "next": ["step:4"]},
+      {"step": 4, "check": "nslookup google.com", "logic": "Validate DNS resolution if IP connectivity is present.", "next": ["step:5"]},
+      {"step": 5, "check": "ss -tulpn", "logic": "Check for listener conflicts or firewall blocks.", "next": []}
+    ],
+    "outputs": [{"name": "network_diagnosis", "type": "string"}]
+  },
+  {
+    "template_id": "log_investigation",
+    "goal": "check system logs",
+    "inputs": [{"name": "lines", "type": "number", "example": 200}],
+    "steps": [
+      {"step": 1, "check": "journalctl -n {{lines}}", "logic": "Review recent system log entries.", "next": ["step:2"]},
+      {"step": 2, "check": "journalctl -p err -n {{lines}}", "logic": "Isolate errors and prioritize by recency.", "next": ["step:3"]},
+      {"step": 3, "check": "journalctl -u {{service}} --since '1 hour ago'", "logic": "If a service is implicated, inspect its recent logs.", "next": []}
+    ],
+    "outputs": [{"name": "log_summary", "type": "string"}]
+  }
+]

@@ -1,0 +1,10 @@
+{
+  "name": "Port",
+  "description": "A network port number",
+  "core_properties": [
+    {"name": "number", "type": "integer", "meaning": "Port number (1-65535)"},
+    {"name": "protocol", "type": "string", "meaning": "Protocol (tcp/udp)"},
+    {"name": "service", "type": "string", "meaning": "Common service name"},
+    {"name": "state", "type": "string", "meaning": "Port state"}
+  ]
+}

@@ -1,0 +1,10 @@
+{
+  "domain": "linux",
+  "version": "2.0.0",
+  "description": "Complete Linux system administration and symbolic reasoning domain",
+  "depends_on": [],
+  "priority": 10,
+  "enabled": true,
+  "author": "vibe_cli",
+  "tags": ["linux", "process", "filesystem", "network", "services", "users"]
+}

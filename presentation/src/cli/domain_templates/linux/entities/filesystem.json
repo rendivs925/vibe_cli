@@ -1,0 +1,21 @@
+{
+  "name": "Filesystem",
+  "description": "A mounted filesystem",
+  "core_properties": [
+    {"name": "mount_point", "type": "string", "meaning": "Mount point path"},
+    {"name": "device", "type": "string", "meaning": "Device name"},
+    {"name": "total", "type": "string", "meaning": "Total space"},
+    {"name": "used", "type": "string", "meaning": "Used space"},
+    {"name": "available", "type": "string", "meaning": "Available space"},
+    {"name": "use_percent", "type": "number", "meaning": "Usage percentage"},
+    {"name": "type", "type": "string", "meaning": "Filesystem type (ext4/xfs/btrfs)"},
+    {"name": "inode_total", "type": "integer", "meaning": "Total inodes"},
+    {"name": "inode_used", "type": "integer", "meaning": "Used inodes"},
+    {"name": "inode_free", "type": "integer", "meaning": "Free inodes"}
+  ],
+  "derived_properties": [
+    {"name": "is_full", "expression": "use_percent > 90"},
+    {"name": "is_critical", "expression": "use_percent > 95"},
+    {"name": "has_inode_space", "expression": "inode_free > 1000"}
+  ]
+}

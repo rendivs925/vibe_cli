@@ -1,0 +1,20 @@
+{
+  "name": "File",
+  "description": "A file or directory in the filesystem",
+  "core_properties": [
+    {"name": "path", "type": "string", "meaning": "Absolute file path"},
+    {"name": "size", "type": "integer", "meaning": "File size in bytes"},
+    {"name": "mode", "type": "string", "meaning": "File permissions (octal)"},
+    {"name": "owner", "type": "string", "meaning": "File owner username"},
+    {"name": "group", "type": "string", "meaning": "File group name"},
+    {"name": "modified", "type": "string", "meaning": "Last modification time"},
+    {"name": "type", "type": "string", "meaning": "File type (file/dir/symlink)"},
+    {"name": "inode", "type": "integer", "meaning": "Inode number"}
+  ],
+  "derived_properties": [
+    {"name": "is_readable", "expression": "mode contains 'r'"},
+    {"name": "is_writable", "expression": "mode contains 'w'"},
+    {"name": "is_executable", "expression": "mode contains 'x'"},
+    {"name": "is_directory", "expression": "type == 'dir'"}
+  ]
+}

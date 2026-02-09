@@ -1,0 +1,20 @@
+{
+  "name": "Process",
+  "description": "A running process on the system",
+  "core_properties": [
+    {"name": "pid", "type": "integer", "meaning": "Process ID"},
+    {"name": "ppid", "type": "integer", "meaning": "Parent Process ID"},
+    {"name": "cmdline", "type": "string", "meaning": "Command line that started the process"},
+    {"name": "user", "type": "string", "meaning": "User owning the process"},
+    {"name": "cpu", "type": "number", "meaning": "CPU usage percentage"},
+    {"name": "mem", "type": "number", "meaning": "Memory usage percentage"},
+    {"name": "state", "type": "string", "meaning": "Process state (R/S/D/Z)"},
+    {"name": "start_time", "type": "string", "meaning": "Process start time"},
+    {"name": "elapsed_time", "type": "string", "meaning": "CPU time used"}
+  ],
+  "derived_properties": [
+    {"name": "is_zombie", "expression": "state == 'Z'"},
+    {"name": "is_running", "expression": "state == 'R'"},
+    {"name": "is_sleeping", "expression": "state == 'S'"}
+  ]
+}
