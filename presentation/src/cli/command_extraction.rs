@@ -1,4 +1,5 @@
 use crate::cli::cache::CommandCandidate;
+use crate::cli::command_safety::is_blocked_command;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Source {
@@ -16,273 +17,242 @@ pub fn extract_command(raw: &str, user_query: &str) -> Option<String> {
         .map(|candidate| candidate.command)
 }
 
+fn normalize(mut s: &str) -> String {
+    s = s.trim();
+
+    // Strip common prompt markers
+    for p in ["$ ", "# ", "> "] {
+        if let Some(rest) = s.strip_prefix(p) {
+            s = rest.trim_start();
+            break;
+        }
+    }
+
+    // Strip shell wrapper prefixes (with or without newlines/spaces)
+    // Handles: "bash cmd", "bash\ncmd", "sh cmd", "sh\ncmd", "zsh cmd", "zsh\ncmd"
+    for shell in ["bash", "sh", "zsh"] {
+        if let Some(rest) = s.strip_prefix(shell) {
+            let rest_trim = rest.trim_start();
+            // Only strip if it's NOT a real shell invocation like: "bash -lc ..."
+            if !rest_trim.starts_with('-') {
+                s = rest_trim;
+                break; // strip at most one wrapper
+            }
+        }
+    }
+
+    s.trim()
+        .trim_matches('`')
+        .trim_matches('"')
+        .trim_matches('\'')
+        .trim()
+        .trim_end_matches(';')
+        .trim_end_matches('.')
+        .trim()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn looks_like_command(s: &str) -> bool {
+    let t = s.trim();
+    if t.is_empty() {
+        return false;
+    }
+
+    // Reject code fence markers
+    if t.starts_with("```") {
+        return false;
+    }
+
+    let lower = t.to_ascii_lowercase();
+
+    // Reject obvious prose / UI noise - expanded list
+    let bad_prefixes = [
+        "to ",
+        "run ",
+        "then ",
+        "next ",
+        "this will",
+        "choose ",
+        "selected:",
+        "generated",
+        "method",
+        "in `",
+        "if you",
+        "you can",
+        "here are",
+        "these commands",
+        "this command",
+        "open a terminal",
+        "get the",
+        "show the",
+        "check the",
+        "display the",
+        "list the",
+        "find the",
+        "retrieve the",
+        "execute ",
+        "run the",
+        "please ",
+        "you can ",
+        "here is",
+        "use the",
+        "you'll need",
+        "install ",
+        "download ",
+        "create ",
+        "make sure",
+        "cpu ",
+        "disk ",
+        "memory ",
+        "hostname",
+        "operating",
+        "platform",
+        "kernel",
+        "shell:",
+        "total ",
+        "free ",
+        "cpu type",
+        "processor",
+        "information:",
+        "generated command",
+        "replacing xx",
+    ];
+    if bad_prefixes.iter().any(|p| lower.starts_with(p)) {
+        return false;
+    }
+
+    // Reject numbered list items like "[1] Get the CPU" or "1] Get the CPU"
+    if t.starts_with('[')
+        || (t.chars().next().is_some_and(|c| c.is_ascii_digit()) && t.contains("] "))
+    {
+        return false;
+    }
+
+    // Reject URLs / markdown links
+    if lower.contains("http://") || lower.contains("https://") {
+        return false;
+    }
+
+    // Reject numbered/bulleted markdown lines
+    if t.starts_with('-') || t.starts_with('*') || t.starts_with('•') {
+        return false;
+    }
+    if t.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+        let rest: String = t.chars().skip_while(|c| c.is_ascii_digit()).collect();
+        let r = rest.trim_start();
+        if r.starts_with('.') || r.starts_with(')') {
+            return false;
+        }
+    }
+
+    // Reject headings
+    if t.ends_with(':') {
+        return false;
+    }
+
+    // Reject bare language tags
+    if matches!(lower.as_str(), "bash" | "sh" | "zsh" | "shell" | "console") {
+        return false;
+    }
+
+    // First token must be a plausible executable/path
+    let first = t.split_whitespace().next().unwrap_or("");
+    if first.is_empty() {
+        return false;
+    }
+    if !first
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || "_-./".contains(c))
+    {
+        return false;
+    }
+
+    // If it looks like a sentence or description, require shell syntax
+    // These phrases indicate prose, not commands
+    let sentencey = lower.contains(" you ")
+        || lower.contains(" this ")
+        || lower.contains(" should ")
+        || lower.contains(" able ")
+        || lower.contains(" provides ")
+        || lower.contains(" display ")
+        || lower.starts_with("get ")
+        || lower.starts_with("show ")
+        || lower.starts_with("check ")
+        || lower.starts_with("list ")
+        || lower.starts_with("find ")
+        || lower.starts_with("display ")
+        || lower.starts_with("retrieve ")
+        || lower.starts_with("execute ")
+        || lower.starts_with("run ")
+        || lower.starts_with("install ")
+        || lower.starts_with("download ")
+        || lower.starts_with("create ")
+        || lower.starts_with("make ")
+        || lower.starts_with("please ")
+        || lower.starts_with("use ")
+        || lower.starts_with("here ")
+        || lower.starts_with("you'll");
+
+    let has_shell_signal = t.contains('|')
+        || t.contains("&&")
+        || t.contains("||")
+        || t.contains(';')
+        || t.contains(" -")
+        || t.contains("--")
+        || t.contains(">/")
+        || t.contains("</")
+        || t.contains("$(")
+        || t.contains('`')
+        || t.contains('/'); // Paths indicate commands
+
+    let tokens: Vec<&str> = t.split_whitespace().collect();
+    let first_tok = tokens.first().copied().unwrap_or("");
+    let second_tok = tokens.get(1).copied().unwrap_or("");
+    let allow_no_signal = matches!(first_tok, "systemctl" | "service")
+        || (first_tok == "sudo" && matches!(second_tok, "systemctl" | "service"));
+
+    if sentencey && !has_shell_signal {
+        return false;
+    }
+
+    // Single-word commands are allowed if they pass basic checks
+    let token_count = t.split_whitespace().count();
+    if token_count == 1 {
+        return true;
+    }
+
+    // For multi-word, require shell signal or be very confident
+    if token_count >= 2 && !has_shell_signal && !allow_no_signal {
+        return false;
+    }
+
+    true
+}
+
+pub(crate) fn query_keywords(query: &str) -> Vec<String> {
+    // Tiny heuristic: split and keep "word-ish" tokens.
+    // Used only as a soft filter later.
+    query
+        .to_ascii_lowercase()
+        .split(|c: char| !c.is_ascii_alphanumeric() && c != '_' && c != '-')
+        .map(str::trim)
+        .filter(|w| w.len() >= 3)
+        .map(|w| w.to_string())
+        .collect()
+}
+
+pub(crate) fn matches_query(cmd: &str, keywords: &[String]) -> bool {
+    if keywords.is_empty() {
+        return true;
+    }
+    let c = cmd.to_ascii_lowercase();
+    keywords.iter().any(|k| c.contains(k))
+}
+
 pub fn extract_commands(raw: &str, user_query: &str) -> Vec<CommandCandidate> {
     let raw = raw.trim();
-
-    fn normalize(mut s: &str) -> String {
-        s = s.trim();
-
-        // Strip common prompt markers
-        for p in ["$ ", "# ", "> "] {
-            if let Some(rest) = s.strip_prefix(p) {
-                s = rest.trim_start();
-                break;
-            }
-        }
-
-        // Strip shell wrapper prefixes (with or without newlines/spaces)
-        // Handles: "bash cmd", "bash\ncmd", "sh cmd", "sh\ncmd", "zsh cmd", "zsh\ncmd"
-        for shell in ["bash", "sh", "zsh"] {
-            if let Some(rest) = s.strip_prefix(shell) {
-                let rest_trim = rest.trim_start();
-                // Only strip if it's NOT a real shell invocation like: "bash -lc ..."
-                if !rest_trim.starts_with('-') {
-                    s = rest_trim;
-                    break; // strip at most one wrapper
-                }
-            }
-        }
-
-        s.trim()
-            .trim_matches('`')
-            .trim_matches('"')
-            .trim_matches('\'')
-            .trim()
-            .trim_end_matches(';')
-            .trim_end_matches('.')
-            .trim()
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ")
-    }
-
-    fn is_forbidden(cmd: &str) -> bool {
-        let c = cmd.to_ascii_lowercase();
-        let toks: Vec<&str> = c.split_whitespace().collect();
-        let first = toks.first().copied().unwrap_or("");
-
-        // Package managers / installers
-        if c.contains("pacman") || c.contains("apt ") || c.contains("dnf ") || c.contains("yum ") {
-            return true;
-        }
-
-        // Dangerous primaries
-        if first == "rm" || first == "dd" || first.starts_with("mkfs") {
-            return true;
-        }
-
-        // Power / disruption actions
-        let bad_anywhere = ["shutdown", "reboot", "poweroff", ":(){", "killall"];
-        if bad_anywhere.iter().any(|b| c.contains(b)) {
-            return true;
-        }
-
-        // dd patterns
-        if c.contains("dd") && c.contains("if=") {
-            return true;
-        }
-
-        false
-    }
-
-    fn looks_like_command(s: &str) -> bool {
-        let t = s.trim();
-        if t.is_empty() {
-            return false;
-        }
-
-        // Reject code fence markers
-        if t.starts_with("```") {
-            return false;
-        }
-
-        let lower = t.to_ascii_lowercase();
-
-        // Reject obvious prose / UI noise - expanded list
-        let bad_prefixes = [
-            "to ",
-            "run ",
-            "then ",
-            "next ",
-            "this will",
-            "choose ",
-            "selected:",
-            "generated",
-            "method",
-            "in `",
-            "if you",
-            "you can",
-            "here are",
-            "these commands",
-            "this command",
-            "open a terminal",
-            "get the",
-            "show the",
-            "check the",
-            "display the",
-            "list the",
-            "find the",
-            "retrieve the",
-            "execute ",
-            "run the",
-            "please ",
-            "you can ",
-            "here is",
-            "use the",
-            "you'll need",
-            "install ",
-            "download ",
-            "create ",
-            "make sure",
-            "cpu ",
-            "disk ",
-            "memory ",
-            "hostname",
-            "operating",
-            "platform",
-            "kernel",
-            "shell:",
-            "total ",
-            "free ",
-            "cpu type",
-            "processor",
-            "information:",
-            "generated command",
-            "replacing xx",
-        ];
-        if bad_prefixes.iter().any(|p| lower.starts_with(p)) {
-            return false;
-        }
-
-        // Reject numbered list items like "[1] Get the CPU" or "1] Get the CPU"
-        if t.starts_with('[')
-            || (t.chars().next().is_some_and(|c| c.is_ascii_digit()) && t.contains("] "))
-        {
-            return false;
-        }
-
-        // Reject URLs / markdown links
-        if lower.contains("http://") || lower.contains("https://") {
-            return false;
-        }
-
-        // Reject numbered/bulleted markdown lines
-        if t.starts_with('-') || t.starts_with('*') || t.starts_with('•') {
-            return false;
-        }
-        if t.chars().next().is_some_and(|c| c.is_ascii_digit()) {
-            let rest: String = t.chars().skip_while(|c| c.is_ascii_digit()).collect();
-            let r = rest.trim_start();
-            if r.starts_with('.') || r.starts_with(')') {
-                return false;
-            }
-        }
-
-        // Reject headings
-        if t.ends_with(':') {
-            return false;
-        }
-
-        // Reject bare language tags
-        if matches!(lower.as_str(), "bash" | "sh" | "zsh" | "shell" | "console") {
-            return false;
-        }
-
-        // First token must be a plausible executable/path
-        let first = t.split_whitespace().next().unwrap_or("");
-        if first.is_empty() {
-            return false;
-        }
-        if !first
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "_-./".contains(c))
-        {
-            return false;
-        }
-
-        // If it looks like a sentence or description, require shell syntax
-        // These phrases indicate prose, not commands
-        let sentencey = lower.contains(" you ")
-            || lower.contains(" this ")
-            || lower.contains(" should ")
-            || lower.contains(" able ")
-            || lower.contains(" provides ")
-            || lower.contains(" display ")
-            || lower.starts_with("get ")
-            || lower.starts_with("show ")
-            || lower.starts_with("check ")
-            || lower.starts_with("list ")
-            || lower.starts_with("find ")
-            || lower.starts_with("display ")
-            || lower.starts_with("retrieve ")
-            || lower.starts_with("execute ")
-            || lower.starts_with("run ")
-            || lower.starts_with("install ")
-            || lower.starts_with("download ")
-            || lower.starts_with("create ")
-            || lower.starts_with("make ")
-            || lower.starts_with("please ")
-            || lower.starts_with("use ")
-            || lower.starts_with("here ")
-            || lower.starts_with("you'll");
-
-        let has_shell_signal = t.contains('|')
-            || t.contains("&&")
-            || t.contains("||")
-            || t.contains(';')
-            || t.contains(" -")
-            || t.contains("--")
-            || t.contains(">/")
-            || t.contains("</")
-            || t.contains("$(")
-            || t.contains('`')
-            || t.contains('/'); // Paths indicate commands
-
-        let tokens: Vec<&str> = t.split_whitespace().collect();
-        let first_tok = tokens.first().copied().unwrap_or("");
-        let second_tok = tokens.get(1).copied().unwrap_or("");
-        let allow_no_signal = matches!(
-            first_tok,
-            "systemctl" | "service"
-        ) || (first_tok == "sudo" && matches!(second_tok, "systemctl" | "service"));
-
-        if sentencey && !has_shell_signal {
-            return false;
-        }
-
-        // Single-word commands are allowed if they pass basic checks
-        let token_count = t.split_whitespace().count();
-        if token_count == 1 {
-            return true;
-        }
-
-        // For multi-word, require shell signal or be very confident
-        if token_count >= 2 && !has_shell_signal && !allow_no_signal {
-            return false;
-        }
-
-        true
-    }
-
-    fn query_keywords(query: &str) -> Vec<String> {
-        // Tiny heuristic: split and keep “word-ish” tokens.
-        // Used only as a soft filter later.
-        query
-            .to_ascii_lowercase()
-            .split(|c: char| !c.is_ascii_alphanumeric() && c != '_' && c != '-')
-            .map(str::trim)
-            .filter(|w| w.len() >= 3)
-            .map(|w| w.to_string())
-            .collect()
-    }
-
-    fn matches_query(cmd: &str, keywords: &[String]) -> bool {
-        if keywords.is_empty() {
-            return true;
-        }
-        let c = cmd.to_ascii_lowercase();
-        keywords.iter().any(|k| c.contains(k))
-    }
 
     fn push_candidate(
         out: &mut Vec<(Source, CommandCandidate)>,
@@ -294,7 +264,7 @@ pub fn extract_commands(raw: &str, user_query: &str) -> Vec<CommandCandidate> {
         if cmd.is_empty() {
             return;
         }
-        if !looks_like_command(&cmd) || is_forbidden(&cmd) {
+        if !looks_like_command(&cmd) || is_blocked_command(&cmd) {
             return;
         }
 

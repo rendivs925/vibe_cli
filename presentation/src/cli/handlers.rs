@@ -376,14 +376,14 @@ Return this exact JSON structure (all fields required):
   "constraints": [],
   "params": {{}},
   "neurosymbolic_suitable": true,
-  "reasoning": "Query asks to check disk usage, which is a system_info intent with check action on disk target"
+  "reasoning": "1-2 sentence explanation of your interpretation"
 }}
 
 Rules:
-- intent_category: system_info|process|memory|disk|network|service|user|file|log|hardware|general
-- action: list|show|check|monitor|start|stop|restart|enable|disable|find|read|delete
+- intent_category: system_info|process|memory|disk|network|service|user|file|log|hardware|package|general
+- action: list|show|check|monitor|start|stop|restart|enable|disable|find|read|delete|install|uninstall|upgrade|downgrade
 - target: process|memory|disk|network|service|user|file|log|hardware|gpu|package|system
-- neurosymbolic_suitable: true for most queries, false only for complex reasoning tasks
+- neurosymbolic_suitable: true for most queries, false for tasks likely outside symbolic ops (e.g., package install if no operation exists)
 - reasoning: 1-2 sentence explanation of your interpretation
 
 Query to analyze: "{}""#,
@@ -401,8 +401,31 @@ Query to analyze: "{}""#,
             }
         }
 
-        let fallback = self.extract_intent_from_keywords(query);
-        Ok(fallback)
+        if let Some(service) = self.integrated_service.as_ref() {
+            if let Some(suggestion) = service.suggest_intent_from_domains(query) {
+                return Ok(IntentAnalysis {
+                    intent: suggestion.intent,
+                    neurosymbolic_suitable: true,
+                    reasoning: suggestion.reasoning,
+                    action: suggestion.action,
+                    target: suggestion.target,
+                    objects: suggestion.objects,
+                    constraints: suggestion.constraints,
+                    params: suggestion.params,
+                });
+            }
+        }
+
+        Ok(IntentAnalysis {
+            intent: "unknown".to_string(),
+            neurosymbolic_suitable: false,
+            reasoning: "No intent signal from LLM or domain registry".to_string(),
+            action: None,
+            target: None,
+            objects: Vec::new(),
+            constraints: Vec::new(),
+            params: HashMap::new(),
+        })
     }
 
     fn parse_intent_analysis(&self, response: &str) -> Result<IntentAnalysis> {
@@ -523,91 +546,6 @@ Query to analyze: "{}""#,
             .to_string()
     }
 
-    fn extract_intent_from_keywords(&self, query: &str) -> IntentAnalysis {
-        let query_lower = query.to_lowercase();
-        let mut intent = "general".to_string();
-        let mut action: Option<String> = None;
-        let mut target: Option<String> = None;
-        let mut reasoning = String::new();
-
-        if query_lower.contains("disk") || query_lower.contains("storage") || query_lower.contains("space") {
-            intent = "disk".to_string();
-            target = Some("disk".to_string());
-            action = Some("check".to_string());
-            reasoning = "Query contains disk/storage/space keywords, interpreted as disk check intent".to_string();
-        } else if query_lower.contains("memory") || query_lower.contains("ram") || query_lower.contains("usage") {
-            intent = "memory".to_string();
-            target = Some("memory".to_string());
-            action = Some("check".to_string());
-            reasoning = "Query contains memory/ram/usage keywords, interpreted as memory check intent".to_string();
-        } else if query_lower.contains("cpu") || query_lower.contains("processor") {
-            intent = "system_info".to_string();
-            target = Some("cpu".to_string());
-            action = Some("check".to_string());
-            reasoning = "Query contains cpu/processor keywords, interpreted as CPU check".to_string();
-        } else if query_lower.contains("process") || query_lower.contains("running") || query_lower.contains("ps ") {
-            intent = "process".to_string();
-            target = Some("process".to_string());
-            if query_lower.contains("list") || query_lower.contains("show") {
-                action = Some("list".to_string());
-            } else {
-                action = Some("check".to_string());
-            }
-            reasoning = "Query contains process/running keywords, interpreted as process intent".to_string();
-        } else if query_lower.contains("service") || query_lower.contains("nginx") || query_lower.contains("docker") || query_lower.contains("systemctl") {
-            intent = "service".to_string();
-            target = Some("service".to_string());
-            action = Some("check".to_string());
-            reasoning = "Query contains service/nginx/docker keywords, interpreted as service intent".to_string();
-        } else if query_lower.contains("network") || query_lower.contains("connection") || query_lower.contains("port") {
-            intent = "network".to_string();
-            target = Some("network".to_string());
-            action = Some("check".to_string());
-            reasoning = "Query contains network/connection/port keywords, interpreted as network intent".to_string();
-        } else if query_lower.contains("log") || query_lower.contains("journal") || query_lower.contains("error") {
-            intent = "log".to_string();
-            target = Some("log".to_string());
-            action = Some("read".to_string());
-            reasoning = "Query contains log/journal/error keywords, interpreted as log intent".to_string();
-        } else if query_lower.contains("gpu") || query_lower.contains("graphics") || query_lower.contains("display") {
-            intent = "hardware".to_string();
-            target = Some("gpu".to_string());
-            action = Some("show".to_string());
-            reasoning = "Query contains gpu/graphics/display keywords, interpreted as hardware/gpu intent".to_string();
-        } else if query_lower.contains("file") || query_lower.contains("directory") || query_lower.contains("find") {
-            intent = "file".to_string();
-            target = Some("file".to_string());
-            action = Some("find".to_string());
-            reasoning = "Query contains file/directory/find keywords, interpreted as file intent".to_string();
-        } else if query_lower.contains("user") || query_lower.contains("who") || query_lower.contains("login") {
-            intent = "user".to_string();
-            target = Some("user".to_string());
-            action = Some("list".to_string());
-            reasoning = "Query contains user/who/login keywords, interpreted as user intent".to_string();
-        } else if query_lower.contains("package") || query_lower.contains("install") || query_lower.contains("apt") {
-            intent = "system_info".to_string();
-            target = Some("package".to_string());
-            action = Some("list".to_string());
-            reasoning = "Query contains package/apt keywords, interpreted as package intent".to_string();
-        } else {
-            intent = "system_info".to_string();
-            target = Some("system".to_string());
-            action = Some("show".to_string());
-            reasoning = format!("Default fallback for query: '{}' - interpreted as general system info request", query);
-        }
-
-        IntentAnalysis {
-            intent,
-            neurosymbolic_suitable: true,
-            reasoning,
-            action,
-            target,
-            objects: Vec::new(),
-            constraints: Vec::new(),
-            params: HashMap::new(),
-        }
-    }
-
     pub async fn handle_neurosymbolic(&mut self, query: &str, ai_interpret: bool) -> Result<()> {
         if self.integrated_service.is_none() {
             eprintln!("Initializing integrated neurosymbolic service...");
@@ -615,7 +553,17 @@ Query to analyze: "{}""#,
         }
 
         eprintln!("Analyzing query intent...");
-        let intent_analysis = self.understand_intent(query).await?;
+        let mut intent_analysis = self.understand_intent(query).await?;
+        if matches!(
+            intent_analysis.action.as_deref(),
+            Some("install" | "uninstall" | "upgrade" | "downgrade")
+        ) {
+            intent_analysis.neurosymbolic_suitable = false;
+            intent_analysis.reasoning = format!(
+                "{} (package install/upgrade actions currently handled by LLM fallback)",
+                intent_analysis.reasoning
+            );
+        }
 
         println!("\n{}", "=== Intent Analysis ===".green().bold());
         println!("Intent: {}", intent_analysis.intent.cyan());

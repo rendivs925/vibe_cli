@@ -6,6 +6,7 @@ use std::io::{self, Write};
 use crate::cli::cache::CacheManager;
 use crate::cli::cache::CommandCandidate;
 use crate::cli::command_extraction::extract_commands;
+use crate::cli::command_review::{review_candidates, ReviewedCandidates};
 use crate::cli::utils::*;
 use anyhow::Context;
 use futures_util::StreamExt;
@@ -51,85 +52,32 @@ fn confirm_and_run_generated_command(command: &str) -> anyhow::Result<Option<Str
     }
 }
 
-fn validate_command(command: &str) -> bool {
-    if command.trim().is_empty() {
-        return false;
+fn report_rejected(rejected: &[crate::cli::command_review::RejectedCandidate], label: &str) {
+    if rejected.is_empty() {
+        return;
     }
-
-    // Check if command contains any dangerous patterns
-    let dangerous_patterns = [
-        "rm -rf",
-        "rm -r",
-        "dd if=",
-        "mkfs",
-        "format",
-        "shred",
-        "wipe",
-        "fdisk",
-        "sfdisk",
-        "parted",
-        "dd of=",
-        "> /dev",
-        "< /dev",
-        "2> /dev",
-    ];
-
-    if dangerous_patterns.iter().any(|pattern| command.to_lowercase().contains(pattern)) {
-        return false;
+    println!("Invalid {} commands:", label);
+    for r in rejected {
+        println!("  x {}: {}", r.command, r.reasons.join("; "));
     }
+    println!();
+}
 
-    // Check for shell injection patterns
-    let injection_patterns = [
-        "; rm",
-        "&& rm",
-        "|| rm",
-        "$(rm",
-        "`rm`",
-        "| rm",
-        "> rm",
-        "< rm",
-    ];
-
-    if injection_patterns.iter().any(|pattern| command.contains(pattern)) {
-        return false;
-    }
-
-    // Extract the first word as the command
-    let parts: Vec<&str> = command.split_whitespace().collect();
-    if parts.is_empty() {
-        return false;
-    }
-
-    let cmd_name = parts[0];
-    
-    // Skip validation for common built-in commands
-    let builtins = ["echo", "cd", "pwd", "ls", "cat", "grep", "find", "which", "type"];
-    if builtins.contains(&cmd_name) {
-        return true;
-    }
-
-    // Check if command exists in PATH without executing it
-    // Use `which` command to check availability without running the command
-    match std::process::Command::new("which")
-        .arg(cmd_name)
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .output() {
-        Ok(output) => output.status.success(),
-        Err(_) => false,
-    }
+fn review_for_selection(
+    candidates: &[CommandCandidate],
+    user_query: &str,
+) -> ReviewedCandidates {
+    let mut validator = SyntaxGrammarValidator::new();
+    review_candidates(candidates, user_query, &mut validator)
 }
 
 fn handle_cached_candidates(
     candidates: Vec<CommandCandidate>,
     user_query: &str,
 ) -> anyhow::Result<Option<String>> {
-    // Filter out invalid commands
-    let valid_candidates: Vec<CommandCandidate> = candidates
-        .iter()
-        .filter(|candidate| validate_command(&candidate.command))
-        .cloned()
-        .collect();
+    let reviewed = review_for_selection(&candidates, user_query);
+    report_rejected(&reviewed.rejected, "cached");
+    let valid_candidates = reviewed.usable;
 
     if valid_candidates.is_empty() {
         println!("No valid cached commands found, generating new ones...");
@@ -168,7 +116,7 @@ fn handle_cached_candidates(
 
     match ask_selection(&options, true) {
         Ok(Some(index)) => {
-            let candidate = &candidates[index];
+            let candidate = &valid_candidates[index];
             confirm_and_run_cached_command(&candidate.command)
         }
         Ok(None) => Ok(None),
@@ -176,7 +124,17 @@ fn handle_cached_candidates(
     }
 }
 
-fn handle_candidate_selection(candidates: Vec<CommandCandidate>) -> anyhow::Result<Option<String>> {
+fn handle_candidate_selection(
+    candidates: Vec<CommandCandidate>,
+    user_query: &str,
+) -> anyhow::Result<Option<String>> {
+    if candidates.is_empty() {
+        return Ok(None);
+    }
+
+    let reviewed = review_for_selection(&candidates, user_query);
+    report_rejected(&reviewed.rejected, "generated");
+    let candidates = reviewed.usable;
     if candidates.is_empty() {
         return Ok(None);
     }
@@ -219,7 +177,7 @@ fn handle_candidate_selection(candidates: Vec<CommandCandidate>) -> anyhow::Resu
         Ok(None) => Ok(None),
         Err(_) => {
             println!("Invalid choice. Please try again.");
-            handle_candidate_selection(candidates)
+            handle_candidate_selection(candidates, user_query)
         }
     }
 }
@@ -565,5 +523,5 @@ Environment:
     if !valid_candidates.is_empty() {
         cache_manager.save_cached(user_query, valid_candidates.clone())?;
     }
-    handle_candidate_selection(valid_candidates)
+    handle_candidate_selection(valid_candidates, user_query)
 }

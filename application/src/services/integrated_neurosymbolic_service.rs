@@ -75,6 +75,18 @@ pub struct IntentSignal {
     pub params: std::collections::HashMap<String, String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct IntentSuggestion {
+    pub intent: String,
+    pub action: Option<String>,
+    pub target: Option<String>,
+    pub objects: Vec<String>,
+    pub constraints: Vec<String>,
+    pub params: std::collections::HashMap<String, String>,
+    pub reasoning: String,
+    pub confidence: f32,
+}
+
 /// Result of neurosymbolic processing
 #[derive(Debug, Clone)]
 pub struct NeurosymbolicResult {
@@ -258,6 +270,35 @@ impl IntegratedNeurosymbolicService {
             domain_registry,
         })
     }
+
+    pub fn suggest_intent_from_domains(&self, query: &str) -> Option<IntentSuggestion> {
+        let registry = self.domain_registry.as_ref()?;
+        let fql = self.fql_parser.parse(query)?;
+        let resolved = registry.resolve_operation(query, Some(&fql))?;
+
+        let action = Some(fql.action.to_string());
+        let (target, objects) = self.target_to_category_and_objects(&fql.target);
+        let intent = target.clone().unwrap_or_else(|| "system_info".to_string());
+
+        let reasoning = format!(
+            "Matched operation '{}' in domain '{}' (confidence {:.0}%)",
+            resolved.op_id,
+            resolved.domain_id,
+            resolved.confidence * 100.0
+        );
+
+        Some(IntentSuggestion {
+            intent,
+            action,
+            target,
+            objects,
+            constraints: Vec::new(),
+            params: std::collections::HashMap::new(),
+            reasoning,
+            confidence: resolved.confidence,
+        })
+    }
+
 
     pub fn reload_domain_registry(&mut self) -> Result<()> {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
@@ -776,6 +817,37 @@ impl IntegratedNeurosymbolicService {
             "user" => Some(FqlTarget::User("*".to_string())),
             "package" => Some(FqlTarget::Package("*".to_string())),
             _ => None,
+        }
+    }
+
+    fn target_to_category_and_objects(&self, target: &FqlTarget) -> (Option<String>, Vec<String>) {
+        match target {
+            FqlTarget::Process(v) => (Some("process".to_string()), vec![v.clone()]),
+            FqlTarget::Service(v) => (Some("service".to_string()), vec![v.clone()]),
+            FqlTarget::Package(v) => (Some("package".to_string()), vec![v.clone()]),
+            FqlTarget::User(v) => (Some("user".to_string()), vec![v.clone()]),
+            FqlTarget::Group(v) => (Some("user".to_string()), vec![v.clone()]),
+            FqlTarget::NetworkInterface(v) => (Some("network".to_string()), vec![v.clone()]),
+            FqlTarget::Port(_) | FqlTarget::Host(_) | FqlTarget::Url(_) => {
+                (Some("network".to_string()), Vec::new())
+            }
+            FqlTarget::Memory => (Some("memory".to_string()), Vec::new()),
+            FqlTarget::Cpu => (Some("system_info".to_string()), Vec::new()),
+            FqlTarget::Disk(v) | FqlTarget::Filesystem(v) => {
+                (Some("disk".to_string()), vec![v.clone()])
+            }
+            FqlTarget::Log(v) => (Some("log".to_string()), vec![v.clone()]),
+            FqlTarget::Configuration(v)
+            | FqlTarget::Variable(v)
+            | FqlTarget::File(v)
+            | FqlTarget::Directory(v)
+            | FqlTarget::Path(v) => (Some("file".to_string()), vec![v.clone()]),
+            FqlTarget::Database(v) | FqlTarget::Table(v) | FqlTarget::Record(v) => {
+                (Some("system_info".to_string()), vec![v.clone()])
+            }
+            FqlTarget::Resource(v) | FqlTarget::Component(v) | FqlTarget::Entity(v) => {
+                (Some("system_info".to_string()), vec![v.clone()])
+            }
         }
     }
 
