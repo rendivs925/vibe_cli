@@ -166,18 +166,6 @@ impl NeurosymbolicResult {
             ));
         }
 
-        if let Some(ref template) = self.reasoning_template {
-            output.push_str("Reasoning Plan:\n");
-            for step in &template.steps {
-                output.push_str(&format!("  Step {}: {}\n", step.step, step.check));
-                if !step.logic.trim().is_empty() {
-                    output.push_str(&format!("    Logic: {}\n", step.logic));
-                }
-                if !step.next.is_empty() {
-                    output.push_str(&format!("    Next: {}\n", step.next.join(", ")));
-                }
-            }
-        }
 
         // Execution status
         if self.can_execute {
