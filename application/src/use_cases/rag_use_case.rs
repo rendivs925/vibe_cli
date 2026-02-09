@@ -1,4 +1,5 @@
 use crate::ports::{AiClient, Cache, StorageService};
+use crate::services::cache_codec::{decode_cache, encode_cache};
 use async_trait::async_trait;
 use domain::value_objects::embedding::{Embedding, SearchResult};
 use domain::value_objects::query::Query;
@@ -29,7 +30,8 @@ impl RagUseCase {
         // Check cache first
         let cache_key = format!("rag:{:x}", md5::compute(query_text.as_bytes()));
         if let Some(cached_result) = self.cache.get(&cache_key).await? {
-            return Ok(RagResponse::cached(cached_result));
+            let decoded: String = decode_cache(&cached_result)?;
+            return Ok(RagResponse::cached(decoded));
         }
 
         // Generate embedding for query
@@ -61,7 +63,8 @@ impl RagUseCase {
             .await?;
 
         // Cache the result
-        self.cache.set(&cache_key, &response).await?;
+        let encoded = encode_cache(&response)?;
+        self.cache.set(&cache_key, &encoded).await?;
 
         Ok(RagResponse::new(
             query_text.to_string(),

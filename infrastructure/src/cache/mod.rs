@@ -85,6 +85,14 @@ impl CacheManager {
         Self { cache_dir }
     }
 
+    pub fn cache_dir(&self) -> &PathBuf {
+        &self.cache_dir
+    }
+
+    pub fn cache_path(&self, cache_type: &str) -> PathBuf {
+        self.get_cache_path(cache_type)
+    }
+
     fn validate_command_syntax(&self, command: &str) -> bool {
         // Check if command contains any dangerous patterns
         let dangerous_patterns = [

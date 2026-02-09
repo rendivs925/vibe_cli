@@ -3,7 +3,7 @@ use crate::cli::streaming::{
     select_command_from_candidates,
 };
 
-use super::cache::{CacheManager, CommandCandidate, ExplainCacheManager, RagCacheManager};
+use super::cache::{CacheManager, CommandCandidate};
 use super::command_extraction::{extract_command_from_response, parse_agent_plan};
 use super::utils::{detect_system_info, project_cache_suffix};
 use application::services::integrated_neurosymbolic_service::{
@@ -22,8 +22,6 @@ use std::process::Command;
 
 pub struct CliHandlers {
     cache_manager: CacheManager,
-    explain_cache_manager: ExplainCacheManager,
-    rag_cache_manager: RagCacheManager,
     system_info: String,
     config: Config,
     rag_service: Option<RagService>,
@@ -32,18 +30,14 @@ pub struct CliHandlers {
 
 impl CliHandlers {
     pub fn new(config: Config) -> Self {
-        let cache_path = Self::default_cache_path();
-        let explain_cache_path = Self::explain_cache_path();
-        let rag_cache_path = Self::rag_cache_path();
+        let cache_dir = Self::default_cache_dir();
         let system_info_path = Self::default_system_info_path();
         let system_info = Self::load_or_collect_system_info(&system_info_path);
 
         let integrated_service = IntegratedNeurosymbolicService::new().ok();
 
         Self {
-            cache_manager: CacheManager::new(cache_path),
-            explain_cache_manager: ExplainCacheManager::new(explain_cache_path),
-            rag_cache_manager: RagCacheManager::new(rag_cache_path),
+            cache_manager: CacheManager::new(cache_dir.clone(), false),
             system_info,
             config,
             rag_service: None,
@@ -51,36 +45,14 @@ impl CliHandlers {
         }
     }
 
-    fn default_cache_path() -> PathBuf {
+    fn default_cache_dir() -> PathBuf {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
         let mut path = PathBuf::from(home);
         path.push(".local");
         path.push("share");
         path.push("vibe_cli");
         let suffix = project_cache_suffix();
-        path.push(format!("{}_cli_cache.bin", suffix));
-        path
-    }
-
-    fn explain_cache_path() -> PathBuf {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        let mut path = PathBuf::from(home);
-        path.push(".local");
-        path.push("share");
-        path.push("vibe_cli");
-        let suffix = project_cache_suffix();
-        path.push(format!("{}_explain_cache.bin", suffix));
-        path
-    }
-
-    fn rag_cache_path() -> PathBuf {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        let mut path = PathBuf::from(home);
-        path.push(".local");
-        path.push("share");
-        path.push("vibe_cli");
-        let suffix = project_cache_suffix();
-        path.push(format!("{}_rag_cache.bin", suffix));
+        path.push(suffix);
         path
     }
 
@@ -265,7 +237,7 @@ User request: {}",
 
         let prompt = format!("Explain this content in detail:\n\n{}", content);
 
-        if let Some(cached_response) = self.explain_cache_manager.load_cached(&prompt)? {
+        if let Some(cached_response) = self.cache_manager.load_explain_cached(&prompt)? {
             println!("{}", cached_response);
             return Ok(());
         }
@@ -274,14 +246,14 @@ User request: {}",
         let client = infrastructure::ollama_client::OllamaClient::new()?;
         let response = client.generate_response(&prompt).await?;
 
-        self.explain_cache_manager.save_cached(&prompt, &response)?;
+        self.cache_manager.save_explain_cached(&prompt, &response)?;
 
         println!("{}", response);
         Ok(())
     }
 
     pub async fn handle_rag(&mut self, question: &str) -> Result<()> {
-        if let Some(cached_response) = self.rag_cache_manager.load_cached(question)? {
+        if let Some(cached_response) = self.cache_manager.load_rag_cached(question)? {
             if ask_confirmation("Cached answer found. Use it?", true)? {
                 println!("{}", cached_response);
                 return Ok(());
@@ -315,7 +287,7 @@ User request: {}",
             println!("{}", response);
 
             if ask_confirmation("Satisfied with this response?", true)? {
-                self.rag_cache_manager.save_cached(question, &response)?;
+                self.cache_manager.save_rag_cached(question, &response)?;
                 break;
             } else {
                 feedback.clear();
@@ -1248,9 +1220,9 @@ User request: {}",
 
     pub fn handle_clear_cache(&self) -> Result<()> {
         let cache_paths = vec![
-            self.cache_manager.cache_path().clone(),
-            self.explain_cache_manager.cache_path().clone(),
-            self.rag_cache_manager.cache_path().clone(),
+            self.cache_manager.cache_path("commands"),
+            self.cache_manager.cache_path("explain"),
+            self.cache_manager.cache_path("rag"),
         ];
 
         let mut cleared = 0;

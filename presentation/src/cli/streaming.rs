@@ -549,11 +549,12 @@ pub async fn request_command_stream_then_confirm(
             .join(".local")
             .join("share")
             .join("vibe_cli")
-            .join(format!("{}_cli_cache.bin", project_cache_suffix())),
+            .join(project_cache_suffix()),
+        false,
     );
 
     // Check cache first
-    if let Some(cached_candidates) = cache_manager.load_cached(user_query)? {
+    if let Some(cached_candidates) = cache_manager.load_command_cached(user_query)? {
         match handle_cached_candidates(cached_candidates, user_query) {
             Ok(Some(cmd)) => return Ok(Some(cmd)),
             Ok(None) => return Ok(None), // User chose to quit
@@ -604,7 +605,7 @@ pub async fn request_command_stream_then_confirm(
         .collect();
 
     if !valid_candidates.is_empty() {
-        cache_manager.save_cached(user_query, valid_candidates.clone())?;
+        cache_manager.save_command_cached(user_query, valid_candidates.clone())?;
     }
     handle_candidate_selection(valid_candidates, user_query)
 }

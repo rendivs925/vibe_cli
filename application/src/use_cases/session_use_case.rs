@@ -2,6 +2,7 @@ use crate::ports::{Cache, StorageService};
 use async_trait::async_trait;
 use domain::entities::session::{Message, Session};
 use shared::error::AppError;
+use crate::services::cache_codec::{decode_cache, encode_cache};
 
 /// Use case for session management
 pub struct SessionUseCase {
@@ -23,8 +24,7 @@ impl SessionUseCase {
 
         // Cache session
         let cache_key = format!("session:{}", session_id);
-        let session_data =
-            serde_json::to_string(&session).map_err(|e| AppError::serialization(e.to_string()))?;
+        let session_data = encode_cache(&session)?;
         self.cache.set(&cache_key, &session_data).await?;
 
         Ok(session)
@@ -35,8 +35,7 @@ impl SessionUseCase {
         // Check cache first
         let cache_key = format!("session:{}", session_id);
         if let Some(cached_data) = self.cache.get(&cache_key).await? {
-            let session: Session = serde_json::from_str(&cached_data)
-                .map_err(|e| AppError::serialization(e.to_string()))?;
+            let session: Session = decode_cache(&cached_data)?;
             return Ok(Some(session));
         }
 
@@ -45,8 +44,7 @@ impl SessionUseCase {
 
         // Cache if found
         if let Some(ref sess) = session {
-            let session_data =
-                serde_json::to_string(sess).map_err(|e| AppError::serialization(e.to_string()))?;
+            let session_data = encode_cache(sess)?;
             self.cache.set(&cache_key, &session_data).await?;
         }
 
@@ -69,8 +67,7 @@ impl SessionUseCase {
 
         // Update cache
         let cache_key = format!("session:{}", session_id);
-        let session_data =
-            serde_json::to_string(&session).map_err(|e| AppError::serialization(e.to_string()))?;
+        let session_data = encode_cache(&session)?;
         self.cache.set(&cache_key, &session_data).await?;
 
         Ok(())
@@ -120,8 +117,7 @@ impl SessionUseCase {
 
         // Update cache
         let cache_key = format!("session:{}", session_id);
-        let session_data =
-            serde_json::to_string(&session).map_err(|e| AppError::serialization(e.to_string()))?;
+        let session_data = encode_cache(&session)?;
         self.cache.set(&cache_key, &session_data).await?;
 
         Ok(())
