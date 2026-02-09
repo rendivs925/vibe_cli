@@ -61,17 +61,20 @@ Intelligent command generation through JSON configurations:
 | Inference Rules | 10 | zombie detection, high CPU/memory, disk full |
 | Troubleshooting | 5 | disk, service, CPU, memory, network issues |
 
-### Autonomous Neurosymbolic Stack
+### Workflow
 
-When using `--neurosymbolic`, the CLI runs a full safety pipeline:
+Every request goes through a deterministic pipeline. `--neurosymbolic` prioritizes domain configs, then falls back to LLM if needed:
 
-1. **FQL Autoformalization**: NL → Formal Query Language for intent grounding  
-2. **Safety Engine**: Hard rules block catastrophic commands  
-3. **Manpage Validation**: Validates flags against local man pages  
-4. **Risk Scoring**: Probabilistic risk profile + mitigations  
-5. **Formal Proofs**: Safety certificates for high‑risk commands  
-6. **Learning + Induction**: Logs failures and induces new rules  
-7. **Knowledge Graph**: Auto‑discovery of system state (tools, OS, users, services)
+1. **Intent Parsing**: Extract action, target, constraints
+2. **FQL Autoformalization**: Convert intent to Formal Query Language
+3. **Operation Resolution**: Match FQL to a domain operation signature
+4. **Self-Critique**: Reject mismatched operations using action and target similarity
+5. **Command Generation**: Produce candidate commands from templates
+6. **Safety Engine**: Block dangerous commands
+7. **Manpage Validation**: Validate flags, retry once without invalid flags
+8. **Risk Scoring**: Compute risk profile and mitigations
+9. **Execution**: Prompt and run command(s)
+10. **Learning**: If LLM fallback succeeds, offer to save new operation and reload domain registry
 
 ### Supported File Types
 
@@ -236,7 +239,7 @@ Template: journalctl -n 20
 Saved to: ~/.config/vibe_cli/domains/linux/operations.json
 ```
 
-The new operation is available after restart or `--neurosymbolic-init`.
+The new operation is available immediately after saving.
 
 ---
 
