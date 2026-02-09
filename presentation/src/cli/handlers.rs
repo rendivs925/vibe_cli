@@ -4,12 +4,12 @@ use super::cache::{CacheManager, ExplainCacheManager, RagCacheManager};
 use super::command_extraction::{extract_command_from_response, parse_agent_plan};
 use super::utils::{detect_system_info, project_cache_suffix};
 use application::services::integrated_neurosymbolic_service::{
-    IntentSignal, IntegratedNeurosymbolicService,
+    IntegratedNeurosymbolicService, IntentSignal,
 };
 use application::services::rag_service::RagService;
 use colored::Colorize;
-use infrastructure::{config::Config, ollama_client::OllamaClient};
 use infrastructure::storage::experience_buffer::FailureType;
+use infrastructure::{config::Config, ollama_client::OllamaClient};
 use serde::Deserialize;
 use shared::confirmation::{ask_confirmation, ask_feedback};
 use shared::types::Message;
@@ -700,7 +700,7 @@ Query: "{}""#,
     }
 
     /// Learn a new command from successful fallback execution
-    async fn learn_command(&self, query: &str, command: &str) -> Result<()> {
+    async fn learn_command(&mut self, query: &str, command: &str) -> Result<()> {
         if self.is_known_operation(query, command) {
             return Ok(());
         }
@@ -1233,7 +1233,9 @@ Query: "{}""#,
 
         if ops_path.exists() {
             if let Ok(existing_data) = std::fs::read_to_string(&ops_path) {
-                if let Ok(existing_ops) = serde_json::from_str::<Vec<serde_json::Value>>(&existing_data) {
+                if let Ok(existing_ops) =
+                    serde_json::from_str::<Vec<serde_json::Value>>(&existing_data)
+                {
                     merged_ops.extend(existing_ops);
                 }
             }
