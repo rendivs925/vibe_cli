@@ -304,7 +304,7 @@ impl IntegratedNeurosymbolicService {
         };
 
         // Step 5: Syntax/Manpage Validation
-        let (syntax_valid, invalid_flags) = if self.config.enable_manpage_validation {
+        let (mut syntax_valid, mut invalid_flags) = if self.config.enable_manpage_validation {
             trace.push("Step 5: Validating syntax...".to_string());
             let validation = self.syntax_validator.validate(&command);
             let valid = validation.is_valid;
@@ -318,6 +318,21 @@ impl IntegratedNeurosymbolicService {
         } else {
             (true, vec![])
         };
+
+        // Retry once by stripping invalid flags if syntax is invalid
+        if self.config.enable_manpage_validation && !syntax_valid && !invalid_flags.is_empty() {
+            if let Some(cleaned) = self.strip_invalid_flags(&command, &invalid_flags) {
+                trace.push(format!("  Retrying without invalid flags: {}", cleaned));
+                let retry = self.syntax_validator.validate(&cleaned);
+                syntax_valid = retry.is_valid;
+                invalid_flags = retry.invalid_flags.clone();
+                if syntax_valid {
+                    trace.push("  Syntax valid after retry".to_string());
+                } else if !invalid_flags.is_empty() {
+                    trace.push(format!("  Still invalid flags: {:?}", invalid_flags));
+                }
+            }
+        }
 
         // Step 5.5: Risk Assessment
         let risk_profile = Some(self.risk_scorer.assess(&command, query));
@@ -457,6 +472,47 @@ impl IntegratedNeurosymbolicService {
                 }
             }
             _ => command,
+        }
+    }
+
+    fn strip_invalid_flags(&self, command: &str, invalid_flags: &[String]) -> Option<String> {
+        if invalid_flags.is_empty() {
+            return None;
+        }
+
+        let invalid: std::collections::HashSet<&str> =
+            invalid_flags.iter().map(String::as_str).collect();
+        let parts: Vec<&str> = command.split_whitespace().collect();
+        if parts.is_empty() {
+            return None;
+        }
+
+        let mut cleaned: Vec<&str> = Vec::with_capacity(parts.len());
+        let mut skip_next = false;
+
+        for (i, part) in parts.iter().enumerate() {
+            if i == 0 {
+                cleaned.push(part);
+                continue;
+            }
+            if skip_next {
+                skip_next = false;
+                continue;
+            }
+            if invalid.contains(*part) {
+                if i + 1 < parts.len() && !parts[i + 1].starts_with('-') {
+                    skip_next = true;
+                }
+                continue;
+            }
+            cleaned.push(part);
+        }
+
+        let result = cleaned.join(" ");
+        if result.trim() == command.trim() {
+            None
+        } else {
+            Some(result)
         }
     }
 
