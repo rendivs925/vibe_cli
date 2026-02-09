@@ -1,0 +1,23 @@
+{
+  "name": "NetworkInterface",
+  "description": "Network interface and connection information",
+  "core_properties": [
+    {"name": "name", "type": "string", "meaning": "Interface name (eth0, wlan0, etc.)"},
+    {"name": "state", "type": "string", "meaning": "Interface state (up, down)"},
+    {"name": "ip_address", "type": "string", "meaning": "IPv4 address"},
+    {"name": "ipv6_address", "type": "string", "meaning": "IPv6 address"},
+    {"name": "mac_address", "type": "string", "meaning": "MAC address"},
+    {"name": "mtu", "type": "integer", "meaning": "Maximum transmission unit"},
+    {"name": "rx_bytes", "type": "integer", "meaning": "Bytes received"},
+    {"name": "tx_bytes", "type": "integer", "meaning": "Bytes transmitted"},
+    {"name": "rx_errors", "type": "integer", "meaning": "Receive errors"},
+    {"name": "tx_errors", "type": "integer", "meaning": "Transmit errors"},
+    {"name": "speed", "type": "integer", "meaning": "Interface speed in Mbps"},
+    {"name": "duplex", "type": "string", "meaning": "Duplex mode (full, half)"}
+  ],
+  "derived_properties": [
+    {"name": "is_up", "expression": "state == 'up'"},
+    {"name": "has_errors", "expression": "rx_errors > 0 || tx_errors > 0"},
+    {"name": "is_fast", "expression": "speed >= 1000"}
+  ]
+}

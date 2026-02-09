@@ -1,0 +1,23 @@
+{
+  "name": "DockerContainer",
+  "description": "Docker container information",
+  "core_properties": [
+    {"name": "id", "type": "string", "meaning": "Container ID"},
+    {"name": "name", "type": "string", "meaning": "Container name"},
+    {"name": "image", "type": "string", "meaning": "Container image"},
+    {"name": "state", "type": "string", "meaning": "Container state (running, exited, paused)"},
+    {"name": "status", "type": "string", "meaning": "Status string"},
+    {"name": "ports", "type": "string", "meaning": "Exposed ports"},
+    {"name": "cpu_percent", "type": "number", "meaning": "CPU usage percentage"},
+    {"name": "memory_usage", "type": "integer", "meaning": "Memory usage in bytes"},
+    {"name": "memory_limit", "type": "integer", "meaning": "Memory limit in bytes"},
+    {"name": "network_mode", "type": "string", "meaning": "Network mode"},
+    {"name": "restart_count", "type": "integer", "meaning": "Number of restarts"},
+    {"name": "created_at", "type": "string", "meaning": "Creation timestamp"}
+  ],
+  "derived_properties": [
+    {"name": "is_running", "expression": "state == 'running'"},
+    {"name": "is_healthy", "expression": "status.contains('healthy')"},
+    {"name": "memory_percent", "expression": "(memory_usage / memory_limit) * 100"}
+  ]
+}

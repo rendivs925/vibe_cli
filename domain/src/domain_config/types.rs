@@ -445,6 +445,9 @@ pub struct TemplateInput {
     #[serde(rename = "type")]
     pub type_: String,
 
+    #[serde(rename = "optional", default)]
+    pub optional: bool,
+
     #[serde(rename = "example", default)]
     pub example: Option<serde_json::Value>,
 }

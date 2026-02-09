@@ -1108,22 +1108,20 @@ Query to analyze: "{}""#,
             ("process.json", include_str!("domain_templates/linux/entities/process.json")),
             ("file.json", include_str!("domain_templates/linux/entities/file.json")),
             ("service.json", include_str!("domain_templates/linux/entities/service.json")),
-            (
-                "network_connection.json",
-                include_str!("domain_templates/linux/entities/network_connection.json"),
-            ),
+            ("network_connection.json", include_str!("domain_templates/linux/entities/network_connection.json")),
             ("user.json", include_str!("domain_templates/linux/entities/user.json")),
-            (
-                "filesystem.json",
-                include_str!("domain_templates/linux/entities/filesystem.json"),
-            ),
+            ("filesystem.json", include_str!("domain_templates/linux/entities/filesystem.json")),
             ("memory.json", include_str!("domain_templates/linux/entities/memory.json")),
+            ("cpu.json", include_str!("domain_templates/linux/entities/cpu.json")),
+            ("network_interface.json", include_str!("domain_templates/linux/entities/network_interface.json")),
+            ("docker_container.json", include_str!("domain_templates/linux/entities/docker_container.json")),
+            ("systemd_unit.json", include_str!("domain_templates/linux/entities/systemd_unit.json")),
         ];
         for (name, content) in entity_files {
             std::fs::write(linux_dir.join(name), content)?;
         }
 
-        println!("  {}", "OK entities/ (7 entities: Process, File, Service, NetworkConnection, User, Filesystem, MemoryInfo)");
+        println!("  {}", "OK entities/ (11 entities: Process, File, Service, NetworkConnection, User, Filesystem, MemoryInfo, Cpu, NetworkInterface, DockerContainer, SystemdUnit)");
 
         // Relationships
         let relationships_json = include_str!("domain_templates/linux/relationships.json");
@@ -1135,7 +1133,7 @@ Query to analyze: "{}""#,
             config_dir.join("linux/inference_rules.json"),
             inference_rules_json,
         )?;
-        println!("  {}", "OK inference_rules.json (10 inference rules)");
+        println!("  {}", "OK inference_rules.json (30 inference rules)");
 
         let troubleshooting_json = include_str!("domain_templates/linux/troubleshooting.json");
         std::fs::write(
@@ -1144,7 +1142,7 @@ Query to analyze: "{}""#,
         )?;
         println!(
             "  {}",
-            "OK troubleshooting.json (5 troubleshooting patterns)"
+            "OK troubleshooting.json (15 troubleshooting patterns)"
         );
 
         let reasoning_templates_json =
@@ -1195,12 +1193,12 @@ Query to analyze: "{}""#,
                 .bold()
         );
         println!("\n{}", "Summary:".green());
-        println!("  - 13 operations (process, memory, disk, network, services, files, etc.)");
-        println!("  - 7 entities (Process, File, Service, NetworkConnection, User, Filesystem, MemoryInfo)");
+        println!("  - 32 operations (process, memory, disk, network, services, files, containers, hardware, security, etc.)");
+        println!("  - 11 entities (Process, File, Service, NetworkConnection, User, Filesystem, MemoryInfo, Cpu, NetworkInterface, DockerContainer, SystemdUnit)");
         println!("  - 8 relationships (hierarchical, ownership, containment, etc.)");
-        println!("  - 10 inference rules for symbolic reasoning");
-        println!("  - 5 troubleshooting patterns for common issues");
-        println!("  - 6 reasoning templates for step-by-step diagnostics");
+        println!("  - 30 inference rules for symbolic reasoning");
+        println!("  - 15 troubleshooting patterns for common issues");
+        println!("  - 21 reasoning templates for step-by-step diagnostics");
 
         println!("\n{}", "Usage:".green());
         println!("  vibe_cli --neurosymbolic \"list processes\"");

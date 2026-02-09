@@ -219,8 +219,21 @@ impl IntegratedNeurosymbolicService {
         let proof_generator = ProofGenerator::new();
         let induction_engine = InductionEngine::new(cache_dir.join("induction.db")).ok();
 
-        let domain_registry =
-            DomainRegistry::new(domains_dir.clone(), domains_dir.clone(), shared_dir.clone()).ok();
+        let domain_registry_result =
+            DomainRegistry::new(domains_dir.clone(), domains_dir.clone(), shared_dir.clone());
+        let domain_registry = match domain_registry_result {
+            Ok(registry) => {
+                eprintln!(
+                    "Domain registry loaded successfully with {} domains",
+                    registry.list_domains().len()
+                );
+                Some(registry)
+            }
+            Err(e) => {
+                eprintln!("Failed to load domain registry: {:?}", e);
+                None
+            }
+        };
 
         if let Ok(builder) = GraphBuilder::new() {
             if let Ok((entities, _)) = builder.get_stats() {

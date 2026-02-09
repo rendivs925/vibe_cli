@@ -24,6 +24,12 @@
     "then": [{"conclude": "disk_space_critical", "confidence": 0.99, "recommendation": "Clean up logs, temporary files, or expand storage"}]
   },
   {
+    "rule_id": "disk_warning",
+    "name": "Disk Space Warning",
+    "if": [{"entity": "Filesystem", "prop": "use_percent", "gt": 80}],
+    "then": [{"conclude": "disk_space_warning", "confidence": 0.85, "recommendation": "Monitor disk usage, plan cleanup soon"}]
+  },
+  {
     "rule_id": "inode_full",
     "name": "Inode Exhaustion Detection",
     "if": [{"entity": "Filesystem", "prop": "inode_free", "lt": 1000}],
@@ -58,5 +64,125 @@
     "name": "Orphaned Process Detection",
     "if": [{"entity": "Process", "prop": "ppid", "equals": "1"}],
     "then": [{"conclude": "orphaned_process", "confidence": 0.70, "recommendation": "Process parent died, may need cleanup"}]
+  },
+  {
+    "rule_id": "high_cpu_load",
+    "name": "High System CPU Load",
+    "if": [{"entity": "Cpu", "prop": "load_avg_1m", "gt": 4}],
+    "then": [{"conclude": "high_cpu_load", "confidence": 0.90, "recommendation": "Check top CPU consumers with 'top' or 'htop'"}]
+  },
+  {
+    "rule_id": "cpu_overheating",
+    "name": "CPU Overheating Detection",
+    "if": [{"entity": "Cpu", "prop": "temperature", "gt": 85}],
+    "then": [{"conclude": "cpu_overheating", "confidence": 0.95, "recommendation": "Check cooling system, reduce workload"}]
+  },
+  {
+    "rule_id": "docker_restarting",
+    "name": "Container Restart Loop",
+    "if": [{"entity": "DockerContainer", "prop": "restart_count", "gt": 5}],
+    "then": [{"conclude": "container_restart_loop", "confidence": 0.95, "recommendation": "Check container logs for errors"}]
+  },
+  {
+    "rule_id": "docker_high_memory",
+    "name": "Container Memory Usage",
+    "if": [{"entity": "DockerContainer", "prop": "memory_percent", "gt": 90}],
+    "then": [{"conclude": "container_memory_warning", "confidence": 0.90, "recommendation": "Increase container memory limit or optimize application"}]
+  },
+  {
+    "rule_id": "systemd_failed",
+    "name": "Systemd Unit Failed",
+    "if": [{"entity": "SystemdUnit", "prop": "active_state", "equals": "failed"}],
+    "then": [{"conclude": "systemd_unit_failed", "confidence": 0.99, "recommendation": "Check unit status and logs with 'journalctl -u <unit>'"}]
+  },
+  {
+    "rule_id": "network_errors",
+    "name": "Network Interface Errors",
+    "if": [{"entity": "NetworkInterface", "prop": "has_errors", "equals": true}],
+    "then": [{"conclude": "network_errors_detected", "confidence": 0.85, "recommendation": "Check cable, switch port, or driver issues"}]
+  },
+  {
+    "rule_id": "interface_down",
+    "name": "Network Interface Down",
+    "if": [{"entity": "NetworkInterface", "prop": "is_up", "equals": false}],
+    "then": [{"conclude": "network_interface_down", "confidence": 0.95, "recommendation": "Check interface configuration and cabling"}]
+  },
+  {
+    "rule_id": "sslcert_expiring",
+    "name": "SSL Certificate Expiration",
+    "if": [{"entity": "SslCertificate", "prop": "days_until_expiry", "lt": 30}],
+    "then": [{"conclude": "sslcert_renewal_needed", "confidence": 0.99, "recommendation": "Renew SSL certificate before expiry"}]
+  },
+  {
+    "rule_id": "sslcert_expired",
+    "name": "SSL Certificate Expired",
+    "if": [{"entity": "SslCertificate", "prop": "days_until_expiry", "lt": 0}],
+    "then": [{"conclude": "sslcert_expired", "confidence": 0.99, "recommendation": "URGENT: Renew SSL certificate immediately"}]
+  },
+  {
+    "rule_id": "raid_degraded",
+    "name": "RAID Degraded",
+    "if": [{"entity": "RaidArray", "prop": "status", "equals": "degraded"}],
+    "then": [{"conclude": "raid_degradation", "confidence": 0.99, "recommendation": "Replace failed disk and rebuild RAID"}]
+  },
+  {
+    "rule_id": "raid_faulty",
+    "name": "RAID Faulty",
+    "if": [{"entity": "RaidArray", "prop": "status", "equals": "faulty"}],
+    "then": [{"conclude": "raid_fault", "confidence": 0.99, "recommendation": "URGENT: Replace faulty disk, data at risk"}]
+  },
+  {
+    "rule_id": "lvm_low_space",
+    "name": "LVM Volume Low Space",
+    "if": [{"entity": "LvmVolume", "prop": "free_percent", "lt": 10}],
+    "then": [{"conclude": "lvm_space_low", "confidence": 0.90, "recommendation": "Extend volume or free up space"}]
+  },
+  {
+    "rule_id": "lvm_corrupted",
+    "name": "LVM Volume Corrupted",
+    "if": [{"entity": "LvmVolume", "prop": "status", "equals": "corrupted"}],
+    "then": [{"conclude": "lvm_corruption", "confidence": 0.95, "recommendation": "Run LVM recovery procedures"}]
+  },
+  {
+    "rule_id": "user_many_logins",
+    "name": "Multiple Concurrent User Logins",
+    "if": [{"entity": "User", "prop": "concurrent_sessions", "gt": 5}],
+    "then": [{"conclude": "suspicious_user_activity", "confidence": 0.70, "recommendation": "Verify this is expected user behavior"}]
+  },
+  {
+    "rule_id": "login_failed_many",
+    "name": "Multiple Failed Login Attempts",
+    "if": [{"entity": "User", "prop": "failed_logins", "gt": 10}],
+    "then": [{"conclude": "potential_brute_force", "confidence": 0.85, "recommendation": "Check for brute force attack, consider firewall"}]
+  },
+  {
+    "rule_id": "cron_failed",
+    "name": "Cron Job Failure",
+    "if": [{"entity": "CronJob", "prop": "exit_code", "gt": 0}],
+    "then": [{"conclude": "cron_job_failed", "confidence": 0.90, "recommendation": "Check cron job output and fix script"}]
+  },
+  {
+    "rule_id": "kernel_module_loaded",
+    "name": "Loaded Kernel Module",
+    "if": [{"entity": "KernelModule", "prop": "loaded", "equals": true}],
+    "then": [{"conclude": "kernel_module_info", "confidence": 0.50, "recommendation": null}]
+  },
+  {
+    "rule_id": "dns_resolution_slow",
+    "name": "Slow DNS Resolution",
+    "if": [{"entity": "DnsQuery", "prop": "response_time_ms", "gt": 500}],
+    "then": [{"conclude": "dns_slow", "confidence": 0.80, "recommendation": "Check DNS server response times"}]
+  },
+  {
+    "rule_id": "tcp_connection_many",
+    "name": "Many TCP Connections",
+    "if": [{"entity": "TcpConnection", "prop": "count", "gt": 10000}],
+    "then": [{"conclude": "high_tcp_connections", "confidence": 0.75, "recommendation": "Check for connection leaks or DDoS"}]
+  },
+  {
+    "rule_id": "udp_broadcast_storm",
+    "name": "High UDP Broadcast Traffic",
+    "if": [{"entity": "UdpConnection", "prop": "broadcast_packets_sec", "gt": 1000}],
+    "then": [{"conclude": "potential_broadcast_storm", "confidence": 0.80, "recommendation": "Check for network issues or broadcast storm"}]
   }
 ]

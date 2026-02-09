@@ -1,0 +1,23 @@
+{
+  "name": "SystemdUnit",
+  "description": "Systemd service unit information",
+  "core_properties": [
+    {"name": "name", "type": "string", "meaning": "Unit name"},
+    {"name": "type", "type": "string", "meaning": "Unit type (service, socket, timer, etc.)"},
+    {"name": "active_state", "type": "string", "meaning": "Active state (active, inactive, failed, activating)"},
+    {"name": "sub_state", "type": "string", "meaning": "Sub state (running, dead, etc.)"},
+    {"name": "unit_state", "type": "string", "meaning": "Unit state (enabled, disabled, masked)"},
+    {"name": "description", "type": "string", "meaning": "Unit description"},
+    {"name": "main_pid", "type": "integer", "meaning": "Main process PID"},
+    {"name": "memory_current", "type": "integer", "meaning": "Current memory usage"},
+    {"name": "cpu_usage", "type": "number", "meaning": "CPU time in seconds"},
+    {"name": "restart_count", "type": "integer", "meaning": "Number of restarts"},
+    {"name": "exec_start", "type": "string", "meaning": "ExecStart command"},
+    {"name": "dependencies", "type": "array", "meaning": "Unit dependencies"}
+  ],
+  "derived_properties": [
+    {"name": "is_active", "expression": "active_state == 'active'"},
+    {"name": "is_failed", "expression": "active_state == 'failed'"},
+    {"name": "is_enabled", "expression": "unit_state == 'enabled'"}
+  ]
+}

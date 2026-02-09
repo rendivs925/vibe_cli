@@ -2,130 +2,113 @@
   {
     "pattern_id": "high_cpu",
     "name": "High CPU Usage",
-    "symptoms": [
-      {"metric": "cpu", "observation": "high cpu"},
-      {"metric": "load", "observation": "high load average"}
-    ],
-    "likely_causes": [
-      {"cause": "runaway_process", "probability": 0.6},
-      {"cause": "dos_attack", "probability": 0.2},
-      {"cause": "hardware_issue", "probability": 0.1},
-      {"cause": "configuration_error", "probability": 0.1}
-    ],
-    "checks": [
-      {"step": "Find CPU hog", "command": "top -bn1 | head -20"},
-      {"step": "Check per-core usage", "command": "mpstat -P ALL 1"},
-      {"step": "Check system load", "command": "uptime && cat /proc/loadavg"}
-    ],
-    "actions": [
-      {"action": "identify_hog", "methods": ["top", "htop", "ps"]},
-      {"action": "kill_process", "methods": ["kill", "pkill"]},
-      {"action": "restart_service", "methods": ["systemctl restart"]}
-    ]
+    "symptoms": [{"metric": "cpu", "observation": "high cpu"}, {"metric": "load", "observation": "high load average"}],
+    "likely_causes": [{"cause": "runaway_process", "probability": 0.6}, {"cause": "dos_attack", "probability": 0.2}, {"cause": "hardware_issue", "probability": 0.1}, {"cause": "configuration_error", "probability": 0.1}],
+    "checks": [{"step": "Find CPU hog", "command": "top -bn1 | head -20"}, {"step": "Check per-core usage", "command": "mpstat -P ALL 1"}, {"step": "Check system load", "command": "uptime && cat /proc/loadavg"}],
+    "actions": [{"action": "identify_hog", "methods": ["top", "htop", "ps"]}, {"action": "kill_process", "methods": ["kill", "pkill"]}, {"action": "restart_service", "methods": ["systemctl restart"]}]
   },
   {
     "pattern_id": "high_memory",
     "name": "High Memory Usage",
-    "symptoms": [
-      {"metric": "memory", "observation": "high memory usage"},
-      {"metric": "oom", "observation": "out of memory"}
-    ],
-    "likely_causes": [
-      {"cause": "memory_leak", "probability": 0.5},
-      {"cause": "too_many_processes", "probability": 0.3},
-      {"cause": "insufficient_ram", "probability": 0.2}
-    ],
-    "checks": [
-      {"step": "Memory usage", "command": "free -m"},
-      {"step": "Top consumers", "command": "ps aux --sort=-%mem | head -10"},
-      {"step": "Memory details", "command": "cat /proc/meminfo"}
-    ],
-    "actions": [
-      {"action": "free_memory", "methods": ["kill", "service_restart"]},
-      {"action": "add_swap", "methods": ["dd", "mkswap", "swapon"]},
-      {"action": "optimize_config", "methods": ["edit_config"]}
-    ]
+    "symptoms": [{"metric": "memory", "observation": "high memory usage"}, {"metric": "oom", "observation": "out of memory"}],
+    "likely_causes": [{"cause": "memory_leak", "probability": 0.5}, {"cause": "too_many_processes", "probability": 0.3}, {"cause": "insufficient_ram", "probability": 0.2}],
+    "checks": [{"step": "Memory usage", "command": "free -m"}, {"step": "Top consumers", "command": "ps aux --sort=-%mem | head -10"}, {"step": "Memory details", "command": "cat /proc/meminfo"}],
+    "actions": [{"action": "free_memory", "methods": ["kill", "service_restart"]}, {"action": "add_swap", "methods": ["dd", "mkswap", "swapon"]}, {"action": "optimize_config", "methods": ["edit_config"]}]
   },
   {
     "pattern_id": "disk_full",
     "name": "Disk Space Issues",
-    "symptoms": [
-      {"metric": "disk", "observation": "disk full"},
-      {"metric": "disk", "observation": "no space left"},
-      {"metric": "inode", "observation": "inode exhaustion"}
-    ],
-    "likely_causes": [
-      {"cause": "log_files", "probability": 0.4},
-      {"cause": "temp_files", "probability": 0.3},
-      {"cause": "large_data", "probability": 0.2},
-      {"cause": "too_many_files", "probability": 0.1}
-    ],
-    "checks": [
-      {"step": "Disk by size", "command": "du -sh /var/* | sort -h | tail -10"},
-      {"step": "Large files", "command": "find /var -type f -size +100M"},
-      {"step": "Inode usage", "command": "df -i"},
-      {"step": "Old files", "command": "find /var -type f -mtime +30"}
-    ],
-    "actions": [
-      {"action": "clean_logs", "methods": ["truncate", "rm"]},
-      {"action": "rotate_logs", "methods": ["logrotate"]},
-      {"action": "clear_cache", "methods": ["sync", "echo 3 > /proc/sys/vm/drop_caches"]},
-      {"action": "extend_storage", "methods": ["lvm", "resize2fs"]}
-    ]
+    "symptoms": [{"metric": "disk", "observation": "disk full"}, {"metric": "disk", "observation": "no space left"}, {"metric": "inode", "observation": "inode exhaustion"}],
+    "likely_causes": [{"cause": "log_files", "probability": 0.4}, {"cause": "temp_files", "probability": 0.3}, {"cause": "large_data", "probability": 0.2}, {"cause": "too_many_files", "probability": 0.1}],
+    "checks": [{"step": "Disk by size", "command": "du -sh /var/* | sort -h | tail -10"}, {"step": "Large files", "command": "find /var -type f -size +100M"}, {"step": "Inode usage", "command": "df -i"}, {"step": "Old files", "command": "find /var -type f -mtime +30"}],
+    "actions": [{"action": "clean_logs", "methods": ["truncate", "rm"]}, {"action": "rotate_logs", "methods": ["logrotate"]}, {"action": "clear_cache", "methods": ["sync", "echo 3 > /proc/sys/vm/drop_caches"]}, {"action": "extend_storage", "methods": ["lvm", "resize2fs"]}]
   },
   {
     "pattern_id": "service_down",
     "name": "Service Not Running",
-    "symptoms": [
-      {"metric": "service", "observation": "service not running"},
-      {"metric": "service", "observation": "connection refused"},
-      {"metric": "port", "observation": "port not listening"}
-    ],
-    "likely_causes": [
-      {"cause": "service_crashed", "probability": 0.4},
-      {"cause": "configuration_error", "probability": 0.3},
-      {"cause": "dependency_down", "probability": 0.2},
-      {"cause": "port_in_use", "probability": 0.1}
-    ],
-    "checks": [
-      {"step": "Service status", "command": "systemctl status {{service}}"},
-      {"step": "Recent logs", "command": "journalctl -u {{service}} --since '1 hour ago'"},
-      {"step": "Port status", "command": "ss -tulpn | grep {{port}}"},
-      {"step": "Dependency status", "command": "systemctl list-dependencies {{service}}"}
-    ],
-    "actions": [
-      {"action": "restart_service", "methods": ["systemctl restart"]},
-      {"action": "fix_config", "methods": ["edit_config", "systemctl daemon-reload"]},
-      {"action": "free_port", "methods": ["kill", "lsof"]},
-      {"action": "start_dependency", "methods": ["systemctl start"]}
-    ]
+    "symptoms": [{"metric": "service", "observation": "service not running"}, {"metric": "service", "observation": "connection refused"}, {"metric": "port", "observation": "port not listening"}],
+    "likely_causes": [{"cause": "service_crashed", "probability": 0.4}, {"cause": "configuration_error", "probability": 0.3}, {"cause": "dependency_down", "probability": 0.2}, {"cause": "port_in_use", "probability": 0.1}],
+    "checks": [{"step": "Service status", "command": "systemctl status {{service}}"}, {"step": "Recent logs", "command": "journalctl -u {{service}} --since '1 hour ago'"}, {"step": "Port status", "command": "ss -tulpn | grep {{port}}"}, {"step": "Dependency status", "command": "systemctl list-dependencies {{service}}"}],
+    "actions": [{"action": "restart_service", "methods": ["systemctl restart"]}, {"action": "fix_config", "methods": ["edit_config", "systemctl daemon-reload"]}, {"action": "free_port", "methods": ["kill", "lsof"]}, {"action": "start_dependency", "methods": ["systemctl start"]}]
   },
   {
     "pattern_id": "network_issue",
     "name": "Network Connectivity Issues",
-    "symptoms": [
-      {"metric": "network", "observation": "connection timeout"},
-      {"metric": "network", "observation": "network unreachable"},
-      {"metric": "dns", "observation": "dns failure"}
-    ],
-    "likely_causes": [
-      {"cause": "interface_down", "probability": 0.3},
-      {"cause": "route_problem", "probability": 0.3},
-      {"cause": "dns_issue", "probability": 0.2},
-      {"cause": "firewall_block", "probability": 0.2}
-    ],
-    "checks": [
-      {"step": "Interface status", "command": "ip addr show"},
-      {"step": "Routing table", "command": "ip route show"},
-      {"step": "DNS resolution", "command": "nslookup google.com"},
-      {"step": "Firewall status", "command": "iptables -L -n"},
-      {"step": "Ping test", "command": "ping -c 3 8.8.8.8"}
-    ],
-    "actions": [
-      {"action": "restart_network", "methods": ["systemctl restart networking"]},
-      {"action": "fix_route", "methods": ["ip route add"]},
-      {"action": "fix_dns", "methods": ["edit_resolv.conf"]},
-      {"action": "open_port", "methods": ["iptables -A"]}
-    ]
+    "symptoms": [{"metric": "network", "observation": "connection timeout"}, {"metric": "network", "observation": "network unreachable"}, {"metric": "dns", "observation": "dns failure"}],
+    "likely_causes": [{"cause": "interface_down", "probability": 0.3}, {"cause": "route_problem", "probability": 0.3}, {"cause": "dns_issue", "probability": 0.2}, {"cause": "firewall_block", "probability": 0.2}],
+    "checks": [{"step": "Interface status", "command": "ip addr show"}, {"step": "Routing table", "command": "ip route show"}, {"step": "DNS resolution", "command": "nslookup google.com"}, {"step": "Firewall status", "command": "iptables -L -n"}, {"step": "Ping test", "command": "ping -c 3 8.8.8.8"}],
+    "actions": [{"action": "restart_network", "methods": ["systemctl restart networking"]}, {"action": "fix_route", "methods": ["ip route add"]}, {"action": "fix_dns", "methods": ["edit_resolv.conf"]}, {"action": "open_port", "methods": ["iptables -A"]}]
+  },
+  {
+    "pattern_id": "slow_system",
+    "name": "Slow System Performance",
+    "symptoms": [{"metric": "system", "observation": "system slow"}, {"metric": "load", "observation": "high load average"}],
+    "likely_causes": [{"cause": "disk_io_bottleneck", "probability": 0.35}, {"cause": "memory_pressure", "probability": 0.3}, {"cause": "network_saturation", "probability": 0.2}],
+    "checks": [{"step": "I/O statistics", "command": "iostat -xz 1 5"}, {"step": "Memory pressure", "command": "free -h && cat /proc/meminfo"}, {"step": "Network stats", "command": "sar -n DEV 1 5"}, {"step": "Process states", "command": "ps aux --sort=-%cpu | head -20"}],
+    "actions": [{"action": "optimize_io", "methods": ["ionice", "noop"]}, {"action": "free_memory", "methods": ["drop_caches", "kill"]}, {"action": "throttle_network", "methods": ["tc", "iptables"]}]
+  },
+  {
+    "pattern_id": "docker_issue",
+    "name": "Docker Container Issues",
+    "symptoms": [{"metric": "container", "observation": "container not running"}, {"metric": "docker", "observation": "container exited"}],
+    "likely_causes": [{"cause": "container_crashed", "probability": 0.4}, {"cause": "image_pull_failed", "probability": 0.2}, {"cause": "resource_limit", "probability": 0.25}],
+    "checks": [{"step": "List containers", "command": "docker ps -a"}, {"step": "Container logs", "command": "docker logs --tail 100 {{container}}"}, {"step": "Docker stats", "command": "docker stats --no-stream"}, {"step": "Docker info", "command": "docker info"}],
+    "actions": [{"action": "restart_container", "methods": ["docker restart"]}, {"action": "pull_image", "methods": ["docker pull"]}, {"action": "update_resources", "methods": ["docker update"]}]
+  },
+  {
+    "pattern_id": "raid_degraded",
+    "name": "RAID Degraded",
+    "symptoms": [{"metric": "raid", "observation": "degraded"}, {"metric": "raid", "observation": "raid rebuild"}],
+    "likely_causes": [{"cause": "disk_failed", "probability": 0.7}, {"cause": "cable_loose", "probability": 0.15}],
+    "checks": [{"step": "RAID status", "command": "cat /proc/mdstat"}, {"step": "RAID details", "command": "mdadm --detail /dev/md0"}, {"step": "SMART health", "command": "smartctl -H /dev/sd[a-z]"}],
+    "actions": [{"action": "replace_disk", "methods": ["mdadm --remove", "mdadm --add"]}, {"action": "check_cables", "methods": ["physical_check"]}]
+  },
+  {
+    "pattern_id": "ssl_expired",
+    "name": "SSL Certificate Expired",
+    "symptoms": [{"metric": "ssl", "observation": "certificate expired"}, {"metric": "https", "observation": "certificate invalid"}],
+    "likely_causes": [{"cause": "not_renewed", "probability": 0.85}],
+    "checks": [{"step": "Check cert dates", "command": "openssl x509 -noout -dates -in /etc/ssl/certs/server.crt"}, {"step": "Check chain", "command": "openssl s_client -connect {{host}}:443"}, {"step": "List certs", "command": "certbot certificates"}],
+    "actions": [{"action": "renew_cert", "methods": ["certbot renew"]}, {"action": "install_cert", "methods": ["cp", "restart nginx"]}]
+  },
+  {
+    "pattern_id": "database_slow",
+    "name": "Database Performance Issues",
+    "symptoms": [{"metric": "database", "observation": "slow queries"}, {"metric": "database", "observation": "connection refused"}],
+    "likely_causes": [{"cause": "slow_queries", "probability": 0.35}, {"cause": "missing_index", "probability": 0.3}, {"cause": "connection_limit", "probability": 0.2}],
+    "checks": [{"step": "Slow query log", "command": "mysqldumpslow -t 10 /var/log/mysql/slow.log"}, {"step": "Table locks", "command": "SHOW OPEN TABLES WHERE In_use > 0"}, {"step": "Connection count", "command": "SHOW STATUS LIKE 'Threads_connected'"}],
+    "actions": [{"action": "optimize_query", "methods": ["EXPLAIN", "rewrite"]}, {"action": "add_index", "methods": ["CREATE INDEX"]}, {"action": "increase_connections", "methods": ["set global max_connections"]}]
+  },
+  {
+    "pattern_id": "kernel_issue",
+    "name": "Kernel Issues",
+    "symptoms": [{"metric": "kernel", "observation": "kernel panic"}, {"metric": "kernel", "observation": "oops"}],
+    "likely_causes": [{"cause": "driver_bug", "probability": 0.4}, {"cause": "hardware_failure", "probability": 0.3}],
+    "checks": [{"step": "Kernel logs", "command": "dmesg | tail -100"}, {"step": "System logs", "command": "journalctl -k | tail -50"}, {"step": "Hardware logs", "command": "ipmi_sel"}],
+    "actions": [{"action": "update_kernel", "methods": ["apt upgrade"]}, {"action": "remove_driver", "methods": ["modprobe -r"]}]
+  },
+  {
+    "pattern_id": "user_session_issue",
+    "name": "User Session Issues",
+    "symptoms": [{"metric": "user", "observation": "cannot login"}, {"metric": "ssh", "observation": "connection refused"}],
+    "likely_causes": [{"cause": "account_locked", "probability": 0.3}, {"cause": "shell_error", "probability": 0.3}, {"cause": "perm_issue", "probability": 0.25}],
+    "checks": [{"step": "User status", "command": "passwd -S {{user}}"}, {"step": "Shell config", "command": "cat /etc/shells"}, {"step": "Home perms", "command": "ls -la ~{{user}}"}],
+    "actions": [{"action": "unlock_user", "methods": ["passwd -u"]}, {"action": "fix_shell", "methods": ["usermod -s"]}, {"action": "fix_perms", "methods": ["chown", "chmod"]}]
+  },
+  {
+    "pattern_id": "cron_issue",
+    "name": "Cron Job Issues",
+    "symptoms": [{"metric": "cron", "observation": "job not running"}, {"metric": "cron", "observation": "job failed"}],
+    "likely_causes": [{"cause": "cron_not_running", "probability": 0.35}, {"cause": "script_error", "probability": 0.35}, {"cause": "perm_issue", "probability": 0.2}],
+    "checks": [{"step": "Cron status", "command": "systemctl status cron"}, {"step": "Cron log", "command": "grep CRON /var/log/syslog"}, {"step": "List crontabs", "command": "crontab -l -u {{user}}"}],
+    "actions": [{"action": "start_cron", "methods": ["systemctl start cron"]}, {"action": "fix_script", "methods": ["edit", "chmod +x"]}]
+  },
+  {
+    "pattern_id": "log_storm",
+    "name": "Log Storm",
+    "symptoms": [{"metric": "logs", "observation": "high log rate"}, {"metric": "disk", "observation": "disk filling fast"}],
+    "likely_causes": [{"cause": "app_error", "probability": 0.5}, {"cause": "config_error", "probability": 0.35}],
+    "checks": [{"step": "Log rate", "command": "tail -f /var/log/syslog | pv -l -i 1 > /dev/null"}, {"step": "Recent entries", "command": "tail -500 /var/log/syslog | grep -i error"}],
+    "actions": [{"action": "restart_app", "methods": ["systemctl restart"]}, {"action": "fix_log_level", "methods": ["edit_config"]}, {"action": "rotate_now", "methods": ["logrotate -f"]}]
   }
 ]

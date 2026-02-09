@@ -225,7 +225,7 @@
     "generators": [
       {"name": "apt_list", "tool": "dpkg", "template": "dpkg -l", "when": []},
       {"name": "apt_search", "tool": "apt", "template": "apt list --installed", "when": []},
-      {"name": "apt_search_pattern", "tool": "apt", "template": "dpkg -l | grep {{pattern}}", "when": [{"name": "pattern"}]},
+      {"name": "apt_search_pattern", "tool": "dpkg", "template": "dpkg -l | grep {{pattern}}", "when": [{"name": "pattern"}]},
       {"name": "rpm_list", "tool": "rpm", "template": "rpm -qa", "when": []},
       {"name": "yum_search", "tool": "yum", "template": "yum list installed", "when": []}
     ],
@@ -251,6 +251,451 @@
     "examples": [
       {"description": "List containers", "inputs": {}},
       {"description": "Container stats", "inputs": {"action": "stats"}}
+    ]
+  },
+  {
+    "op_id": "check_system_health",
+    "name": "Check system health",
+    "description": "Comprehensive system health check including load, uptime, and kernel info",
+    "input_schema": {},
+    "generators": [
+      {"name": "uptime_detailed", "tool": "uptime", "template": "uptime", "when": []},
+      {"name": "hostname_domain", "tool": "hostnamectl", "template": "hostnamectl", "when": []},
+      {"name": "kernel_info", "tool": "uname", "template": "uname -a", "when": []},
+      {"name": "load_avg", "tool": "cat", "template": "cat /proc/loadavg", "when": []},
+      {"name": "boot_time", "tool": "who", "template": "who -b", "when": []}
+    ],
+    "examples": [
+      {"description": "System uptime and load", "inputs": {}},
+      {"description": "Kernel and hostname info", "inputs": {}}
+    ]
+  },
+  {
+    "op_id": "check_hardware",
+    "name": "Check hardware information",
+    "description": "Display hardware information including CPU, memory, disk, and PCI devices",
+    "input_schema": {
+      "device": {"type": "string", "optional": true}
+    },
+    "generators": [
+      {"name": "lshw_short", "tool": "lshw", "template": "lshw -short", "when": []},
+      {"name": "lscpu_detailed", "tool": "lscpu", "template": "lscpu", "when": []},
+      {"name": "lsmem", "tool": "lsmem", "template": "lsmem", "when": []},
+      {"name": "lsblk", "tool": "lsblk", "template": "lsblk", "when": []},
+      {"name": "lspci", "tool": "lspci", "template": "lspci", "when": []},
+      {"name": "lsusb", "tool": "lsusb", "template": "lsusb", "when": []},
+      {"name": "inxi_summary", "tool": "inxi", "template": "inxi -F", "when": []}
+    ],
+    "examples": [
+      {"description": "Hardware summary", "inputs": {}},
+      {"description": "CPU details", "inputs": {"device": "cpu"}}
+    ]
+  },
+  {
+    "op_id": "check_gpu",
+    "name": "Check GPU information",
+    "description": "Display GPU and graphics hardware information",
+    "input_schema": {},
+    "generators": [
+      {"name": "lspci_gpu", "tool": "lspci", "template": "lspci | grep -i vga", "when": []},
+      {"name": "lspci_nvidia", "tool": "lspci", "template": "lspci | grep -i nvidia", "when": []},
+      {"name": "nvidia_smi", "tool": "nvidia-smi", "template": "nvidia-smi", "when": []},
+      {"name": "xrandr", "tool": "xrandr", "template": "xrandr", "when": []},
+      {"name": "glxinfo", "tool": "glxinfo", "template": "glxinfo | grep -i renderer", "when": []}
+    ],
+    "examples": [
+      {"description": "GPU info via lspci", "inputs": {}},
+      {"description": "NVIDIA GPU details", "inputs": {}}
+    ]
+  },
+  {
+    "op_id": "network_diagnostics",
+    "name": "Network diagnostics",
+    "description": "Perform network diagnostics including ping, traceroute, and DNS lookups",
+    "input_schema": {
+      "host": {"type": "string"},
+      "count": {"type": "number", "optional": true}
+    },
+    "generators": [
+      {"name": "ping_count", "tool": "ping", "template": "ping -c {{count}} {{host}}", "when": [{"name": "count"}]},
+      {"name": "ping_default", "tool": "ping", "template": "ping -c 4 {{host}}", "when": []},
+      {"name": "traceroute_path", "tool": "traceroute", "template": "traceroute {{host}}", "when": []},
+      {"name": "mtr_path", "tool": "mtr", "template": "mtr --report {{host}}", "when": []},
+      {"name": "dig_dns", "tool": "dig", "template": "dig {{host}}", "when": []},
+      {"name": "nslookup_dns", "tool": "nslookup", "template": "nslookup {{host}}", "when": []},
+      {"name": "curl_http", "tool": "curl", "template": "curl -sI http://{{host}}", "when": []}
+    ],
+    "examples": [
+      {"description": "Ping a host", "inputs": {"host": "8.8.8.8", "count": 4}},
+      {"description": "Traceroute", "inputs": {"host": "google.com"}},
+      {"description": "DNS lookup", "inputs": {"host": "example.com"}}
+    ]
+  },
+  {
+    "op_id": "check_firewall",
+    "name": "Check firewall status",
+    "description": "Display firewall rules and status",
+    "input_schema": {
+      "firewall": {"type": "string", "optional": true}
+    },
+    "generators": [
+      {"name": "ufw_status", "tool": "ufw", "template": "ufw status", "when": []},
+      {"name": "ufw_verbose", "tool": "ufw", "template": "ufw status verbose", "when": []},
+      {"name": "iptables_rules", "tool": "iptables", "template": "iptables -L -n -v", "when": []},
+      {"name": "iptables_num", "tool": "iptables", "template": "iptables -L -n --line-numbers", "when": []},
+      {"name": "firewalld_status", "tool": "firewall-cmd", "template": "firewall-cmd --state", "when": []},
+      {"name": "firewalld_list", "tool": "firewall-cmd", "template": "firewall-cmd --list-all", "when": []}
+    ],
+    "examples": [
+      {"description": "UFW status", "inputs": {}},
+      {"description": "iptables rules", "inputs": {}}
+    ]
+  },
+  {
+    "op_id": "check_security",
+    "name": "Security audit",
+    "description": "Perform security audits including failed login attempts and SELinux status",
+    "input_schema": {
+      "timeframe": {"type": "string", "optional": true}
+    },
+    "generators": [
+      {"name": "faillock", "tool": "faillock", "template": "faillock --user {{user}}", "when": []},
+      {"name": "last_fail", "tool": "last", "template": "last -i | grep -i fail", "when": []},
+      {"name": "auth_log", "tool": "journalctl", "template": "journalctl -u sshd | grep -i fail", "when": []},
+      {"name": "selinux_status", "tool": "getenforce", "template": "getenforce", "when": []},
+      {"name": "sestatus", "tool": "sestatus", "template": "sestatus", "when": []},
+      {"name": "ssh_config", "tool": "cat", "template": "cat /etc/ssh/sshd_config | grep -v '^#' | grep -v '^$'", "when": []}
+    ],
+    "examples": [
+      {"description": "Failed login attempts", "inputs": {}},
+      {"description": "SELinux status", "inputs": {}}
+    ]
+  },
+  {
+    "op_id": "performance_monitoring",
+    "name": "Performance monitoring",
+    "description": "Monitor system performance with iostat, vmstat, and sar",
+    "input_schema": {
+      "interval": {"type": "number", "optional": true},
+      "count": {"type": "number", "optional": true}
+    },
+    "generators": [
+      {"name": "iostat_cpu_disk", "tool": "iostat", "template": "iostat -xhz {{interval}} {{count}}", "when": []},
+      {"name": "vmstat_memory_swap", "tool": "vmstat", "template": "vmstat {{interval}} {{count}}", "when": []},
+      {"name": "mpstat_cpus", "tool": "mpstat", "template": "mpstat -P ALL {{interval}} {{count}}", "when": []},
+      {"name": "sar_system", "tool": "sar", "template": "sar -u {{interval}} {{count}}", "when": []},
+      {"name": "sar_memory", "tool": "sar", "template": "sar -r {{interval}} {{count}}", "when": []},
+      {"name": "sar_network", "tool": "sar", "template": "sar -n DEV {{interval}} {{count}}", "when": []},
+      {"name": "dstat_comprehensive", "tool": "dstat", "template": "dstat -cdngy {{interval}} {{count}}", "when": []}
+    ],
+    "examples": [
+      {"description": "CPU and disk I/O", "inputs": {"interval": 1, "count": 5}},
+      {"description": "Memory and swap", "inputs": {}}
+    ]
+  },
+  {
+    "op_id": "manage_users",
+    "name": "Manage users",
+    "description": "Create, delete, and modify user accounts",
+    "input_schema": {
+      "action": {"type": "string"},
+      "username": {"type": "string"},
+      "groups": {"type": "string", "optional": true},
+      "shell": {"type": "string", "optional": true}
+    },
+    "generators": [
+      {"name": "useradd_create", "tool": "useradd", "template": "sudo useradd -m {{username}}", "when": [{"name": "action", "equals": "create"}]},
+      {"name": "useradd_groups", "tool": "useradd", "template": "sudo useradd -m -G {{groups}} {{username}}", "when": [{"name": "action", "equals": "create"}, {"name": "groups"}]},
+      {"name": "useradd_shell", "tool": "useradd", "template": "sudo useradd -m -s {{shell}} {{username}}", "when": [{"name": "action", "equals": "create"}, {"name": "shell"}]},
+      {"name": "usermod_groups", "tool": "usermod", "template": "sudo usermod -aG {{groups}} {{username}}", "when": [{"name": "action", "equals": "modify"}, {"name": "groups"}]},
+      {"name": "userdel_remove", "tool": "userdel", "template": "sudo userdel -r {{username}}", "when": [{"name": "action", "equals": "delete"}]},
+      {"name": "passwd_change", "tool": "passwd", "template": "sudo passwd {{username}}", "when": [{"name": "action", "equals": "password"}]}
+    ],
+    "examples": [
+      {"description": "Create user", "inputs": {"action": "create", "username": "john"}},
+      {"description": "Add to groups", "inputs": {"action": "modify", "username": "john", "groups": "sudo,www-data"}}
+    ]
+  },
+  {
+    "op_id": "manage_groups",
+    "name": "Manage groups",
+    "description": "Create, delete, and modify groups",
+    "input_schema": {
+      "action": {"type": "string"},
+      "groupname": {"type": "string"}
+    },
+    "generators": [
+      {"name": "groupadd_create", "tool": "groupadd", "template": "sudo groupadd {{groupname}}", "when": [{"name": "action", "equals": "create"}]},
+      {"name": "groupdel_remove", "tool": "groupdel", "template": "sudo groupdel {{groupname}}", "when": [{"name": "action", "equals": "delete"}]},
+      {"name": "getent_group", "tool": "getent", "template": "getent group {{groupname}}", "when": []},
+      {"name": "cat_etc_group", "tool": "cat", "template": "cat /etc/group", "when": []}
+    ],
+    "examples": [
+      {"description": "Create group", "inputs": {"action": "create", "groupname": "developers"}},
+      {"description": "List group members", "inputs": {"action": "list", "groupname": "sudo"}}
+    ]
+  },
+  {
+    "op_id": "check_cron",
+    "name": "Check cron jobs",
+    "description": "List and manage scheduled cron jobs",
+    "input_schema": {
+      "user": {"type": "string", "optional": true}
+    },
+    "generators": [
+      {"name": "crontab_list", "tool": "crontab", "template": "crontab -l", "when": []},
+      {"name": "crontab_user", "tool": "crontab", "template": "crontab -u {{user}} -l", "when": [{"name": "user"}]},
+      {"name": "etc_cron_d", "tool": "ls", "template": "ls -la /etc/cron.d/", "when": []},
+      {"name": "etc_cron_hourly", "tool": "ls", "template": "ls -la /etc/cron.hourly/", "when": []},
+      {"name": "etc_cron_daily", "tool": "ls", "template": "ls -la /etc/cron.daily/", "when": []},
+      {"name": "systemctl_cron", "tool": "systemctl", "template": "systemctl status cron", "when": []},
+      {"name": "journalctl_cron", "tool": "journalctl", "template": "journalctl -u cron", "when": []}
+    ],
+    "examples": [
+      {"description": "List all cron jobs", "inputs": {}},
+      {"description": "Check cron service", "inputs": {}}
+    ]
+  },
+  {
+    "op_id": "check_mounts",
+    "name": "Check mount points",
+    "description": "Display mounted filesystems and mount points",
+    "input_schema": {},
+    "generators": [
+      {"name": "mount_list", "tool": "mount", "template": "mount | column -t", "when": []},
+      {"name": "df_mounts", "tool": "df", "template": "df -hT", "when": []},
+      {"name": "cat_fstab", "tool": "cat", "template": "cat /etc/fstab", "when": []},
+      {"name": "findmnt_tree", "tool": "findmnt", "template": "findmnt", "when": []},
+      {"name": "findmnt_target", "tool": "findmnt", "template": "findmnt {{target}}", "when": [{"name": "target"}]},
+      {"name": "lsblk_mounts", "tool": "lsblk", "template": "lsblk -f", "when": []}
+    ],
+    "examples": [
+      {"description": "List all mounts", "inputs": {}},
+      {"description": "Check fstab", "inputs": {}}
+    ]
+  },
+  {
+    "op_id": "check_lvm",
+    "name": "Check LVM status",
+    "description": "Display LVM volume groups, logical volumes, and physical volumes",
+    "input_schema": {
+      "vg": {"type": "string", "optional": true},
+      "lv": {"type": "string", "optional": true}
+    },
+    "generators": [
+      {"name": "pvs_all", "tool": "pvs", "template": "pvs", "when": []},
+      {"name": "vgs_all", "tool": "vgs", "template": "vgs", "when": []},
+      {"name": "lvs_all", "tool": "lvs", "template": "lvs", "when": []},
+      {"name": "pvs_vg", "tool": "pvs", "template": "pvs {{vg}}", "when": [{"name": "vg"}]},
+      {"name": "vgs_vg", "tool": "vgs", "template": "vgs {{vg}}", "when": [{"name": "vg"}]},
+      {"name": "lvs_lv", "tool": "lvs", "template": "lvs {{lv}}", "when": [{"name": "lv"}]},
+      {"name": "lvdisplay", "tool": "lvdisplay", "template": "lvdisplay", "when": []},
+      {"name": "vgdisplay", "tool": "vgdisplay", "template": "vgdisplay", "when": []}
+    ],
+    "examples": [
+      {"description": "LVM summary", "inputs": {}},
+      {"description": "Volume group details", "inputs": {"vg": "vg00"}}
+    ]
+  },
+  {
+    "op_id": "check_raid",
+    "name": "Check RAID status",
+    "description": "Display RAID array status and health",
+    "input_schema": {
+      "device": {"type": "string", "optional": true}
+    },
+    "generators": [
+      {"name": "mdadm_detail", "tool": "mdadm", "template": "mdadm --detail /dev/md{{device}}", "when": [{"name": "device"}]},
+      {"name": "mdadm_list", "tool": "mdadm", "template": "mdadm --detail --scan", "when": []},
+      {"name": "cat_proc_mdstat", "tool": "cat", "template": "cat /proc/mdstat", "when": []},
+      {"name": "smartctl_ssd", "tool": "smartctl", "template": "smartctl -H /dev/{{device}}", "when": [{"name": "device"}]},
+      {"name": "smartctl_all", "tool": "smartctl", "template": "smartctl --scan", "when": []}
+    ],
+    "examples": [
+      {"description": "RAID status", "inputs": {}},
+      {"description": "Specific RAID device", "inputs": {"device": "md0"}}
+    ]
+  },
+  {
+    "op_id": "check_ssl",
+    "name": "Check SSL certificates",
+    "description": "Display SSL certificate information and expiration",
+    "input_schema": {
+      "host": {"type": "string"},
+      "port": {"type": "number", "optional": true}
+    },
+    "generators": [
+      {"name": "openssl_cert", "tool": "openssl", "template": "echo | openssl s_client -connect {{host}}:{{port}} 2>/dev/null | openssl x509 -noout -dates", "when": []},
+      {"name": "openssl_https", "tool": "openssl", "template": "echo | openssl s_client -connect {{host}}:443 2>/dev/null | openssl x509 -noout -dates", "when": []},
+      {"name": "openssl_chain", "tool": "openssl", "template": "echo | openssl s_client -connect {{host}}:{{port}} -showcerts 2>/dev/null | openssl x509 -noout -dates", "when": [{"name": "port"}]},
+      {"name": "certbot_list", "tool": "certbot", "template": "certbot certificates", "when": []}
+    ],
+    "examples": [
+      {"description": "Check SSL certificate expiry", "inputs": {"host": "example.com"}},
+      {"description": "Custom port", "inputs": {"host": "mail.example.com", "port": 443}}
+    ]
+  },
+  {
+    "op_id": "check_systemd",
+    "name": "Check systemd units",
+    "description": "List and check systemd unit states and dependencies",
+    "input_schema": {
+      "unit": {"type": "string", "optional": true},
+      "type": {"type": "string", "optional": true}
+    },
+    "generators": [
+      {"name": "systemctl_list_units", "tool": "systemctl", "template": "systemctl list-units --type={{type}}", "when": [{"name": "type"}]},
+      {"name": "systemctl_failed", "tool": "systemctl", "template": "systemctl --failed --type=service", "when": []},
+      {"name": "systemctl_status_unit", "tool": "systemctl", "template": "systemctl status {{unit}}", "when": [{"name": "unit"}]},
+      {"name": "systemctl_start_unit", "tool": "systemctl", "template": "systemctl start {{unit}}", "when": [{"name": "unit"}]},
+      {"name": "systemctl_deps", "tool": "systemctl", "template": "systemctl list-dependencies {{unit}}", "when": [{"name": "unit"}]},
+      {"name": "systemd_analyze_blame", "tool": "systemd-analyze", "template": "systemd-analyze blame", "when": []},
+      {"name": "systemd_cgtop", "tool": "systemd-cgtop", "template": "systemd-cgtop", "when": []}
+    ],
+    "examples": [
+      {"description": "Failed services", "inputs": {}},
+      {"description": "Unit dependencies", "inputs": {"unit": "nginx.service"}}
+    ]
+  },
+  {
+    "op_id": "check_kernel",
+    "name": "Check kernel modules",
+    "description": "List and check kernel modules",
+    "input_schema": {
+      "module": {"type": "string", "optional": true}
+    },
+    "generators": [
+      {"name": "lsmod_list", "tool": "lsmod", "template": "lsmod", "when": []},
+      {"name": "lsmod_grep", "tool": "lsmod", "template": "lsmod | grep {{module}}", "when": [{"name": "module"}]},
+      {"name": "modinfo", "tool": "modinfo", "template": "modinfo {{module}}", "when": [{"name": "module"}]},
+      {"name": "sysctl_all", "tool": "sysctl", "template": "sysctl -a", "when": []},
+      {"name": "sysctl_var", "tool": "sysctl", "template": "sysctl {{var}}", "when": [{"name": "var"}]},
+      {"name": "proc_modules", "tool": "cat", "template": "cat /proc/modules", "when": []}
+    ],
+    "examples": [
+      {"description": "List loaded modules", "inputs": {}},
+      {"description": "Module info", "inputs": {"module": "nvidia"}}
+    ]
+  },
+  {
+    "op_id": "check_cloud",
+    "name": "Check cloud instance metadata",
+    "description": "Display cloud provider instance metadata",
+    "input_schema": {
+      "provider": {"type": "string", "optional": true}
+    },
+    "generators": [
+      {"name": "aws_metadata", "tool": "curl", "template": "curl -s http://169.254.169.254/latest/meta-data/", "when": []},
+      {"name": "aws_userdata", "tool": "curl", "template": "curl -s http://169.254.169.254/latest/user-data/", "when": []},
+      {"name": "aws_dynamic", "tool": "curl", "template": "curl -s http://169.254.169.254/latest/dynamic/instance-identity/", "when": []},
+      {"name": "gcp_metadata", "tool": "curl", "template": "curl -s -H \"Metadata-Flavor: Google\" http://metadata.google.internal/computeMetadata/v1/instance/", "when": []},
+      {"name": "azure_metadata", "tool": "curl", "template": "curl -s -H \"Metadata: true\" http://169.254.169.254/metadata/instance?api-version=2021-02-01", "when": []}
+    ],
+    "examples": [
+      {"description": "AWS instance metadata", "inputs": {}},
+      {"description": "GCP instance info", "inputs": {}}
+    ]
+  },
+  {
+    "op_id": "check_tcp_connections",
+    "name": "Check TCP connections",
+    "description": "Detailed TCP connection analysis",
+    "input_schema": {
+      "state": {"type": "string", "optional": true},
+      "local_port": {"type": "string", "optional": true},
+      "remote_addr": {"type": "string", "optional": true}
+    },
+    "generators": [
+      {"name": "ss_tcp", "tool": "ss", "template": "ss -tn", "when": []},
+      {"name": "ss_state", "tool": "ss", "template": "ss -tn state {{state}}", "when": [{"name": "state"}]},
+      {"name": "ss_local", "tool": "ss", "template": "ss -tn sport = :{{local_port}}", "when": [{"name": "local_port"}]},
+      {"name": "ss_remote", "tool": "ss", "template": "ss -tn dst {{remote_addr}}", "when": [{"name": "remote_addr"}]},
+      {"name": "netstat_tcp", "tool": "netstat", "template": "netstat -tn", "when": []},
+      {"name": "ss_summary", "tool": "ss", "template": "ss -s", "when": []}
+    ],
+    "examples": [
+      {"description": "All TCP connections", "inputs": {}},
+      {"description": "Established connections", "inputs": {"state": "established"}}
+    ]
+  },
+  {
+    "op_id": "check_udp_connections",
+    "name": "Check UDP connections",
+    "description": "Detailed UDP connection analysis",
+    "input_schema": {},
+    "generators": [
+      {"name": "ss_udp", "tool": "ss", "template": "ss -un", "when": []},
+      {"name": "ss_udp_listen", "tool": "ss", "template": "ss -unl", "when": []},
+      {"name": "netstat_udp", "tool": "netstat", "template": "netstat -un", "when": []}
+    ],
+    "examples": [
+      {"description": "UDP sockets", "inputs": {}},
+      {"description": "Listening UDP", "inputs": {}}
+    ]
+  },
+  {
+    "op_id": "check_dns",
+    "name": "Check DNS resolution",
+    "description": "Test DNS resolution and configure DNS settings",
+    "input_schema": {
+      "domain": {"type": "string"},
+      "server": {"type": "string", "optional": true}
+    },
+    "generators": [
+      {"name": "dig_query", "tool": "dig", "template": "dig {{domain}}", "when": []},
+      {"name": "dig_trace", "tool": "dig", "template": "dig +trace {{domain}}", "when": []},
+      {"name": "dig_ns", "tool": "dig", "template": "dig NS {{domain}}", "when": []},
+      {"name": "dig_mx", "tool": "dig", "template": "dig MX {{domain}}", "when": []},
+      {"name": "dig_soa", "tool": "dig", "template": "dig SOA {{domain}}", "when": []},
+      {"name": "host_lookup", "tool": "host", "template": "host {{domain}}", "when": []},
+      {"name": "nslookup_query", "tool": "nslookup", "template": "nslookup {{domain}}", "when": []},
+      {"name": "resolvectl_dns", "tool": "resolvectl", "template": "resolvectl query {{domain}}", "when": []},
+      {"name": "cat_resolv", "tool": "cat", "template": "cat /etc/resolv.conf", "when": []}
+    ],
+    "examples": [
+      {"description": "Resolve domain", "inputs": {"domain": "example.com"}},
+      {"description": "DNS trace", "inputs": {"domain": "example.com"}}
+    ]
+  },
+  {
+    "op_id": "check_container",
+    "name": "Check container runtime",
+    "description": "Check container status (Docker, Podman, containerd)",
+    "input_schema": {
+      "runtime": {"type": "string", "optional": true}
+    },
+    "generators": [
+      {"name": "docker_ps", "tool": "docker", "template": "docker ps -a", "when": []},
+      {"name": "docker_ps_size", "tool": "docker", "template": "docker ps -as", "when": []},
+      {"name": "docker_images", "tool": "docker", "template": "docker images", "when": []},
+      {"name": "docker_volumes", "tool": "docker", "template": "docker volume ls", "when": []},
+      {"name": "docker_networks", "tool": "docker", "template": "docker network ls", "when": []},
+      {"name": "docker_info", "tool": "docker", "template": "docker info", "when": []},
+      {"name": "podman_ps", "tool": "podman", "template": "podman ps -a", "when": []},
+      {"name": "ctr_containers", "tool": "ctr", "template": "ctr containers ls", "when": []}
+    ],
+    "examples": [
+      {"description": "Docker containers", "inputs": {}},
+      {"description": "Docker images", "inputs": {}}
+    ]
+  },
+  {
+    "op_id": "check_kernel_parameters",
+    "name": "Check kernel parameters",
+    "description": "View and modify kernel parameters",
+    "input_schema": {
+      "parameter": {"type": "string", "optional": true}
+    },
+    "generators": [
+      {"name": "sysctl_all", "tool": "sysctl", "template": "sysctl -a", "when": []},
+      {"name": "sysctl_param", "tool": "sysctl", "template": "sysctl {{parameter}}", "when": [{"name": "parameter"}]},
+      {"name": "cat_proc_sys", "tool": "cat", "template": "cat /proc/sys/{{parameter}}", "when": [{"name": "parameter"}]},
+      {"name": "sysctl_net", "tool": "sysctl", "template": "sysctl -n net.ipv4.tcp_tw_reuse", "when": []},
+      {"name": "sysctl_fs", "tool": "sysctl", "template": "sysctl fs.file-max", "when": []}
+    ],
+    "examples": [
+      {"description": "All kernel params", "inputs": {}},
+      {"description": "Specific parameter", "inputs": {"parameter": "net.ipv4.ip_forward"}}
     ]
   }
 ]

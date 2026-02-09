@@ -1,0 +1,21 @@
+{
+  "name": "Cpu",
+  "description": "CPU processor information and metrics",
+  "core_properties": [
+    {"name": "model", "type": "string", "meaning": "CPU model name"},
+    {"name": "cores", "type": "integer", "meaning": "Number of physical cores"},
+    {"name": "threads", "type": "integer", "meaning": "Number of threads"},
+    {"name": "frequency", "type": "number", "meaning": "CPU frequency in MHz"},
+    {"name": "usage_percent", "type": "number", "meaning": "Current CPU usage percentage"},
+    {"name": "load_avg_1m", "type": "number", "meaning": "1-minute load average"},
+    {"name": "load_avg_5m", "type": "number", "meaning": "5-minute load average"},
+    {"name": "load_avg_15m", "type": "number", "meaning": "15-minute load average"},
+    {"name": "temperature", "type": "number", "meaning": "CPU temperature in Celsius"},
+    {"name": "cache_size", "type": "string", "meaning": "CPU cache size"}
+  ],
+  "derived_properties": [
+    {"name": "is_under_load", "expression": "usage_percent > 80"},
+    {"name": "is_healthy", "expression": "temperature < 80"},
+    {"name": "load_is_high", "expression": "load_avg_1m > cores"}
+  ]
+}

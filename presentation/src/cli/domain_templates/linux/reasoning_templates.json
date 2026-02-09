@@ -74,5 +74,165 @@
       {"step": 3, "check": "journalctl -u {{service}} --since '1 hour ago'", "logic": "If a service is implicated, inspect its recent logs.", "next": []}
     ],
     "outputs": [{"name": "log_summary", "type": "string"}]
+  },
+  {
+    "template_id": "gpu_diagnostics",
+    "goal": "show my gpu name",
+    "inputs": [],
+    "steps": [
+      {"step": 1, "check": "lspci | grep -i vga", "logic": "Identify GPU via PCI bus enumeration.", "next": ["step:2"]},
+      {"step": 2, "check": "lspci | grep -i nvidia", "logic": "Check for NVIDIA GPU specifically.", "next": ["step:3"]},
+      {"step": 3, "check": "nvidia-smi", "logic": "If NVIDIA driver is installed, get detailed GPU info.", "next": []}
+    ],
+    "outputs": [{"name": "gpu_info", "type": "string"}]
+  },
+  {
+    "template_id": "docker_container_check",
+    "goal": "check docker containers",
+    "inputs": [],
+    "steps": [
+      {"step": 1, "check": "docker ps -a", "logic": "List all containers with status.", "next": ["step:2"]},
+      {"step": 2, "check": "docker images", "logic": "List available images.", "next": ["step:3"]},
+      {"step": 3, "check": "docker stats --no-stream", "logic": "Show resource usage of running containers.", "next": []}
+    ],
+    "outputs": [{"name": "docker_status", "type": "string"}]
+  },
+  {
+    "template_id": "system_health_check",
+    "goal": "check system health",
+    "inputs": [],
+    "steps": [
+      {"step": 1, "check": "uptime", "logic": "Check load averages and uptime.", "next": ["step:2"]},
+      {"step": 2, "check": "free -h", "logic": "Check memory and swap usage.", "next": ["step:3"]},
+      {"step": 3, "check": "df -h", "logic": "Check disk space on all mounted filesystems.", "next": ["step:4"]},
+      {"step": 4, "check": "systemctl --failed", "logic": "Check for failed systemd units.", "next": ["step:5"]},
+      {"step": 5, "check": "journalctl -p err -n 10", "logic": "Show recent errors in journal.", "next": []}
+    ],
+    "outputs": [{"name": "health_report", "type": "string"}]
+  },
+  {
+    "template_id": "raid_status_check",
+    "goal": "check raid status",
+    "inputs": [],
+    "steps": [
+      {"step": 1, "check": "cat /proc/mdstat", "logic": "Check MD (Linux software RAID) status.", "next": ["step:2"]},
+      {"step": 2, "check": "mdadm --detail --scan", "logic": "Get detailed RAID configuration.", "next": ["step:3"]},
+      {"step": 3, "check": "smartctl -H /dev/sd[a-z]", "logic": "Check SMART status of all disks in array.", "next": []}
+    ],
+    "outputs": [{"name": "raid_report", "type": "string"}]
+  },
+  {
+    "template_id": "ssl_certificate_check",
+    "goal": "check ssl certificate",
+    "inputs": [{"name": "host", "type": "string", "example": "example.com"}],
+    "steps": [
+      {"step": 1, "check": "echo | openssl s_client -connect {{host}}:443 2>/dev/null | openssl x509 -noout -dates", "logic": "Get certificate expiration dates.", "next": ["step:2"]},
+      {"step": 2, "check": "echo | openssl s_client -connect {{host}}:443 2>/dev/null | openssl x509 -noout -subject", "logic": "Get certificate subject and issuer.", "next": ["step:3"]},
+      {"step": 3, "check": "certbot certificates", "logic": "If using certbot, list managed certificates.", "next": []}
+    ],
+    "outputs": [{"name": "cert_info", "type": "string"}]
+  },
+  {
+    "template_id": "hardware_info",
+    "goal": "check hardware information",
+    "inputs": [],
+    "steps": [
+      {"step": 1, "check": "lscpu", "logic": "Get detailed CPU information.", "next": ["step:2"]},
+      {"step": 2, "check": "lsmem", "logic": "Get memory layout information.", "next": ["step:3"]},
+      {"step": 3, "check": "lsblk", "logic": "List block devices and mount points.", "next": ["step:4"]},
+      {"step": 4, "check": "lspci", "logic": "List PCI devices including GPUs and network cards.", "next": ["step:5"]},
+      {"step": 5, "check": "lsusb", "logic": "List USB devices.", "next": []}
+    ],
+    "outputs": [{"name": "hardware_report", "type": "string"}]
+  },
+  {
+    "template_id": "performance_monitoring",
+    "goal": "monitor system performance",
+    "inputs": [{"name": "interval", "type": "number", "example": 1}, {"name": "count", "type": "number", "example": 5}],
+    "steps": [
+      {"step": 1, "check": "iostat -xhz {{interval}} {{count}}", "logic": "Monitor CPU and disk I/O statistics.", "next": ["step:2"]},
+      {"step": 2, "check": "vmstat {{interval}} {{count}}", "logic": "Monitor virtual memory statistics.", "next": ["step:3"]},
+      {"step": 3, "check": "mpstat -P ALL {{interval}} {{count}}", "logic": "Monitor per-CPU statistics.", "next": []}
+    ],
+    "outputs": [{"name": "perf_report", "type": "string"}]
+  },
+  {
+    "template_id": "network_diagnostics",
+    "goal": "diagnose network issues",
+    "inputs": [{"name": "host", "type": "string", "example": "google.com"}],
+    "steps": [
+      {"step": 1, "check": "ping -c 4 {{host}}", "logic": "Test basic ICMP connectivity.", "next": ["step:2"]},
+      {"step": 2, "check": "traceroute {{host}}", "logic": "Trace route to destination.", "next": ["step:3"]},
+      {"step": 3, "check": "dig +trace {{host}}", "logic": "Perform DNS resolution trace.", "next": ["step:4"]},
+      {"step": 4, "check": "curl -sI http://{{host}}", "logic": "Test HTTP connectivity.", "next": []}
+    ],
+    "outputs": [{"name": "netdiag_report", "type": "string"}]
+  },
+  {
+    "template_id": "kernel_modules",
+    "goal": "check kernel modules",
+    "inputs": [{"name": "module", "type": "string", "optional": true, "example": "nvidia"}],
+    "steps": [
+      {"step": 1, "check": "lsmod", "logic": "List all loaded kernel modules.", "next": ["step:2"]},
+      {"step": 2, "check": "lsmod | grep {{module}}", "logic": "Filter for specific module if provided.", "next": ["step:3"]},
+      {"step": 3, "check": "modinfo {{module}}", "logic": "Get detailed module information.", "next": []}
+    ],
+    "outputs": [{"name": "module_info", "type": "string"}]
+  },
+  {
+    "template_id": "systemd_units",
+    "goal": "check systemd units",
+    "inputs": [{"name": "unit", "type": "string", "optional": true, "example": "nginx"}],
+    "steps": [
+      {"step": 1, "check": "systemctl --failed --type=service", "logic": "List failed services.", "next": ["step:2"]},
+      {"step": 2, "check": "systemctl status {{unit}}", "logic": "Check specific unit status if provided.", "next": ["step:3"]},
+      {"step": 3, "check": "systemd-analyze blame", "logic": "Show units ordered by startup time.", "next": []}
+    ],
+    "outputs": [{"name": "systemd_report", "type": "string"}]
+  },
+  {
+    "template_id": "firewall_check",
+    "goal": "check firewall status",
+    "inputs": [],
+    "steps": [
+      {"step": 1, "check": "ufw status", "logic": "Check UFW firewall status if installed.", "next": ["step:2"]},
+      {"step": 2, "check": "iptables -L -n -v", "logic": "List iptables rules with counts.", "next": ["step:3"]},
+      {"step": 3, "check": "firewall-cmd --state", "logic": "Check firewalld status if installed.", "next": []}
+    ],
+    "outputs": [{"name": "firewall_report", "type": "string"}]
+  },
+  {
+    "template_id": "security_audit",
+    "goal": "perform security audit",
+    "inputs": [],
+    "steps": [
+      {"step": 1, "check": "last -i | head -20", "logic": "Show recent login activity.", "next": ["step:2"]},
+      {"step": 2, "check": "faillock --user {{user}}", "logic": "Check failed authentication attempts.", "next": ["step:3"]},
+      {"step": 3, "check": "getenforce", "logic": "Check SELinux enforcement mode.", "next": ["step:4"]},
+      {"step": 4, "check": "journalctl -u sshd | grep -i fail | tail -20", "logic": "Check SSH login failures.", "next": []}
+    ],
+    "outputs": [{"name": "security_report", "type": "string"}]
+  },
+  {
+    "template_id": "lvm_status",
+    "goal": "check lvm status",
+    "inputs": [],
+    "steps": [
+      {"step": 1, "check": "pvs", "logic": "List physical volumes.", "next": ["step:2"]},
+      {"step": 2, "check": "vgs", "logic": "List volume groups.", "next": ["step:3"]},
+      {"step": 3, "check": "lvs -a", "logic": "List logical volumes including snapshots.", "next": []}
+    ],
+    "outputs": [{"name": "lvm_report", "type": "string"}]
+  },
+  {
+    "template_id": "container_runtime",
+    "goal": "check container runtime",
+    "inputs": [],
+    "steps": [
+      {"step": 1, "check": "docker ps -a 2>/dev/null || podman ps -a 2>/dev/null", "logic": "List containers using available runtime.", "next": ["step:2"]},
+      {"step": 2, "check": "docker images 2>/dev/null || podman images 2>/dev/null", "logic": "List container images.", "next": ["step:3"]},
+      {"step": 3, "check": "docker stats --no-stream 2>/dev/null || echo 'No containers running'", "logic": "Show container resource usage.", "next": []}
+    ],
+    "outputs": [{"name": "container_report", "type": "string"}]
   }
 ]
