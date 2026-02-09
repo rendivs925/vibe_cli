@@ -6,6 +6,7 @@ use std::collections::HashMap;
 
 /// Main domain manifest
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Domain {
     #[serde(rename = "domain")]
     pub id: String,
@@ -15,6 +16,12 @@ pub struct Domain {
 
     #[serde(rename = "description")]
     pub description: String,
+
+    #[serde(rename = "author", default)]
+    pub author: Option<String>,
+
+    #[serde(rename = "tags", default)]
+    pub tags: Vec<String>,
 
     #[serde(rename = "entities", default)]
     pub entities: HashMap<String, Entity>,
@@ -54,6 +61,7 @@ fn default_enabled() -> bool {
 
 /// Entity definition (e.g., Process, File, User)
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Entity {
     #[serde(rename = "name")]
     pub name: String,
@@ -64,12 +72,16 @@ pub struct Entity {
     #[serde(rename = "core_properties", default)]
     pub core_properties: Vec<Property>,
 
+    #[serde(rename = "derived_properties", default)]
+    pub derived_properties: Vec<DerivedProperty>,
+
     #[serde(rename = "extends", default)]
     pub extends: Option<String>,
 }
 
 /// Property of an entity
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Property {
     #[serde(rename = "name")]
     pub name: String,
@@ -90,8 +102,20 @@ pub struct Property {
     pub required: bool,
 }
 
+/// Derived property from core fields
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct DerivedProperty {
+    #[serde(rename = "name")]
+    pub name: String,
+
+    #[serde(rename = "expression")]
+    pub expression: String,
+}
+
 /// Relationship between entities
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Relationship {
     #[serde(rename = "name")]
     pub name: String,
@@ -117,6 +141,7 @@ pub struct Relationship {
 
 /// Abstract operation with command generators
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Operation {
     #[serde(rename = "op_id")]
     pub id: String,
@@ -145,6 +170,7 @@ pub struct Operation {
 
 /// Specification for an input parameter
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct InputSpec {
     #[serde(rename = "type")]
     pub type_: String,
@@ -161,6 +187,7 @@ pub struct InputSpec {
 
 /// Command generator with template-based resolution
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Generator {
     #[serde(rename = "name")]
     pub name: String,
@@ -190,13 +217,18 @@ fn default_preference() -> f32 {
 
 /// Required input for generator selection
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RequiredInput {
     #[serde(rename = "name")]
     pub name: String,
+
+    #[serde(rename = "equals", default)]
+    pub equals: Option<serde_json::Value>,
 }
 
 /// Output schema for parsing command results
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct OutputSchema {
     #[serde(rename = "type")]
     pub type_: String,
@@ -216,6 +248,7 @@ pub struct OutputSchema {
 
 /// Item schema for array outputs
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct OutputItem {
     #[serde(rename = "type")]
     pub type_: String,
@@ -226,6 +259,7 @@ pub struct OutputItem {
 
 /// Property in output
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct OutputProperty {
     #[serde(rename = "type")]
     pub type_: String,
@@ -239,6 +273,7 @@ pub struct OutputProperty {
 
 /// Example of operation usage
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct OperationExample {
     #[serde(rename = "description")]
     pub description: String,
@@ -249,6 +284,7 @@ pub struct OperationExample {
 
 /// Inference rule for symbolic reasoning
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct InferenceRule {
     #[serde(rename = "rule_id")]
     pub id: String,
@@ -265,6 +301,7 @@ pub struct InferenceRule {
 
 /// Condition in inference rule
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RuleCondition {
     #[serde(rename = "entity")]
     pub entity: String,
@@ -290,11 +327,12 @@ pub struct RuleCondition {
 
 /// Conclusion in inference rule
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct RuleConclusion {
     #[serde(rename = "conclude")]
     pub conclusion: String,
 
-    #[serde(rename = "recommend", default)]
+    #[serde(rename = "recommendation", alias = "recommend", default)]
     pub recommendation: Option<String>,
 
     #[serde(rename = "confidence")]
@@ -303,9 +341,13 @@ pub struct RuleConclusion {
 
 /// Troubleshooting pattern
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TroubleshootingPattern {
     #[serde(rename = "pattern_id")]
     pub id: String,
+
+    #[serde(rename = "name", default)]
+    pub name: String,
 
     #[serde(rename = "symptoms", default)]
     pub symptoms: Vec<Symptom>,
@@ -322,6 +364,7 @@ pub struct TroubleshootingPattern {
 
 /// Symptom definition
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct Symptom {
     #[serde(rename = "metric", default)]
     pub metric: String,
@@ -335,9 +378,13 @@ pub struct Symptom {
 
 /// Likely cause with signals
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct LikelyCause {
     #[serde(rename = "cause")]
     pub cause: String,
+
+    #[serde(rename = "probability", default)]
+    pub probability: Option<f64>,
 
     #[serde(rename = "signals", default)]
     pub signals: Vec<String>,
@@ -345,6 +392,7 @@ pub struct LikelyCause {
 
 /// Check step
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TroubleshootCheck {
     #[serde(rename = "step")]
     pub step: String,
@@ -358,6 +406,7 @@ pub struct TroubleshootCheck {
 
 /// Action to take
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TroubleshootAction {
     #[serde(rename = "action")]
     pub action: String,
@@ -368,6 +417,7 @@ pub struct TroubleshootAction {
 
 /// Reasoning template for complex workflows
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct ReasoningTemplate {
     #[serde(rename = "template_id")]
     pub id: String,
@@ -387,6 +437,7 @@ pub struct ReasoningTemplate {
 
 /// Input for reasoning template
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TemplateInput {
     #[serde(rename = "name")]
     pub name: String,
@@ -400,6 +451,7 @@ pub struct TemplateInput {
 
 /// Step in reasoning template
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TemplateStep {
     #[serde(rename = "step")]
     pub step: i32,
@@ -416,6 +468,7 @@ pub struct TemplateStep {
 
 /// Output of reasoning template
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
 pub struct TemplateOutput {
     #[serde(rename = "name")]
     pub name: String,
@@ -461,4 +514,7 @@ pub enum DomainError {
 
     #[error("Missing required field: {0}")]
     MissingField(String),
+
+    #[error("Invalid field value: {0}")]
+    InvalidField(String),
 }
