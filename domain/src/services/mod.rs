@@ -2,14 +2,12 @@
 
 pub mod command_planner;
 pub mod document_analyzer;
-pub mod linux_symbolic_engine;
 pub mod proof_generator;
 pub mod similarity_calculator;
 pub mod symbolic_format_converter;
 
 pub use command_planner::*;
 pub use document_analyzer::*;
-pub use linux_symbolic_engine::*;
 pub use proof_generator::*;
 pub use similarity_calculator::*;
 pub use symbolic_format_converter::*;
