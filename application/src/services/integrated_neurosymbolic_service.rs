@@ -14,15 +14,15 @@ use anyhow::anyhow;
 use domain::{
     domain_config::{types::GeneratedCommand, DomainRegistry},
     formal_query_language::{FqlAction, FqlParser, FqlQuery, FqlTarget},
-    services::{ProofGenerator, SafetyProof},
     safety::{SafetyEngine, SafetyReport},
+    services::{ProofGenerator, SafetyProof},
 };
 use infrastructure::{
     storage::{
         experience_buffer::{ExperienceBuffer, FailureType},
         induction_engine::InductionEngine,
-        risk_scorer::{RiskLevel, RiskProfile, RiskScorer},
         knowledge_graph::KnowledgeGraph,
+        risk_scorer::{RiskLevel, RiskProfile, RiskScorer},
         ManpageCache,
     },
     syntax_grammar_validator::SyntaxGrammarValidator,
@@ -117,10 +117,7 @@ impl NeurosymbolicResult {
         }
 
         // Safety
-        output.push_str(&format!(
-            "Safety: {}\n",
-            self.safety_report.overall_risk
-        ));
+        output.push_str(&format!("Safety: {}\n", self.safety_report.overall_risk));
 
         // Syntax validation
         if self.syntax_valid {
@@ -165,7 +162,6 @@ impl NeurosymbolicResult {
                 proof.confidence * 100.0
             ));
         }
-
 
         // Execution status
         if self.can_execute {
@@ -223,12 +219,8 @@ impl IntegratedNeurosymbolicService {
         let proof_generator = ProofGenerator::new();
         let induction_engine = InductionEngine::new(cache_dir.join("induction.db")).ok();
 
-        let domain_registry = DomainRegistry::new(
-            domains_dir.clone(),
-            domains_dir.clone(),
-            shared_dir.clone(),
-        )
-        .ok();
+        let domain_registry =
+            DomainRegistry::new(domains_dir.clone(), domains_dir.clone(), shared_dir.clone()).ok();
 
         if let Ok(builder) = GraphBuilder::new() {
             if let Ok((entities, _)) = builder.get_stats() {
@@ -312,7 +304,8 @@ impl IntegratedNeurosymbolicService {
             .as_ref()
             .and_then(|registry| registry.resolve_reasoning_template(query, fql.as_ref()))
             .map(|template| self.render_reasoning_template(&template, fql.as_ref(), intent));
-        let command = self.generate_command(query, fql.as_ref(), learning_context.as_deref(), &mut trace)?;
+        let command =
+            self.generate_command(query, fql.as_ref(), learning_context.as_deref(), &mut trace)?;
         trace.push(format!("  Generated: {}", command));
 
         // Step 4: Safety Validation
@@ -365,13 +358,11 @@ impl IntegratedNeurosymbolicService {
         // Step 5.6: Formal Proof for critical operations
         let safety_proof = risk_profile
             .as_ref()
-            .filter(|profile| {
-                matches!(
-                    profile.risk_level,
-                    RiskLevel::High | RiskLevel::Critical
-                )
-            })
-            .map(|_| self.proof_generator.generate_safety_proof(&command, &safety_report, fql.as_ref()));
+            .filter(|profile| matches!(profile.risk_level, RiskLevel::High | RiskLevel::Critical))
+            .map(|_| {
+                self.proof_generator
+                    .generate_safety_proof(&command, &safety_report, fql.as_ref())
+            });
 
         // Step 6: Determine if execution is allowed
         let (can_execute, block_reason) =
@@ -411,10 +402,12 @@ impl IntegratedNeurosymbolicService {
     ) -> Result<String> {
         if let Some(registry) = &self.domain_registry {
             if let Some(resolved) = registry.resolve_operation(query, fql) {
-                let mut min_confidence = 0.75;
+                let mut min_confidence = 0.6;
                 if let Some(fql) = fql {
-                    if !matches!(fql.target, FqlTarget::Resource(_) | FqlTarget::Entity(_)) {
-                        min_confidence = 0.5;
+                    if matches!(fql.target, FqlTarget::Resource(_) | FqlTarget::Entity(_)) {
+                        min_confidence = 0.6;
+                    } else {
+                        min_confidence = 0.4;
                     }
                 }
                 if resolved.confidence < min_confidence {
@@ -513,7 +506,8 @@ impl IntegratedNeurosymbolicService {
         fql: Option<&FqlQuery>,
         intent: Option<&IntentSignal>,
     ) -> domain::domain_config::types::ReasoningTemplate {
-        let mut context: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+        let mut context: std::collections::HashMap<String, String> =
+            std::collections::HashMap::new();
 
         if let Some(fql) = fql {
             match &fql.target {
@@ -664,9 +658,8 @@ impl IntegratedNeurosymbolicService {
                         .get("lines")
                         .and_then(|v| v.parse::<u64>().ok())
                     {
-                        fql.constraints.push(domain::formal_query_language::FqlConstraint::Limit(
-                            lines,
-                        ));
+                        fql.constraints
+                            .push(domain::formal_query_language::FqlConstraint::Limit(lines));
                     }
 
                     return Some(fql);
@@ -735,7 +728,10 @@ impl IntegratedNeurosymbolicService {
         }
     }
 
-    fn map_constraint(&self, constraint: &str) -> Option<domain::formal_query_language::FqlConstraint> {
+    fn map_constraint(
+        &self,
+        constraint: &str,
+    ) -> Option<domain::formal_query_language::FqlConstraint> {
         let c = constraint.to_lowercase();
         if c.contains("safe") {
             return Some(domain::formal_query_language::FqlConstraint::SafeDelete);

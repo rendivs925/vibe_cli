@@ -363,25 +363,33 @@ User request: {}",
     async fn understand_intent(&self, query: &str) -> Result<IntentAnalysis> {
         let client = infrastructure::ollama_client::OllamaClient::new()?;
         let prompt = format!(
-            r#"Analyze this query and return STRICT JSON only with these keys.
-Pick EXACTLY ONE value for intent_category, action, and target (no pipes or multiple values):
+            r#"You must respond with ONLY valid JSON. No markdown, no explanation, no text before or after.
 
+Analyze this query: "{}"
+
+Return this exact JSON structure (all fields required):
 {{
-  "intent_category": "system_info|process|memory|disk|network|service|user|file|log|hardware|general|unknown",
-  "action": "list|show|check|monitor|start|stop|restart|enable|disable|find|read|delete|unknown",
-  "target": "process|memory|disk|network|service|user|file|log|hardware|gpu|package|system|unknown",
-  "objects": ["..."],
-  "constraints": ["..."],
-  "params": {{"lines": "20", "pattern": "error", "service": "nginx", "path": "/var/log"}},
+  "intent_category": "system_info",
+  "action": "check",
+  "target": "disk",
+  "objects": [],
+  "constraints": [],
+  "params": {{}},
   "neurosymbolic_suitable": true,
-  "reasoning": "brief explanation",
+  "reasoning": "Query asks to check disk usage, which is a system_info intent with check action on disk target"
 }}
 
-Query: "{}""#,
-            query
+Rules:
+- intent_category: system_info|process|memory|disk|network|service|user|file|log|hardware|general
+- action: list|show|check|monitor|start|stop|restart|enable|disable|find|read|delete
+- target: process|memory|disk|network|service|user|file|log|hardware|gpu|package|system
+- neurosymbolic_suitable: true for most queries, false only for complex reasoning tasks
+- reasoning: 1-2 sentence explanation of your interpretation
+
+Query to analyze: "{}""#,
+            query, query
         );
 
-        let mut last = None;
         for _ in 0..3 {
             let response = client.generate_response(&prompt).await?;
             let parsed = self.parse_intent_analysis(&response)?;
@@ -391,20 +399,9 @@ Query: "{}""#,
             if has_signal {
                 return Ok(parsed);
             }
-            last = Some(parsed);
         }
 
-        let mut fallback = last.unwrap_or(IntentAnalysis {
-            intent: "unknown".to_string(),
-            neurosymbolic_suitable: false,
-            reasoning: "Could not parse".to_string(),
-            action: None,
-            target: None,
-            objects: Vec::new(),
-            constraints: Vec::new(),
-            params: HashMap::new(),
-        });
-        fallback.neurosymbolic_suitable = false;
+        let fallback = self.extract_intent_from_keywords(query);
         Ok(fallback)
     }
 
@@ -412,7 +409,11 @@ Query: "{}""#,
         let response = response.trim();
         let cleaned = if response.starts_with("```") && response.ends_with("```") {
             let start = response.find('\n').unwrap_or(0) + 1;
-            let end = response.len() - 3;
+            let end = response.len().saturating_sub(3);
+            response[start..end].trim().to_string()
+        } else if response.starts_with("```json") {
+            let start = response.find('\n').unwrap_or(0) + 1;
+            let end = response.len().saturating_sub(3);
             response[start..end].trim().to_string()
         } else {
             response.to_string()
@@ -429,7 +430,7 @@ Query: "{}""#,
             }
             let reasoning = parsed
                 .reasoning
-                .unwrap_or_else(|| "Could not parse".to_string());
+                .unwrap_or_else(|| "Parsed from JSON response".to_string());
             let params = parsed
                 .params
                 .unwrap_or_default()
@@ -462,7 +463,10 @@ Query: "{}""#,
 
         let mut intent = "unknown".to_string();
         let mut neurosymbolic_suitable = true;
-        let mut reasoning = "Could not parse".to_string();
+        let mut reasoning = String::new();
+        let mut action = None;
+        let mut target = None;
+
         for line in response.lines() {
             let line = line.trim();
             if line.starts_with("INTENT:") {
@@ -475,13 +479,33 @@ Query: "{}""#,
                 neurosymbolic_suitable = val.to_lowercase() == "yes";
             } else if line.starts_with("REASONING:") {
                 reasoning = line.replace("REASONING:", "").trim().to_string();
+            } else if line.starts_with("ACTION:") {
+                action = Some(line.replace("ACTION:", "").trim().to_string());
+            } else if line.starts_with("TARGET:") {
+                target = Some(line.replace("TARGET:", "").trim().to_string());
             }
         }
 
+        if intent != "unknown" || action.is_some() || target.is_some() {
+            if reasoning.is_empty() {
+                reasoning = format!("Extracted from response: intent={}, action={:?}, target={:?}", intent, action, target);
+            }
+            return Ok(IntentAnalysis {
+                intent,
+                neurosymbolic_suitable,
+                reasoning,
+                action,
+                target,
+                objects: Vec::new(),
+                constraints: Vec::new(),
+                params: HashMap::new(),
+            });
+        }
+
         Ok(IntentAnalysis {
-            intent,
-            neurosymbolic_suitable,
-            reasoning,
+            intent: "unknown".to_string(),
+            neurosymbolic_suitable: false,
+            reasoning: "Could not parse LLM response - returning for keyword-based fallback".to_string(),
             action: None,
             target: None,
             objects: Vec::new(),
@@ -497,6 +521,91 @@ Query: "{}""#,
             .find(|s| !s.is_empty())
             .unwrap_or("unknown")
             .to_string()
+    }
+
+    fn extract_intent_from_keywords(&self, query: &str) -> IntentAnalysis {
+        let query_lower = query.to_lowercase();
+        let mut intent = "general".to_string();
+        let mut action: Option<String> = None;
+        let mut target: Option<String> = None;
+        let mut reasoning = String::new();
+
+        if query_lower.contains("disk") || query_lower.contains("storage") || query_lower.contains("space") {
+            intent = "disk".to_string();
+            target = Some("disk".to_string());
+            action = Some("check".to_string());
+            reasoning = "Query contains disk/storage/space keywords, interpreted as disk check intent".to_string();
+        } else if query_lower.contains("memory") || query_lower.contains("ram") || query_lower.contains("usage") {
+            intent = "memory".to_string();
+            target = Some("memory".to_string());
+            action = Some("check".to_string());
+            reasoning = "Query contains memory/ram/usage keywords, interpreted as memory check intent".to_string();
+        } else if query_lower.contains("cpu") || query_lower.contains("processor") {
+            intent = "system_info".to_string();
+            target = Some("cpu".to_string());
+            action = Some("check".to_string());
+            reasoning = "Query contains cpu/processor keywords, interpreted as CPU check".to_string();
+        } else if query_lower.contains("process") || query_lower.contains("running") || query_lower.contains("ps ") {
+            intent = "process".to_string();
+            target = Some("process".to_string());
+            if query_lower.contains("list") || query_lower.contains("show") {
+                action = Some("list".to_string());
+            } else {
+                action = Some("check".to_string());
+            }
+            reasoning = "Query contains process/running keywords, interpreted as process intent".to_string();
+        } else if query_lower.contains("service") || query_lower.contains("nginx") || query_lower.contains("docker") || query_lower.contains("systemctl") {
+            intent = "service".to_string();
+            target = Some("service".to_string());
+            action = Some("check".to_string());
+            reasoning = "Query contains service/nginx/docker keywords, interpreted as service intent".to_string();
+        } else if query_lower.contains("network") || query_lower.contains("connection") || query_lower.contains("port") {
+            intent = "network".to_string();
+            target = Some("network".to_string());
+            action = Some("check".to_string());
+            reasoning = "Query contains network/connection/port keywords, interpreted as network intent".to_string();
+        } else if query_lower.contains("log") || query_lower.contains("journal") || query_lower.contains("error") {
+            intent = "log".to_string();
+            target = Some("log".to_string());
+            action = Some("read".to_string());
+            reasoning = "Query contains log/journal/error keywords, interpreted as log intent".to_string();
+        } else if query_lower.contains("gpu") || query_lower.contains("graphics") || query_lower.contains("display") {
+            intent = "hardware".to_string();
+            target = Some("gpu".to_string());
+            action = Some("show".to_string());
+            reasoning = "Query contains gpu/graphics/display keywords, interpreted as hardware/gpu intent".to_string();
+        } else if query_lower.contains("file") || query_lower.contains("directory") || query_lower.contains("find") {
+            intent = "file".to_string();
+            target = Some("file".to_string());
+            action = Some("find".to_string());
+            reasoning = "Query contains file/directory/find keywords, interpreted as file intent".to_string();
+        } else if query_lower.contains("user") || query_lower.contains("who") || query_lower.contains("login") {
+            intent = "user".to_string();
+            target = Some("user".to_string());
+            action = Some("list".to_string());
+            reasoning = "Query contains user/who/login keywords, interpreted as user intent".to_string();
+        } else if query_lower.contains("package") || query_lower.contains("install") || query_lower.contains("apt") {
+            intent = "system_info".to_string();
+            target = Some("package".to_string());
+            action = Some("list".to_string());
+            reasoning = "Query contains package/apt keywords, interpreted as package intent".to_string();
+        } else {
+            intent = "system_info".to_string();
+            target = Some("system".to_string());
+            action = Some("show".to_string());
+            reasoning = format!("Default fallback for query: '{}' - interpreted as general system info request", query);
+        }
+
+        IntentAnalysis {
+            intent,
+            neurosymbolic_suitable: true,
+            reasoning,
+            action,
+            target,
+            objects: Vec::new(),
+            constraints: Vec::new(),
+            params: HashMap::new(),
+        }
     }
 
     pub async fn handle_neurosymbolic(&mut self, query: &str, ai_interpret: bool) -> Result<()> {
