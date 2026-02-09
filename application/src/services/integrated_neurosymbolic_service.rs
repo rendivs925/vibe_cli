@@ -317,8 +317,12 @@ impl IntegratedNeurosymbolicService {
             .as_ref()
             .and_then(|registry| registry.resolve_reasoning_template(query, fql.as_ref()))
             .map(|template| self.render_reasoning_template(&template, fql.as_ref(), intent));
-        let command =
-            self.generate_command(query, fql.as_ref(), learning_context.as_deref(), &mut trace)?;
+        let command = self.generate_command(
+            query,
+            fql.as_ref(),
+            learning_context.as_deref(),
+            &mut trace,
+        )?;
         trace.push(format!("  Generated: {}", command));
 
         // Step 4: Safety Validation
@@ -426,6 +430,9 @@ impl IntegratedNeurosymbolicService {
                 if resolved.confidence < min_confidence {
                     return Err(anyhow!("Low confidence neurosymbolic match"));
                 }
+                if let Some(query_fql) = fql {
+                    self.self_critique_operation(registry, query_fql, &resolved.op_id, trace)?;
+                }
                 trace.push(format!(
                     "  Resolved operation: {} ({:.0}%)",
                     resolved.op_id,
@@ -511,6 +518,37 @@ impl IntegratedNeurosymbolicService {
             }
             _ => command,
         }
+    }
+
+    fn self_critique_operation(
+        &self,
+        registry: &domain::domain_config::registry::DomainRegistry,
+        query_fql: &FqlQuery,
+        op_id: &str,
+        trace: &mut Vec<String>,
+    ) -> Result<()> {
+        let Some(scores) = registry.match_scores(query_fql, op_id) else {
+            trace.push("  Self-critique: no signature scores available".to_string());
+            return Ok(());
+        };
+
+        let (action_score, target_score, total_score) = scores;
+        trace.push(format!(
+            "  Self-critique: action {:.0}%, target {:.0}% (total {:.0}%)",
+            action_score * 100.0,
+            target_score * 100.0,
+            total_score * 100.0
+        ));
+
+        if target_score < 0.7 {
+            return Err(anyhow!("Self-critique: target mismatch"));
+        }
+
+        if action_score < 0.6 {
+            return Err(anyhow!("Self-critique: action mismatch"));
+        }
+
+        Ok(())
     }
 
     fn render_reasoning_template(

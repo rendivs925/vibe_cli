@@ -569,6 +569,21 @@ impl DomainRegistry {
         })
     }
 
+    pub fn match_scores(
+        &self,
+        query_fql: &FqlQuery,
+        op_id: &str,
+    ) -> Option<(f32, f32, f32)> {
+        let (domain, op) = self.get_operation(op_id)?;
+        let key = Self::operation_key(&domain.id, &op.id);
+        let signature = self.operation_signatures.get(&key)?;
+
+        let action_score = self.action_similarity(&query_fql.action, &signature.fql.action);
+        let target_score = self.target_similarity(&query_fql.target, &signature.fql.target);
+        let total_score = self.score_fql_match(query_fql, &signature.fql);
+        Some((action_score, target_score, total_score))
+    }
+
     fn operation_key(domain_id: &str, op_id: &str) -> String {
         format!("{}.{}", domain_id, op_id)
     }
