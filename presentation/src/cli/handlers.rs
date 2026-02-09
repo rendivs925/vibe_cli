@@ -527,8 +527,31 @@ Query: "{}""#,
             query
         );
 
-        let response = client.generate_response(&prompt).await?;
-        self.parse_intent_analysis(&response)
+        let mut last = None;
+        for _ in 0..3 {
+            let response = client.generate_response(&prompt).await?;
+            let parsed = self.parse_intent_analysis(&response)?;
+            let has_signal = parsed.intent != "unknown"
+                || parsed.action.as_deref().unwrap_or("unknown") != "unknown"
+                || parsed.target.as_deref().unwrap_or("unknown") != "unknown";
+            if has_signal {
+                return Ok(parsed);
+            }
+            last = Some(parsed);
+        }
+
+        let mut fallback = last.unwrap_or(IntentAnalysis {
+            intent: "unknown".to_string(),
+            neurosymbolic_suitable: false,
+            reasoning: "Could not parse".to_string(),
+            action: None,
+            target: None,
+            objects: Vec::new(),
+            constraints: Vec::new(),
+            params: HashMap::new(),
+        });
+        fallback.neurosymbolic_suitable = false;
+        Ok(fallback)
     }
 
     fn parse_intent_analysis(&self, response: &str) -> Result<IntentAnalysis> {
