@@ -555,7 +555,16 @@ Query: "{}""#,
     }
 
     fn parse_intent_analysis(&self, response: &str) -> Result<IntentAnalysis> {
-        if let Ok(parsed) = serde_json::from_str::<IntentAnalysisResponse>(response) {
+        let response = response.trim();
+        let cleaned = if response.starts_with("```") && response.ends_with("```") {
+            let start = response.find('\n').unwrap_or(0) + 1;
+            let end = response.len() - 3;
+            response[start..end].trim().to_string()
+        } else {
+            response.to_string()
+        };
+
+        if let Ok(parsed) = serde_json::from_str::<IntentAnalysisResponse>(&cleaned) {
             let intent = parsed
                 .intent_category
                 .unwrap_or_else(|| "unknown".to_string());
