@@ -411,7 +411,13 @@ impl IntegratedNeurosymbolicService {
     ) -> Result<String> {
         if let Some(registry) = &self.domain_registry {
             if let Some(resolved) = registry.resolve_operation(query, fql) {
-                if resolved.confidence < 0.75 {
+                let mut min_confidence = 0.75;
+                if let Some(fql) = fql {
+                    if !matches!(fql.target, FqlTarget::Resource(_) | FqlTarget::Entity(_)) {
+                        min_confidence = 0.5;
+                    }
+                }
+                if resolved.confidence < min_confidence {
                     return Err(anyhow!("Low confidence neurosymbolic match"));
                 }
                 trace.push(format!(
