@@ -96,6 +96,8 @@ pub struct NeurosymbolicResult {
     pub risk_profile: Option<RiskProfile>,
     /// Formal safety proof (for critical operations)
     pub safety_proof: Option<SafetyProof>,
+    /// Structured reasoning template (if available)
+    pub reasoning_template: Option<domain::domain_config::types::ReasoningTemplate>,
     /// Whether execution is allowed
     pub can_execute: bool,
     /// Reason if execution blocked
@@ -137,11 +139,15 @@ impl NeurosymbolicResult {
 
         // Risk assessment
         if let Some(ref profile) = self.risk_profile {
-            output.push_str(&format!(
-                "Risk: {} ({:.2})\n",
-                profile.risk_level.as_str(),
-                profile.overall_score
-            ));
+            if self.reasoning_template.is_some() {
+                output.push_str(&format!("Risk: {}\n", profile.risk_level.as_str()));
+            } else {
+                output.push_str(&format!(
+                    "Risk: {} ({:.2})\n",
+                    profile.risk_level.as_str(),
+                    profile.overall_score
+                ));
+            }
             if !profile.mitigation_steps.is_empty() {
                 output.push_str("Mitigations:\n");
                 for step in &profile.mitigation_steps {
@@ -158,6 +164,19 @@ impl NeurosymbolicResult {
                 status,
                 proof.confidence * 100.0
             ));
+        }
+
+        if let Some(ref template) = self.reasoning_template {
+            output.push_str("Reasoning Plan:\n");
+            for step in &template.steps {
+                output.push_str(&format!("  Step {}: {}\n", step.step, step.check));
+                if !step.logic.trim().is_empty() {
+                    output.push_str(&format!("    Logic: {}\n", step.logic));
+                }
+                if !step.next.is_empty() {
+                    output.push_str(&format!("    Next: {}\n", step.next.join(", ")));
+                }
+            }
         }
 
         // Execution status
@@ -300,6 +319,11 @@ impl IntegratedNeurosymbolicService {
 
         // Step 3: Generate command (simplified - would use domain config)
         trace.push("Step 3: Generating command...".to_string());
+        let reasoning_template = self
+            .domain_registry
+            .as_ref()
+            .and_then(|registry| registry.resolve_reasoning_template(query, fql.as_ref()))
+            .map(|template| self.render_reasoning_template(&template, fql.as_ref(), intent));
         let command = self.generate_command(query, fql.as_ref(), learning_context.as_deref(), &mut trace)?;
         trace.push(format!("  Generated: {}", command));
 
@@ -382,6 +406,7 @@ impl IntegratedNeurosymbolicService {
             learning_context,
             risk_profile,
             safety_proof,
+            reasoning_template,
             can_execute,
             block_reason,
             trace,
@@ -486,6 +511,86 @@ impl IntegratedNeurosymbolicService {
             }
             _ => command,
         }
+    }
+
+    fn render_reasoning_template(
+        &self,
+        template: &domain::domain_config::types::ReasoningTemplate,
+        fql: Option<&FqlQuery>,
+        intent: Option<&IntentSignal>,
+    ) -> domain::domain_config::types::ReasoningTemplate {
+        let mut context: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
+        if let Some(fql) = fql {
+            match &fql.target {
+                FqlTarget::Service(svc) if svc != "*" => {
+                    context.insert("service".to_string(), svc.clone());
+                }
+                FqlTarget::Process(proc_name) if proc_name != "*" => {
+                    context.insert("process".to_string(), proc_name.clone());
+                }
+                FqlTarget::Path(path) | FqlTarget::Directory(path) | FqlTarget::File(path) => {
+                    context.insert("path".to_string(), path.clone());
+                }
+                FqlTarget::Log(log) if log != "*" => {
+                    context.insert("log".to_string(), log.clone());
+                }
+                FqlTarget::NetworkInterface(iface) if iface != "*" => {
+                    context.insert("interface".to_string(), iface.clone());
+                }
+                FqlTarget::User(user) if user != "*" => {
+                    context.insert("user".to_string(), user.clone());
+                }
+                FqlTarget::Package(pkg) if pkg != "*" => {
+                    context.insert("package".to_string(), pkg.clone());
+                }
+                _ => {}
+            }
+
+            if let Some(pattern) = &fql.pattern {
+                context.insert("pattern".to_string(), pattern.to_string());
+            }
+
+            for constraint in &fql.constraints {
+                if let domain::formal_query_language::FqlConstraint::Limit(n) = constraint {
+                    context.insert("lines".to_string(), n.to_string());
+                }
+            }
+        }
+
+        if let Some(intent) = intent {
+            for (k, v) in &intent.params {
+                if !v.is_empty() && !context.contains_key(k) {
+                    context.insert(k.clone(), v.clone());
+                }
+            }
+        }
+
+        let replace_vars = |input: &str, ctx: &std::collections::HashMap<String, String>| {
+            let mut out = input.to_string();
+            for (k, v) in ctx {
+                out = out.replace(&format!("{{{{{}}}}}", k), v);
+            }
+            out
+        };
+
+        let mut rendered = template.clone();
+        rendered.steps = rendered
+            .steps
+            .into_iter()
+            .map(|mut step| {
+                step.check = replace_vars(&step.check, &context);
+                step.logic = replace_vars(&step.logic, &context);
+                step.next = step
+                    .next
+                    .into_iter()
+                    .map(|n| replace_vars(&n, &context))
+                    .collect();
+                step
+            })
+            .collect();
+
+        rendered
     }
 
     fn strip_invalid_flags(&self, command: &str, invalid_flags: &[String]) -> Option<String> {

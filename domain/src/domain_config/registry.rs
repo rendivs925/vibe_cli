@@ -451,6 +451,37 @@ impl DomainRegistry {
         None
     }
 
+    /// Resolve the best reasoning template for a query using FQL matching
+    pub fn resolve_reasoning_template(
+        &self,
+        query: &str,
+        fql: Option<&FqlQuery>,
+    ) -> Option<ReasoningTemplate> {
+        let query_fql = match fql {
+            Some(fql) => fql.clone(),
+            None => self.fql_parser.parse(query)?,
+        };
+
+        let mut best: Option<(f32, ReasoningTemplate)> = None;
+
+        for domain in self.enabled_domains() {
+            for template in &domain.reasoning_templates {
+                let Some(template_fql) = self.fql_parser.parse(&template.goal) else {
+                    continue;
+                };
+                let score = self.score_fql_match(&query_fql, &template_fql);
+                if score <= 0.0 {
+                    continue;
+                }
+                if best.as_ref().map(|(c, _)| score > *c).unwrap_or(true) {
+                    best = Some((score, template.clone()));
+                }
+            }
+        }
+
+        best.map(|(_, t)| t)
+    }
+
     /// Get command generator
     pub fn command_generator(&self) -> &crate::domain_config::command_generator::CommandGenerator {
         &self.command_generator
