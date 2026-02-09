@@ -579,6 +579,13 @@ Query: "{}""#,
             });
         }
 
+        if std::env::var("VIBE_CLI_INTENT_DEBUG")
+            .map(|v| v == "1" || v.eq_ignore_ascii_case("true"))
+            .unwrap_or(false)
+        {
+            eprintln!("Intent parse failed. Raw response:\n{}", response);
+        }
+
         let mut intent = "unknown".to_string();
         let mut neurosymbolic_suitable = true;
         let mut reasoning = "Could not parse".to_string();
