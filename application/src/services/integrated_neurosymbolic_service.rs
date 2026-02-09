@@ -247,6 +247,19 @@ impl IntegratedNeurosymbolicService {
         })
     }
 
+    pub fn reload_domain_registry(&mut self) -> Result<()> {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let base_dir = PathBuf::from(home).join(".config/vibe_cli");
+        let domains_dir = base_dir.join("domains");
+        let shared_dir = base_dir.join("shared_entities");
+        let _ = std::fs::create_dir_all(&domains_dir);
+        let _ = std::fs::create_dir_all(&shared_dir);
+
+        self.domain_registry =
+            DomainRegistry::new(domains_dir.clone(), domains_dir, shared_dir).ok();
+        Ok(())
+    }
+
     /// Process a query through the complete neurosymbolic pipeline
     pub fn process(&mut self, query: &str) -> Result<NeurosymbolicResult> {
         self.process_with_intent(query, None)

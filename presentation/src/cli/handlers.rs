@@ -778,7 +778,9 @@ Query: "{}""#,
                 "\n{}",
                 format!("Saved new operation to: {}", ops_file.display()).green()
             );
-            println!("Restart vibe_cli or run --neurosymbolic-init to use the new operation.");
+            if let Some(service) = self.integrated_service.as_mut() {
+                let _ = service.reload_domain_registry();
+            }
         }
 
         Ok(())
