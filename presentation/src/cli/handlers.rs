@@ -1881,10 +1881,6 @@ Query: "{}""#,
                                 .get("description")
                                 .and_then(|d| d.as_str())
                                 .unwrap_or("");
-                            let version = domain
-                                .get("version")
-                                .and_then(|v| v.as_str())
-                                .unwrap_or("?");
                             let enabled = domain
                                 .get("enabled")
                                 .and_then(|e| e.as_bool())
@@ -1892,10 +1888,9 @@ Query: "{}""#,
 
                             let status = if enabled { "enabled" } else { "disabled" };
                             println!(
-                                "  {} - {} (v{}) [{}]",
+                                "  {} - {} [{}]",
                                 domain_name.green().bold(),
                                 desc,
-                                version,
                                 status
                             );
                             domains.push(domain_name);
