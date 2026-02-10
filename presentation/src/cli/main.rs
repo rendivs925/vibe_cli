@@ -81,10 +81,6 @@ pub struct Cli {
     #[arg(long)]
     pub no_learning: bool,
 
-    /// Output FQL (Formal Query Language) representation
-    #[arg(long)]
-    pub fql_output: bool,
-
     /// Show reasoning trace
     #[arg(long)]
     pub trace: bool,

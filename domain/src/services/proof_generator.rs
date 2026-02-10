@@ -9,7 +9,6 @@
 //! - Reversibility: Command effects can be undone
 //! - Resource bounds: Command respects resource limits
 
-use crate::formal_query_language::{FqlAction, FqlConstraint, FqlQuery};
 use crate::safety::SafetyReport;
 
 /// A formal safety proof
@@ -122,11 +121,10 @@ impl ProofGenerator {
         &self,
         command: &str,
         safety_report: &SafetyReport,
-        fql: Option<&FqlQuery>,
     ) -> SafetyProof {
         let mut proof_steps = vec![];
         let mut step_number = 1;
-        let mut assumptions = vec![];
+        let assumptions = vec![];
 
         // Step 1: Initial safety assumption
         proof_steps.push(ProofStep {
@@ -158,42 +156,7 @@ impl ProofGenerator {
             return self.create_failed_proof(command, proof_steps, "Safety violations detected");
         }
 
-        // Step 3: Analyze FQL if available
-        if let Some(fql) = fql {
-            let fql_safe = self.verify_fql_safety(fql);
-            proof_steps.push(ProofStep {
-                step_number,
-                statement: format!(
-                    "FQL representation indicates {} risk",
-                    if fql_safe { "acceptable" } else { "high" }
-                ),
-                justification: Justification::DomainKnowledge("FQL risk assessment".to_string()),
-                verified: fql_safe,
-            });
-            step_number += 1;
-
-            if !fql_safe {
-                return self.create_failed_proof(command, proof_steps, "FQL indicates high risk");
-            }
-
-            // Step 4: Check constraints
-            for constraint in &fql.constraints {
-                let constraint_verified = self.verify_constraint(constraint);
-                proof_steps.push(ProofStep {
-                    step_number,
-                    statement: format!("Constraint '{:?}' satisfied", constraint),
-                    justification: Justification::Axiom(format!("{:?}", constraint)),
-                    verified: constraint_verified,
-                });
-                step_number += 1;
-
-                if !constraint_verified {
-                    assumptions.push(format!("Constraint not met: {:?}", constraint));
-                }
-            }
-        }
-
-        // Step 5: Final verification
+        // Step 3: Final verification
         let all_steps_verified = proof_steps.iter().all(|s| s.verified);
         let confidence = if all_steps_verified {
             0.95
@@ -226,7 +189,7 @@ impl ProofGenerator {
     }
 
     /// Generate idempotency proof
-    pub fn generate_idempotency_proof(&self, command: &str, fql: Option<&FqlQuery>) -> SafetyProof {
+    pub fn generate_idempotency_proof(&self, command: &str) -> SafetyProof {
         let mut proof_steps = vec![];
 
         // Check if command is naturally idempotent
@@ -248,28 +211,6 @@ impl ProofGenerator {
             verified: is_idempotent,
         });
 
-        if let Some(fql) = fql {
-            let read_only = matches!(
-                fql.action,
-                FqlAction::List
-                    | FqlAction::Read
-                    | FqlAction::Show
-                    | FqlAction::Check
-                    | FqlAction::Monitor
-            );
-
-            proof_steps.push(ProofStep {
-                step_number: 2,
-                statement: format!(
-                    "FQL action '{:?}' is {}",
-                    fql.action,
-                    if read_only { "read-only" } else { "modifying" }
-                ),
-                justification: Justification::DomainKnowledge("FQL semantics".to_string()),
-                verified: read_only,
-            });
-        }
-
         let verified = proof_steps.iter().all(|s| s.verified);
 
         SafetyProof {
@@ -287,113 +228,34 @@ impl ProofGenerator {
     pub fn generate_reversibility_proof(
         &self,
         command: &str,
-        fql: Option<&FqlQuery>,
     ) -> SafetyProof {
         let mut proof_steps = vec![];
 
-        // Check for backup constraints
-        let has_backup = fql
-            .map(|f| {
-                f.constraints
-                    .iter()
-                    .any(|c| matches!(c, FqlConstraint::Backup))
-            })
-            .unwrap_or(false);
-
         proof_steps.push(ProofStep {
             step_number: 1,
-            statement: if has_backup {
-                "Backup constraint present - operation is reversible".to_string()
-            } else {
-                "No backup constraint - manual reversal required".to_string()
-            },
-            justification: Justification::SafetyRule("Backup requirement".to_string()),
-            verified: has_backup,
+            statement: "Reversibility depends on operator safeguards".to_string(),
+            justification: Justification::SafetyRule("Operator safeguards".to_string()),
+            verified: false,
         });
-
-        // Check for safe delete
-        let safe_delete = fql
-            .map(|f| {
-                f.constraints
-                    .iter()
-                    .any(|c| matches!(c, FqlConstraint::SafeDelete))
-            })
-            .unwrap_or(false);
 
         proof_steps.push(ProofStep {
             step_number: 2,
-            statement: if safe_delete {
-                "Safe delete constraint present".to_string()
-            } else {
-                "Standard delete - use with caution".to_string()
-            },
+            statement: "No explicit safe-delete signal available".to_string(),
             justification: Justification::SafetyRule("Safe deletion".to_string()),
-            verified: safe_delete,
+            verified: false,
         });
-
-        let verified = has_backup || safe_delete;
 
         SafetyProof {
             command: command.to_string(),
             proof_type: ProofType::Reversibility,
-            verified,
-            confidence: if verified { 0.85 } else { 0.30 },
-            assumptions: vec!["Manual backup recommended".to_string()],
+            verified: false,
+            confidence: 0.30,
+            assumptions: vec![
+                "Manual backup recommended".to_string(),
+                "Verify reversibility before execution".to_string(),
+            ],
             proof_steps,
             certificate: self.generate_certificate(command),
-        }
-    }
-
-    /// Verify FQL safety
-    fn verify_fql_safety(&self, fql: &FqlQuery) -> bool {
-        // Check action type
-        let safe_actions = vec![
-            FqlAction::List,
-            FqlAction::Read,
-            FqlAction::Show,
-            FqlAction::Check,
-            FqlAction::Monitor,
-            FqlAction::Find,
-        ];
-
-        if safe_actions.contains(&fql.action) {
-            return true;
-        }
-
-        // Check for safety constraints
-        let has_safety = fql.constraints.iter().any(|c| {
-            matches!(
-                c,
-                FqlConstraint::SafeDelete | FqlConstraint::DryRun | FqlConstraint::Confirm
-            )
-        });
-
-        if has_safety {
-            return true;
-        }
-
-        // High-risk actions without safety constraints
-        let risky_actions = vec![
-            FqlAction::Delete,
-            FqlAction::Destroy,
-            FqlAction::Drop,
-            FqlAction::Purge,
-            FqlAction::Truncate,
-        ];
-
-        !risky_actions.contains(&fql.action)
-    }
-
-    /// Verify individual constraint
-    fn verify_constraint(&self, constraint: &FqlConstraint) -> bool {
-        match constraint {
-            FqlConstraint::SafeDelete => true,
-            FqlConstraint::DryRun => true,
-            FqlConstraint::Confirm => true,
-            FqlConstraint::Backup => true,
-            FqlConstraint::RequiresRoot => true,
-            FqlConstraint::RequiresSudo => true,
-            _ => true, // Most constraints are verifiable
         }
     }
 
@@ -488,7 +350,7 @@ mod tests {
         let generator = ProofGenerator::new();
         let safety_report = SafetyReport::safe("ls /tmp");
 
-        let proof = generator.generate_safety_proof("ls /tmp", &safety_report, None);
+        let proof = generator.generate_safety_proof("ls /tmp", &safety_report);
 
         assert!(proof.verified);
         assert!(proof.confidence > 0.5);
@@ -502,7 +364,7 @@ mod tests {
         let violations = vec![];
         let safety_report = SafetyReport::with_violations("rm -rf /", violations);
 
-        let proof = generator.generate_safety_proof("rm -rf /", &safety_report, None);
+        let proof = generator.generate_safety_proof("rm -rf /", &safety_report);
 
         // Should not be verified due to safety report
         assert!(!proof.verified);
@@ -511,7 +373,7 @@ mod tests {
     #[test]
     fn test_idempotency_proof() {
         let generator = ProofGenerator::new();
-        let proof = generator.generate_idempotency_proof("ls -la", None);
+        let proof = generator.generate_idempotency_proof("ls -la");
 
         assert!(proof.verified);
         assert_eq!(proof.proof_type, ProofType::Idempotency);
@@ -530,7 +392,7 @@ mod tests {
     fn test_proof_formatting() {
         let generator = ProofGenerator::new();
         let safety_report = SafetyReport::safe("cat file.txt");
-        let proof = generator.generate_safety_proof("cat file.txt", &safety_report, None);
+        let proof = generator.generate_safety_proof("cat file.txt", &safety_report);
 
         let formatted = generator.format_proof(&proof);
         assert!(formatted.contains("Safety Proof"));

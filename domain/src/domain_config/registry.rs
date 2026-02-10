@@ -2,17 +2,9 @@
 
 use crate::domain_config::loader::DomainLoader;
 use crate::domain_config::types::*;
-use crate::formal_query_language::{FqlAction, FqlConstraint, FqlParser, FqlQuery, FqlTarget};
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
-
-#[derive(Debug, Clone)]
-struct OperationSignature {
-    fql: FqlQuery,
-    #[allow(dead_code)]
-    confidence: f32,
-}
 
 /// Intent match result with detailed scoring
 #[derive(Debug, Clone)]
@@ -64,10 +56,6 @@ pub struct DomainRegistry {
     domains: HashMap<String, Domain>,
     entities: HashMap<String, Entity>,
     command_generator: crate::domain_config::command_generator::CommandGenerator,
-    #[allow(dead_code)]
-    inverted_index: HashMap<String, HashSet<String>>,
-    operation_signatures: HashMap<String, OperationSignature>,
-    fql_parser: FqlParser,
 }
 
 impl DomainRegistry {
@@ -81,41 +69,10 @@ impl DomainRegistry {
         let domains = loader.load_all()?;
 
         let mut entities = HashMap::new();
-        let mut inverted_index: HashMap<String, HashSet<String>> = HashMap::new();
-        let fql_parser = FqlParser::new();
-        let mut operation_signatures: HashMap<String, OperationSignature> = HashMap::new();
-
-        for (name, domain) in &domains {
+        for (_name, domain) in &domains {
             for (entity_name, entity) in &domain.entities {
                 if !entities.contains_key(entity_name) {
                     entities.insert(entity_name.clone(), entity.clone());
-                }
-                for prop in &entity.core_properties {
-                    Self::add_to_index(
-                        &mut inverted_index,
-                        &prop.name.to_lowercase(),
-                        &entity_name,
-                    );
-                    Self::add_to_index(
-                        &mut inverted_index,
-                        &prop.meaning.to_lowercase(),
-                        &entity_name,
-                    );
-                }
-            }
-            for op in &domain.operations {
-                Self::add_to_index(&mut inverted_index, &op.id.to_lowercase(), &op.name);
-                Self::add_to_index(&mut inverted_index, &op.name.to_lowercase(), &op.id);
-                Self::add_to_index(&mut inverted_index, &op.description.to_lowercase(), &op.id);
-                for example in &op.examples {
-                    for word in example.description.to_lowercase().split_whitespace() {
-                        Self::add_to_index(&mut inverted_index, word, &op.id);
-                    }
-                }
-
-                if let Some(signature) = Self::build_operation_signature(&fql_parser, op) {
-                    let key = Self::operation_key(name, &op.id);
-                    operation_signatures.insert(key, signature);
                 }
             }
         }
@@ -124,19 +81,7 @@ impl DomainRegistry {
             domains,
             entities,
             command_generator: crate::domain_config::command_generator::CommandGenerator::new(),
-            inverted_index,
-            operation_signatures,
-            fql_parser,
         })
-    }
-
-    fn add_to_index(index: &mut HashMap<String, HashSet<String>>, word: &str, value: &str) {
-        if word.len() > 2 {
-            index
-                .entry(word.to_string())
-                .or_insert_with(HashSet::new)
-                .insert(value.to_string());
-        }
     }
 
     /// Get a domain by ID
@@ -152,13 +97,9 @@ impl DomainRegistry {
     /// Query domains by intent with detailed matching
     pub fn query_intent_detailed(&self, intent: &str) -> Vec<IntentMatch> {
         let mut matches = Vec::new();
-        let query_fql = match self.fql_parser.parse(intent) {
-            Some(fql) => fql,
-            None => return matches,
-        };
 
         for domain in self.enabled_domains() {
-            if let Some(m) = self.match_intent_detailed(domain, intent, &query_fql) {
+            if let Some(m) = self.match_intent_detailed(domain, intent) {
                 matches.push(m);
             }
         }
@@ -180,7 +121,6 @@ impl DomainRegistry {
         &self,
         domain: &Domain,
         intent: &str,
-        query_fql: &FqlQuery,
     ) -> Option<IntentMatch> {
         let intent_lower = intent.to_lowercase();
 
@@ -202,17 +142,11 @@ impl DomainRegistry {
             });
         }
 
-        // Find best matching operation by semantic intent signature
+        // Find best matching operation by fuzzy intent similarity
         let mut best_match: Option<(f32, &Operation)> = None;
 
         for op in &domain.operations {
-            let key = Self::operation_key(&domain.id, &op.id);
-            let signature = match self.operation_signatures.get(&key) {
-                Some(sig) => sig,
-                None => continue,
-            };
-
-            let confidence = self.score_fql_match(query_fql, &signature.fql);
+            let confidence = self.score_text_match(intent, op);
             if confidence <= 0.0 {
                 continue;
             }
@@ -226,8 +160,8 @@ impl DomainRegistry {
             return Some(IntentMatch {
                 domain: domain.id.clone(),
                 confidence,
-                matched_on: MatchSource::OperationIntent,
-                matched_value: op.id.clone(),
+                matched_on: self.best_match_source(intent, op),
+                matched_value: op.name.clone(),
             });
         }
 
@@ -257,7 +191,7 @@ impl DomainRegistry {
 
     /// Find best operation for intent
     pub fn find_operation(&self, intent: &str) -> Option<(&Domain, &Operation, f32)> {
-        let resolved = self.resolve_operation(intent, None)?;
+        let resolved = self.resolve_operation(intent)?;
         let (domain, op) = self.get_operation(&resolved.op_id)?;
         Some((domain, op, resolved.confidence))
     }
@@ -451,25 +385,16 @@ impl DomainRegistry {
         None
     }
 
-    /// Resolve the best reasoning template for a query using FQL matching
+    /// Resolve the best reasoning template for a query using fuzzy matching
     pub fn resolve_reasoning_template(
         &self,
         query: &str,
-        fql: Option<&FqlQuery>,
     ) -> Option<ReasoningTemplate> {
-        let query_fql = match fql {
-            Some(fql) => fql.clone(),
-            None => self.fql_parser.parse(query)?,
-        };
-
         let mut best: Option<(f32, ReasoningTemplate)> = None;
 
         for domain in self.enabled_domains() {
             for template in &domain.reasoning_templates {
-                let Some(template_fql) = self.fql_parser.parse(&template.goal) else {
-                    continue;
-                };
-                let score = self.score_fql_match(&query_fql, &template_fql);
+                let score = self.score_template_match(query, template);
                 if score <= 0.0 {
                     continue;
                 }
@@ -514,27 +439,12 @@ impl DomainRegistry {
     }
 
     /// Resolve the best operation for a query using semantic intent matching
-    pub fn resolve_operation(
-        &self,
-        query: &str,
-        fql: Option<&FqlQuery>,
-    ) -> Option<ResolvedOperation> {
-        let query_fql = match fql {
-            Some(fql) => fql.clone(),
-            None => self.fql_parser.parse(query)?,
-        };
-
+    pub fn resolve_operation(&self, query: &str) -> Option<ResolvedOperation> {
         let mut best: Option<(f32, String, String, MatchSource, String)> = None;
 
         for domain in self.enabled_domains() {
             for op in &domain.operations {
-                let key = Self::operation_key(&domain.id, &op.id);
-                let signature = match self.operation_signatures.get(&key) {
-                    Some(sig) => sig,
-                    None => continue,
-                };
-
-                let score = self.score_fql_match(&query_fql, &signature.fql);
+                let score = self.score_text_match(query, op);
                 if score <= 0.0 {
                     continue;
                 }
@@ -548,7 +458,7 @@ impl DomainRegistry {
                         score,
                         domain.id.clone(),
                         op.id.clone(),
-                        MatchSource::OperationIntent,
+                        self.best_match_source(query, op),
                         op.name.clone(),
                     ));
                 }
@@ -557,7 +467,7 @@ impl DomainRegistry {
 
         let (confidence, domain_id, op_id, matched_on, matched_value) = best?;
         let operation = self.get_operation(&op_id)?;
-        let inputs = self.extract_inputs(operation.1, query, Some(&query_fql));
+        let inputs = self.extract_inputs(operation.1, query);
 
         Some(ResolvedOperation {
             domain_id,
@@ -568,163 +478,12 @@ impl DomainRegistry {
             matched_value,
         })
     }
-
-    pub fn match_scores(
-        &self,
-        query_fql: &FqlQuery,
-        op_id: &str,
-    ) -> Option<(f32, f32, f32)> {
-        let (domain, op) = self.get_operation(op_id)?;
-        let key = Self::operation_key(&domain.id, &op.id);
-        let signature = self.operation_signatures.get(&key)?;
-
-        let action_score = self.action_similarity(&query_fql.action, &signature.fql.action);
-        let target_score = self.target_similarity(&query_fql.target, &signature.fql.target);
-        let total_score = self.score_fql_match(query_fql, &signature.fql);
-        Some((action_score, target_score, total_score))
-    }
-
-    fn operation_key(domain_id: &str, op_id: &str) -> String {
-        format!("{}.{}", domain_id, op_id)
-    }
-
-    fn build_operation_signature(parser: &FqlParser, op: &Operation) -> Option<OperationSignature> {
-        let mut candidates: Vec<(FqlQuery, f32)> = Vec::new();
-        let mut texts = Vec::new();
-
-        if !op.intent.trim().is_empty() {
-            texts.push(op.intent.clone());
-        }
-        if !op.name.trim().is_empty() {
-            texts.push(op.name.clone());
-        }
-        if !op.description.trim().is_empty() {
-            texts.push(op.description.clone());
-        }
-        for example in &op.examples {
-            if !example.description.trim().is_empty() {
-                texts.push(example.description.clone());
-            }
-        }
-
-        for text in texts {
-            if let Some(fql) = parser.parse(&text) {
-                let confidence = parser.confidence_score(&text, &fql);
-                candidates.push((fql, confidence));
-            }
-        }
-
-        candidates
-            .into_iter()
-            .max_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
-            .map(|(fql, confidence)| OperationSignature { fql, confidence })
-    }
-
-    fn score_fql_match(&self, query: &FqlQuery, op: &FqlQuery) -> f32 {
-        let action_score = self.action_similarity(&query.action, &op.action);
-        let target_score = self.target_similarity(&query.target, &op.target);
-
-        let mut score = 0.0;
-        score += action_score * 0.55;
-        score += target_score * 0.40;
-
-        if query.pattern.is_some() && op.pattern.is_some() {
-            score += 0.05;
-        }
-
-        score.clamp(0.0, 1.0)
-    }
-
-    fn action_similarity(&self, a: &FqlAction, b: &FqlAction) -> f32 {
-        if a == b {
-            return 1.0;
-        }
-
-        let group = |action: &FqlAction| match action {
-            FqlAction::List | FqlAction::Show | FqlAction::Display => 1,
-            FqlAction::Check | FqlAction::Monitor | FqlAction::Verify | FqlAction::Validate => 2,
-            FqlAction::Start
-            | FqlAction::Stop
-            | FqlAction::Restart
-            | FqlAction::Enable
-            | FqlAction::Disable => 3,
-            FqlAction::Find | FqlAction::Search | FqlAction::Locate | FqlAction::Grep => 4,
-            _ => 9,
-        };
-
-        if group(a) == group(b) {
-            0.7
-        } else {
-            0.0
-        }
-    }
-
-    fn target_similarity(&self, a: &FqlTarget, b: &FqlTarget) -> f32 {
-        if a == b {
-            return 1.0;
-        }
-
-        let (a_cat, a_val) = self.target_category(a);
-        let (b_cat, b_val) = self.target_category(b);
-
-        if a_cat == b_cat {
-            if let (Some(av), Some(bv)) = (a_val, b_val) {
-                if av == bv {
-                    1.0
-                } else if av == "*" || bv == "*" {
-                    0.8
-                } else {
-                    0.6
-                }
-            } else {
-                0.7
-            }
-        } else if a_cat == TargetCategory::Resource || b_cat == TargetCategory::Resource {
-            0.4
-        } else {
-            0.0
-        }
-    }
-
-    fn target_category(&self, target: &FqlTarget) -> (TargetCategory, Option<String>) {
-        match target {
-            FqlTarget::File(v) => (TargetCategory::File, Some(v.clone())),
-            FqlTarget::Directory(v) => (TargetCategory::Directory, Some(v.clone())),
-            FqlTarget::Path(v) => (TargetCategory::Path, Some(v.clone())),
-            FqlTarget::Process(v) => (TargetCategory::Process, Some(v.clone())),
-            FqlTarget::Service(v) => (TargetCategory::Service, Some(v.clone())),
-            FqlTarget::Package(v) => (TargetCategory::Package, Some(v.clone())),
-            FqlTarget::User(v) => (TargetCategory::User, Some(v.clone())),
-            FqlTarget::Group(v) => (TargetCategory::Group, Some(v.clone())),
-            FqlTarget::NetworkInterface(v) => (TargetCategory::Network, Some(v.clone())),
-            FqlTarget::Port(_) => (TargetCategory::Network, None),
-            FqlTarget::Host(v) => (TargetCategory::Network, Some(v.clone())),
-            FqlTarget::Url(v) => (TargetCategory::Network, Some(v.clone())),
-            FqlTarget::Memory => (TargetCategory::Memory, None),
-            FqlTarget::Cpu => (TargetCategory::Cpu, None),
-            FqlTarget::Disk(v) => (TargetCategory::Disk, Some(v.clone())),
-            FqlTarget::Filesystem(v) => (TargetCategory::Filesystem, Some(v.clone())),
-            FqlTarget::Log(v) => (TargetCategory::Log, Some(v.clone())),
-            FqlTarget::Configuration(v) => (TargetCategory::Config, Some(v.clone())),
-            FqlTarget::Variable(v) => (TargetCategory::Variable, Some(v.clone())),
-            FqlTarget::Resource(v) => (TargetCategory::Resource, Some(v.clone())),
-            FqlTarget::Component(v) => (TargetCategory::Component, Some(v.clone())),
-            FqlTarget::Entity(v) => (TargetCategory::Entity, Some(v.clone())),
-            _ => (TargetCategory::Other, None),
-        }
-    }
-
-    fn extract_inputs(
-        &self,
-        op: &Operation,
-        query: &str,
-        fql: Option<&FqlQuery>,
-    ) -> HashMap<String, serde_json::Value> {
+    fn extract_inputs(&self, op: &Operation, query: &str) -> HashMap<String, serde_json::Value> {
         let mut inputs = HashMap::new();
         let query_lower = query.to_lowercase();
 
         for (name, _) in &op.input_schema {
-            if let Some(value) = self.extract_input_value(name, &query_lower, query, fql) {
+            if let Some(value) = self.extract_input_value(name, &query_lower, query) {
                 inputs.insert(name.clone(), value);
             }
         }
@@ -737,15 +496,12 @@ impl DomainRegistry {
         name: &str,
         query_lower: &str,
         query: &str,
-        fql: Option<&FqlQuery>,
     ) -> Option<serde_json::Value> {
         match name {
-            "lines" => self
-                .extract_lines(query_lower, fql)
-                .map(serde_json::Value::from),
-            "path" => self.extract_path(query, fql).map(serde_json::Value::from),
+            "lines" => self.extract_lines(query_lower).map(serde_json::Value::from),
+            "path" => self.extract_path(query).map(serde_json::Value::from),
             "service" => self
-                .extract_service(query_lower, fql)
+                .extract_service(query_lower)
                 .map(serde_json::Value::from),
             "action" => self
                 .extract_action(query_lower)
@@ -758,7 +514,7 @@ impl DomainRegistry {
                 .extract_protocol(query_lower)
                 .map(serde_json::Value::from),
             "filter" => self
-                .extract_filter(query_lower, fql)
+                .extract_filter(query_lower)
                 .map(serde_json::Value::from),
             "mode" => self.extract_mode(query_lower).map(serde_json::Value::from),
             "owner" => self.extract_owner(query_lower).map(serde_json::Value::from),
@@ -772,15 +528,7 @@ impl DomainRegistry {
         }
     }
 
-    fn extract_lines(&self, query_lower: &str, fql: Option<&FqlQuery>) -> Option<u64> {
-        if let Some(fql) = fql {
-            for constraint in &fql.constraints {
-                if let FqlConstraint::Limit(limit) = constraint {
-                    return Some(*limit);
-                }
-            }
-        }
-
+    fn extract_lines(&self, query_lower: &str) -> Option<u64> {
         let patterns = [
             r"(?:last|tail|recent|past|previous)\s+(\d+)\s+lines?",
             r"-n\s*(\d+)",
@@ -799,30 +547,13 @@ impl DomainRegistry {
         None
     }
 
-    fn extract_path(&self, query: &str, fql: Option<&FqlQuery>) -> Option<String> {
-        if let Some(fql) = fql {
-            match &fql.target {
-                FqlTarget::Path(p) | FqlTarget::Directory(p) | FqlTarget::File(p) => {
-                    return Some(p.clone())
-                }
-                _ => {}
-            }
-        }
-
+    fn extract_path(&self, query: &str) -> Option<String> {
         let re = Regex::new(r"(/[^\\s]+)").ok()?;
         re.captures(query)
             .and_then(|cap| cap.get(1).map(|m| m.as_str().to_string()))
     }
 
-    fn extract_service(&self, query_lower: &str, fql: Option<&FqlQuery>) -> Option<String> {
-        if let Some(fql) = fql {
-            if let FqlTarget::Service(svc) = &fql.target {
-                if !svc.is_empty() && svc != "*" {
-                    return Some(svc.clone());
-                }
-            }
-        }
-
+    fn extract_service(&self, query_lower: &str) -> Option<String> {
         let re = Regex::new(r"service\s+([a-z0-9._-]+)").ok()?;
         if let Some(cap) = re.captures(query_lower) {
             return Some(cap[1].to_string());
@@ -886,15 +617,7 @@ impl DomainRegistry {
         None
     }
 
-    fn extract_filter(&self, query_lower: &str, fql: Option<&FqlQuery>) -> Option<String> {
-        if let Some(fql) = fql {
-            if let FqlTarget::Process(proc_name) = &fql.target {
-                if !proc_name.is_empty() && proc_name != "*" {
-                    return Some(proc_name.clone());
-                }
-            }
-        }
-
+    fn extract_filter(&self, query_lower: &str) -> Option<String> {
         let re = Regex::new(r"process(?:es)?\s+([a-z0-9._-]+)").ok()?;
         re.captures(query_lower)
             .and_then(|cap| cap.get(1).map(|m| m.as_str().to_string()))
@@ -935,6 +658,124 @@ impl DomainRegistry {
         re.captures(&query.to_lowercase())
             .and_then(|cap| cap.get(1).map(|m| m.as_str().to_string()))
     }
+
+    fn score_text_match(&self, query: &str, op: &Operation) -> f32 {
+        let query_tokens = Self::tokenize(query);
+        if query_tokens.is_empty() {
+            return 0.0;
+        }
+
+        let op_tokens = self.operation_tokens(op);
+        if op_tokens.is_empty() {
+            return 0.0;
+        }
+
+        let overlap = query_tokens
+            .iter()
+            .filter(|t| op_tokens.contains(*t))
+            .count();
+        if overlap == 0 {
+            return 0.0;
+        }
+
+        let recall = overlap as f32 / query_tokens.len() as f32;
+        let precision = overlap as f32 / op_tokens.len() as f32;
+        let mut score = (recall * 0.7) + (precision * 0.3);
+
+        let query_lower = query.to_lowercase();
+        if !op.name.is_empty() && query_lower.contains(&op.name.to_lowercase()) {
+            score += 0.2;
+        } else if !op.id.is_empty() && query_lower.contains(&op.id.to_lowercase()) {
+            score += 0.15;
+        } else if !op.intent.is_empty() && query_lower.contains(&op.intent.to_lowercase()) {
+            score += 0.1;
+        }
+
+        score.clamp(0.0, 1.0)
+    }
+
+    fn score_template_match(&self, query: &str, template: &ReasoningTemplate) -> f32 {
+        let query_tokens = Self::tokenize(query);
+        if query_tokens.is_empty() {
+            return 0.0;
+        }
+
+        let template_tokens: HashSet<String> = Self::tokenize(&template.goal).into_iter().collect();
+        if template_tokens.is_empty() {
+            return 0.0;
+        }
+
+        let overlap = query_tokens
+            .iter()
+            .filter(|t| template_tokens.contains(*t))
+            .count();
+        if overlap == 0 {
+            return 0.0;
+        }
+
+        let recall = overlap as f32 / query_tokens.len() as f32;
+        let precision = overlap as f32 / template_tokens.len() as f32;
+        let mut score = (recall * 0.7) + (precision * 0.3);
+
+        let query_lower = query.to_lowercase();
+        if !template.goal.is_empty() && query_lower.contains(&template.goal.to_lowercase()) {
+            score += 0.15;
+        }
+
+        score.clamp(0.0, 1.0)
+    }
+
+    fn best_match_source(&self, query: &str, op: &Operation) -> MatchSource {
+        let query_lower = query.to_lowercase();
+        if !op.name.is_empty() && query_lower.contains(&op.name.to_lowercase()) {
+            return MatchSource::OperationName;
+        }
+        if !op.id.is_empty() && query_lower.contains(&op.id.to_lowercase()) {
+            return MatchSource::OperationName;
+        }
+        if !op.intent.is_empty() && query_lower.contains(&op.intent.to_lowercase()) {
+            return MatchSource::OperationIntent;
+        }
+        if !op.description.is_empty() && query_lower.contains(&op.description.to_lowercase()) {
+            return MatchSource::OperationDescription;
+        }
+        if op
+            .examples
+            .iter()
+            .any(|ex| !ex.description.is_empty() && query_lower.contains(&ex.description.to_lowercase()))
+        {
+            return MatchSource::OperationExample;
+        }
+        MatchSource::OperationIntent
+    }
+
+    fn operation_tokens(&self, op: &Operation) -> HashSet<String> {
+        let mut tokens: HashSet<String> = HashSet::new();
+        for text in [
+            op.id.as_str(),
+            op.name.as_str(),
+            op.intent.as_str(),
+            op.description.as_str(),
+        ] {
+            for token in Self::tokenize(text) {
+                tokens.insert(token);
+            }
+        }
+        for example in &op.examples {
+            for token in Self::tokenize(&example.description) {
+                tokens.insert(token);
+            }
+        }
+        tokens
+    }
+
+    fn tokenize(text: &str) -> Vec<String> {
+        text.to_lowercase()
+            .split(|c: char| !c.is_ascii_alphanumeric())
+            .filter(|t| t.len() > 2)
+            .map(|t| t.to_string())
+            .collect()
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -945,28 +786,4 @@ pub struct ResolvedOperation {
     pub inputs: HashMap<String, serde_json::Value>,
     pub matched_on: MatchSource,
     pub matched_value: String,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum TargetCategory {
-    File,
-    Directory,
-    Path,
-    Process,
-    Service,
-    Package,
-    User,
-    Group,
-    Network,
-    Memory,
-    Cpu,
-    Disk,
-    Filesystem,
-    Log,
-    Config,
-    Variable,
-    Resource,
-    Component,
-    Entity,
-    Other,
 }

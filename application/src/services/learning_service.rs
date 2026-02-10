@@ -73,7 +73,6 @@ impl LearningService {
     pub fn record_success(
         &self,
         query: &str,
-        fql: Option<&str>,
         command: &str,
         user_correction: Option<&str>,
     ) -> Result<()> {
@@ -82,7 +81,7 @@ impl LearningService {
         }
 
         self.buffer
-            .log_success(&self.session_id, query, fql, command, user_correction)?;
+            .log_success(&self.session_id, query, command, user_correction)?;
 
         Ok(())
     }
@@ -91,7 +90,6 @@ impl LearningService {
     pub fn record_failure(
         &self,
         query: &str,
-        attempted_fql: Option<&str>,
         attempted_command: &str,
         failure_type: FailureType,
         error_message: Option<&str>,
@@ -103,7 +101,6 @@ impl LearningService {
         self.buffer.log_failure(
             &self.session_id,
             query,
-            attempted_fql,
             attempted_command,
             failure_type,
             error_message,

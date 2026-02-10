@@ -14,7 +14,6 @@ pub struct ExperienceEntry {
     pub timestamp: DateTime<Utc>,
     pub session_id: String,
     pub query: String,
-    pub attempted_fql: Option<String>,
     pub attempted_command: String,
     pub failure_type: FailureType,
     pub error_message: Option<String>,
@@ -101,7 +100,6 @@ impl ExperienceBuffer {
                 timestamp TEXT NOT NULL,
                 session_id TEXT NOT NULL,
                 query TEXT NOT NULL,
-                attempted_fql TEXT,
                 attempted_command TEXT NOT NULL,
                 failure_type TEXT NOT NULL,
                 error_message TEXT,
@@ -151,7 +149,6 @@ impl ExperienceBuffer {
         &self,
         session_id: &str,
         query: &str,
-        attempted_fql: Option<&str>,
         attempted_command: &str,
         failure_type: FailureType,
         error_message: Option<&str>,
@@ -160,14 +157,13 @@ impl ExperienceBuffer {
 
         self.conn.execute(
             "INSERT INTO experience_entries 
-             (timestamp, session_id, query, attempted_fql, attempted_command, 
+             (timestamp, session_id, query, attempted_command, 
               failure_type, error_message, success)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, 0)",
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 0)",
             params![
                 timestamp,
                 session_id,
                 query,
-                attempted_fql,
                 attempted_command,
                 failure_type.as_str(),
                 error_message,
@@ -187,7 +183,6 @@ impl ExperienceBuffer {
         &self,
         session_id: &str,
         query: &str,
-        fql: Option<&str>,
         command: &str,
         user_correction: Option<&str>,
     ) -> SqliteResult<i64> {
@@ -195,10 +190,10 @@ impl ExperienceBuffer {
 
         self.conn.execute(
             "INSERT INTO experience_entries 
-             (timestamp, session_id, query, attempted_fql, attempted_command, 
+             (timestamp, session_id, query, attempted_command, 
               failure_type, success, user_correction)
-             VALUES (?1, ?2, ?3, ?4, ?5, 'none', 1, ?6)",
-            params![timestamp, session_id, query, fql, command, user_correction,],
+             VALUES (?1, ?2, ?3, ?4, 'none', 1, ?5)",
+            params![timestamp, session_id, query, command, user_correction,],
         )?;
 
         let id = self.conn.last_insert_rowid();
@@ -303,7 +298,7 @@ impl ExperienceBuffer {
         let pattern = format!("%{}", normalized.replace(' ', "%"));
 
         let mut stmt = self.conn.prepare(
-            "SELECT id, timestamp, session_id, query, attempted_fql, attempted_command,
+            "SELECT id, timestamp, session_id, query, attempted_command,
                     failure_type, error_message, user_correction, success
              FROM experience_entries
              WHERE (query LIKE ?1 OR ?2 != '') AND success = 0
@@ -319,12 +314,11 @@ impl ExperienceBuffer {
                     .unwrap_or_else(|_| Utc::now()),
                 session_id: row.get(2)?,
                 query: row.get(3)?,
-                attempted_fql: row.get(4)?,
-                attempted_command: row.get(5)?,
-                failure_type: FailureType::from_str(&row.get::<_, String>(6)?),
-                error_message: row.get(7)?,
-                user_correction: row.get(8)?,
-                success: row.get::<_, i32>(9)? != 0,
+                attempted_command: row.get(4)?,
+                failure_type: FailureType::from_str(&row.get::<_, String>(5)?),
+                error_message: row.get(6)?,
+                user_correction: row.get(7)?,
+                success: row.get::<_, i32>(8)? != 0,
             })
         })?;
 
@@ -334,7 +328,7 @@ impl ExperienceBuffer {
     /// List recent failures for induction analysis
     pub fn list_failures(&self, limit: i64) -> SqliteResult<Vec<ExperienceEntry>> {
         let mut stmt = self.conn.prepare(
-            "SELECT id, timestamp, session_id, query, attempted_fql, attempted_command,
+            "SELECT id, timestamp, session_id, query, attempted_command,
                     failure_type, error_message, user_correction, success
              FROM experience_entries
              WHERE success = 0
@@ -350,12 +344,11 @@ impl ExperienceBuffer {
                     .unwrap_or_else(|_| Utc::now()),
                 session_id: row.get(2)?,
                 query: row.get(3)?,
-                attempted_fql: row.get(4)?,
-                attempted_command: row.get(5)?,
-                failure_type: FailureType::from_str(&row.get::<_, String>(6)?),
-                error_message: row.get(7)?,
-                user_correction: row.get(8)?,
-                success: row.get::<_, i32>(9)? != 0,
+                attempted_command: row.get(4)?,
+                failure_type: FailureType::from_str(&row.get::<_, String>(5)?),
+                error_message: row.get(6)?,
+                user_correction: row.get(7)?,
+                success: row.get::<_, i32>(8)? != 0,
             })
         })?;
 

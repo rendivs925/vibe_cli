@@ -44,7 +44,7 @@ No flags to remember. No man pages to read. Just natural language.
 | **RAG Context** | Codebase-aware responses using embeddings |
 | **Multi-Step Agent** | Complex task planning with safety validation |
 | **Neurosymbolic Reasoning** | Config-driven command generation |
-| **Autonomous Safety Stack** | FQL parsing, manpage-validated flags, risk scoring, safety proofs |
+| **Autonomous Safety Stack** | Fuzzy symbolic matching, manpage-validated flags, risk scoring, safety proofs |
 | **Learning Loop** | Experience buffer + "do not repeat" context injection |
 | **AI Interpretation** | Get readable summaries with `--ai-interpret` |
 | **Syntax Validation** | Manpage-backed flag validation before execution |
@@ -66,7 +66,7 @@ Intelligent command generation through JSON configurations:
 Every request goes through a deterministic pipeline. `--neurosymbolic` uses the LLM to propose commands, then validates them against the symbolic domain. If validation fails, it self-critiques and retries; otherwise it falls back to standard LLM generation:
 
 1. **LLM Propose**: Generate candidate commands (normal LLM output).
-2. **Symbolic Verification**: Match the candidates against domain operation templates (FQL + signatures).
+2. **Symbolic Verification**: Match the candidates against domain operation templates (fuzzy similarity).
 3. **Self-Critique Loop**: If mismatched, re-prompt with allowed templates and retry.
 4. **Safety Engine**: Block dangerous commands.
 5. **Manpage Validation**: Validate flags, retry once without invalid flags.

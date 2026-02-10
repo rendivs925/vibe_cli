@@ -10,9 +10,8 @@ Evolve Vibe CLI from a "command generator" into a **self-correcting, environment
 
 **Intent Pipeline (Single Integrated Path)**
 - **Intent Signal (Neural)**: Upstream analysis produces a structured `IntentSignal` with `action`, `target`, `objects`, `constraints`, and `params`.
-- **FQL Autoformalization (Symbolic)**: The signal is converted into `FqlQuery` when possible; otherwise, the query is parsed via `FqlParser`.
-- **Semantic Operation Resolver**: Domain operations are matched primarily by **FQL signature** (action + target + pattern).
-- **Input Extraction**: Operation inputs are extracted from the query/FQL (paths, service names, log line counts, patterns) and fed into the generator.
+- **Fuzzy Operation Resolver**: Domain operations are matched via token overlap and fuzzy similarity across operation intent, name, description, and examples.
+- **Input Extraction**: Operation inputs are extracted from the query (paths, service names, log line counts, patterns) and fed into the generator.
 
 **Known Heuristics (Still Present)**
 - Domain resolution still includes limited string-based checks (domain id/description/entity name).
@@ -29,14 +28,14 @@ Evolve Vibe CLI from a "command generator" into a **self-correcting, environment
 
 _Goal: Eliminate syntax hallucinations and ground all actions in formal logic._
 
-### **1.1. Autoformalization Layer (The Mediator)**
+### **1.1. Fuzzy Intent Normalization**
 
-Instead of generating Bash directly, the system translates user intent into a **Formal Query Language (FQL)**.
+Instead of requiring a formal query language, the system resolves intent using **token overlap and fuzzy similarity** across domain operations.
 
 - **Status:** [x] Implemented and wired.
-- **Feature:** `FqlParser` + `IntentSignal`.
-- **Function:** Converts natural language (e.g., "clean logs") into structured logic: `ACTION(delete) & TARGET(log:*) & CONSTRAINT(safe_delete)`.
-- **Benefit:** Decouples intent understanding from command syntax generation.
+- **Feature:** Fuzzy resolver over operation name/intent/description/examples.
+- **Function:** Matches natural language (e.g., "clean logs") to the best operation by similarity score.
+- **Benefit:** Removes rigid formalization while preserving symbolic grounding.
 
 ### **1.2. Document-Constrained Generation**
 
@@ -131,7 +130,7 @@ _Goal: Provide mathematical proof of safety for critical operations._
 | Component             | Role                   | Intelligence Level                                             |
 | --------------------- | ---------------------- | -------------------------------------------------------------- |
 | **LLM (Neural)**      | **Intent Signal**      | "Here is the structured intent (action, target, constraints)." |
-| **Autoformalizer**    | **Translator**         | "This intent maps to FQL."                                    |
+| **Fuzzy Resolver**    | **Matcher**            | "This intent best matches an operation by similarity."        |
 | **Knowledge Graph**   | **Context Engine**     | "This server has specific constraints."                       |
 | **Symbolic Verifier** | **Safety Officer**     | "This command satisfies safety constraints."                  |
 | **Induction Engine**  | **Learner**            | "I detected a failure pattern and updated rules."             |
