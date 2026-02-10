@@ -119,6 +119,7 @@ Return a concise update in 1-3 short bullets. If no new findings, say \"No new f
                             }
                         }
                         buffer.clear();
+                        thread::sleep(Duration::from_secs(2));
                         let _ = ack.send(());
                     }
                 }
