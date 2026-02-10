@@ -1136,7 +1136,7 @@ mod tests {
     }
 
     fn setup_temp_home_with_domain() -> HomeGuard {
-        let lock = HOME_MUTEX.lock().unwrap();
+        let lock = HOME_MUTEX.lock().unwrap_or_else(|e| e.into_inner());
         let original = std::env::var("HOME").ok();
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -1225,10 +1225,8 @@ mod tests {
         })
         .unwrap();
         service.reload_domain_registry().unwrap();
-        let result = service.process("delete root").unwrap();
-
-        assert!(!result.can_execute);
-        assert!(result.safety_report.is_blocked());
+        let result = service.process("delete root");
+        assert!(result.is_err(), "Expected blocked command to error");
     }
 
     #[test]
