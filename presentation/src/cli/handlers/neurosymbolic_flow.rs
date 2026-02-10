@@ -126,9 +126,7 @@ impl CliHandlers {
         } else {
             self.run_shell_command_streaming(&cmd)?
         };
-        if !ai_interpret {
-            println!("{}", output.stdout);
-        }
+        let _ = output;
 
         if !output.status.success() {
             println!(
@@ -181,9 +179,7 @@ impl CliHandlers {
         } else {
             self.run_shell_command_streaming(cmd)?
         };
-        if !ai_interpret {
-            println!("{}", output.stdout);
-        }
+        let _ = output;
 
         if !output.status.success() {
             println!(
