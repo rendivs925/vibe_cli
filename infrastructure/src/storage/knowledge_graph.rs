@@ -227,14 +227,7 @@ impl KnowledgeGraph {
 
         let entity_id = self.conn.last_insert_rowid();
 
-        // Add attributes
-        for (key, value) in attributes {
-            self.conn.execute(
-                "INSERT INTO entity_attributes (entity_id, key, value)
-                 VALUES (?1, ?2, ?3)",
-                params![entity_id, key, value],
-            )?;
-        }
+        self.insert_entity_attributes(entity_id, attributes)?;
 
         Ok(entity_id)
     }
@@ -264,13 +257,7 @@ impl KnowledgeGraph {
                 "DELETE FROM entity_attributes WHERE entity_id = ?1",
                 params![entity_id],
             )?;
-            for (key, value) in attributes {
-                self.conn.execute(
-                    "INSERT INTO entity_attributes (entity_id, key, value)
-                     VALUES (?1, ?2, ?3)",
-                    params![entity_id, key, value],
-                )?;
-            }
+            self.insert_entity_attributes(entity_id, attributes)?;
             Ok(entity_id)
         } else {
             self.add_entity(entity_type, name, attributes)
@@ -284,7 +271,8 @@ impl KnowledgeGraph {
              FROM entities WHERE id = ?1",
         )?;
 
-        let entity_result = stmt.query_row([id], |row| {
+        let row = stmt
+            .query_row([id], |row| {
             let type_str: String = row.get(0)?;
             let entity_type = EntityType::from_str(&type_str).unwrap_or(EntityType::Configuration);
 
@@ -294,23 +282,15 @@ impl KnowledgeGraph {
                 row.get::<_, String>(2)?,
                 row.get::<_, String>(3)?,
             ))
-        });
+        })
+            .optional()?;
 
-        match entity_result {
-            Ok((entity_type, name, discovered_at, last_updated)) => {
-                let attributes = self.get_entity_attributes(id)?;
-                Ok(Some(Entity {
-                    id,
-                    entity_type,
-                    name,
-                    attributes,
-                    discovered_at,
-                    last_updated,
-                }))
-            }
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(e),
-        }
+        let Some((entity_type, name, discovered_at, last_updated)) = row else {
+            return Ok(None);
+        };
+
+        let entity = self.build_entity(id, entity_type, name, discovered_at, last_updated)?;
+        Ok(Some(entity))
     }
 
     /// Get entity attributes
@@ -334,14 +314,13 @@ impl KnowledgeGraph {
             .conn
             .prepare("SELECT id FROM entities WHERE entity_type = ?1 AND name = ?2")?;
 
-        let id_result: Result<i64, _> =
-            stmt.query_row(params![entity_type.as_str(), name], |row| row.get(0));
-
-        match id_result {
-            Ok(id) => self.get_entity(id),
-            Err(rusqlite::Error::QueryReturnedNoRows) => Ok(None),
-            Err(e) => Err(e),
-        }
+        let id = stmt
+            .query_row(params![entity_type.as_str(), name], |row| row.get(0))
+            .optional()?;
+        let Some(id) = id else {
+            return Ok(None);
+        };
+        self.get_entity(id)
     }
 
     /// Lookup entities by name across all types
@@ -351,7 +330,7 @@ impl KnowledgeGraph {
              FROM entities WHERE name = ?1",
         )?;
 
-        let results: SqliteResult<Vec<Entity>> = stmt
+        let results = stmt
             .query_map([name], |row| {
                 let id: i64 = row.get(0)?;
                 let entity_type_str: String = row.get(1)?;
@@ -360,20 +339,17 @@ impl KnowledgeGraph {
 
                 let entity_type =
                     EntityType::from_str(&entity_type_str).unwrap_or(EntityType::File);
-                let attributes = self.get_entity_attributes(id)?;
-
-                Ok(Entity {
+                self.build_entity(
                     id,
                     entity_type,
-                    name: name.to_string(),
-                    attributes,
+                    name.to_string(),
                     discovered_at,
                     last_updated,
-                })
+                )
             })?
-            .collect();
+            .collect::<Result<Vec<_>, _>>()?;
 
-        results
+        Ok(results)
     }
 
     /// Get all entities of a specific type
@@ -389,17 +365,10 @@ impl KnowledgeGraph {
             })?
             .collect::<Result<Vec<_>, _>>()?;
 
-        let mut entities = vec![];
+        let mut entities = Vec::new();
         for (id, name, discovered_at, last_updated) in ids {
-            let attributes = self.get_entity_attributes(id)?;
-            entities.push(Entity {
-                id,
-                entity_type,
-                name,
-                attributes,
-                discovered_at,
-                last_updated,
-            });
+            let entity = self.build_entity(id, entity_type, name, discovered_at, last_updated)?;
+            entities.push(entity);
         }
 
         Ok(entities)
@@ -421,14 +390,7 @@ impl KnowledgeGraph {
 
         let rel_id = self.conn.last_insert_rowid();
 
-        // Add relationship attributes
-        for (key, value) in attributes {
-            self.conn.execute(
-                "INSERT INTO relationship_attributes (relationship_id, key, value)
-                 VALUES (?1, ?2, ?3)",
-                params![rel_id, key, value],
-            )?;
-        }
+        self.insert_relationship_attributes(rel_id, attributes)?;
 
         Ok(rel_id)
     }
@@ -603,6 +565,55 @@ impl KnowledgeGraph {
                 .query_row("SELECT COUNT(*) FROM relationships", [], |row| row.get(0))?;
 
         Ok((entities as usize, relationships as usize))
+    }
+
+    fn build_entity(
+        &self,
+        id: i64,
+        entity_type: EntityType,
+        name: String,
+        discovered_at: String,
+        last_updated: String,
+    ) -> SqliteResult<Entity> {
+        let attributes = self.get_entity_attributes(id)?;
+        Ok(Entity {
+            id,
+            entity_type,
+            name,
+            attributes,
+            discovered_at,
+            last_updated,
+        })
+    }
+
+    fn insert_entity_attributes(
+        &self,
+        entity_id: i64,
+        attributes: HashMap<String, String>,
+    ) -> SqliteResult<()> {
+        for (key, value) in attributes {
+            self.conn.execute(
+                "INSERT INTO entity_attributes (entity_id, key, value)
+                 VALUES (?1, ?2, ?3)",
+                params![entity_id, key, value],
+            )?;
+        }
+        Ok(())
+    }
+
+    fn insert_relationship_attributes(
+        &self,
+        relationship_id: i64,
+        attributes: HashMap<String, String>,
+    ) -> SqliteResult<()> {
+        for (key, value) in attributes {
+            self.conn.execute(
+                "INSERT INTO relationship_attributes (relationship_id, key, value)
+                 VALUES (?1, ?2, ?3)",
+                params![relationship_id, key, value],
+            )?;
+        }
+        Ok(())
     }
 }
 
