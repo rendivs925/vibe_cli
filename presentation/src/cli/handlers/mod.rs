@@ -322,7 +322,7 @@ fn flush_chunk(
     for entry in chunk {
         match entry {
             OutputLine::Stdout(line) => {
-                println!("  {}", line);
+                println!("{}", line);
                 if let Ok(mut buf) = out_buf.lock() {
                     buf.push_str(line);
                     buf.push('\n');
@@ -332,7 +332,7 @@ fn flush_chunk(
                 }
             }
             OutputLine::Stderr(line) => {
-                eprintln!("  {}", line);
+                eprintln!("{}", line);
                 if let Ok(mut buf) = err_buf.lock() {
                     buf.push_str(line);
                     buf.push('\n');
