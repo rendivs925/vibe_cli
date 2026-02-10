@@ -31,7 +31,7 @@ Command output:\n{}\n",
         let formatted = Self::format_ai_response(&response);
         if !formatted.is_empty() {
             println!("\n{}", "=== AI Interpretation ===".green().bold());
-            println!("{}", formatted);
+            println!("{}", formatted.trim());
         }
         Ok(())
     }
@@ -61,7 +61,7 @@ Full output:\n{}\n",
         let formatted = Self::format_ai_response(&response);
         if !formatted.is_empty() {
             println!("\n{}", "=== AI Final Summary ===".green().bold());
-            println!("{}", formatted);
+            println!("{}", formatted.trim());
         }
         Ok(())
     }
@@ -110,22 +110,28 @@ New output:\n{}\n",
             for line in rx {
                 match line {
                     super::OutputLine::Stdout(text) => {
-                        buffer.push_str(&text);
-                        buffer.push('\n');
+                        let trimmed = text.trim();
+                        if !trimmed.is_empty() {
+                            buffer.push_str(trimmed);
+                            buffer.push('\n');
+                        }
                     }
                     super::OutputLine::Stderr(text) => {
-                        buffer.push_str("STDERR: ");
-                        buffer.push_str(&text);
-                        buffer.push('\n');
+                        let trimmed = text.trim();
+                        if !trimmed.is_empty() {
+                            buffer.push_str("STDERR: ");
+                            buffer.push_str(trimmed);
+                            buffer.push('\n');
+                        }
                     }
                     super::OutputLine::ChunkEnd => {
                         if let Some(update) = flush(&buffer, &summary) {
                             let formatted = Self::format_ai_response(&update);
                             if !formatted.is_empty() && formatted != last_printed {
                                 println!(
-                                    "\n{}\n{}\n",
+                                    "\n{}\n{}",
                                     "=== AI Chunk Summary ===".green().bold(),
-                                    formatted
+                                    formatted.trim()
                                 );
                                 last_printed = formatted.clone();
                                 summary = formatted;
@@ -143,9 +149,9 @@ New output:\n{}\n",
                     let formatted = Self::format_ai_response(&update);
                     if !formatted.is_empty() && formatted != last_printed {
                         println!(
-                            "\n{}\n{}\n",
+                            "\n{}\n{}",
                             "=== AI Chunk Summary ===".green().bold(),
-                            formatted
+                            formatted.trim()
                         );
                     }
                 }
@@ -233,7 +239,12 @@ New output:\n{}\n",
             return lines.join("\n");
         }
 
-        raw.trim().to_string()
+        cleaned
+            .lines()
+            .map(|l| l.trim_start())
+            .filter(|l| !l.is_empty())
+            .collect::<Vec<_>>()
+            .join(" ")
     }
 
     fn format_ai_update(raw: &str) -> String {
