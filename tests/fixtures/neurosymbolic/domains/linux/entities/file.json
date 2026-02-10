@@ -1,0 +1,17 @@
+{
+  "name": "File",
+  "description": "A file on disk",
+  "core_properties": [
+    {
+      "name": "path",
+      "type": "string",
+      "meaning": "File path"
+    },
+    {
+      "name": "size",
+      "type": "number",
+      "meaning": "File size"
+    }
+  ],
+  "derived_properties": []
+}

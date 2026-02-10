@@ -1,0 +1,17 @@
+{
+  "name": "DockerContainer",
+  "description": "Container runtime entity",
+  "core_properties": [
+    {
+      "name": "id",
+      "type": "string",
+      "meaning": "Container ID"
+    },
+    {
+      "name": "image",
+      "type": "string",
+      "meaning": "Image name"
+    }
+  ],
+  "derived_properties": []
+}

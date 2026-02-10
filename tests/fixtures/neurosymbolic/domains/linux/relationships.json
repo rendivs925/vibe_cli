@@ -1,0 +1,58 @@
+[
+  {
+    "name": "process_writes_file",
+    "type": "ownership",
+    "from": "Process",
+    "to": "File",
+    "meaning": "Process writes a file"
+  },
+  {
+    "name": "user_owns_file",
+    "type": "ownership",
+    "from": "User",
+    "to": "File",
+    "meaning": "User owns a file"
+  },
+  {
+    "name": "filesystem_contains_file",
+    "type": "containment",
+    "from": "Filesystem",
+    "to": "File",
+    "meaning": "Filesystem contains file"
+  },
+  {
+    "name": "service_manages_process",
+    "type": "hierarchical",
+    "from": "Service",
+    "to": "Process",
+    "meaning": "Service manages process"
+  },
+  {
+    "name": "interface_has_connection",
+    "type": "containment",
+    "from": "NetworkInterface",
+    "to": "NetworkConnection",
+    "meaning": "Interface has connection"
+  },
+  {
+    "name": "container_runs_process",
+    "type": "hierarchical",
+    "from": "DockerContainer",
+    "to": "Process",
+    "meaning": "Container runs process"
+  },
+  {
+    "name": "systemd_controls_service",
+    "type": "hierarchical",
+    "from": "SystemdUnit",
+    "to": "Service",
+    "meaning": "Unit controls service"
+  },
+  {
+    "name": "cpu_runs_process",
+    "type": "hierarchical",
+    "from": "Cpu",
+    "to": "Process",
+    "meaning": "CPU runs process"
+  }
+]

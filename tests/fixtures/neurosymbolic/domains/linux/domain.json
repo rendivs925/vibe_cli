@@ -1,0 +1,16 @@
+{
+  "domain": "linux",
+  "version": "2.0.0",
+  "description": "Full coverage Linux test domain",
+  "depends_on": [],
+  "priority": 10,
+  "enabled": true,
+  "tags": [
+    "linux",
+    "process",
+    "filesystem",
+    "network",
+    "services",
+    "users"
+  ]
+}

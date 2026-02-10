@@ -1,0 +1,17 @@
+{
+  "name": "NetworkInterface",
+  "description": "Network interface",
+  "core_properties": [
+    {
+      "name": "name",
+      "type": "string",
+      "meaning": "Interface name"
+    },
+    {
+      "name": "mac",
+      "type": "string",
+      "meaning": "MAC address"
+    }
+  ],
+  "derived_properties": []
+}

@@ -1,0 +1,452 @@
+[
+  {
+    "pattern_id": "pattern_01",
+    "name": "Pattern 1",
+    "symptoms": [
+      {
+        "metric": "cpu",
+        "observation": "issue_1"
+      }
+    ],
+    "likely_causes": [
+      {
+        "cause": "cause_1",
+        "probability": 0.5
+      }
+    ],
+    "checks": [
+      {
+        "step": "check_1",
+        "command": "echo check"
+      }
+    ],
+    "actions": [
+      {
+        "action": "action_1",
+        "methods": [
+          "echo"
+        ]
+      }
+    ]
+  },
+  {
+    "pattern_id": "pattern_02",
+    "name": "Pattern 2",
+    "symptoms": [
+      {
+        "metric": "cpu",
+        "observation": "issue_2"
+      }
+    ],
+    "likely_causes": [
+      {
+        "cause": "cause_2",
+        "probability": 0.5
+      }
+    ],
+    "checks": [
+      {
+        "step": "check_2",
+        "command": "echo check"
+      }
+    ],
+    "actions": [
+      {
+        "action": "action_2",
+        "methods": [
+          "echo"
+        ]
+      }
+    ]
+  },
+  {
+    "pattern_id": "pattern_03",
+    "name": "Pattern 3",
+    "symptoms": [
+      {
+        "metric": "cpu",
+        "observation": "issue_3"
+      }
+    ],
+    "likely_causes": [
+      {
+        "cause": "cause_3",
+        "probability": 0.5
+      }
+    ],
+    "checks": [
+      {
+        "step": "check_3",
+        "command": "echo check"
+      }
+    ],
+    "actions": [
+      {
+        "action": "action_3",
+        "methods": [
+          "echo"
+        ]
+      }
+    ]
+  },
+  {
+    "pattern_id": "pattern_04",
+    "name": "Pattern 4",
+    "symptoms": [
+      {
+        "metric": "cpu",
+        "observation": "issue_4"
+      }
+    ],
+    "likely_causes": [
+      {
+        "cause": "cause_4",
+        "probability": 0.5
+      }
+    ],
+    "checks": [
+      {
+        "step": "check_4",
+        "command": "echo check"
+      }
+    ],
+    "actions": [
+      {
+        "action": "action_4",
+        "methods": [
+          "echo"
+        ]
+      }
+    ]
+  },
+  {
+    "pattern_id": "pattern_05",
+    "name": "Pattern 5",
+    "symptoms": [
+      {
+        "metric": "cpu",
+        "observation": "issue_5"
+      }
+    ],
+    "likely_causes": [
+      {
+        "cause": "cause_5",
+        "probability": 0.5
+      }
+    ],
+    "checks": [
+      {
+        "step": "check_5",
+        "command": "echo check"
+      }
+    ],
+    "actions": [
+      {
+        "action": "action_5",
+        "methods": [
+          "echo"
+        ]
+      }
+    ]
+  },
+  {
+    "pattern_id": "pattern_06",
+    "name": "Pattern 6",
+    "symptoms": [
+      {
+        "metric": "cpu",
+        "observation": "issue_6"
+      }
+    ],
+    "likely_causes": [
+      {
+        "cause": "cause_6",
+        "probability": 0.5
+      }
+    ],
+    "checks": [
+      {
+        "step": "check_6",
+        "command": "echo check"
+      }
+    ],
+    "actions": [
+      {
+        "action": "action_6",
+        "methods": [
+          "echo"
+        ]
+      }
+    ]
+  },
+  {
+    "pattern_id": "pattern_07",
+    "name": "Pattern 7",
+    "symptoms": [
+      {
+        "metric": "cpu",
+        "observation": "issue_7"
+      }
+    ],
+    "likely_causes": [
+      {
+        "cause": "cause_7",
+        "probability": 0.5
+      }
+    ],
+    "checks": [
+      {
+        "step": "check_7",
+        "command": "echo check"
+      }
+    ],
+    "actions": [
+      {
+        "action": "action_7",
+        "methods": [
+          "echo"
+        ]
+      }
+    ]
+  },
+  {
+    "pattern_id": "pattern_08",
+    "name": "Pattern 8",
+    "symptoms": [
+      {
+        "metric": "cpu",
+        "observation": "issue_8"
+      }
+    ],
+    "likely_causes": [
+      {
+        "cause": "cause_8",
+        "probability": 0.5
+      }
+    ],
+    "checks": [
+      {
+        "step": "check_8",
+        "command": "echo check"
+      }
+    ],
+    "actions": [
+      {
+        "action": "action_8",
+        "methods": [
+          "echo"
+        ]
+      }
+    ]
+  },
+  {
+    "pattern_id": "pattern_09",
+    "name": "Pattern 9",
+    "symptoms": [
+      {
+        "metric": "cpu",
+        "observation": "issue_9"
+      }
+    ],
+    "likely_causes": [
+      {
+        "cause": "cause_9",
+        "probability": 0.5
+      }
+    ],
+    "checks": [
+      {
+        "step": "check_9",
+        "command": "echo check"
+      }
+    ],
+    "actions": [
+      {
+        "action": "action_9",
+        "methods": [
+          "echo"
+        ]
+      }
+    ]
+  },
+  {
+    "pattern_id": "pattern_10",
+    "name": "Pattern 10",
+    "symptoms": [
+      {
+        "metric": "cpu",
+        "observation": "issue_10"
+      }
+    ],
+    "likely_causes": [
+      {
+        "cause": "cause_10",
+        "probability": 0.5
+      }
+    ],
+    "checks": [
+      {
+        "step": "check_10",
+        "command": "echo check"
+      }
+    ],
+    "actions": [
+      {
+        "action": "action_10",
+        "methods": [
+          "echo"
+        ]
+      }
+    ]
+  },
+  {
+    "pattern_id": "pattern_11",
+    "name": "Pattern 11",
+    "symptoms": [
+      {
+        "metric": "cpu",
+        "observation": "issue_11"
+      }
+    ],
+    "likely_causes": [
+      {
+        "cause": "cause_11",
+        "probability": 0.5
+      }
+    ],
+    "checks": [
+      {
+        "step": "check_11",
+        "command": "echo check"
+      }
+    ],
+    "actions": [
+      {
+        "action": "action_11",
+        "methods": [
+          "echo"
+        ]
+      }
+    ]
+  },
+  {
+    "pattern_id": "pattern_12",
+    "name": "Pattern 12",
+    "symptoms": [
+      {
+        "metric": "cpu",
+        "observation": "issue_12"
+      }
+    ],
+    "likely_causes": [
+      {
+        "cause": "cause_12",
+        "probability": 0.5
+      }
+    ],
+    "checks": [
+      {
+        "step": "check_12",
+        "command": "echo check"
+      }
+    ],
+    "actions": [
+      {
+        "action": "action_12",
+        "methods": [
+          "echo"
+        ]
+      }
+    ]
+  },
+  {
+    "pattern_id": "pattern_13",
+    "name": "Pattern 13",
+    "symptoms": [
+      {
+        "metric": "cpu",
+        "observation": "issue_13"
+      }
+    ],
+    "likely_causes": [
+      {
+        "cause": "cause_13",
+        "probability": 0.5
+      }
+    ],
+    "checks": [
+      {
+        "step": "check_13",
+        "command": "echo check"
+      }
+    ],
+    "actions": [
+      {
+        "action": "action_13",
+        "methods": [
+          "echo"
+        ]
+      }
+    ]
+  },
+  {
+    "pattern_id": "pattern_14",
+    "name": "Pattern 14",
+    "symptoms": [
+      {
+        "metric": "cpu",
+        "observation": "issue_14"
+      }
+    ],
+    "likely_causes": [
+      {
+        "cause": "cause_14",
+        "probability": 0.5
+      }
+    ],
+    "checks": [
+      {
+        "step": "check_14",
+        "command": "echo check"
+      }
+    ],
+    "actions": [
+      {
+        "action": "action_14",
+        "methods": [
+          "echo"
+        ]
+      }
+    ]
+  },
+  {
+    "pattern_id": "pattern_15",
+    "name": "Pattern 15",
+    "symptoms": [
+      {
+        "metric": "cpu",
+        "observation": "issue_15"
+      }
+    ],
+    "likely_causes": [
+      {
+        "cause": "cause_15",
+        "probability": 0.5
+      }
+    ],
+    "checks": [
+      {
+        "step": "check_15",
+        "command": "echo check"
+      }
+    ],
+    "actions": [
+      {
+        "action": "action_15",
+        "methods": [
+          "echo"
+        ]
+      }
+    ]
+  }
+]

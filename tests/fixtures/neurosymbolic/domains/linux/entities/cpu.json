@@ -1,0 +1,17 @@
+{
+  "name": "Cpu",
+  "description": "CPU information",
+  "core_properties": [
+    {
+      "name": "model",
+      "type": "string",
+      "meaning": "CPU model"
+    },
+    {
+      "name": "cores",
+      "type": "integer",
+      "meaning": "CPU cores"
+    }
+  ],
+  "derived_properties": []
+}

@@ -1,0 +1,17 @@
+{
+  "name": "Process",
+  "description": "A running process",
+  "core_properties": [
+    {
+      "name": "pid",
+      "type": "integer",
+      "meaning": "Process ID"
+    },
+    {
+      "name": "state",
+      "type": "string",
+      "meaning": "Process state"
+    }
+  ],
+  "derived_properties": []
+}

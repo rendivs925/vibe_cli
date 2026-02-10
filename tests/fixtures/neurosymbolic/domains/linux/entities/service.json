@@ -1,0 +1,17 @@
+{
+  "name": "Service",
+  "description": "A system service",
+  "core_properties": [
+    {
+      "name": "name",
+      "type": "string",
+      "meaning": "Service name"
+    },
+    {
+      "name": "status",
+      "type": "string",
+      "meaning": "Service status"
+    }
+  ],
+  "derived_properties": []
+}

@@ -1,0 +1,17 @@
+{
+  "name": "User",
+  "description": "A system user",
+  "core_properties": [
+    {
+      "name": "username",
+      "type": "string",
+      "meaning": "User name"
+    },
+    {
+      "name": "uid",
+      "type": "integer",
+      "meaning": "User ID"
+    }
+  ],
+  "derived_properties": []
+}

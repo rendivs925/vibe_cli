@@ -1,0 +1,17 @@
+{
+  "name": "NetworkConnection",
+  "description": "A network connection",
+  "core_properties": [
+    {
+      "name": "local",
+      "type": "string",
+      "meaning": "Local endpoint"
+    },
+    {
+      "name": "remote",
+      "type": "string",
+      "meaning": "Remote endpoint"
+    }
+  ],
+  "derived_properties": []
+}

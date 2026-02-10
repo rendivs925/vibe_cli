@@ -1,0 +1,464 @@
+[
+  {
+    "template_id": "template_01",
+    "goal": "diagnose issue 1",
+    "inputs": [],
+    "steps": [
+      {
+        "step": 1,
+        "check": "echo check 1",
+        "logic": "logic 1",
+        "next": [
+          "next"
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "next",
+        "type": "string",
+        "example": "ok"
+      }
+    ]
+  },
+  {
+    "template_id": "template_02",
+    "goal": "diagnose issue 2",
+    "inputs": [],
+    "steps": [
+      {
+        "step": 1,
+        "check": "echo check 2",
+        "logic": "logic 2",
+        "next": [
+          "next"
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "next",
+        "type": "string",
+        "example": "ok"
+      }
+    ]
+  },
+  {
+    "template_id": "template_03",
+    "goal": "diagnose issue 3",
+    "inputs": [],
+    "steps": [
+      {
+        "step": 1,
+        "check": "echo check 3",
+        "logic": "logic 3",
+        "next": [
+          "next"
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "next",
+        "type": "string",
+        "example": "ok"
+      }
+    ]
+  },
+  {
+    "template_id": "template_04",
+    "goal": "diagnose issue 4",
+    "inputs": [],
+    "steps": [
+      {
+        "step": 1,
+        "check": "echo check 4",
+        "logic": "logic 4",
+        "next": [
+          "next"
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "next",
+        "type": "string",
+        "example": "ok"
+      }
+    ]
+  },
+  {
+    "template_id": "template_05",
+    "goal": "diagnose issue 5",
+    "inputs": [],
+    "steps": [
+      {
+        "step": 1,
+        "check": "echo check 5",
+        "logic": "logic 5",
+        "next": [
+          "next"
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "next",
+        "type": "string",
+        "example": "ok"
+      }
+    ]
+  },
+  {
+    "template_id": "template_06",
+    "goal": "diagnose issue 6",
+    "inputs": [],
+    "steps": [
+      {
+        "step": 1,
+        "check": "echo check 6",
+        "logic": "logic 6",
+        "next": [
+          "next"
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "next",
+        "type": "string",
+        "example": "ok"
+      }
+    ]
+  },
+  {
+    "template_id": "template_07",
+    "goal": "diagnose issue 7",
+    "inputs": [],
+    "steps": [
+      {
+        "step": 1,
+        "check": "echo check 7",
+        "logic": "logic 7",
+        "next": [
+          "next"
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "next",
+        "type": "string",
+        "example": "ok"
+      }
+    ]
+  },
+  {
+    "template_id": "template_08",
+    "goal": "diagnose issue 8",
+    "inputs": [],
+    "steps": [
+      {
+        "step": 1,
+        "check": "echo check 8",
+        "logic": "logic 8",
+        "next": [
+          "next"
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "next",
+        "type": "string",
+        "example": "ok"
+      }
+    ]
+  },
+  {
+    "template_id": "template_09",
+    "goal": "diagnose issue 9",
+    "inputs": [],
+    "steps": [
+      {
+        "step": 1,
+        "check": "echo check 9",
+        "logic": "logic 9",
+        "next": [
+          "next"
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "next",
+        "type": "string",
+        "example": "ok"
+      }
+    ]
+  },
+  {
+    "template_id": "template_10",
+    "goal": "diagnose issue 10",
+    "inputs": [],
+    "steps": [
+      {
+        "step": 1,
+        "check": "echo check 10",
+        "logic": "logic 10",
+        "next": [
+          "next"
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "next",
+        "type": "string",
+        "example": "ok"
+      }
+    ]
+  },
+  {
+    "template_id": "template_11",
+    "goal": "diagnose issue 11",
+    "inputs": [],
+    "steps": [
+      {
+        "step": 1,
+        "check": "echo check 11",
+        "logic": "logic 11",
+        "next": [
+          "next"
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "next",
+        "type": "string",
+        "example": "ok"
+      }
+    ]
+  },
+  {
+    "template_id": "template_12",
+    "goal": "diagnose issue 12",
+    "inputs": [],
+    "steps": [
+      {
+        "step": 1,
+        "check": "echo check 12",
+        "logic": "logic 12",
+        "next": [
+          "next"
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "next",
+        "type": "string",
+        "example": "ok"
+      }
+    ]
+  },
+  {
+    "template_id": "template_13",
+    "goal": "diagnose issue 13",
+    "inputs": [],
+    "steps": [
+      {
+        "step": 1,
+        "check": "echo check 13",
+        "logic": "logic 13",
+        "next": [
+          "next"
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "next",
+        "type": "string",
+        "example": "ok"
+      }
+    ]
+  },
+  {
+    "template_id": "template_14",
+    "goal": "diagnose issue 14",
+    "inputs": [],
+    "steps": [
+      {
+        "step": 1,
+        "check": "echo check 14",
+        "logic": "logic 14",
+        "next": [
+          "next"
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "next",
+        "type": "string",
+        "example": "ok"
+      }
+    ]
+  },
+  {
+    "template_id": "template_15",
+    "goal": "diagnose issue 15",
+    "inputs": [],
+    "steps": [
+      {
+        "step": 1,
+        "check": "echo check 15",
+        "logic": "logic 15",
+        "next": [
+          "next"
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "next",
+        "type": "string",
+        "example": "ok"
+      }
+    ]
+  },
+  {
+    "template_id": "template_16",
+    "goal": "diagnose issue 16",
+    "inputs": [],
+    "steps": [
+      {
+        "step": 1,
+        "check": "echo check 16",
+        "logic": "logic 16",
+        "next": [
+          "next"
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "next",
+        "type": "string",
+        "example": "ok"
+      }
+    ]
+  },
+  {
+    "template_id": "template_17",
+    "goal": "diagnose issue 17",
+    "inputs": [],
+    "steps": [
+      {
+        "step": 1,
+        "check": "echo check 17",
+        "logic": "logic 17",
+        "next": [
+          "next"
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "next",
+        "type": "string",
+        "example": "ok"
+      }
+    ]
+  },
+  {
+    "template_id": "template_18",
+    "goal": "diagnose issue 18",
+    "inputs": [],
+    "steps": [
+      {
+        "step": 1,
+        "check": "echo check 18",
+        "logic": "logic 18",
+        "next": [
+          "next"
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "next",
+        "type": "string",
+        "example": "ok"
+      }
+    ]
+  },
+  {
+    "template_id": "template_19",
+    "goal": "diagnose issue 19",
+    "inputs": [],
+    "steps": [
+      {
+        "step": 1,
+        "check": "echo check 19",
+        "logic": "logic 19",
+        "next": [
+          "next"
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "next",
+        "type": "string",
+        "example": "ok"
+      }
+    ]
+  },
+  {
+    "template_id": "template_20",
+    "goal": "diagnose issue 20",
+    "inputs": [],
+    "steps": [
+      {
+        "step": 1,
+        "check": "echo check 20",
+        "logic": "logic 20",
+        "next": [
+          "next"
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "next",
+        "type": "string",
+        "example": "ok"
+      }
+    ]
+  },
+  {
+    "template_id": "template_21",
+    "goal": "diagnose issue 21",
+    "inputs": [],
+    "steps": [
+      {
+        "step": 1,
+        "check": "echo check 21",
+        "logic": "logic 21",
+        "next": [
+          "next"
+        ]
+      }
+    ],
+    "outputs": [
+      {
+        "name": "next",
+        "type": "string",
+        "example": "ok"
+      }
+    ]
+  }
+]

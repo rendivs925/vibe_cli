@@ -1,0 +1,674 @@
+[
+  {
+    "op_id": "list_processes",
+    "name": "list processes",
+    "description": "list processes operation",
+    "intent": "list processes",
+    "input_schema": {},
+    "generators": [
+      {
+        "name": "gen_list_processes",
+        "tool": "echo",
+        "template": "echo list_processes",
+        "when": []
+      }
+    ],
+    "examples": [
+      {
+        "description": "list processes",
+        "inputs": {}
+      }
+    ]
+  },
+  {
+    "op_id": "find_process",
+    "name": "find process",
+    "description": "find process operation",
+    "intent": "find process",
+    "input_schema": {},
+    "generators": [
+      {
+        "name": "gen_find_process",
+        "tool": "echo",
+        "template": "echo find_process",
+        "when": []
+      }
+    ],
+    "examples": [
+      {
+        "description": "find process",
+        "inputs": {}
+      }
+    ]
+  },
+  {
+    "op_id": "kill_process",
+    "name": "kill process",
+    "description": "kill process operation",
+    "intent": "kill process",
+    "input_schema": {},
+    "generators": [
+      {
+        "name": "gen_kill_process",
+        "tool": "echo",
+        "template": "echo kill_process",
+        "when": []
+      }
+    ],
+    "examples": [
+      {
+        "description": "kill process",
+        "inputs": {}
+      }
+    ]
+  },
+  {
+    "op_id": "process_tree",
+    "name": "process tree",
+    "description": "process tree operation",
+    "intent": "process tree",
+    "input_schema": {},
+    "generators": [
+      {
+        "name": "gen_process_tree",
+        "tool": "echo",
+        "template": "echo process_tree",
+        "when": []
+      }
+    ],
+    "examples": [
+      {
+        "description": "process tree",
+        "inputs": {}
+      }
+    ]
+  },
+  {
+    "op_id": "check_memory",
+    "name": "check memory",
+    "description": "check memory operation",
+    "intent": "check memory",
+    "input_schema": {},
+    "generators": [
+      {
+        "name": "gen_check_memory",
+        "tool": "echo",
+        "template": "echo check_memory",
+        "when": []
+      }
+    ],
+    "examples": [
+      {
+        "description": "check memory",
+        "inputs": {}
+      }
+    ]
+  },
+  {
+    "op_id": "top_memory",
+    "name": "top memory",
+    "description": "top memory operation",
+    "intent": "top memory",
+    "input_schema": {},
+    "generators": [
+      {
+        "name": "gen_top_memory",
+        "tool": "echo",
+        "template": "echo top_memory",
+        "when": []
+      }
+    ],
+    "examples": [
+      {
+        "description": "top memory",
+        "inputs": {}
+      }
+    ]
+  },
+  {
+    "op_id": "memory_stats",
+    "name": "memory stats",
+    "description": "memory stats operation",
+    "intent": "memory stats",
+    "input_schema": {},
+    "generators": [
+      {
+        "name": "gen_memory_stats",
+        "tool": "echo",
+        "template": "echo memory_stats",
+        "when": []
+      }
+    ],
+    "examples": [
+      {
+        "description": "memory stats",
+        "inputs": {}
+      }
+    ]
+  },
+  {
+    "op_id": "disk_usage",
+    "name": "disk usage",
+    "description": "disk usage operation",
+    "intent": "disk usage",
+    "input_schema": {},
+    "generators": [
+      {
+        "name": "gen_disk_usage",
+        "tool": "echo",
+        "template": "echo disk_usage",
+        "when": []
+      }
+    ],
+    "examples": [
+      {
+        "description": "disk usage",
+        "inputs": {}
+      }
+    ]
+  },
+  {
+    "op_id": "disk_inodes",
+    "name": "disk inodes",
+    "description": "disk inodes operation",
+    "intent": "disk inodes",
+    "input_schema": {},
+    "generators": [
+      {
+        "name": "gen_disk_inodes",
+        "tool": "echo",
+        "template": "echo disk_inodes",
+        "when": []
+      }
+    ],
+    "examples": [
+      {
+        "description": "disk inodes",
+        "inputs": {}
+      }
+    ]
+  },
+  {
+    "op_id": "list_large_files",
+    "name": "list large files",
+    "description": "list large files operation",
+    "intent": "list large files",
+    "input_schema": {},
+    "generators": [
+      {
+        "name": "gen_list_large_files",
+        "tool": "echo",
+        "template": "echo list_large_files",
+        "when": []
+      }
+    ],
+    "examples": [
+      {
+        "description": "list large files",
+        "inputs": {}
+      }
+    ]
+  },
+  {
+    "op_id": "list_listening_ports",
+    "name": "list listening ports",
+    "description": "list listening ports operation",
+    "intent": "list listening ports",
+    "input_schema": {},
+    "generators": [
+      {
+        "name": "gen_list_listening_ports",
+        "tool": "echo",
+        "template": "echo list_listening_ports",
+        "when": []
+      }
+    ],
+    "examples": [
+      {
+        "description": "list listening ports",
+        "inputs": {}
+      }
+    ]
+  },
+  {
+    "op_id": "check_connection",
+    "name": "check connection",
+    "description": "check connection operation",
+    "intent": "check connection",
+    "input_schema": {},
+    "generators": [
+      {
+        "name": "gen_check_connection",
+        "tool": "echo",
+        "template": "echo check_connection",
+        "when": []
+      }
+    ],
+    "examples": [
+      {
+        "description": "check connection",
+        "inputs": {}
+      }
+    ]
+  },
+  {
+    "op_id": "ping_host",
+    "name": "ping host",
+    "description": "ping host operation",
+    "intent": "ping host",
+    "input_schema": {},
+    "generators": [
+      {
+        "name": "gen_ping_host",
+        "tool": "echo",
+        "template": "echo ping_host",
+        "when": []
+      }
+    ],
+    "examples": [
+      {
+        "description": "ping host",
+        "inputs": {}
+      }
+    ]
+  },
+  {
+    "op_id": "dns_lookup",
+    "name": "dns lookup",
+    "description": "dns lookup operation",
+    "intent": "dns lookup",
+    "input_schema": {},
+    "generators": [
+      {
+        "name": "gen_dns_lookup",
+        "tool": "echo",
+        "template": "echo dns_lookup",
+        "when": []
+      }
+    ],
+    "examples": [
+      {
+        "description": "dns lookup",
+        "inputs": {}
+      }
+    ]
+  },
+  {
+    "op_id": "service_status",
+    "name": "service status",
+    "description": "service status operation",
+    "intent": "service status",
+    "input_schema": {},
+    "generators": [
+      {
+        "name": "gen_service_status",
+        "tool": "echo",
+        "template": "echo service_status",
+        "when": []
+      }
+    ],
+    "examples": [
+      {
+        "description": "service status",
+        "inputs": {}
+      }
+    ]
+  },
+  {
+    "op_id": "service_restart",
+    "name": "service restart",
+    "description": "service restart operation",
+    "intent": "service restart",
+    "input_schema": {},
+    "generators": [
+      {
+        "name": "gen_service_restart",
+        "tool": "echo",
+        "template": "echo service_restart",
+        "when": []
+      }
+    ],
+    "examples": [
+      {
+        "description": "service restart",
+        "inputs": {}
+      }
+    ]
+  },
+  {
+    "op_id": "list_services",
+    "name": "list services",
+    "description": "list services operation",
+    "intent": "list services",
+    "input_schema": {},
+    "generators": [
+      {
+        "name": "gen_list_services",
+        "tool": "echo",
+        "template": "echo list_services",
+        "when": []
+      }
+    ],
+    "examples": [
+      {
+        "description": "list services",
+        "inputs": {}
+      }
+    ]
+  },
+  {
+    "op_id": "enable_service",
+    "name": "enable service",
+    "description": "enable service operation",
+    "intent": "enable service",
+    "input_schema": {},
+    "generators": [
+      {
+        "name": "gen_enable_service",
+        "tool": "echo",
+        "template": "echo enable_service",
+        "when": []
+      }
+    ],
+    "examples": [
+      {
+        "description": "enable service",
+        "inputs": {}
+      }
+    ]
+  },
+  {
+    "op_id": "list_files",
+    "name": "list files",
+    "description": "list files operation",
+    "intent": "list files",
+    "input_schema": {},
+    "generators": [
+      {
+        "name": "gen_list_files",
+        "tool": "echo",
+        "template": "echo list_files",
+        "when": []
+      }
+    ],
+    "examples": [
+      {
+        "description": "list files",
+        "inputs": {}
+      }
+    ]
+  },
+  {
+    "op_id": "find_files",
+    "name": "find files",
+    "description": "find files operation",
+    "intent": "find files",
+    "input_schema": {},
+    "generators": [
+      {
+        "name": "gen_find_files",
+        "tool": "echo",
+        "template": "echo find_files",
+        "when": []
+      }
+    ],
+    "examples": [
+      {
+        "description": "find files",
+        "inputs": {}
+      }
+    ]
+  },
+  {
+    "op_id": "file_permissions",
+    "name": "file permissions",
+    "description": "file permissions operation",
+    "intent": "file permissions",
+    "input_schema": {},
+    "generators": [
+      {
+        "name": "gen_file_permissions",
+        "tool": "echo",
+        "template": "echo file_permissions",
+        "when": []
+      }
+    ],
+    "examples": [
+      {
+        "description": "file permissions",
+        "inputs": {}
+      }
+    ]
+  },
+  {
+    "op_id": "file_ownership",
+    "name": "file ownership",
+    "description": "file ownership operation",
+    "intent": "file ownership",
+    "input_schema": {},
+    "generators": [
+      {
+        "name": "gen_file_ownership",
+        "tool": "echo",
+        "template": "echo file_ownership",
+        "when": []
+      }
+    ],
+    "examples": [
+      {
+        "description": "file ownership",
+        "inputs": {}
+      }
+    ]
+  },
+  {
+    "op_id": "tail_file",
+    "name": "tail file",
+    "description": "tail file operation",
+    "intent": "tail file",
+    "input_schema": {},
+    "generators": [
+      {
+        "name": "gen_tail_file",
+        "tool": "echo",
+        "template": "echo tail_file",
+        "when": []
+      }
+    ],
+    "examples": [
+      {
+        "description": "tail file",
+        "inputs": {}
+      }
+    ]
+  },
+  {
+    "op_id": "list_containers",
+    "name": "list containers",
+    "description": "list containers operation",
+    "intent": "list containers",
+    "input_schema": {},
+    "generators": [
+      {
+        "name": "gen_list_containers",
+        "tool": "echo",
+        "template": "echo list_containers",
+        "when": []
+      }
+    ],
+    "examples": [
+      {
+        "description": "list containers",
+        "inputs": {}
+      }
+    ]
+  },
+  {
+    "op_id": "container_logs",
+    "name": "container logs",
+    "description": "container logs operation",
+    "intent": "container logs",
+    "input_schema": {},
+    "generators": [
+      {
+        "name": "gen_container_logs",
+        "tool": "echo",
+        "template": "echo container_logs",
+        "when": []
+      }
+    ],
+    "examples": [
+      {
+        "description": "container logs",
+        "inputs": {}
+      }
+    ]
+  },
+  {
+    "op_id": "container_stats",
+    "name": "container stats",
+    "description": "container stats operation",
+    "intent": "container stats",
+    "input_schema": {},
+    "generators": [
+      {
+        "name": "gen_container_stats",
+        "tool": "echo",
+        "template": "echo container_stats",
+        "when": []
+      }
+    ],
+    "examples": [
+      {
+        "description": "container stats",
+        "inputs": {}
+      }
+    ]
+  },
+  {
+    "op_id": "cpu_info",
+    "name": "cpu info",
+    "description": "cpu info operation",
+    "intent": "cpu info",
+    "input_schema": {},
+    "generators": [
+      {
+        "name": "gen_cpu_info",
+        "tool": "echo",
+        "template": "echo cpu_info",
+        "when": []
+      }
+    ],
+    "examples": [
+      {
+        "description": "cpu info",
+        "inputs": {}
+      }
+    ]
+  },
+  {
+    "op_id": "gpu_info",
+    "name": "gpu info",
+    "description": "gpu info operation",
+    "intent": "gpu info",
+    "input_schema": {},
+    "generators": [
+      {
+        "name": "gen_gpu_info",
+        "tool": "echo",
+        "template": "echo gpu_info",
+        "when": []
+      }
+    ],
+    "examples": [
+      {
+        "description": "gpu info",
+        "inputs": {}
+      }
+    ]
+  },
+  {
+    "op_id": "hardware_summary",
+    "name": "hardware summary",
+    "description": "hardware summary operation",
+    "intent": "hardware summary",
+    "input_schema": {},
+    "generators": [
+      {
+        "name": "gen_hardware_summary",
+        "tool": "echo",
+        "template": "echo hardware_summary",
+        "when": []
+      }
+    ],
+    "examples": [
+      {
+        "description": "hardware summary",
+        "inputs": {}
+      }
+    ]
+  },
+  {
+    "op_id": "user_list",
+    "name": "user list",
+    "description": "user list operation",
+    "intent": "user list",
+    "input_schema": {},
+    "generators": [
+      {
+        "name": "gen_user_list",
+        "tool": "echo",
+        "template": "echo user_list",
+        "when": []
+      }
+    ],
+    "examples": [
+      {
+        "description": "user list",
+        "inputs": {}
+      }
+    ]
+  },
+  {
+    "op_id": "login_history",
+    "name": "login history",
+    "description": "login history operation",
+    "intent": "login history",
+    "input_schema": {},
+    "generators": [
+      {
+        "name": "gen_login_history",
+        "tool": "echo",
+        "template": "echo login_history",
+        "when": []
+      }
+    ],
+    "examples": [
+      {
+        "description": "login history",
+        "inputs": {}
+      }
+    ]
+  },
+  {
+    "op_id": "firewall_status",
+    "name": "firewall status",
+    "description": "firewall status operation",
+    "intent": "firewall status",
+    "input_schema": {},
+    "generators": [
+      {
+        "name": "gen_firewall_status",
+        "tool": "echo",
+        "template": "echo firewall_status",
+        "when": []
+      }
+    ],
+    "examples": [
+      {
+        "description": "firewall status",
+        "inputs": {}
+      }
+    ]
+  }
+]

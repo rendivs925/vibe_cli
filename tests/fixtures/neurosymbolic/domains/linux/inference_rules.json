@@ -1,0 +1,512 @@
+[
+  {
+    "rule_id": "rule_01",
+    "name": "Rule 1",
+    "if": [
+      {
+        "entity": "Process",
+        "prop": "state",
+        "equals": "cond_1"
+      }
+    ],
+    "then": [
+      {
+        "conclude": "conclusion_1",
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "rule_id": "rule_02",
+    "name": "Rule 2",
+    "if": [
+      {
+        "entity": "Process",
+        "prop": "state",
+        "equals": "cond_2"
+      }
+    ],
+    "then": [
+      {
+        "conclude": "conclusion_2",
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "rule_id": "rule_03",
+    "name": "Rule 3",
+    "if": [
+      {
+        "entity": "Process",
+        "prop": "state",
+        "equals": "cond_3"
+      }
+    ],
+    "then": [
+      {
+        "conclude": "conclusion_3",
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "rule_id": "rule_04",
+    "name": "Rule 4",
+    "if": [
+      {
+        "entity": "Process",
+        "prop": "state",
+        "equals": "cond_4"
+      }
+    ],
+    "then": [
+      {
+        "conclude": "conclusion_4",
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "rule_id": "rule_05",
+    "name": "Rule 5",
+    "if": [
+      {
+        "entity": "Process",
+        "prop": "state",
+        "equals": "cond_5"
+      }
+    ],
+    "then": [
+      {
+        "conclude": "conclusion_5",
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "rule_id": "rule_06",
+    "name": "Rule 6",
+    "if": [
+      {
+        "entity": "Process",
+        "prop": "state",
+        "equals": "cond_6"
+      }
+    ],
+    "then": [
+      {
+        "conclude": "conclusion_6",
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "rule_id": "rule_07",
+    "name": "Rule 7",
+    "if": [
+      {
+        "entity": "Process",
+        "prop": "state",
+        "equals": "cond_7"
+      }
+    ],
+    "then": [
+      {
+        "conclude": "conclusion_7",
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "rule_id": "rule_08",
+    "name": "Rule 8",
+    "if": [
+      {
+        "entity": "Process",
+        "prop": "state",
+        "equals": "cond_8"
+      }
+    ],
+    "then": [
+      {
+        "conclude": "conclusion_8",
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "rule_id": "rule_09",
+    "name": "Rule 9",
+    "if": [
+      {
+        "entity": "Process",
+        "prop": "state",
+        "equals": "cond_9"
+      }
+    ],
+    "then": [
+      {
+        "conclude": "conclusion_9",
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "rule_id": "rule_10",
+    "name": "Rule 10",
+    "if": [
+      {
+        "entity": "Process",
+        "prop": "state",
+        "equals": "cond_10"
+      }
+    ],
+    "then": [
+      {
+        "conclude": "conclusion_10",
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "rule_id": "rule_11",
+    "name": "Rule 11",
+    "if": [
+      {
+        "entity": "Process",
+        "prop": "state",
+        "equals": "cond_11"
+      }
+    ],
+    "then": [
+      {
+        "conclude": "conclusion_11",
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "rule_id": "rule_12",
+    "name": "Rule 12",
+    "if": [
+      {
+        "entity": "Process",
+        "prop": "state",
+        "equals": "cond_12"
+      }
+    ],
+    "then": [
+      {
+        "conclude": "conclusion_12",
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "rule_id": "rule_13",
+    "name": "Rule 13",
+    "if": [
+      {
+        "entity": "Process",
+        "prop": "state",
+        "equals": "cond_13"
+      }
+    ],
+    "then": [
+      {
+        "conclude": "conclusion_13",
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "rule_id": "rule_14",
+    "name": "Rule 14",
+    "if": [
+      {
+        "entity": "Process",
+        "prop": "state",
+        "equals": "cond_14"
+      }
+    ],
+    "then": [
+      {
+        "conclude": "conclusion_14",
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "rule_id": "rule_15",
+    "name": "Rule 15",
+    "if": [
+      {
+        "entity": "Process",
+        "prop": "state",
+        "equals": "cond_15"
+      }
+    ],
+    "then": [
+      {
+        "conclude": "conclusion_15",
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "rule_id": "rule_16",
+    "name": "Rule 16",
+    "if": [
+      {
+        "entity": "Process",
+        "prop": "state",
+        "equals": "cond_16"
+      }
+    ],
+    "then": [
+      {
+        "conclude": "conclusion_16",
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "rule_id": "rule_17",
+    "name": "Rule 17",
+    "if": [
+      {
+        "entity": "Process",
+        "prop": "state",
+        "equals": "cond_17"
+      }
+    ],
+    "then": [
+      {
+        "conclude": "conclusion_17",
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "rule_id": "rule_18",
+    "name": "Rule 18",
+    "if": [
+      {
+        "entity": "Process",
+        "prop": "state",
+        "equals": "cond_18"
+      }
+    ],
+    "then": [
+      {
+        "conclude": "conclusion_18",
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "rule_id": "rule_19",
+    "name": "Rule 19",
+    "if": [
+      {
+        "entity": "Process",
+        "prop": "state",
+        "equals": "cond_19"
+      }
+    ],
+    "then": [
+      {
+        "conclude": "conclusion_19",
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "rule_id": "rule_20",
+    "name": "Rule 20",
+    "if": [
+      {
+        "entity": "Process",
+        "prop": "state",
+        "equals": "cond_20"
+      }
+    ],
+    "then": [
+      {
+        "conclude": "conclusion_20",
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "rule_id": "rule_21",
+    "name": "Rule 21",
+    "if": [
+      {
+        "entity": "Process",
+        "prop": "state",
+        "equals": "cond_21"
+      }
+    ],
+    "then": [
+      {
+        "conclude": "conclusion_21",
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "rule_id": "rule_22",
+    "name": "Rule 22",
+    "if": [
+      {
+        "entity": "Process",
+        "prop": "state",
+        "equals": "cond_22"
+      }
+    ],
+    "then": [
+      {
+        "conclude": "conclusion_22",
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "rule_id": "rule_23",
+    "name": "Rule 23",
+    "if": [
+      {
+        "entity": "Process",
+        "prop": "state",
+        "equals": "cond_23"
+      }
+    ],
+    "then": [
+      {
+        "conclude": "conclusion_23",
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "rule_id": "rule_24",
+    "name": "Rule 24",
+    "if": [
+      {
+        "entity": "Process",
+        "prop": "state",
+        "equals": "cond_24"
+      }
+    ],
+    "then": [
+      {
+        "conclude": "conclusion_24",
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "rule_id": "rule_25",
+    "name": "Rule 25",
+    "if": [
+      {
+        "entity": "Process",
+        "prop": "state",
+        "equals": "cond_25"
+      }
+    ],
+    "then": [
+      {
+        "conclude": "conclusion_25",
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "rule_id": "rule_26",
+    "name": "Rule 26",
+    "if": [
+      {
+        "entity": "Process",
+        "prop": "state",
+        "equals": "cond_26"
+      }
+    ],
+    "then": [
+      {
+        "conclude": "conclusion_26",
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "rule_id": "rule_27",
+    "name": "Rule 27",
+    "if": [
+      {
+        "entity": "Process",
+        "prop": "state",
+        "equals": "cond_27"
+      }
+    ],
+    "then": [
+      {
+        "conclude": "conclusion_27",
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "rule_id": "rule_28",
+    "name": "Rule 28",
+    "if": [
+      {
+        "entity": "Process",
+        "prop": "state",
+        "equals": "cond_28"
+      }
+    ],
+    "then": [
+      {
+        "conclude": "conclusion_28",
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "rule_id": "rule_29",
+    "name": "Rule 29",
+    "if": [
+      {
+        "entity": "Process",
+        "prop": "state",
+        "equals": "cond_29"
+      }
+    ],
+    "then": [
+      {
+        "conclude": "conclusion_29",
+        "confidence": 0.9
+      }
+    ]
+  },
+  {
+    "rule_id": "rule_30",
+    "name": "Rule 30",
+    "if": [
+      {
+        "entity": "Process",
+        "prop": "state",
+        "equals": "cond_30"
+      }
+    ],
+    "then": [
+      {
+        "conclude": "conclusion_30",
+        "confidence": 0.9
+      }
+    ]
+  }
+]

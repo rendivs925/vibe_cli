@@ -1,0 +1,17 @@
+{
+  "name": "SystemdUnit",
+  "description": "Systemd unit",
+  "core_properties": [
+    {
+      "name": "unit",
+      "type": "string",
+      "meaning": "Unit name"
+    },
+    {
+      "name": "state",
+      "type": "string",
+      "meaning": "Unit state"
+    }
+  ],
+  "derived_properties": []
+}

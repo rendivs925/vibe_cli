@@ -1,0 +1,17 @@
+{
+  "name": "MemoryInfo",
+  "description": "Memory statistics",
+  "core_properties": [
+    {
+      "name": "total",
+      "type": "number",
+      "meaning": "Total memory"
+    },
+    {
+      "name": "used",
+      "type": "number",
+      "meaning": "Used memory"
+    }
+  ],
+  "derived_properties": []
+}

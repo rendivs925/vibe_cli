@@ -1,0 +1,17 @@
+{
+  "name": "Filesystem",
+  "description": "A filesystem",
+  "core_properties": [
+    {
+      "name": "mount",
+      "type": "string",
+      "meaning": "Mount point"
+    },
+    {
+      "name": "usage",
+      "type": "number",
+      "meaning": "Usage percent"
+    }
+  ],
+  "derived_properties": []
+}
