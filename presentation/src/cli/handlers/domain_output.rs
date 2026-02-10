@@ -21,15 +21,7 @@ impl CliHandlers {
     pub(crate) async fn interpret_output(&self, query: &str, output: &str) -> Result<()> {
         let client = infrastructure::ollama_client::OllamaClient::new()?;
         let prompt = format!(
-            "You summarize command output.\n\
-Return STRICT JSON only (no markdown, no code fences).\n\
-Schema:\n\
-{{\"key_points\":[\"...\"],\"warnings\":[\"...\"],\"errors\":[\"...\"]}}\n\
-Rules:\n\
-- Use short bullets (max ~12 words each)\n\
-- Only include items supported by the output\n\
-- If nothing new: key_points=[\"No new findings.\"]\n\
-\n\
+            "Summarize this command output in 1-2 sentences:\n\n\
 User asked: \"{}\"\n\n\
 Command output:\n{}\n",
             query, output
@@ -52,17 +44,9 @@ Command output:\n{}\n",
     ) -> Result<()> {
         let client = infrastructure::ollama_client::OllamaClient::new()?;
         let prompt = format!(
-            "Final wrap-up.\n\
-Return STRICT JSON only (no markdown, no code fences).\n\
-Schema:\n\
-{{\"key_points\":[\"...\"],\"warnings\":[\"...\"],\"errors\":[\"...\"]}}\n\
-Rules:\n\
-- Up to 5 total bullets across all arrays\n\
-- Highlight failures/unhealthy/exit-code in errors\n\
-\n\
+            "Provide a brief summary of this command output:\n\n\
 User asked: \"{}\"\n\
-Previous incremental summary:\n{}\n\
-\n\
+Previous summary: \"{}\"\n\n\
 Full output:\n{}\n",
             query,
             if previous_summary.trim().is_empty() {
@@ -108,19 +92,10 @@ Full output:\n{}\n",
                     return None;
                 }
                 let prompt = format!(
-                    "You are providing incremental updates from a running command.\n\
-Return STRICT JSON only (no markdown, no code fences).\n\
-Schema:\n\
-{{\"key_points\":[\"...\"],\"warnings\":[\"...\"],\"errors\":[\"...\"]}}\n\
-Rules:\n\
-- Use short bullets (max ~12 words each)\n\
-- Only include items supported by the output\n\
-- If nothing new: key_points=[\"No new findings.\"]\n\
-\n\
+                    "Briefly summarize new output from running command:\n\n\
 User asked: \"{}\"\n\
-Previous summary:\n{}\n\
-\n\
-New output chunk:\n{}\n",
+Previous summary: \"{}\"\n\n\
+New output:\n{}\n",
                     query,
                     if summary.trim().is_empty() {
                         "<none>"
@@ -245,14 +220,20 @@ New output chunk:\n{}\n",
             if Self::is_no_new_findings(&update) {
                 return String::new();
             }
-            let mut out = String::new();
-            out.push_str(&Self::render_section("Errors", &update.errors, |t| t.red()));
-            out.push_str(&Self::render_section("Warnings", &update.warnings, |t| t.yellow()));
-            out.push_str(&Self::render_section("Key points", &update.key_points, |t| t.green()));
-            return out.trim_end().to_string();
+            let mut lines = Vec::new();
+            for err in &update.errors {
+                lines.push(format!("Error: {}", err.trim()));
+            }
+            for warn in &update.warnings {
+                lines.push(format!("Warning: {}", warn.trim()));
+            }
+            for point in &update.key_points {
+                lines.push(point.trim().to_string());
+            }
+            return lines.join("\n");
         }
 
-        Self::format_ai_update(&cleaned)
+        raw.trim().to_string()
     }
 
     fn format_ai_update(raw: &str) -> String {
