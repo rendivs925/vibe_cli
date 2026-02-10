@@ -6,6 +6,7 @@ use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 use tokio::runtime::Runtime;
+use tokio::time::timeout;
 
 #[derive(Debug, Deserialize, Default)]
 struct AiUpdate {
@@ -27,7 +28,11 @@ Command output:\n{}\n",
             query, output
         );
 
-        let response = client.generate_response(&prompt).await?;
+        let response = timeout(Duration::from_secs(8), client.generate_response(&prompt))
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .unwrap_or_default();
         let formatted = Self::format_ai_response(&response);
         if !formatted.is_empty() {
             println!("\n{}", "=== AI Interpretation ===".green().bold());
@@ -57,7 +62,11 @@ Full output:\n{}\n",
             output
         );
 
-        let response = client.generate_response(&prompt).await?;
+        let response = timeout(Duration::from_secs(8), client.generate_response(&prompt))
+            .await
+            .ok()
+            .and_then(Result::ok)
+            .unwrap_or_default();
         let formatted = Self::format_ai_response(&response);
         if !formatted.is_empty() {
             println!("\n{}", "=== AI Final Summary ===".green().bold());
@@ -104,7 +113,12 @@ New output:\n{}\n",
                     },
                     chunk
                 );
-                rt.block_on(client.generate_response(&prompt)).ok()
+                rt.block_on(async {
+                    timeout(Duration::from_secs(6), client.generate_response(&prompt))
+                        .await
+                        .ok()
+                        .and_then(Result::ok)
+                })
             };
 
             for line in rx {

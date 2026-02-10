@@ -168,7 +168,8 @@ impl CliHandlers {
         cmd: &str,
         sink: Option<OutputSink>,
     ) -> Result<CommandOutput> {
-        let wrapped = Self::wrap_streaming_command(cmd);
+        let adjusted = Self::apply_streaming_fixes(cmd);
+        let wrapped = Self::wrap_streaming_command(&adjusted);
         let mut child = Command::new("bash")
             .arg("-c")
             .arg(wrapped)
@@ -207,6 +208,8 @@ impl CliHandlers {
                 }
             })
         };
+
+        drop(line_tx);
 
         let dispatcher = {
             let out_buf = Arc::clone(&out_buf);
@@ -259,6 +262,28 @@ impl CliHandlers {
         }
 
         cmd.to_string()
+    }
+
+    fn apply_streaming_fixes(cmd: &str) -> String {
+        let mut tokens: Vec<&str> = cmd.split_whitespace().collect();
+        if tokens.is_empty() {
+            return cmd.to_string();
+        }
+
+        let has_pipe = cmd.contains('|');
+        let has_journalctl = tokens
+            .iter()
+            .any(|t| *t == "journalctl" || t.ends_with("/journalctl"));
+
+        if has_journalctl && !tokens.iter().any(|t| *t == "--no-pager") {
+            tokens.push("--no-pager");
+        }
+
+        if has_journalctl && !has_pipe {
+            return format!("SYSTEMD_PAGER=cat {}", tokens.join(" "));
+        }
+
+        tokens.join(" ")
     }
 
     fn has_in_path(bin: &str) -> bool {

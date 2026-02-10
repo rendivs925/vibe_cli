@@ -129,6 +129,10 @@ vibe_cli --ai-interpret "list processes"
 vibe_cli --ai-interpret "show my gpu name"
 ```
 
+When `--ai-interpret` is enabled, command execution streams in small output chunks with
+AI chunk summaries followed by a concise final summary. This keeps long outputs readable
+without dumping everything at once.
+
 ---
 
 ## Neurosymbolic Commands
