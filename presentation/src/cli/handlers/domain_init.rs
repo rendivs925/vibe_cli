@@ -30,11 +30,11 @@ impl CliHandlers {
 
         println!("{}", "Creating Linux symbolic reasoning domain...".green());
 
-        let domain_json = include_str!("domain_templates/linux/domain.json");
+        let domain_json = include_str!("../domain_templates/linux/domain.json");
         std::fs::write(config_dir.join("linux/domain.json"), domain_json)?;
         println!("  {}", "OK domain.json");
 
-        let ops_json = include_str!("domain_templates/linux/operations.json");
+        let ops_json = include_str!("../domain_templates/linux/operations.json");
 
         let ops_path = config_dir.join("linux/operations.json");
         let base_ops: Vec<serde_json::Value> = serde_json::from_str(ops_json)?;
@@ -71,17 +71,17 @@ impl CliHandlers {
         println!("  {}", "OK operations.json (merged)");
 
         let entity_files = [
-            ("process.json", include_str!("domain_templates/linux/entities/process.json")),
-            ("file.json", include_str!("domain_templates/linux/entities/file.json")),
-            ("service.json", include_str!("domain_templates/linux/entities/service.json")),
-            ("network_connection.json", include_str!("domain_templates/linux/entities/network_connection.json")),
-            ("user.json", include_str!("domain_templates/linux/entities/user.json")),
-            ("filesystem.json", include_str!("domain_templates/linux/entities/filesystem.json")),
-            ("memory.json", include_str!("domain_templates/linux/entities/memory.json")),
-            ("cpu.json", include_str!("domain_templates/linux/entities/cpu.json")),
-            ("network_interface.json", include_str!("domain_templates/linux/entities/network_interface.json")),
-            ("docker_container.json", include_str!("domain_templates/linux/entities/docker_container.json")),
-            ("systemd_unit.json", include_str!("domain_templates/linux/entities/systemd_unit.json")),
+            ("process.json", include_str!("../domain_templates/linux/entities/process.json")),
+            ("file.json", include_str!("../domain_templates/linux/entities/file.json")),
+            ("service.json", include_str!("../domain_templates/linux/entities/service.json")),
+            ("network_connection.json", include_str!("../domain_templates/linux/entities/network_connection.json")),
+            ("user.json", include_str!("../domain_templates/linux/entities/user.json")),
+            ("filesystem.json", include_str!("../domain_templates/linux/entities/filesystem.json")),
+            ("memory.json", include_str!("../domain_templates/linux/entities/memory.json")),
+            ("cpu.json", include_str!("../domain_templates/linux/entities/cpu.json")),
+            ("network_interface.json", include_str!("../domain_templates/linux/entities/network_interface.json")),
+            ("docker_container.json", include_str!("../domain_templates/linux/entities/docker_container.json")),
+            ("systemd_unit.json", include_str!("../domain_templates/linux/entities/systemd_unit.json")),
         ];
         for (name, content) in entity_files {
             std::fs::write(linux_dir.join(name), content)?;
@@ -89,18 +89,18 @@ impl CliHandlers {
 
         println!("  {}", "OK entities/ (11 entities: Process, File, Service, NetworkConnection, User, Filesystem, MemoryInfo, Cpu, NetworkInterface, DockerContainer, SystemdUnit)");
 
-        let relationships_json = include_str!("domain_templates/linux/relationships.json");
+        let relationships_json = include_str!("../domain_templates/linux/relationships.json");
         std::fs::write(config_dir.join("linux/relationships.json"), relationships_json)?;
         println!("  {}", "OK relationships.json (8 relationships)");
 
-        let inference_rules_json = include_str!("domain_templates/linux/inference_rules.json");
+        let inference_rules_json = include_str!("../domain_templates/linux/inference_rules.json");
         std::fs::write(
             config_dir.join("linux/inference_rules.json"),
             inference_rules_json,
         )?;
         println!("  {}", "OK inference_rules.json (30 inference rules)");
 
-        let troubleshooting_json = include_str!("domain_templates/linux/troubleshooting.json");
+        let troubleshooting_json = include_str!("../domain_templates/linux/troubleshooting.json");
         std::fs::write(
             config_dir.join("linux/troubleshooting.json"),
             troubleshooting_json,
@@ -111,7 +111,7 @@ impl CliHandlers {
         );
 
         let reasoning_templates_json =
-            include_str!("domain_templates/linux/reasoning_templates.json");
+            include_str!("../domain_templates/linux/reasoning_templates.json");
 
         let templates_path = config_dir.join("linux/reasoning_templates.json");
         let base_templates: Vec<serde_json::Value> =
@@ -148,7 +148,7 @@ impl CliHandlers {
         std::fs::write(&templates_path, templates_output)?;
         println!("  {}", "OK reasoning_templates.json (6 templates)");
 
-        let shared_port = include_str!("domain_templates/shared/port.json");
+        let shared_port = include_str!("../domain_templates/shared/port.json");
         std::fs::write(shared_dir.join("port.json"), shared_port)?;
 
         println!(
