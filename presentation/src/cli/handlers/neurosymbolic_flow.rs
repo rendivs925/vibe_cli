@@ -114,18 +114,19 @@ impl CliHandlers {
             return Ok(());
         };
 
+        let mut summary = String::new();
         let output = if ai_interpret {
             let (tx, rx) = mpsc::channel();
-            let handle = self.spawn_incremental_interpreter(query, rx);
-            let result = self.run_shell_command_streaming_with_sink(&cmd, Some(tx))?;
-            let _ = handle.join();
+            let (ack_tx, ack_rx) = mpsc::channel();
+            let handle = self.spawn_incremental_interpreter(query, rx, ack_tx);
+            let sink = super::OutputSink { tx, ack: ack_rx };
+            let result = self.run_shell_command_streaming_with_sink(&cmd, Some(sink))?;
+            summary = handle.join().unwrap_or_default();
             result
         } else {
             self.run_shell_command_streaming(&cmd)?
         };
-        if ai_interpret {
-            self.interpret_output(query, &output.full_output).await?;
-        } else {
+        if !ai_interpret {
             println!("{}", output.stdout);
         }
 
@@ -154,6 +155,11 @@ impl CliHandlers {
             }
         }
 
+        if ai_interpret {
+            self.interpret_output_final(query, &output.full_output, &summary)
+                .await?;
+        }
+
         Ok(())
     }
 
@@ -163,18 +169,19 @@ impl CliHandlers {
         cmd: &str,
         ai_interpret: bool,
     ) -> Result<()> {
+        let mut summary = String::new();
         let output = if ai_interpret {
             let (tx, rx) = mpsc::channel();
-            let handle = self.spawn_incremental_interpreter(query, rx);
-            let result = self.run_shell_command_streaming_with_sink(cmd, Some(tx))?;
-            let _ = handle.join();
+            let (ack_tx, ack_rx) = mpsc::channel();
+            let handle = self.spawn_incremental_interpreter(query, rx, ack_tx);
+            let sink = super::OutputSink { tx, ack: ack_rx };
+            let result = self.run_shell_command_streaming_with_sink(cmd, Some(sink))?;
+            summary = handle.join().unwrap_or_default();
             result
         } else {
             self.run_shell_command_streaming(cmd)?
         };
-        if ai_interpret {
-            self.interpret_output(query, &output.full_output).await?;
-        } else {
+        if !ai_interpret {
             println!("{}", output.stdout);
         }
 
@@ -196,6 +203,11 @@ impl CliHandlers {
             }
         } else if let Some(service) = self.integrated_service.as_ref() {
             let _ = service.record_success(query, cmd);
+        }
+
+        if ai_interpret {
+            self.interpret_output_final(query, &output.full_output, &summary)
+                .await?;
         }
 
         Ok(())

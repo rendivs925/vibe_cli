@@ -166,11 +166,12 @@ impl CliHandlers {
     fn run_shell_command_streaming_with_sink(
         &self,
         cmd: &str,
-        sink: Option<mpsc::Sender<OutputLine>>,
+        sink: Option<OutputSink>,
     ) -> Result<CommandOutput> {
+        let wrapped = Self::wrap_streaming_command(cmd);
         let mut child = Command::new("bash")
             .arg("-c")
-            .arg(cmd)
+            .arg(wrapped)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .spawn()?;
@@ -181,45 +182,55 @@ impl CliHandlers {
         let out_buf = Arc::new(Mutex::new(String::new()));
         let err_buf = Arc::new(Mutex::new(String::new()));
 
-        let out_buf_clone = Arc::clone(&out_buf);
-        let out_sender = sink.clone();
-        let stdout_handle = thread::spawn(move || {
-            let reader = BufReader::new(stdout);
-            for line in reader.lines() {
-                if let Ok(line) = line {
-                    println!("{}", line);
-                    if let Some(ref sender) = out_sender {
-                        let _ = sender.send(OutputLine::Stdout(line.clone()));
-                    }
-                    if let Ok(mut buf) = out_buf_clone.lock() {
-                        buf.push_str(&line);
-                        buf.push('\n');
-                    }
-                }
-            }
-        });
+        let (line_tx, line_rx) = mpsc::channel::<OutputLine>();
 
-        let err_buf_clone = Arc::clone(&err_buf);
-        let err_sender = sink.clone();
-        let stderr_handle = thread::spawn(move || {
-            let reader = BufReader::new(stderr);
-            for line in reader.lines() {
-                if let Ok(line) = line {
-                    eprintln!("{}", line);
-                    if let Some(ref sender) = err_sender {
-                        let _ = sender.send(OutputLine::Stderr(line.clone()));
-                    }
-                    if let Ok(mut buf) = err_buf_clone.lock() {
-                        buf.push_str(&line);
-                        buf.push('\n');
+        let stdout_handle = {
+            let line_tx = line_tx.clone();
+            thread::spawn(move || {
+                let reader = BufReader::new(stdout);
+                for line in reader.lines() {
+                    if let Ok(line) = line {
+                        let _ = line_tx.send(OutputLine::Stdout(line));
                     }
                 }
-            }
-        });
+            })
+        };
+
+        let stderr_handle = {
+            let line_tx = line_tx.clone();
+            thread::spawn(move || {
+                let reader = BufReader::new(stderr);
+                for line in reader.lines() {
+                    if let Ok(line) = line {
+                        let _ = line_tx.send(OutputLine::Stderr(line));
+                    }
+                }
+            })
+        };
+
+        let dispatcher = {
+            let out_buf = Arc::clone(&out_buf);
+            let err_buf = Arc::clone(&err_buf);
+            let sink = sink.clone();
+            thread::spawn(move || {
+                let mut chunk: Vec<OutputLine> = Vec::with_capacity(3);
+                for line in line_rx {
+                    chunk.push(line);
+                    if chunk.len() >= 3 {
+                        flush_chunk(&chunk, &out_buf, &err_buf, sink.as_ref());
+                        chunk.clear();
+                    }
+                }
+                if !chunk.is_empty() {
+                    flush_chunk(&chunk, &out_buf, &err_buf, sink.as_ref());
+                }
+            })
+        };
 
         let status = child.wait()?;
         let _ = stdout_handle.join();
         let _ = stderr_handle.join();
+        let _ = dispatcher.join();
 
         let stdout = out_buf.lock().map(|s| s.clone()).unwrap_or_default();
         let stderr = err_buf.lock().map(|s| s.clone()).unwrap_or_default();
@@ -235,6 +246,36 @@ impl CliHandlers {
             full_output,
             status,
         })
+    }
+
+    fn wrap_streaming_command(cmd: &str) -> String {
+        if Self::has_in_path("script") {
+            let escaped = Self::escape_single_quotes(cmd);
+            return format!("script -q /dev/null -c '{}'", escaped);
+        }
+
+        if Self::has_in_path("stdbuf") {
+            return format!("stdbuf -oL -eL {}", cmd);
+        }
+
+        cmd.to_string()
+    }
+
+    fn has_in_path(bin: &str) -> bool {
+        let Ok(path) = std::env::var("PATH") else {
+            return false;
+        };
+        for entry in path.split(':') {
+            let candidate = PathBuf::from(entry).join(bin);
+            if candidate.exists() {
+                return true;
+            }
+        }
+        false
+    }
+
+    fn escape_single_quotes(input: &str) -> String {
+        input.replace('\'', "'\\''")
     }
 
     fn keywords_from_text(text: &str) -> Vec<String> {
@@ -262,6 +303,51 @@ struct CommandOutput {
 pub(crate) enum OutputLine {
     Stdout(String),
     Stderr(String),
+    ChunkEnd,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) struct OutputSink {
+    pub tx: mpsc::Sender<OutputLine>,
+    pub ack: mpsc::Receiver<()>,
+}
+
+fn flush_chunk(
+    chunk: &[OutputLine],
+    out_buf: &Arc<Mutex<String>>,
+    err_buf: &Arc<Mutex<String>>,
+    sink: Option<&OutputSink>,
+) {
+    for entry in chunk {
+        match entry {
+            OutputLine::Stdout(line) => {
+                println!("{}", line);
+                if let Ok(mut buf) = out_buf.lock() {
+                    buf.push_str(line);
+                    buf.push('\n');
+                }
+                if let Some(sink) = sink {
+                    let _ = sink.tx.send(OutputLine::Stdout(line.clone()));
+                }
+            }
+            OutputLine::Stderr(line) => {
+                eprintln!("{}", line);
+                if let Ok(mut buf) = err_buf.lock() {
+                    buf.push_str(line);
+                    buf.push('\n');
+                }
+                if let Some(sink) = sink {
+                    let _ = sink.tx.send(OutputLine::Stderr(line.clone()));
+                }
+            }
+            OutputLine::ChunkEnd => {}
+        }
+    }
+
+    if let Some(sink) = sink {
+        let _ = sink.tx.send(OutputLine::ChunkEnd);
+        let _ = sink.ack.recv();
+    }
 }
 
 impl From<std::process::Output> for CommandOutput {

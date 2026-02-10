@@ -25,24 +25,55 @@ impl CliHandlers {
         Ok(())
     }
 
+    pub(crate) async fn interpret_output_final(
+        &self,
+        query: &str,
+        output: &str,
+        previous_summary: &str,
+    ) -> Result<()> {
+        println!("\n{}", "=== AI Final Summary ===".green().bold());
+
+        let client = infrastructure::ollama_client::OllamaClient::new()?;
+        let prompt = format!(
+            "You are providing a final, concise wrap-up for a command run.\n\
+User asked: \"{}\"\n\
+Previous incremental summary:\n{}\n\
+\n\
+Full command output (may be long):\n{}\n\
+\n\
+Return a concise final summary in up to 5 bullets. Highlight errors and key results only.",
+            query,
+            if previous_summary.trim().is_empty() {
+                "<none>"
+            } else {
+                previous_summary
+            },
+            output
+        );
+
+        let response = client.generate_response(&prompt).await?;
+        println!("{}", response);
+        Ok(())
+    }
+
     pub(crate) fn spawn_incremental_interpreter(
         &self,
         query: &str,
         rx: mpsc::Receiver<super::OutputLine>,
-    ) -> thread::JoinHandle<()> {
+        ack: mpsc::Sender<()>,
+    ) -> thread::JoinHandle<String> {
         let query = query.to_string();
         thread::spawn(move || {
             let client = match infrastructure::ollama_client::OllamaClient::new() {
                 Ok(client) => client,
-                Err(_) => return,
+                Err(_) => return String::new(),
             };
             let rt = match Runtime::new() {
                 Ok(rt) => rt,
-                Err(_) => return,
+                Err(_) => return String::new(),
             };
 
             let mut buffer = String::new();
-            let mut line_count = 0usize;
             let mut summary = String::new();
 
             let mut flush = |chunk: &str, summary: &str| -> Option<String> {
@@ -79,19 +110,17 @@ Return a concise update in 1-3 short bullets. If no new findings, say \"No new f
                         buffer.push_str(&text);
                         buffer.push('\n');
                     }
-                }
-                line_count += 1;
-
-                if line_count >= 20 || buffer.len() >= 2000 {
-                    if let Some(update) = flush(&buffer, &summary) {
-                        let trimmed = update.trim();
-                        if !trimmed.is_empty() {
-                            println!("\n=== AI Update ===\n{}\n", trimmed);
-                            summary = trimmed.to_string();
+                    super::OutputLine::ChunkEnd => {
+                        if let Some(update) = flush(&buffer, &summary) {
+                            let trimmed = update.trim();
+                            if !trimmed.is_empty() {
+                                println!("\n=== AI Update ===\n{}\n", trimmed);
+                                summary = trimmed.to_string();
+                            }
                         }
+                        buffer.clear();
+                        let _ = ack.send(());
                     }
-                    buffer.clear();
-                    line_count = 0;
                 }
             }
 
@@ -105,6 +134,7 @@ Return a concise update in 1-3 short bullets. If no new findings, say \"No new f
             }
 
             thread::sleep(Duration::from_millis(10));
+            summary
         })
     }
 }
