@@ -294,6 +294,19 @@
     ]
   },
   {
+    "op_id": "check_distribution",
+    "name": "Check Linux distribution",
+    "description": "Show Linux distribution name and version",
+    "input_schema": {},
+    "generators": [
+      {"name": "os_release", "tool": "cat", "template": "cat /etc/os-release", "when": []},
+      {"name": "lsb_release_id", "tool": "lsb_release", "template": "lsb_release -id", "when": []}
+    ],
+    "examples": [
+      {"description": "Show distro info", "inputs": {}}
+    ]
+  },
+  {
     "op_id": "check_hardware",
     "name": "Check hardware information",
     "description": "Display hardware information including CPU, memory, disk, and PCI devices",

@@ -8,7 +8,7 @@
 //!
 //! Enables contextual command generation based on actual system state.
 
-use rusqlite::{params, Connection, Result as SqliteResult};
+use rusqlite::{params, Connection, OptionalExtension, Result as SqliteResult};
 use std::collections::HashMap;
 use std::path::Path;
 
@@ -27,6 +27,14 @@ pub enum EntityType {
     Service,
     Process,
     NetworkInterface,
+    NetworkConnection,
+    Container,
+    Filesystem,
+    Mount,
+    Hardware,
+    Cpu,
+    Memory,
+    Disk,
     Permission,
     EnvironmentVariable,
     Configuration,
@@ -47,6 +55,14 @@ impl EntityType {
             EntityType::Service => "service",
             EntityType::Process => "process",
             EntityType::NetworkInterface => "network_interface",
+            EntityType::NetworkConnection => "network_connection",
+            EntityType::Container => "container",
+            EntityType::Filesystem => "filesystem",
+            EntityType::Mount => "mount",
+            EntityType::Hardware => "hardware",
+            EntityType::Cpu => "cpu",
+            EntityType::Memory => "memory",
+            EntityType::Disk => "disk",
             EntityType::Permission => "permission",
             EntityType::EnvironmentVariable => "env_var",
             EntityType::Configuration => "configuration",
@@ -67,6 +83,14 @@ impl EntityType {
             "service" => Some(EntityType::Service),
             "process" => Some(EntityType::Process),
             "network_interface" => Some(EntityType::NetworkInterface),
+            "network_connection" => Some(EntityType::NetworkConnection),
+            "container" => Some(EntityType::Container),
+            "filesystem" => Some(EntityType::Filesystem),
+            "mount" => Some(EntityType::Mount),
+            "hardware" => Some(EntityType::Hardware),
+            "cpu" => Some(EntityType::Cpu),
+            "memory" => Some(EntityType::Memory),
+            "disk" => Some(EntityType::Disk),
             "permission" => Some(EntityType::Permission),
             "env_var" => Some(EntityType::EnvironmentVariable),
             "configuration" => Some(EntityType::Configuration),
@@ -213,6 +237,44 @@ impl KnowledgeGraph {
         }
 
         Ok(entity_id)
+    }
+
+    /// Add or update an entity (replaces attributes if present)
+    pub fn upsert_entity(
+        &self,
+        entity_type: EntityType,
+        name: &str,
+        attributes: HashMap<String, String>,
+    ) -> SqliteResult<i64> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id FROM entities WHERE entity_type = ?1 AND name = ?2 LIMIT 1",
+        )?;
+
+        let existing_id: Option<i64> = stmt
+            .query_row(params![entity_type.as_str(), name], |row| row.get(0))
+            .optional()?;
+
+        if let Some(entity_id) = existing_id {
+            let now = chrono::Utc::now().to_rfc3339();
+            self.conn.execute(
+                "UPDATE entities SET last_updated = ?1 WHERE id = ?2",
+                params![&now, entity_id],
+            )?;
+            self.conn.execute(
+                "DELETE FROM entity_attributes WHERE entity_id = ?1",
+                params![entity_id],
+            )?;
+            for (key, value) in attributes {
+                self.conn.execute(
+                    "INSERT INTO entity_attributes (entity_id, key, value)
+                     VALUES (?1, ?2, ?3)",
+                    params![entity_id, key, value],
+                )?;
+            }
+            Ok(entity_id)
+        } else {
+            self.add_entity(entity_type, name, attributes)
+        }
     }
 
     /// Get entity by ID
@@ -369,6 +431,29 @@ impl KnowledgeGraph {
         }
 
         Ok(rel_id)
+    }
+
+    /// Add a relationship if it doesn't already exist
+    pub fn add_relationship_unique(
+        &self,
+        from_entity: i64,
+        to_entity: i64,
+        rel_type: &str,
+        attributes: HashMap<String, String>,
+    ) -> SqliteResult<i64> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id FROM relationships WHERE from_entity = ?1 AND to_entity = ?2 AND rel_type = ?3 LIMIT 1",
+        )?;
+
+        let existing_id: Option<i64> = stmt
+            .query_row(params![from_entity, to_entity, rel_type], |row| row.get(0))
+            .optional()?;
+
+        if let Some(id) = existing_id {
+            return Ok(id);
+        }
+
+        self.add_relationship(from_entity, to_entity, rel_type, attributes)
     }
 
     /// Get relationships from an entity
@@ -530,7 +615,20 @@ mod tests {
     fn test_db_path(prefix: &str) -> PathBuf {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
         let dir = PathBuf::from(home).join(".config/vibe_cli/test_dbs");
-        let _ = std::fs::create_dir_all(&dir);
+        let dir = if std::fs::create_dir_all(&dir).is_ok()
+            && std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .open(dir.join(".write_test"))
+                .is_ok()
+        {
+            let _ = std::fs::remove_file(dir.join(".write_test"));
+            dir
+        } else {
+            let fallback = PathBuf::from("/tmp/vibe_cli_test_dbs");
+            let _ = std::fs::create_dir_all(&fallback);
+            fallback
+        };
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()

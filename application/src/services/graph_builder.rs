@@ -46,6 +46,10 @@ impl GraphBuilder {
         self.discover_os()?;
         report.add_section("OS Information", "discovered");
 
+        // Discover hardware
+        let hardware = self.discover_hardware()?;
+        report.add_section("Hardware", &format!("{} entries", hardware));
+
         // Discover tools
         let tools = self.discover_tools()?;
         report.add_section("Tools", &format!("{} found", tools));
@@ -57,6 +61,18 @@ impl GraphBuilder {
         // Discover services
         let services = self.discover_services()?;
         report.add_section("Services", &format!("{} found", services));
+
+        // Discover containers
+        let containers = self.discover_containers()?;
+        report.add_section("Containers", &format!("{} found", containers));
+
+        // Discover filesystems/mounts
+        let mounts = self.discover_filesystems()?;
+        report.add_section("Filesystems", &format!("{} found", mounts));
+
+        // Discover network interfaces
+        let interfaces = self.discover_network_interfaces()?;
+        report.add_section("Network", &format!("{} interfaces", interfaces));
 
         // Discover environment variables
         self.discover_env_vars()?;
@@ -89,43 +105,65 @@ impl GraphBuilder {
         attrs.insert("kernel".to_string(), kernel_version.clone());
         attrs.insert("hostname".to_string(), hostname);
 
-        self.graph
-            .add_entity(EntityType::OperatingSystem, &os_type, attrs)?;
+        let os_id = self
+            .graph
+            .upsert_entity(EntityType::OperatingSystem, &os_type, attrs)?;
 
         // Add kernel entity
         let mut kernel_attrs = HashMap::new();
         kernel_attrs.insert("version".to_string(), kernel_version);
-        self.graph
-            .add_entity(EntityType::Kernel, "kernel", kernel_attrs)?;
+        let kernel_id = self
+            .graph
+            .upsert_entity(EntityType::Kernel, "kernel", kernel_attrs)?;
 
         // Add distribution if found
-        if let Some((distro, version)) = distribution {
+        if let Some((distro, version, id_like)) = distribution {
             let mut distro_attrs = HashMap::new();
             distro_attrs.insert("version".to_string(), version);
-            self.graph
-                .add_entity(EntityType::Distribution, &distro, distro_attrs)?;
+            if let Some(id_like) = id_like {
+                distro_attrs.insert("id_like".to_string(), id_like);
+            }
+            let distro_id = self
+                .graph
+                .upsert_entity(EntityType::Distribution, &distro, distro_attrs)?;
+
+            let _ = self.graph.add_relationship_unique(
+                os_id,
+                distro_id,
+                "distribution",
+                HashMap::new(),
+            );
+            let _ = self.graph.add_relationship_unique(
+                distro_id,
+                kernel_id,
+                "runs_on",
+                HashMap::new(),
+            );
         }
 
         Ok(())
     }
 
     /// Get Linux distribution info
-    fn get_distribution(&self) -> Option<(String, String)> {
+    fn get_distribution(&self) -> Option<(String, String, Option<String>)> {
         // Try /etc/os-release first
         if let Ok(content) = std::fs::read_to_string("/etc/os-release") {
             let mut name = None;
             let mut version = None;
+            let mut id_like = None;
 
             for line in content.lines() {
                 if line.starts_with("NAME=") {
                     name = Some(line[5..].trim_matches('"').to_string());
                 } else if line.starts_with("VERSION_ID=") {
                     version = Some(line[11..].trim_matches('"').to_string());
+                } else if line.starts_with("ID_LIKE=") {
+                    id_like = Some(line[8..].trim_matches('"').to_string());
                 }
             }
 
             if let (Some(n), Some(v)) = (name, version) {
-                return Some((n, v));
+                return Some((n, v, id_like));
             }
         }
 
@@ -194,7 +232,7 @@ impl GraphBuilder {
                     attrs.insert("version".to_string(), v);
                 }
 
-                self.graph.add_entity(EntityType::Tool, tool, attrs)?;
+                self.graph.upsert_entity(EntityType::Tool, tool, attrs)?;
                 count += 1;
             }
         }
@@ -270,7 +308,7 @@ impl GraphBuilder {
                         attrs.insert("is_root".to_string(), "true".to_string());
                     }
 
-                    self.graph.add_entity(EntityType::User, username, attrs)?;
+                    self.graph.upsert_entity(EntityType::User, username, attrs)?;
                     count += 1;
                 }
             }
@@ -286,7 +324,7 @@ impl GraphBuilder {
                 let mut attrs = HashMap::new();
                 attrs.insert("current".to_string(), "true".to_string());
                 self.graph
-                    .add_entity(EntityType::User, &current_user, attrs)?;
+                    .upsert_entity(EntityType::User, &current_user, attrs)?;
                 count += 1;
             }
         }
@@ -321,7 +359,7 @@ impl GraphBuilder {
                                 let mut attrs = HashMap::new();
                                 attrs.insert("status".to_string(), "running".to_string());
 
-                                self.graph.add_entity(EntityType::Service, &name, attrs)?;
+                                self.graph.upsert_entity(EntityType::Service, &name, attrs)?;
                                 count += 1;
                             }
                         }
@@ -353,7 +391,7 @@ impl GraphBuilder {
                 attrs.insert("value".to_string(), value);
 
                 self.graph
-                    .add_entity(EntityType::EnvironmentVariable, var, attrs)?;
+                    .upsert_entity(EntityType::EnvironmentVariable, var, attrs)?;
             }
         }
 
@@ -387,6 +425,184 @@ impl GraphBuilder {
     pub fn rebuild(&self) -> Result<DiscoveryReport> {
         self.graph.clear_all()?;
         self.discover_system()
+    }
+
+    /// Discover CPU, memory, and disk summary
+    fn discover_hardware(&self) -> Result<usize> {
+        let mut count = 0;
+
+        if let Ok(content) = std::fs::read_to_string("/proc/cpuinfo") {
+            if let Some(model_line) = content.lines().find(|l| l.starts_with("model name")) {
+                let model = model_line
+                    .splitn(2, ':')
+                    .nth(1)
+                    .unwrap_or("")
+                    .trim()
+                    .to_string();
+                let cores = content
+                    .lines()
+                    .filter(|l| l.starts_with("processor"))
+                    .count();
+                let mut attrs = HashMap::new();
+                attrs.insert("model".to_string(), model);
+                attrs.insert("cores".to_string(), cores.to_string());
+                self.graph.upsert_entity(EntityType::Cpu, "cpu", attrs)?;
+                count += 1;
+            }
+        }
+
+        if let Ok(content) = std::fs::read_to_string("/proc/meminfo") {
+            let mut attrs = HashMap::new();
+            for key in ["MemTotal", "MemFree", "MemAvailable", "SwapTotal", "SwapFree"] {
+                if let Some(line) = content.lines().find(|l| l.starts_with(key)) {
+                    let val = line.split_whitespace().nth(1).unwrap_or("");
+                    attrs.insert(key.to_string(), val.to_string());
+                }
+            }
+            if !attrs.is_empty() {
+                self.graph
+                    .upsert_entity(EntityType::Memory, "memory", attrs)?;
+                count += 1;
+            }
+        }
+
+        if self.command_exists("lsblk") {
+            if let Ok(output) = Command::new("lsblk").arg("-o").arg("NAME,SIZE,TYPE").output() {
+            if output.status.success() {
+                if let Ok(stdout) = String::from_utf8(output.stdout) {
+                    for line in stdout.lines().skip(1) {
+                        let parts: Vec<&str> = line.split_whitespace().collect();
+                        if parts.len() >= 3 && parts[2] == "disk" {
+                            let mut attrs = HashMap::new();
+                            attrs.insert("size".to_string(), parts[1].to_string());
+                            self.graph
+                                .upsert_entity(EntityType::Disk, parts[0], attrs)?;
+                            count += 1;
+                        }
+                    }
+                }
+            }
+            }
+        }
+
+        Ok(count)
+    }
+
+    /// Discover container runtime information
+    fn discover_containers(&self) -> Result<usize> {
+        let mut count = 0;
+
+        if self.command_exists("docker") {
+            if let Ok(output) = Command::new("docker")
+                .args(&["ps", "-a", "--format", "{{.ID}} {{.Names}} {{.Status}}"]) 
+                .output()
+            {
+                if output.status.success() {
+                    if let Ok(stdout) = String::from_utf8(output.stdout) {
+                        for line in stdout.lines() {
+                            let parts: Vec<&str> = line.splitn(3, ' ').collect();
+                            if parts.len() >= 2 {
+                                let name = parts[1];
+                                let mut attrs = HashMap::new();
+                                attrs.insert("runtime".to_string(), "docker".to_string());
+                                if let Some(status) = parts.get(2) {
+                                    attrs.insert("status".to_string(), status.to_string());
+                                }
+                                self.graph.upsert_entity(EntityType::Container, name, attrs)?;
+                                count += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if self.command_exists("podman") {
+            if let Ok(output) = Command::new("podman")
+                .args(&["ps", "-a", "--format", "{{.ID}} {{.Names}} {{.Status}}"])
+                .output()
+            {
+                if output.status.success() {
+                    if let Ok(stdout) = String::from_utf8(output.stdout) {
+                        for line in stdout.lines() {
+                            let parts: Vec<&str> = line.splitn(3, ' ').collect();
+                            if parts.len() >= 2 {
+                                let name = parts[1];
+                                let mut attrs = HashMap::new();
+                                attrs.insert("runtime".to_string(), "podman".to_string());
+                                if let Some(status) = parts.get(2) {
+                                    attrs.insert("status".to_string(), status.to_string());
+                                }
+                                self.graph.upsert_entity(EntityType::Container, name, attrs)?;
+                                count += 1;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        Ok(count)
+    }
+
+    /// Discover filesystems and mounts
+    fn discover_filesystems(&self) -> Result<usize> {
+        let mut count = 0;
+
+        if let Ok(content) = std::fs::read_to_string("/proc/mounts") {
+            for line in content.lines() {
+                let parts: Vec<&str> = line.split_whitespace().collect();
+                if parts.len() >= 3 {
+                    let device = parts[0];
+                    let mount = parts[1];
+                    let fstype = parts[2];
+
+                    let mut fs_attrs = HashMap::new();
+                    fs_attrs.insert("device".to_string(), device.to_string());
+                    fs_attrs.insert("fstype".to_string(), fstype.to_string());
+                    let fs_id = self
+                        .graph
+                        .upsert_entity(EntityType::Filesystem, mount, fs_attrs)?;
+
+                    let mut mount_attrs = HashMap::new();
+                    mount_attrs.insert("mountpoint".to_string(), mount.to_string());
+                    let mount_id = self
+                        .graph
+                        .upsert_entity(EntityType::Mount, mount, mount_attrs)?;
+
+                    let _ = self.graph.add_relationship_unique(
+                        fs_id,
+                        mount_id,
+                        "mounted_at",
+                        HashMap::new(),
+                    );
+                    count += 1;
+                }
+            }
+        }
+
+        Ok(count)
+    }
+
+    /// Discover network interfaces
+    fn discover_network_interfaces(&self) -> Result<usize> {
+        let mut count = 0;
+        if let Ok(content) = std::fs::read_to_string("/proc/net/dev") {
+            for line in content.lines().skip(2) {
+                if let Some((iface, _)) = line.split_once(':') {
+                    let name = iface.trim();
+                    if name.is_empty() {
+                        continue;
+                    }
+                    let mut attrs = HashMap::new();
+                    attrs.insert("name".to_string(), name.to_string());
+                    self.graph
+                        .upsert_entity(EntityType::NetworkInterface, name, attrs)?;
+                    count += 1;
+                }
+            }
+        }
+        Ok(count)
     }
 }
 
@@ -427,7 +643,21 @@ mod tests {
     fn test_db_path(prefix: &str) -> PathBuf {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
         let dir = PathBuf::from(home).join(".config/vibe_cli/test_dbs");
-        let _ = std::fs::create_dir_all(&dir);
+        let dir = if std::fs::create_dir_all(&dir).is_ok()
+            && std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .open(dir.join(".write_test"))
+                .is_ok()
+        {
+            let _ = std::fs::remove_file(dir.join(".write_test"));
+            dir
+        } else {
+            let fallback = PathBuf::from("/tmp/vibe_cli_test_dbs");
+            let _ = std::fs::create_dir_all(&fallback);
+            let _ = std::fs::remove_file(fallback.join(".write_test"));
+            fallback
+        };
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()

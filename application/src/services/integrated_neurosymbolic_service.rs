@@ -250,11 +250,7 @@ impl IntegratedNeurosymbolicService {
         };
 
         if let Ok(builder) = GraphBuilder::new() {
-            if let Ok((entities, _)) = builder.get_stats() {
-                if entities == 0 {
-                    let _ = builder.discover_system();
-                }
-            }
+            let _ = builder.discover_system();
         }
 
         Ok(Self {
@@ -303,9 +299,16 @@ impl IntegratedNeurosymbolicService {
         let generated = registry
             .command_generator()
             .generate(operation, &resolved.inputs);
-        let mut commands: Vec<String> = generated.into_iter().map(|g| g.command).collect();
+        let mut commands: Vec<String> = generated
+            .into_iter()
+            .filter(|g| registry.is_tool_available(&g.tool))
+            .map(|g| g.command)
+            .collect();
         commands.sort();
         commands.dedup();
+        if commands.is_empty() {
+            return None;
+        }
 
         Some(SymbolicCommandSuggestion {
             op_id: resolved.op_id,
@@ -681,6 +684,25 @@ impl IntegratedNeurosymbolicService {
                     trace.push(format!(
                         "  KnowledgeGraph: service '{}' known (id {})",
                         entity.name, entity.id
+                    ));
+                }
+            }
+        }
+
+        if query_lower.contains("distro")
+            || query_lower.contains("distribution")
+            || query_lower.contains("os release")
+        {
+            if let Ok(entities) = graph.get_entities_by_type(EntityType::Distribution) {
+                if let Some(distro) = entities.first() {
+                    let version = distro
+                        .attributes
+                        .get("version")
+                        .cloned()
+                        .unwrap_or_else(|| "unknown".to_string());
+                    trace.push(format!(
+                        "  KnowledgeGraph: distribution '{}' version {}",
+                        distro.name, version
                     ));
                 }
             }
@@ -1202,11 +1224,16 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .unwrap()
             .as_nanos();
-        let base_home = original.clone().unwrap_or_else(|| ".".to_string());
-        let temp_home = PathBuf::from(base_home)
+        let base_home = original.clone().unwrap_or_else(|| "/tmp".to_string());
+        let mut temp_home = PathBuf::from(&base_home)
             .join(".config/vibe_cli/test_homes")
             .join(format!("vibe_cli_test_home_{}", nanos));
-        fs::create_dir_all(&temp_home).unwrap();
+        if fs::create_dir_all(&temp_home).is_err() {
+            temp_home = PathBuf::from("/tmp")
+                .join("vibe_cli_test_homes")
+                .join(format!("vibe_cli_test_home_{}", nanos));
+            fs::create_dir_all(&temp_home).unwrap();
+        }
         std::env::set_var("HOME", &temp_home);
 
         let domain_dir = temp_home.join(".config/vibe_cli/domains/linux");
@@ -1260,13 +1287,24 @@ mod tests {
             {
                 "op_id": "touch_file",
                 "name": "touch file",
-                "description": "create a file",
+                "description": "access /opt to trigger permission learning",
                 "intent": "touch file",
                 "input_schema": {},
                 "generators": [
-                    {"name": "touch_file", "tool": "touch", "template": "touch /opt/demo", "when": []}
+                    {"name": "ls_opt", "tool": "ls", "template": "ls /opt/demo", "when": []}
                 ],
                 "examples": [{"description": "touch file", "inputs": {}}]
+            },
+            {
+                "op_id": "check_distribution",
+                "name": "check distribution",
+                "description": "show linux distribution",
+                "intent": "check distribution",
+                "input_schema": {},
+                "generators": [
+                    {"name": "os_release", "tool": "cat", "template": "cat /etc/os-release", "when": []}
+                ],
+                "examples": [{"description": "show distro", "inputs": {}}]
             },
             {
                 "op_id": "service_status",
@@ -1357,21 +1395,21 @@ mod tests {
         let _ = buffer.log_failure(
             "s1",
             "touch file",
-            "touch /opt/demo",
+            "ls /opt/demo",
             FailureType::PermissionDenied,
             Some("permission denied"),
         );
         let _ = buffer.log_failure(
             "s2",
             "touch file",
-            "touch /opt/demo",
+            "ls /opt/demo",
             FailureType::PermissionDenied,
             Some("permission denied"),
         );
         let _ = buffer.log_failure(
             "s3",
             "touch file",
-            "touch /opt/demo",
+            "ls /opt/demo",
             FailureType::PermissionDenied,
             Some("permission denied"),
         );
@@ -1422,13 +1460,48 @@ mod tests {
         .unwrap();
         service.reload_domain_registry().unwrap();
 
-        let result = service.process("service status nginx").unwrap();
+        let result = service.process("service nginx status").unwrap();
         assert!(
             result
                 .trace
                 .iter()
                 .any(|t| t.contains("KnowledgeGraph: service 'nginx' known")),
             "Expected knowledge graph hint in trace"
+        );
+    }
+
+    #[test]
+    fn test_distribution_hint_in_trace() {
+        let _guard = setup_temp_home_with_domain();
+        let home = std::env::var("HOME").unwrap();
+        let graph_path = PathBuf::from(home).join(".config/vibe_cli/knowledge_graph.db");
+        let graph = KnowledgeGraph::new(graph_path).unwrap();
+        let mut distro_attrs = HashMap::new();
+        distro_attrs.insert("version".to_string(), "9".to_string());
+        graph
+            .add_entity(EntityType::Distribution, "TestDistro", distro_attrs)
+            .unwrap();
+        graph
+            .add_entity(EntityType::OperatingSystem, "linux", HashMap::new())
+            .unwrap();
+
+        let mut service = IntegratedNeurosymbolicService::with_config(NeurosymbolicConfig {
+            enable_safety: true,
+            enable_manpage_validation: false,
+            enable_learning: false,
+            block_on_safety: true,
+            block_on_invalid_syntax: true,
+        })
+        .unwrap();
+        service.reload_domain_registry().unwrap();
+
+        let result = service.process("check distribution").unwrap();
+        assert!(
+            result
+                .trace
+                .iter()
+                .any(|t| t.contains("KnowledgeGraph: distribution 'TestDistro' version 9")),
+            "Expected distribution hint in trace"
         );
     }
 

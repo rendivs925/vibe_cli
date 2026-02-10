@@ -235,7 +235,21 @@ mod tests {
     fn test_db_path(prefix: &str) -> PathBuf {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
         let dir = PathBuf::from(home).join(".config/vibe_cli/test_dbs");
-        let _ = std::fs::create_dir_all(&dir);
+        let dir = if std::fs::create_dir_all(&dir).is_ok()
+            && std::fs::OpenOptions::new()
+                .create(true)
+                .write(true)
+                .open(dir.join(".write_test"))
+                .is_ok()
+        {
+            let _ = std::fs::remove_file(dir.join(".write_test"));
+            dir
+        } else {
+            let fallback = PathBuf::from("/tmp/vibe_cli_test_dbs");
+            let _ = std::fs::create_dir_all(&fallback);
+            let _ = std::fs::remove_file(fallback.join(".write_test"));
+            fallback
+        };
         let nanos = SystemTime::now()
             .duration_since(UNIX_EPOCH)
             .unwrap()
