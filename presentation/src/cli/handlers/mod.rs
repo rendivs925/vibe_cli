@@ -216,10 +216,10 @@ impl CliHandlers {
             let err_buf = Arc::clone(&err_buf);
             let sink = sink;
             thread::spawn(move || {
-                let mut chunk: Vec<OutputLine> = Vec::with_capacity(3);
+                let mut chunk: Vec<OutputLine> = Vec::with_capacity(20);
                 for line in line_rx {
                     chunk.push(line);
-                    if chunk.len() >= 3 {
+                    if chunk.len() >= 20 {
                         flush_chunk(&chunk, &out_buf, &err_buf, sink.as_ref());
                         chunk.clear();
                     }
