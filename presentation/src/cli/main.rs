@@ -104,43 +104,51 @@ impl CliApp {
     pub async fn run(&mut self, cli: Cli) -> Result<()> {
         let args_str = cli.args.join(" ");
         if cli.chat {
-            if args_str.trim().is_empty() {
-                self.handlers.handle_chat().await
-            } else {
-                self.handlers.handle_chat().await
-            }
-        } else if cli.agent {
-            self.handlers.handle_agent(&args_str).await
-        } else if cli.explain {
-            self.handlers.handle_explain(&args_str).await
-        } else if cli.rag {
-            self.handlers.handle_rag(&args_str).await
-        } else if cli.context {
-            self.handlers.handle_context(&args_str).await
-        } else if cli.neurosymbolic_init {
-            self.handlers.handle_neurosymbolic_init().await
-        } else if let Some(domain) = cli.neurosymbolic_install {
-            self.handlers.handle_neurosymbolic_install(&domain).await
-        } else if let Some(domain) = cli.neurosymbolic_remove {
-            self.handlers.handle_neurosymbolic_remove(&domain).await
-        } else if let Some(domain) = cli.neurosymbolic_edit {
-            self.handlers.handle_neurosymbolic_edit(&domain).await
-        } else if let Some(domain) = cli.neurosymbolic_add {
-            self.handlers.handle_neurosymbolic_add(&domain).await
-        } else if cli.neurosymbolic_list {
-            self.handlers.handle_neurosymbolic_list().await
-        } else if cli.clear_cache {
-            self.handlers.handle_clear_cache()
-        } else {
-            if self.handlers.has_neurosymbolic_domains() {
-                self.handlers
-                    .handle_neurosymbolic(&args_str, cli.ai_interpret, cli.neurosymbolic_rag)
-                    .await
-            } else {
-                self.handlers
-                    .handle_query(&args_str, cli.ai_interpret, false)
-                    .await
-            }
+            return self.handlers.handle_chat().await;
         }
+        if cli.agent {
+            return self.handlers.handle_agent(&args_str).await;
+        }
+        if cli.explain {
+            return self.handlers.handle_explain(&args_str).await;
+        }
+        if cli.rag {
+            return self.handlers.handle_rag(&args_str).await;
+        }
+        if cli.context {
+            return self.handlers.handle_context(&args_str).await;
+        }
+        if cli.neurosymbolic_init {
+            return self.handlers.handle_neurosymbolic_init().await;
+        }
+        if let Some(domain) = cli.neurosymbolic_install {
+            return self.handlers.handle_neurosymbolic_install(&domain).await;
+        }
+        if let Some(domain) = cli.neurosymbolic_remove {
+            return self.handlers.handle_neurosymbolic_remove(&domain).await;
+        }
+        if let Some(domain) = cli.neurosymbolic_edit {
+            return self.handlers.handle_neurosymbolic_edit(&domain).await;
+        }
+        if let Some(domain) = cli.neurosymbolic_add {
+            return self.handlers.handle_neurosymbolic_add(&domain).await;
+        }
+        if cli.neurosymbolic_list {
+            return self.handlers.handle_neurosymbolic_list().await;
+        }
+        if cli.clear_cache {
+            return self.handlers.handle_clear_cache();
+        }
+
+        if self.handlers.has_neurosymbolic_domains() {
+            return self
+                .handlers
+                .handle_neurosymbolic(&args_str, cli.ai_interpret, cli.neurosymbolic_rag)
+                .await;
+        }
+
+        self.handlers
+            .handle_query(&args_str, cli.ai_interpret, false)
+            .await
     }
 }

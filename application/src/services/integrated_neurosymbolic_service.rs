@@ -222,12 +222,8 @@ impl IntegratedNeurosymbolicService {
 
     /// Create with custom configuration
     pub fn with_config(config: NeurosymbolicConfig) -> Result<Self> {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        let cache_dir = PathBuf::from(home).join(".config/vibe_cli");
+        let (cache_dir, domains_dir, shared_dir) = Self::config_dirs();
         let _ = std::fs::create_dir_all(&cache_dir);
-
-        let domains_dir = cache_dir.join("domains");
-        let shared_dir = cache_dir.join("shared_entities");
         let _ = std::fs::create_dir_all(&domains_dir);
         let _ = std::fs::create_dir_all(&shared_dir);
 
@@ -407,10 +403,7 @@ impl IntegratedNeurosymbolicService {
     }
 
     pub fn reload_domain_registry(&mut self) -> Result<()> {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        let base_dir = PathBuf::from(home).join(".config/vibe_cli");
-        let domains_dir = base_dir.join("domains");
-        let shared_dir = base_dir.join("shared_entities");
+        let (_base_dir, domains_dir, shared_dir) = Self::config_dirs();
         let _ = std::fs::create_dir_all(&domains_dir);
         let _ = std::fs::create_dir_all(&shared_dir);
 
@@ -430,25 +423,8 @@ impl IntegratedNeurosymbolicService {
         query: &str,
         intent: Option<&IntentSignal>,
     ) -> Result<NeurosymbolicResult> {
-        if let Some(_answer) = self.direct_answer(query) {
-            return Ok(NeurosymbolicResult {
-                query: query.to_string(),
-                safety_report: SafetyReport::safe(""),
-                command: String::new(),
-                syntax_valid: true,
-                invalid_flags: Vec::new(),
-                learning_context: None,
-                risk_profile: None,
-                safety_proof: None,
-                reasoning_template: None,
-                can_execute: false,
-                block_reason: Some("answered from knowledge graph".to_string()),
-                trace: vec![
-                    format!("Processing query: '{}'", query),
-                    "KnowledgeGraph: direct answer".to_string(),
-                ],
-                induced_warnings: Vec::new(),
-            });
+        if self.direct_answer(query).is_some() {
+            return Ok(self.direct_answer_result(query));
         }
         let mut trace = vec![];
         trace.push(format!("Processing query: '{}'", query));
@@ -516,6 +492,35 @@ impl IntegratedNeurosymbolicService {
             trace,
             induced_warnings,
         })
+    }
+
+    fn direct_answer_result(&self, query: &str) -> NeurosymbolicResult {
+        NeurosymbolicResult {
+            query: query.to_string(),
+            safety_report: SafetyReport::safe(""),
+            command: String::new(),
+            syntax_valid: true,
+            invalid_flags: Vec::new(),
+            learning_context: None,
+            risk_profile: None,
+            safety_proof: None,
+            reasoning_template: None,
+            can_execute: false,
+            block_reason: Some("answered from knowledge graph".to_string()),
+            trace: vec![
+                format!("Processing query: '{}'", query),
+                "KnowledgeGraph: direct answer".to_string(),
+            ],
+            induced_warnings: Vec::new(),
+        }
+    }
+
+    fn config_dirs() -> (PathBuf, PathBuf, PathBuf) {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let base_dir = PathBuf::from(home).join(".config/vibe_cli");
+        let domains_dir = base_dir.join("domains");
+        let shared_dir = base_dir.join("shared_entities");
+        (base_dir, domains_dir, shared_dir)
     }
 
     /// Generate command from query using fuzzy symbolic matching

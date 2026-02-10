@@ -2,6 +2,7 @@
 
 use crate::domain_config::types::*;
 use serde::{Deserialize, Serialize};
+use serde::de::DeserializeOwned;
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -79,10 +80,8 @@ impl DomainLoader {
         };
 
         let domain_path = base.join(name).join("domain.json");
-        let content = fs::read_to_string(&domain_path)?;
-
         // Parse domain.json with $ref resolution
-        let mut domain: DomainManifest = serde_json::from_str(&content)?;
+        let mut domain: DomainManifest = read_json_file(&domain_path)?;
 
         // Load entities
         let entities_path = base.join(name).join("entities");
@@ -96,8 +95,7 @@ impl DomainLoader {
                         .map(|e| e == "json")
                         .unwrap_or(false)
                 {
-                    let entity_content = fs::read_to_string(entry.path())?;
-                    let entity: Entity = serde_json::from_str(&entity_content)?;
+                    let entity: Entity = read_json_file(&entry.path())?;
 
                     // Handle $ref to shared entities
                     let entity = if entity.extends.is_some() {
@@ -114,40 +112,35 @@ impl DomainLoader {
         // Load relationships
         let relationships_path = base.join(name).join("relationships.json");
         if relationships_path.exists() {
-            let content = fs::read_to_string(&relationships_path)?;
-            let relationships: Vec<Relationship> = serde_json::from_str(&content)?;
+            let relationships: Vec<Relationship> = read_json_file(&relationships_path)?;
             domain.relationships = relationships;
         }
 
         // Load operations
         let operations_path = base.join(name).join("operations.json");
         if operations_path.exists() {
-            let content = fs::read_to_string(&operations_path)?;
-            let operations: Vec<Operation> = serde_json::from_str(&content)?;
+            let operations: Vec<Operation> = read_json_file(&operations_path)?;
             domain.common_operations = operations;
         }
 
         // Load inference rules
         let rules_path = base.join(name).join("inference_rules.json");
         if rules_path.exists() {
-            let content = fs::read_to_string(&rules_path)?;
-            let rules: Vec<InferenceRule> = serde_json::from_str(&content)?;
+            let rules: Vec<InferenceRule> = read_json_file(&rules_path)?;
             domain.inference_rules = rules;
         }
 
         // Load troubleshooting patterns
         let troubleshoot_path = base.join(name).join("troubleshooting.json");
         if troubleshoot_path.exists() {
-            let content = fs::read_to_string(&troubleshoot_path)?;
-            let patterns: Vec<TroubleshootingPattern> = serde_json::from_str(&content)?;
+            let patterns: Vec<TroubleshootingPattern> = read_json_file(&troubleshoot_path)?;
             domain.troubleshooting_patterns = patterns;
         }
 
         // Load reasoning templates
         let templates_path = base.join(name).join("reasoning_templates.json");
         if templates_path.exists() {
-            let content = fs::read_to_string(&templates_path)?;
-            let templates: Vec<ReasoningTemplate> = serde_json::from_str(&content)?;
+            let templates: Vec<ReasoningTemplate> = read_json_file(&templates_path)?;
             domain.reasoning_templates = templates;
         }
 
@@ -306,8 +299,7 @@ impl DomainLoader {
                     )));
                 }
 
-                let content = fs::read_to_string(&shared_path)?;
-                let mut shared: Entity = serde_json::from_str(&content)?;
+                let mut shared: Entity = read_json_file(&shared_path)?;
 
                 // Merge user's additions into shared entity
                 shared.description = entity.description;
@@ -340,6 +332,12 @@ impl DomainLoader {
         }
         Ok(entity)
     }
+}
+
+fn read_json_file<T: DeserializeOwned>(path: &Path) -> Result<T, DomainError> {
+    let content = fs::read_to_string(path)?;
+    let parsed = serde_json::from_str(&content)?;
+    Ok(parsed)
 }
 
 /// Domain manifest (parsed before entities are loaded)

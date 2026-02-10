@@ -30,25 +30,23 @@ pub struct ChatResponse {
     done: bool,
 }
 
-fn confirm_and_run_cached_command(command: &str) -> anyhow::Result<Option<String>> {
-    match ask_command_confirmation("Run this command?", true)? {
+fn confirm_and_run_command(
+    command: &str,
+    allow_generate: bool,
+) -> anyhow::Result<Option<String>> {
+    match ask_command_confirmation("Run this command?", allow_generate)? {
         Some(true) => Ok(Some(command.to_string())),
         Some(false) => {
             println!("Command cancelled.");
             Ok(None)
         }
-        None => Err(anyhow::anyhow!("generate_new")), // Signal to generate new commands
-    }
-}
-
-fn confirm_and_run_generated_command(command: &str) -> anyhow::Result<Option<String>> {
-    match ask_command_confirmation("Run this command?", false)? {
-        Some(true) => Ok(Some(command.to_string())),
-        Some(false) => {
-            println!("Command cancelled.");
-            Ok(None)
+        None => {
+            if allow_generate {
+                Err(anyhow::anyhow!("generate_new"))
+            } else {
+                Ok(None)
+            }
         }
-        None => Ok(None), // This shouldn't happen with allow_generate=false, but handle gracefully
     }
 }
 
@@ -169,7 +167,7 @@ fn handle_cached_candidates(
         let candidate = &valid_candidates[0];
         println!("Found cached command: {}", candidate.command);
         let _ = candidate;
-        return confirm_and_run_cached_command(&candidate.command);
+        return confirm_and_run_command(&candidate.command, true);
     }
 
     println!("Found cached commands for: \"{}\"", user_query);
@@ -196,7 +194,7 @@ fn handle_cached_candidates(
     match ask_selection(&options, true) {
         Ok(Some(index)) => {
             let candidate = &valid_candidates[index];
-            confirm_and_run_cached_command(&candidate.command)
+            confirm_and_run_command(&candidate.command, true)
         }
         Ok(None) => Ok(None),
         Err(_) => Err(anyhow::anyhow!("generate_new")), // Signal to generate new commands
@@ -222,7 +220,7 @@ fn handle_candidate_selection(
         let candidate = &candidates[0];
         println!("Generated command: {}", candidate.command);
         let _ = candidate;
-        return confirm_and_run_generated_command(&candidate.command);
+        return confirm_and_run_command(&candidate.command, false);
     }
 
     println!("Generated command options:");
@@ -249,7 +247,7 @@ fn handle_candidate_selection(
     match ask_selection(&options, false) {
         Ok(Some(index)) => {
             let candidate = &candidates[index];
-            confirm_and_run_generated_command(&candidate.command)
+            confirm_and_run_command(&candidate.command, false)
         }
         Ok(None) => Ok(None),
         Err(_) => {

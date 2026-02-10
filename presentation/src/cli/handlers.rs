@@ -21,6 +21,7 @@ use shared::types::Result;
 use std::path::PathBuf;
 use infrastructure::storage::experience_buffer::FailureType;
 use std::process::Command;
+use std::process::ExitStatus;
 
 pub struct CliHandlers {
     cache_manager: CacheManager,
@@ -136,8 +137,7 @@ impl CliHandlers {
     }
 
     fn default_cache_dir() -> PathBuf {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        let mut path = PathBuf::from(home);
+        let mut path = Self::home_dir();
         path.push(".local");
         path.push("share");
         path.push("vibe_cli");
@@ -147,12 +147,15 @@ impl CliHandlers {
     }
 
     fn default_system_info_path() -> PathBuf {
-        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
-        let mut path = PathBuf::from(home);
+        let mut path = Self::home_dir();
         path.push(".config");
         path.push("vibe_cli");
         path.push("system_info.txt");
         path
+    }
+
+    fn home_dir() -> PathBuf {
+        PathBuf::from(std::env::var("HOME").unwrap_or_else(|_| ".".to_string()))
     }
 
     fn load_or_collect_system_info(path: &PathBuf) -> String {
@@ -535,40 +538,28 @@ User request: {}",
         }];
 
         let command = request_command_stream_then_confirm(&self.config, &messages).await?;
-        if let Some(cmd) = command {
-            let output = Command::new("bash").arg("-c").arg(&cmd).output()?;
-            let stdout = String::from_utf8_lossy(&output.stdout);
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let full_output = format!(
-                "{}{}",
-                stdout,
-                if !stderr.is_empty() {
-                    format!("\nErrors:\n{}", stderr)
-                } else {
-                    String::new()
-                }
+        let Some(cmd) = command else {
+            return Ok(());
+        };
+
+        let output = self.run_shell_command(&cmd)?;
+        if ai_interpret {
+            self.interpret_output(query, &output.full_output).await?;
+        } else {
+            println!("{}", output.stdout);
+        }
+
+        if !output.status.success() {
+            println!(
+                "{}",
+                format!("Command failed with exit code: {:?}", output.status.code()).red()
             );
-
-            if ai_interpret {
-                self.interpret_output(query, &full_output).await?;
-            } else {
-                println!("{}", stdout);
-            }
-
-            if !output.status.success() {
-                println!(
-                    "{}",
-                    format!("Command failed with exit code: {:?}", output.status.code()).red()
-                );
-                if !stderr.is_empty() {
-                    println!("{}", stderr.red());
-                }
-            } else {
-                last_successful_command = cmd;
-                last_successful_query = query.to_string();
+            if !output.stderr.is_empty() {
+                println!("{}", output.stderr.red());
             }
         } else {
-            // println!("{}", "No command generated or cancelled.".yellow());
+            last_successful_command = cmd;
+            last_successful_query = query.to_string();
         }
 
         // Learning system: offer to add successful commands to domain
@@ -688,23 +679,11 @@ User request: {}",
         cmd: &str,
         ai_interpret: bool,
     ) -> Result<()> {
-        let output = Command::new("bash").arg("-c").arg(cmd).output()?;
-        let stdout = String::from_utf8_lossy(&output.stdout);
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        let full_output = format!(
-            "{}{}",
-            stdout,
-            if !stderr.is_empty() {
-                format!("\nErrors:\n{}", stderr)
-            } else {
-                String::new()
-            }
-        );
-
+        let output = self.run_shell_command(cmd)?;
         if ai_interpret {
-            self.interpret_output(query, &full_output).await?;
+            self.interpret_output(query, &output.full_output).await?;
         } else {
-            println!("{}", stdout);
+            println!("{}", output.stdout);
         }
 
         if !output.status.success() {
@@ -712,15 +691,15 @@ User request: {}",
                 "{}",
                 format!("Command failed with exit code: {:?}", output.status.code()).red()
             );
-            if !stderr.is_empty() {
-                println!("{}", stderr.red());
+            if !output.stderr.is_empty() {
+                println!("{}", output.stderr.red());
             }
             if let Some(service) = self.integrated_service.as_ref() {
                 let _ = service.record_failure(
                     query,
                     cmd,
                     FailureType::ExecutionFailed,
-                    Some(stderr.trim()),
+                    Some(output.stderr.trim()),
                 );
             }
         } else if let Some(service) = self.integrated_service.as_ref() {
@@ -728,6 +707,11 @@ User request: {}",
         }
 
         Ok(())
+    }
+
+    fn run_shell_command(&self, cmd: &str) -> Result<CommandOutput> {
+        let output = Command::new("bash").arg("-c").arg(cmd).output()?;
+        Ok(CommandOutput::from(output))
     }
 
     /// Learn a new command from successful fallback execution
@@ -1444,6 +1428,31 @@ User request: {}",
         }
 
         select_command_from_candidates(candidates, query)
+    }
+}
+
+struct CommandOutput {
+    stdout: String,
+    stderr: String,
+    full_output: String,
+    status: ExitStatus,
+}
+
+impl From<std::process::Output> for CommandOutput {
+    fn from(output: std::process::Output) -> Self {
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        let full_output = if stderr.is_empty() {
+            stdout.clone()
+        } else {
+            format!("{}\nErrors:\n{}", stdout, stderr)
+        };
+        Self {
+            stdout,
+            stderr,
+            full_output,
+            status: output.status,
+        }
     }
 }
 
