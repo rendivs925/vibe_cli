@@ -1111,6 +1111,8 @@ impl Default for IntegratedNeurosymbolicService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use infrastructure::storage::knowledge_graph::KnowledgeGraph;
+    use std::collections::HashMap;
     use std::fs;
     use std::path::PathBuf;
     use std::sync::{Mutex, MutexGuard};
@@ -1184,6 +1186,43 @@ mod tests {
                     {"name": "rm_root", "tool": "rm", "template": "rm -rf /", "when": []}
                 ],
                 "examples": [{"description": "delete root", "inputs": {}}]
+            },
+            {
+                "op_id": "danger_then_safe",
+                "name": "danger then safe",
+                "description": "two generators to test backtracking",
+                "intent": "danger then safe",
+                "input_schema": {},
+                "generators": [
+                    {"name": "rm_root", "tool": "rm", "template": "rm -rf /", "when": [], "preference_score": 1.0},
+                    {"name": "ls_all", "tool": "ls", "template": "ls -la", "when": [], "preference_score": 0.5}
+                ],
+                "examples": [{"description": "danger then safe", "inputs": {}}]
+            },
+            {
+                "op_id": "touch_file",
+                "name": "touch file",
+                "description": "create a file",
+                "intent": "touch file",
+                "input_schema": {},
+                "generators": [
+                    {"name": "touch_file", "tool": "touch", "template": "touch /opt/demo", "when": []}
+                ],
+                "examples": [{"description": "touch file", "inputs": {}}]
+            },
+            {
+                "op_id": "service_status",
+                "name": "service status",
+                "description": "check service status",
+                "intent": "service status",
+                "input_schema": {
+                    "service": {"type": "string", "optional": false},
+                    "action": {"type": "string", "optional": false}
+                },
+                "generators": [
+                    {"name": "svc_status", "tool": "systemctl", "template": "systemctl status {{service}}", "when": [{"name": "service"}, {"name": "action"}]}
+                ],
+                "examples": [{"description": "service status", "inputs": {"service": "nginx", "action": "status"}}]
             }
         ]"#;
         fs::write(domain_dir.join("operations.json"), operations_json).unwrap();
@@ -1227,6 +1266,109 @@ mod tests {
         service.reload_domain_registry().unwrap();
         let result = service.process("delete root");
         assert!(result.is_err(), "Expected blocked command to error");
+    }
+
+    #[test]
+    fn test_backtracking_on_safety_block() {
+        let _guard = setup_temp_home_with_domain();
+        let mut service = IntegratedNeurosymbolicService::with_config(NeurosymbolicConfig {
+            enable_safety: true,
+            enable_manpage_validation: false,
+            enable_learning: false,
+            block_on_safety: true,
+            block_on_invalid_syntax: true,
+        })
+        .unwrap();
+        service.reload_domain_registry().unwrap();
+
+        let result = service.process("danger then safe").unwrap();
+        assert!(result.command.contains("ls -la"));
+        assert!(result.can_execute);
+    }
+
+    #[test]
+    fn test_induced_rule_warnings_and_prefix() {
+        let _guard = setup_temp_home_with_domain();
+
+        let home = std::env::var("HOME").unwrap();
+        let base = PathBuf::from(home).join(".config/vibe_cli");
+        let induction_path = base.join("induction.db");
+        let engine = InductionEngine::new(induction_path).unwrap();
+
+        let buffer = ExperienceBuffer::new(base.join("experience.db")).unwrap();
+        let _ = buffer.log_failure(
+            "s1",
+            "touch file",
+            "touch /opt/demo",
+            FailureType::PermissionDenied,
+            Some("permission denied"),
+        );
+        let _ = buffer.log_failure(
+            "s2",
+            "touch file",
+            "touch /opt/demo",
+            FailureType::PermissionDenied,
+            Some("permission denied"),
+        );
+        let _ = buffer.log_failure(
+            "s3",
+            "touch file",
+            "touch /opt/demo",
+            FailureType::PermissionDenied,
+            Some("permission denied"),
+        );
+
+        let patterns = engine.mine_patterns(&buffer).unwrap();
+        let graph_path = base.join("knowledge_graph.db");
+        let graph = KnowledgeGraph::new(graph_path).unwrap();
+        let _ = engine.apply_rules_to_graph(&graph, &patterns);
+
+        let mut service = IntegratedNeurosymbolicService::with_config(NeurosymbolicConfig {
+            enable_safety: true,
+            enable_manpage_validation: false,
+            enable_learning: false,
+            block_on_safety: true,
+            block_on_invalid_syntax: true,
+        })
+        .unwrap();
+        service.reload_domain_registry().unwrap();
+
+        let result = service.process("touch file").unwrap();
+        assert!(result.command.starts_with("sudo "));
+        assert!(result
+            .induced_warnings
+            .iter()
+            .any(|w| w.contains("Operations on /opt")));
+    }
+
+    #[test]
+    fn test_knowledge_graph_hints_in_trace() {
+        let _guard = setup_temp_home_with_domain();
+        let home = std::env::var("HOME").unwrap();
+        let graph_path = PathBuf::from(home).join(".config/vibe_cli/knowledge_graph.db");
+        let graph = KnowledgeGraph::new(graph_path).unwrap();
+        graph
+            .add_entity(EntityType::Service, "nginx", HashMap::new())
+            .unwrap();
+
+        let mut service = IntegratedNeurosymbolicService::with_config(NeurosymbolicConfig {
+            enable_safety: true,
+            enable_manpage_validation: false,
+            enable_learning: false,
+            block_on_safety: true,
+            block_on_invalid_syntax: true,
+        })
+        .unwrap();
+        service.reload_domain_registry().unwrap();
+
+        let result = service.process("service status nginx").unwrap();
+        assert!(
+            result
+                .trace
+                .iter()
+                .any(|t| t.contains("KnowledgeGraph: service 'nginx' known")),
+            "Expected knowledge graph hint in trace"
+        );
     }
 
     #[test]

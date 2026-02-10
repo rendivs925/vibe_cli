@@ -743,6 +743,7 @@ impl InductionEngine {
         }
     }
 
+
     /// Get statistics
     pub fn stats(&self) -> SqliteResult<(usize, usize)> {
         let patterns: i64 =
