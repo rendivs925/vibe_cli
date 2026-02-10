@@ -63,7 +63,7 @@ impl CliHandlers {
         let mut suggestion = service.suggest_commands_from_domains(query);
         if suggestion
             .as_ref()
-            .map(|s| s.confidence < 0.5)
+            .map(|s| s.confidence < 0.8)
             .unwrap_or(false)
         {
             suggestion = None;
