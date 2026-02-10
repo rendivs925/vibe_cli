@@ -244,33 +244,33 @@ impl HardRules {
     }
 
     fn dd_to_disk() -> SafetyRule {
-        SafetyRule {
-            id: "SAFETY-004",
-            name: "Direct Disk Write",
-            description: "Using dd to write directly to disk devices",
-            violation_type: ViolationType::DiskFormatting,
-            action: RuleAction::Block,
-            patterns: vec![
+        Self::rule(
+            "SAFETY-004",
+            "Direct Disk Write",
+            "Using dd to write directly to disk devices",
+            ViolationType::DiskFormatting,
+            RuleAction::Block,
+            vec![
                 r"dd\s+.*of=/dev/[sh]d[a-z]\d*",
                 r"dd\s+.*of=/dev/nvme\d+n\d+",
                 r"dd\s+.*of=/dev/mmcblk\d+",
                 r"dd\s+.*of=/dev/disk\d+",
             ],
-            case_insensitive: true,
-            suggestion: Some("Writing directly to disk devices destroys data. Double-check the output device (of=...)."),
-        }
+            true,
+            Some("Writing directly to disk devices destroys data. Double-check the output device (of=...)."),
+        )
     }
 
     // === PERMISSION ESCALATION ===
 
     fn permission_escalation() -> SafetyRule {
-        SafetyRule {
-            id: "SAFETY-005",
-            name: "Dangerous Permission Change",
-            description: "Changing permissions to make files world-writable or executable",
-            violation_type: ViolationType::PermissionEscalation,
-            action: RuleAction::Warn,
-            patterns: vec![
+        Self::rule(
+            "SAFETY-005",
+            "Dangerous Permission Change",
+            "Changing permissions to make files world-writable or executable",
+            ViolationType::PermissionEscalation,
+            RuleAction::Warn,
+            vec![
                 r"chmod\s+.*777\s+/etc",
                 r"chmod\s+.*777\s+/usr",
                 r"chmod\s+.*777\s+/bin",
@@ -278,416 +278,410 @@ impl HardRules {
                 r"chmod\s+-R\s+.*777\s+/",
                 r"chmod\s+-R\s+.*666\s+/",
             ],
-            case_insensitive: true,
-            suggestion: Some("World-writable permissions are a security risk. Use more restrictive permissions like 755 or 644."),
-        }
+            true,
+            Some("World-writable permissions are a security risk. Use more restrictive permissions like 755 or 644."),
+        )
     }
 
     fn chmod_system_dirs() -> SafetyRule {
-        SafetyRule {
-            id: "SAFETY-006",
-            name: "Permission Change on System Directories",
-            description: "Changing ownership or permissions of system directories",
-            violation_type: ViolationType::PermissionEscalation,
-            action: RuleAction::Warn,
-            patterns: vec![
+        Self::rule(
+            "SAFETY-006",
+            "Permission Change on System Directories",
+            "Changing ownership or permissions of system directories",
+            ViolationType::PermissionEscalation,
+            RuleAction::Warn,
+            vec![
                 r"chown\s+-R\s+.*/etc(\s|/|\z)",
                 r"chown\s+-R\s+.*/usr(\s|/|\z)",
                 r"chown\s+-R\s+.*/bin(\s|/|\z)",
                 r"chmod\s+-R\s+.*/etc(\s|/|\z)",
                 r"chmod\s+-R\s+.*/usr(\s|/|\z)",
             ],
-            case_insensitive: true,
-            suggestion: Some("Changing system directory permissions can break your system. Use sudo for specific operations instead."),
-        }
+            true,
+            Some("Changing system directory permissions can break your system. Use sudo for specific operations instead."),
+        )
     }
 
     // === NETWORK EXPOSURE ===
 
     fn network_exposure() -> SafetyRule {
-        SafetyRule {
-            id: "SAFETY-007",
-            name: "Privileged Port Exposure",
-            description: "Opening network ports below 1024 (privileged ports)",
-            violation_type: ViolationType::NetworkExposure,
-            action: RuleAction::Warn,
-            patterns: vec![
+        Self::rule(
+            "SAFETY-007",
+            "Privileged Port Exposure",
+            "Opening network ports below 1024 (privileged ports)",
+            ViolationType::NetworkExposure,
+            RuleAction::Warn,
+            vec![
                 r"iptables\s+.*-p\s+tcp\s+.*--dport\s+\d{1,3}\s",
                 r"firewall-cmd\s+.*--add-port=\d{1,3}/",
                 r"ufw\s+allow\s+\d{1,3}/",
             ],
-            case_insensitive: true,
-            suggestion: Some("Privileged ports (<1024) require root and may expose services. Ensure this is intentional."),
-        }
+            true,
+            Some("Privileged ports (<1024) require root and may expose services. Ensure this is intentional."),
+        )
     }
 
     fn iptables_flush() -> SafetyRule {
-        SafetyRule {
-            id: "SAFETY-008",
-            name: "Firewall Flush",
-            description: "Flushing all iptables rules removes firewall protection",
-            violation_type: ViolationType::NetworkExposure,
-            action: RuleAction::Block,
-            patterns: vec![
+        Self::rule(
+            "SAFETY-008",
+            "Firewall Flush",
+            "Flushing all iptables rules removes firewall protection",
+            ViolationType::NetworkExposure,
+            RuleAction::Block,
+            vec![
                 r"iptables\s+-F",
                 r"iptables\s+--flush",
                 r"nft\s+flush\s+ruleset",
             ],
-            case_insensitive: true,
-            suggestion: Some("Flushing firewall rules exposes your system. Save rules first with 'iptables-save'."),
-        }
+            true,
+            Some("Flushing firewall rules exposes your system. Save rules first with 'iptables-save'."),
+        )
     }
 
     // === PASSWORD EXPOSURE ===
 
     fn password_exposure() -> SafetyRule {
-        SafetyRule {
-            id: "SAFETY-009",
-            name: "Password in Command",
-            description: "Command contains potential password in plain text",
-            violation_type: ViolationType::PasswordExposure,
-            action: RuleAction::Block,
-            patterns: vec![
+        Self::rule(
+            "SAFETY-009",
+            "Password in Command",
+            "Command contains potential password in plain text",
+            ViolationType::PasswordExposure,
+            RuleAction::Block,
+            vec![
                 r"mysql\s+-u\s+\w+\s+-p\s*\w+",
                 r"psql\s+.*-W\s*\w+",
                 r"redis-cli\s+.*-a\s*\w+",
                 r"curl\s+.*-u\s+\w+:\w+",
                 r"wget\s+.*--password[=\s]+\w+",
             ],
-            case_insensitive: true,
-            suggestion: Some("Never put passwords in commands - they appear in shell history and process lists. Use environment variables or config files."),
-        }
+            true,
+            Some("Never put passwords in commands - they appear in shell history and process lists. Use environment variables or config files."),
+        )
     }
 
     fn echo_password() -> SafetyRule {
-        SafetyRule {
-            id: "SAFETY-010",
-            name: "Password Echoed to Command",
-            description: "Echoing password into a command via pipe",
-            violation_type: ViolationType::PasswordExposure,
-            action: RuleAction::Warn,
-            patterns: vec![
+        Self::rule(
+            "SAFETY-010",
+            "Password Echoed to Command",
+            "Echoing password into a command via pipe",
+            ViolationType::PasswordExposure,
+            RuleAction::Warn,
+            vec![
                 r"echo\s+.*\|\s*mysql",
                 r"echo\s+.*\|\s*sudo",
                 r"echo\s+.*\|\s*su",
             ],
-            case_insensitive: true,
-            suggestion: Some("Piped passwords appear in shell history. Use secure authentication methods instead."),
-        }
+            true,
+            Some("Piped passwords appear in shell history. Use secure authentication methods instead."),
+        )
     }
 
     // === SERVICE DISRUPTION ===
 
     fn service_disruption() -> SafetyRule {
-        SafetyRule {
-            id: "SAFETY-011",
-            name: "Service Disruption",
-            description: "Stopping or killing critical system services",
-            violation_type: ViolationType::ServiceDisruption,
-            action: RuleAction::Warn,
-            patterns: vec![
+        Self::rule(
+            "SAFETY-011",
+            "Service Disruption",
+            "Stopping or killing critical system services",
+            ViolationType::ServiceDisruption,
+            RuleAction::Warn,
+            vec![
                 r"systemctl\s+stop\s+(systemd|network|ssh|sshd)",
                 r"service\s+(ssh|sshd|network)\s+stop",
                 r"killall\s+-9\s+(systemd|init)",
             ],
-            case_insensitive: true,
-            suggestion: Some("Stopping critical services may disconnect you or crash the system. Ensure you have alternative access."),
-        }
+            true,
+            Some("Stopping critical services may disconnect you or crash the system. Ensure you have alternative access."),
+        )
     }
 
     fn kill_init() -> SafetyRule {
-        SafetyRule {
-            id: "SAFETY-012",
-            name: "Kill Init Process",
-            description: "Attempting to kill init (PID 1) will crash the system",
-            violation_type: ViolationType::ServiceDisruption,
-            action: RuleAction::Block,
-            patterns: vec![
+        Self::rule(
+            "SAFETY-012",
+            "Kill Init Process",
+            "Attempting to kill init (PID 1) will crash the system",
+            ViolationType::ServiceDisruption,
+            RuleAction::Block,
+            vec![
                 r"kill\s+-9\s+1\s*$",
                 r"kill\s+-SIGKILL\s+1\s*$",
                 r"killall\s+-9\s+systemd",
                 r"killall\s+-9\s+init",
             ],
-            case_insensitive: true,
-            suggestion: Some("Killing the init process will crash your system immediately. This should never be done."),
-        }
+            true,
+            Some("Killing the init process will crash your system immediately. This should never be done."),
+        )
     }
 
     fn stop_ssh_while_connected() -> SafetyRule {
-        SafetyRule {
-            id: "SAFETY-013",
-            name: "Stop SSH While Connected",
-            description: "Stopping SSH service while connected via SSH",
-            violation_type: ViolationType::ServiceDisruption,
-            action: RuleAction::Warn,
-            patterns: vec![
+        Self::rule(
+            "SAFETY-013",
+            "Stop SSH While Connected",
+            "Stopping SSH service while connected via SSH",
+            ViolationType::ServiceDisruption,
+            RuleAction::Warn,
+            vec![
                 r"systemctl\s+(stop|restart)\s+(ssh|sshd)",
                 r"service\s+(ssh|sshd)\s+(stop|restart)",
             ],
-            case_insensitive: true,
-            suggestion: Some("You appear to be connected via SSH. Stopping SSH will disconnect you. Ensure you have console access."),
-        }
+            true,
+            Some("You appear to be connected via SSH. Stopping SSH will disconnect you. Ensure you have console access."),
+        )
     }
 
     // === DATA DESTRUCTION ===
 
     fn data_destruction() -> SafetyRule {
-        SafetyRule {
-            id: "SAFETY-014",
-            name: "Data Destruction",
-            description: "Commands that securely delete or overwrite data",
-            violation_type: ViolationType::DataDestruction,
-            action: RuleAction::Block,
-            patterns: vec![
+        Self::rule(
+            "SAFETY-014",
+            "Data Destruction",
+            "Commands that securely delete or overwrite data",
+            ViolationType::DataDestruction,
+            RuleAction::Block,
+            vec![
                 r"shred\s+-[u]*\s+/etc",
                 r"shred\s+-[u]*\s+/usr",
                 r"shred\s+-[u]*\s+/home",
                 r"shred\s+-[u]*\s+/var",
             ],
-            case_insensitive: true,
-            suggestion: Some("Secure deletion cannot be undone. Ensure you have backups and are targeting the correct files."),
-        }
+            true,
+            Some("Secure deletion cannot be undone. Ensure you have backups and are targeting the correct files."),
+        )
     }
 
     fn shred_system_files() -> SafetyRule {
-        SafetyRule {
-            id: "SAFETY-015",
-            name: "Shred System Files",
-            description: "Using shred on system or important directories",
-            violation_type: ViolationType::DataDestruction,
-            action: RuleAction::Block,
-            patterns: vec![r"shred\s+.*-u\s+/", r"shred\s+.*--remove\s+/"],
-            case_insensitive: true,
-            suggestion: Some(
-                "Shred with removal permanently destroys data. Double-check your target path.",
-            ),
-        }
+        Self::rule(
+            "SAFETY-015",
+            "Shred System Files",
+            "Using shred on system or important directories",
+            ViolationType::DataDestruction,
+            RuleAction::Block,
+            vec![
+                r"shred\s+.*-u\s+/", r"shred\s+.*--remove\s+/"
+            ],
+            true,
+            Some(,
+        )
     }
 
     fn write_to_disk_device() -> SafetyRule {
-        SafetyRule {
-            id: "SAFETY-016",
-            name: "Write to Disk Device",
-            description: "Writing data directly to disk devices",
-            violation_type: ViolationType::DataDestruction,
-            action: RuleAction::Block,
-            patterns: vec![
+        Self::rule(
+            "SAFETY-016",
+            "Write to Disk Device",
+            "Writing data directly to disk devices",
+            ViolationType::DataDestruction,
+            RuleAction::Block,
+            vec![
                 r">\s*/dev/[sh]d[a-z]$",
                 r">\s*/dev/nvme\d+n\d+$",
                 r"cat\s+.*>\s*/dev/[sh]d[a-z]\d*",
                 r"echo\s+.*>\s*/dev/[sh]d[a-z]\d*",
             ],
-            case_insensitive: true,
-            suggestion: Some("Writing directly to disk devices destroys filesystems. Use proper tools for disk operations."),
-        }
+            true,
+            Some("Writing directly to disk devices destroys filesystems. Use proper tools for disk operations."),
+        )
     }
 
     // === SUDO MISUSE ===
 
     fn sudo_misuse() -> SafetyRule {
-        SafetyRule {
-            id: "SAFETY-017",
-            name: "Sudo Misuse",
-            description: "Potentially dangerous sudo commands",
-            violation_type: ViolationType::SudoMisuse,
-            action: RuleAction::Warn,
-            patterns: vec![
+        Self::rule(
+            "SAFETY-017",
+            "Sudo Misuse",
+            "Potentially dangerous sudo commands",
+            ViolationType::SudoMisuse,
+            RuleAction::Warn,
+            vec![
                 r"sudo\s+rm\s+-[rf]*\s+/",
                 r"sudo\s+mkfs",
                 r"sudo\s+dd\s+.*of=/dev/",
             ],
-            case_insensitive: true,
-            suggestion: Some(
-                "Sudo amplifies the danger of destructive commands. Double-check before executing.",
-            ),
-        }
+            true,
+            Some(,
+        )
     }
 
     fn sudo_rm_rf() -> SafetyRule {
-        SafetyRule {
-            id: "SAFETY-018",
-            name: "Sudo Recursive Delete",
-            description: "Using sudo with recursive delete",
-            violation_type: ViolationType::SudoMisuse,
-            action: RuleAction::Block,
-            patterns: vec![
+        Self::rule(
+            "SAFETY-018",
+            "Sudo Recursive Delete",
+            "Using sudo with recursive delete",
+            ViolationType::SudoMisuse,
+            RuleAction::Block,
+            vec![
                 r"sudo\s+rm\s+-[rf]*\s+/\s*$",
                 r"sudo\s+rm\s+-[rf]*\s+/\*",
                 r"sudo\s+rm\s+-[rf]*\s+/\.\.",
             ],
-            case_insensitive: true,
-            suggestion: Some("This will delete your entire system. If you really need this, use a more targeted approach."),
-        }
+            true,
+            Some("This will delete your entire system. If you really need this, use a more targeted approach."),
+        )
     }
 
     fn sudo_bash() -> SafetyRule {
-        SafetyRule {
-            id: "SAFETY-019",
-            name: "Sudo Shell",
-            description: "Opening a root shell with sudo",
-            violation_type: ViolationType::SudoMisuse,
-            action: RuleAction::Warn,
-            patterns: vec![r"sudo\s+(bash|sh|zsh|fish)$", r"sudo\s+-i$", r"sudo\s+su$"],
-            case_insensitive: true,
-            suggestion: Some(
-                "Root shells bypass all safety checks. Use sudo for specific commands instead.",
-            ),
-        }
+        Self::rule(
+            "SAFETY-019",
+            "Sudo Shell",
+            "Opening a root shell with sudo",
+            ViolationType::SudoMisuse,
+            RuleAction::Warn,
+            vec![
+                r"sudo\s+(bash|sh|zsh|fish)$", r"sudo\s+-i$", r"sudo\s+su$"
+            ],
+            true,
+            Some(,
+        )
     }
 
     // === DANGEROUS PIPELINES ===
 
     fn dangerous_pipeline() -> SafetyRule {
-        SafetyRule {
-            id: "SAFETY-020",
-            name: "Dangerous Pipeline",
-            description: "Piping curl or wget directly to shell",
-            violation_type: ViolationType::DangerousPipeline,
-            action: RuleAction::Warn,
-            patterns: vec![
+        Self::rule(
+            "SAFETY-020",
+            "Dangerous Pipeline",
+            "Piping curl or wget directly to shell",
+            ViolationType::DangerousPipeline,
+            RuleAction::Warn,
+            vec![
                 r"curl\s+.*\|\s*(bash|sh|zsh)",
                 r"curl\s+.*\|\s*sudo",
                 r"wget\s+.*-O-\s*\|\s*(bash|sh|zsh)",
                 r"wget\s+.*-O-\s*\|\s*sudo",
             ],
-            case_insensitive: true,
-            suggestion: Some("Piping internet content directly to shell is dangerous. Download first, verify, then execute."),
-        }
+            true,
+            Some("Piping internet content directly to shell is dangerous. Download first, verify, then execute."),
+        )
     }
 
     fn curl_pipe_bash() -> SafetyRule {
-        SafetyRule {
-            id: "SAFETY-021",
-            name: "Curl Pipe to Bash",
-            description: "Downloading and executing remote scripts without verification",
-            violation_type: ViolationType::DangerousPipeline,
-            action: RuleAction::Block,
-            patterns: vec![
+        Self::rule(
+            "SAFETY-021",
+            "Curl Pipe to Bash",
+            "Downloading and executing remote scripts without verification",
+            ViolationType::DangerousPipeline,
+            RuleAction::Block,
+            vec![
                 r"curl\s+.*https?://.*\|\s*(bash|sh)",
             ],
-            case_insensitive: true,
-            suggestion: Some("This executes remote code without verification. Use: curl -O file.sh && cat file.sh && bash file.sh"),
-        }
+            true,
+            Some("This executes remote code without verification. Use: curl -O file.sh && cat file.sh && bash file.sh"),
+        )
     }
 
     fn wget_pipe_sh() -> SafetyRule {
-        SafetyRule {
-            id: "SAFETY-022",
-            name: "Wget Pipe to Shell",
-            description: "Downloading and executing remote scripts without verification",
-            violation_type: ViolationType::DangerousPipeline,
-            action: RuleAction::Block,
-            patterns: vec![
+        Self::rule(
+            "SAFETY-022",
+            "Wget Pipe to Shell",
+            "Downloading and executing remote scripts without verification",
+            ViolationType::DangerousPipeline,
+            RuleAction::Block,
+            vec![
                 r"wget\s+-[qO]*\s+[^\s]*\s*-\s*\|\s*(sh|bash)",
                 r"wget\s+[^|]*-O\s*-\s*[^|]*\|\s*(sh|bash)",
             ],
-            case_insensitive: true,
-            suggestion: Some("This executes remote code without verification. Use: wget file.sh && cat file.sh && bash file.sh"),
-        }
+            true,
+            Some("This executes remote code without verification. Use: wget file.sh && cat file.sh && bash file.sh"),
+        )
     }
 
     // === GIT DESTRUCTION ===
 
     fn git_destruction() -> SafetyRule {
-        SafetyRule {
-            id: "SAFETY-023",
-            name: "Git Destructive Operation",
-            description: "Potentially destructive git operations",
-            violation_type: ViolationType::GitDestruction,
-            action: RuleAction::Warn,
-            patterns: vec![
+        Self::rule(
+            "SAFETY-023",
+            "Git Destructive Operation",
+            "Potentially destructive git operations",
+            ViolationType::GitDestruction,
+            RuleAction::Warn,
+            vec![
                 r"git\s+push\s+--force",
                 r"git\s+push\s+-f",
                 r"git\s+reset\s+--hard",
             ],
-            case_insensitive: true,
-            suggestion: Some(
-                "Force push and hard reset can permanently lose work. Ensure you have backups.",
-            ),
-        }
+            true,
+            Some(,
+        )
     }
 
     fn git_force_push() -> SafetyRule {
-        SafetyRule {
-            id: "SAFETY-024",
-            name: "Git Force Push to Main",
-            description: "Force pushing to main or master branch",
-            violation_type: ViolationType::GitDestruction,
-            action: RuleAction::Block,
-            patterns: vec![
+        Self::rule(
+            "SAFETY-024",
+            "Git Force Push to Main",
+            "Force pushing to main or master branch",
+            ViolationType::GitDestruction,
+            RuleAction::Block,
+            vec![
                 r"git\s+push\s+(--force|-f)\s+(origin\s+)?(main|master)",
                 r"git\s+push\s+(origin\s+)?(main|master)\s+(--force|-f)",
             ],
-            case_insensitive: true,
-            suggestion: Some("Force pushing to main/master rewrites shared history. Use revert or fix-forward instead."),
-        }
+            true,
+            Some("Force pushing to main/master rewrites shared history. Use revert or fix-forward instead."),
+        )
     }
 
     fn git_reset_hard() -> SafetyRule {
-        SafetyRule {
-            id: "SAFETY-025",
-            name: "Git Hard Reset",
-            description: "Hard reset with uncommitted changes",
-            violation_type: ViolationType::GitDestruction,
-            action: RuleAction::Warn,
-            patterns: vec![
+        Self::rule(
+            "SAFETY-025",
+            "Git Hard Reset",
+            "Hard reset with uncommitted changes",
+            ViolationType::GitDestruction,
+            RuleAction::Warn,
+            vec![
                 r"git\s+reset\s+--hard\s+(HEAD|origin)",
                 r"git\s+reset\s+--hard\s+~\d+",
             ],
-            case_insensitive: true,
-            suggestion: Some(
-                "Hard reset permanently deletes uncommitted changes. Stash or commit first.",
-            ),
-        }
+            true,
+            Some(,
+        )
     }
 
     // === DATABASE DESTRUCTION ===
 
     fn database_destruction() -> SafetyRule {
-        SafetyRule {
-            id: "SAFETY-026",
-            name: "Database Destructive Operation",
-            description: "Potentially destructive database operations",
-            violation_type: ViolationType::DatabaseDestruction,
-            action: RuleAction::Warn,
-            patterns: vec![r"mysql\s+.*DROP", r"psql\s+.*DROP", r"mongo\s+.*drop"],
-            case_insensitive: true,
-            suggestion: Some("Database operations cannot be undone. Ensure you have backups."),
-        }
+        Self::rule(
+            "SAFETY-026",
+            "Database Destructive Operation",
+            "Potentially destructive database operations",
+            ViolationType::DatabaseDestruction,
+            RuleAction::Warn,
+            vec![
+                r"mysql\s+.*DROP", r"psql\s+.*DROP", r"mongo\s+.*drop"
+            ],
+            true,
+            Some("Database operations cannot be undone. Ensure you have backups."),
+        )
     }
 
     fn drop_database() -> SafetyRule {
-        SafetyRule {
-            id: "SAFETY-027",
-            name: "Drop Database",
-            description: "Dropping an entire database",
-            violation_type: ViolationType::DatabaseDestruction,
-            action: RuleAction::Block,
-            patterns: vec![r"DROP\s+DATABASE\s+\w+", r"DROP\s+SCHEMA\s+\w+"],
-            case_insensitive: true,
-            suggestion: Some(
-                "Dropping a database destroys all data. Ensure you have verified backups.",
-            ),
-        }
+        Self::rule(
+            "SAFETY-027",
+            "Drop Database",
+            "Dropping an entire database",
+            ViolationType::DatabaseDestruction,
+            RuleAction::Block,
+            vec![
+                r"DROP\s+DATABASE\s+\w+", r"DROP\s+SCHEMA\s+\w+"
+            ],
+            true,
+            Some(,
+        )
     }
 
     fn delete_without_where() -> SafetyRule {
-        SafetyRule {
-            id: "SAFETY-028",
-            name: "Delete Without WHERE",
-            description: "DELETE statement without WHERE clause",
-            violation_type: ViolationType::DatabaseDestruction,
-            action: RuleAction::Block,
-            patterns: vec![
+        Self::rule(
+            "SAFETY-028",
+            "Delete Without WHERE",
+            "DELETE statement without WHERE clause",
+            ViolationType::DatabaseDestruction,
+            RuleAction::Block,
+            vec![
                 r"DELETE\s+FROM\s+\w+\s*$",
                 r"DELETE\s+FROM\s+\w+\s+;",
                 r"DELETE\s+\w+\s+FROM\s+\w+\s*$",
             ],
-            case_insensitive: true,
-            suggestion: Some(
-                "DELETE without WHERE removes all rows. Add a WHERE clause to limit scope.",
-            ),
-        }
+            true,
+            Some(,
+        )
     }
 }
 
