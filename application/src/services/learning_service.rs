@@ -230,15 +230,24 @@ impl Default for LearningService {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
-    fn test_db_path() -> PathBuf {
-        PathBuf::from("/tmp/test_learning_service.db")
+    fn test_db_path(prefix: &str) -> PathBuf {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let dir = PathBuf::from(home).join(".config/vibe_cli/test_dbs");
+        let _ = std::fs::create_dir_all(&dir);
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        dir.join(format!("{}_{}.db", prefix, nanos))
     }
 
     #[test]
     fn test_record_and_retrieve() {
-        let _ = std::fs::remove_file(test_db_path());
-        let service = LearningService::with_path(test_db_path()).unwrap();
+        let db_path = test_db_path("learning_record");
+        let _ = std::fs::remove_file(&db_path);
+        let service = LearningService::with_path(db_path.clone()).unwrap();
 
         // Record a failure
         service
@@ -259,13 +268,14 @@ mod tests {
         let context = service.get_context_for_query("show processes").unwrap();
         assert!(context.is_some());
 
-        let _ = std::fs::remove_file(test_db_path());
+        let _ = std::fs::remove_file(&db_path);
     }
 
     #[test]
     fn test_augment_prompt() {
-        let _ = std::fs::remove_file(test_db_path());
-        let service = LearningService::with_path(test_db_path()).unwrap();
+        let db_path = test_db_path("learning_augment");
+        let _ = std::fs::remove_file(&db_path);
+        let service = LearningService::with_path(db_path.clone()).unwrap();
 
         service
             .record_failure(
@@ -282,13 +292,14 @@ mod tests {
         assert!(augmented.contains("LEARNING CONTEXT"));
         assert!(augmented.contains("PREVIOUS FAILURES"));
 
-        let _ = std::fs::remove_file(test_db_path());
+        let _ = std::fs::remove_file(&db_path);
     }
 
     #[test]
     fn test_success_rate() {
-        let _ = std::fs::remove_file(test_db_path());
-        let service = LearningService::with_path(test_db_path()).unwrap();
+        let db_path = test_db_path("learning_rate");
+        let _ = std::fs::remove_file(&db_path);
+        let service = LearningService::with_path(db_path.clone()).unwrap();
 
         // Record successes and failures
         service
@@ -304,6 +315,6 @@ mod tests {
         let rate = service.get_success_rate("test query").unwrap();
         assert!((rate - 0.666).abs() < 0.01);
 
-        let _ = std::fs::remove_file(test_db_path());
+        let _ = std::fs::remove_file(&db_path);
     }
 }

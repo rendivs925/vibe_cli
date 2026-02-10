@@ -518,25 +518,35 @@ impl ExperienceBuffer {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
-    fn test_db_path() -> PathBuf {
-        PathBuf::from("/tmp/test_experience_buffer.db")
+    fn test_db_path(prefix: &str) -> PathBuf {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let dir = PathBuf::from(home).join(".config/vibe_cli/test_dbs");
+        let _ = std::fs::create_dir_all(&dir);
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        dir.join(format!("{}_{}.db", prefix, nanos))
     }
 
     #[test]
     fn test_init_tables() {
-        let _ = std::fs::remove_file(test_db_path());
-        let buffer = ExperienceBuffer::new(test_db_path()).unwrap();
+        let db_path = test_db_path("exp_init");
+        let _ = std::fs::remove_file(&db_path);
+        let buffer = ExperienceBuffer::new(db_path.clone()).unwrap();
         let (entries, patterns, _) = buffer.get_stats().unwrap();
         assert_eq!(entries, 0);
         assert_eq!(patterns, 0);
-        let _ = std::fs::remove_file(test_db_path());
+        let _ = std::fs::remove_file(&db_path);
     }
 
     #[test]
     fn test_log_failure() {
-        let _ = std::fs::remove_file(test_db_path());
-        let buffer = ExperienceBuffer::new(test_db_path()).unwrap();
+        let db_path = test_db_path("exp_failure");
+        let _ = std::fs::remove_file(&db_path);
+        let buffer = ExperienceBuffer::new(db_path.clone()).unwrap();
 
         buffer
             .log_failure(
@@ -551,13 +561,14 @@ mod tests {
         let (entries, _, _) = buffer.get_stats().unwrap();
         assert_eq!(entries, 1);
 
-        let _ = std::fs::remove_file(test_db_path());
+        let _ = std::fs::remove_file(&db_path);
     }
 
     #[test]
     fn test_log_success() {
-        let _ = std::fs::remove_file(test_db_path());
-        let buffer = ExperienceBuffer::new(test_db_path()).unwrap();
+        let db_path = test_db_path("exp_success");
+        let _ = std::fs::remove_file(&db_path);
+        let buffer = ExperienceBuffer::new(db_path.clone()).unwrap();
 
         buffer
             .log_success(
@@ -572,13 +583,14 @@ mod tests {
         assert_eq!(entries, 1);
         assert_eq!(rate, 1.0);
 
-        let _ = std::fs::remove_file(test_db_path());
+        let _ = std::fs::remove_file(&db_path);
     }
 
     #[test]
     fn test_find_similar_failures() {
-        let _ = std::fs::remove_file(test_db_path());
-        let buffer = ExperienceBuffer::new(test_db_path()).unwrap();
+        let db_path = test_db_path("exp_similar");
+        let _ = std::fs::remove_file(&db_path);
+        let buffer = ExperienceBuffer::new(db_path.clone()).unwrap();
 
         buffer
             .log_failure(
@@ -595,7 +607,7 @@ mod tests {
             .unwrap();
         assert!(!similar.is_empty());
 
-        let _ = std::fs::remove_file(test_db_path());
+        let _ = std::fs::remove_file(&db_path);
     }
 
     #[test]
@@ -612,8 +624,9 @@ mod tests {
 
     #[test]
     fn test_get_success_rate() {
-        let _ = std::fs::remove_file(test_db_path());
-        let buffer = ExperienceBuffer::new(test_db_path()).unwrap();
+        let db_path = test_db_path("exp_rate");
+        let _ = std::fs::remove_file(&db_path);
+        let buffer = ExperienceBuffer::new(db_path.clone()).unwrap();
 
         // Log 2 successes and 1 failure
         buffer
@@ -629,6 +642,6 @@ mod tests {
         let rate = buffer.get_success_rate("test query").unwrap();
         assert!((rate - 0.666).abs() < 0.01);
 
-        let _ = std::fs::remove_file(test_db_path());
+        let _ = std::fs::remove_file(&db_path);
     }
 }

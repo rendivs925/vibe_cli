@@ -422,44 +422,55 @@ impl DiscoveryReport {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
-    fn test_db_path() -> PathBuf {
-        PathBuf::from("/tmp/test_graph_builder.db")
+    fn test_db_path(prefix: &str) -> PathBuf {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let dir = PathBuf::from(home).join(".config/vibe_cli/test_dbs");
+        let _ = std::fs::create_dir_all(&dir);
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        dir.join(format!("{}_{}.db", prefix, nanos))
     }
 
     #[test]
     fn test_graph_builder_creation() {
-        let _ = std::fs::remove_file(test_db_path());
-        let builder = GraphBuilder::with_path(test_db_path()).unwrap();
+        let db_path = test_db_path("graph_builder_create");
+        let _ = std::fs::remove_file(&db_path);
+        let builder = GraphBuilder::with_path(db_path.clone()).unwrap();
         let (entities, _) = builder.get_stats().unwrap();
         assert_eq!(entities, 0);
-        let _ = std::fs::remove_file(test_db_path());
+        let _ = std::fs::remove_file(&db_path);
     }
 
     #[test]
     fn test_discover_os() {
-        let _ = std::fs::remove_file(test_db_path());
-        let builder = GraphBuilder::with_path(test_db_path()).unwrap();
+        let db_path = test_db_path("graph_builder_os");
+        let _ = std::fs::remove_file(&db_path);
+        let builder = GraphBuilder::with_path(db_path.clone()).unwrap();
 
         builder.discover_os().unwrap();
 
         let (entities, _) = builder.get_stats().unwrap();
         assert!(entities > 0);
 
-        let _ = std::fs::remove_file(test_db_path());
+        let _ = std::fs::remove_file(&db_path);
     }
 
     #[test]
     fn test_discover_env_vars() {
-        let _ = std::fs::remove_file(test_db_path());
-        let builder = GraphBuilder::with_path(test_db_path()).unwrap();
+        let db_path = test_db_path("graph_builder_env");
+        let _ = std::fs::remove_file(&db_path);
+        let builder = GraphBuilder::with_path(db_path.clone()).unwrap();
 
         builder.discover_env_vars().unwrap();
 
         let (entities, _) = builder.get_stats().unwrap();
         assert!(entities > 0);
 
-        let _ = std::fs::remove_file(test_db_path());
+        let _ = std::fs::remove_file(&db_path);
     }
 
     #[test]

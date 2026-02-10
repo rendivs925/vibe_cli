@@ -1020,10 +1020,102 @@ impl Default for IntegratedNeurosymbolicService {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::fs;
+    use std::path::PathBuf;
+    use std::sync::{Mutex, MutexGuard};
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    static HOME_MUTEX: Mutex<()> = Mutex::new(());
+
+    struct HomeGuard {
+        original: Option<String>,
+        temp_home: PathBuf,
+        _lock: MutexGuard<'static, ()>,
+    }
+
+    impl Drop for HomeGuard {
+        fn drop(&mut self) {
+            if let Some(value) = &self.original {
+                std::env::set_var("HOME", value);
+            } else {
+                std::env::remove_var("HOME");
+            }
+            let _ = fs::remove_dir_all(&self.temp_home);
+        }
+    }
+
+    fn setup_temp_home_with_domain() -> HomeGuard {
+        let lock = HOME_MUTEX.lock().unwrap();
+        let original = std::env::var("HOME").ok();
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let base_home = original.clone().unwrap_or_else(|| ".".to_string());
+        let temp_home = PathBuf::from(base_home)
+            .join(".config/vibe_cli/test_homes")
+            .join(format!("vibe_cli_test_home_{}", nanos));
+        fs::create_dir_all(&temp_home).unwrap();
+        std::env::set_var("HOME", &temp_home);
+
+        let domain_dir = temp_home.join(".config/vibe_cli/domains/linux");
+        let _ = fs::create_dir_all(domain_dir.join("entities"));
+
+        let domain_json = r#"{
+            "domain": "linux",
+            "version": "1.0.0",
+            "description": "Test Linux domain",
+            "depends_on": [],
+            "priority": 10,
+            "enabled": true
+        }"#;
+        fs::write(domain_dir.join("domain.json"), domain_json).unwrap();
+
+        let operations_json = r#"[
+            {
+                "op_id": "list_files",
+                "name": "list files",
+                "description": "list files in directory",
+                "intent": "list files",
+                "input_schema": {},
+                "generators": [
+                    {"name": "ls_all", "tool": "ls", "template": "ls -la", "when": []}
+                ],
+                "examples": [{"description": "list files", "inputs": {}}]
+            },
+            {
+                "op_id": "delete_root",
+                "name": "delete root",
+                "description": "delete root filesystem",
+                "intent": "delete root",
+                "input_schema": {},
+                "generators": [
+                    {"name": "rm_root", "tool": "rm", "template": "rm -rf /", "when": []}
+                ],
+                "examples": [{"description": "delete root", "inputs": {}}]
+            }
+        ]"#;
+        fs::write(domain_dir.join("operations.json"), operations_json).unwrap();
+
+        HomeGuard {
+            original,
+            temp_home,
+            _lock: lock,
+        }
+    }
 
     #[test]
     fn test_process_safe_command() {
-        let mut service = IntegratedNeurosymbolicService::new().unwrap();
+        let _guard = setup_temp_home_with_domain();
+        let mut service = IntegratedNeurosymbolicService::with_config(NeurosymbolicConfig {
+            enable_safety: true,
+            enable_manpage_validation: false,
+            enable_learning: false,
+            block_on_safety: true,
+            block_on_invalid_syntax: true,
+        })
+        .unwrap();
+        service.reload_domain_registry().unwrap();
         let result = service.process("list files").unwrap();
 
         assert!(result.can_execute);
@@ -1032,8 +1124,17 @@ mod tests {
 
     #[test]
     fn test_process_dangerous_command() {
-        let mut service = IntegratedNeurosymbolicService::new().unwrap();
-        let result = service.process("rm -rf /").unwrap();
+        let _guard = setup_temp_home_with_domain();
+        let mut service = IntegratedNeurosymbolicService::with_config(NeurosymbolicConfig {
+            enable_safety: true,
+            enable_manpage_validation: false,
+            enable_learning: false,
+            block_on_safety: true,
+            block_on_invalid_syntax: true,
+        })
+        .unwrap();
+        service.reload_domain_registry().unwrap();
+        let result = service.process("delete root").unwrap();
 
         assert!(!result.can_execute);
         assert!(result.safety_report.is_blocked());

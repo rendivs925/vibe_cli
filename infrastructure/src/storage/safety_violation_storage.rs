@@ -276,24 +276,34 @@ mod tests {
     use super::*;
     use domain::ViolationType;
     use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
-    fn test_db_path() -> PathBuf {
-        PathBuf::from("/tmp/test_safety_violations.db")
+    fn test_db_path(prefix: &str) -> PathBuf {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let dir = PathBuf::from(home).join(".config/vibe_cli/test_dbs");
+        let _ = std::fs::create_dir_all(&dir);
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        dir.join(format!("{}_{}.db", prefix, nanos))
     }
 
     #[test]
     fn test_init_tables() {
-        let _ = std::fs::remove_file(test_db_path());
-        let storage = SafetyViolationStorage::new(test_db_path()).unwrap();
+        let db_path = test_db_path("safety_init");
+        let _ = std::fs::remove_file(&db_path);
+        let storage = SafetyViolationStorage::new(db_path.clone()).unwrap();
         let count = storage.get_violation_count().unwrap();
         assert_eq!(count, 0);
-        let _ = std::fs::remove_file(test_db_path());
+        let _ = std::fs::remove_file(&db_path);
     }
 
     #[test]
     fn test_log_violation() {
-        let _ = std::fs::remove_file(test_db_path());
-        let storage = SafetyViolationStorage::new(test_db_path()).unwrap();
+        let db_path = test_db_path("safety_log");
+        let _ = std::fs::remove_file(&db_path);
+        let storage = SafetyViolationStorage::new(db_path.clone()).unwrap();
 
         let violation = SafetyViolation::new(
             "TEST-001",
@@ -322,6 +332,6 @@ mod tests {
         assert_eq!(violations.len(), 1);
         assert_eq!(violations[0].rule_id, "TEST-001");
 
-        let _ = std::fs::remove_file(test_db_path());
+        let _ = std::fs::remove_file(&db_path);
     }
 }
