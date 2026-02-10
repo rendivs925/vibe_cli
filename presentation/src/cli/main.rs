@@ -41,6 +41,10 @@ pub struct Cli {
     #[arg(long)]
     pub neurosymbolic: bool,
 
+    /// Use RAG context to constrain neurosymbolic command generation
+    #[arg(long)]
+    pub neurosymbolic_rag: bool,
+
     /// Initialize domain config directory
     #[arg(long)]
     pub neurosymbolic_init: bool,
@@ -119,7 +123,7 @@ impl CliApp {
             self.handlers.handle_context(&args_str).await
         } else if cli.neurosymbolic {
             self.handlers
-                .handle_neurosymbolic(&args_str, cli.ai_interpret)
+                .handle_neurosymbolic(&args_str, cli.ai_interpret, cli.neurosymbolic_rag)
                 .await
         } else if cli.neurosymbolic_init {
             self.handlers.handle_neurosymbolic_init().await

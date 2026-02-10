@@ -92,6 +92,15 @@ pub enum RuleAction {
     SuggestAlternative(String),
 }
 
+/// Result of applying induced rules to a command
+#[derive(Debug, Clone)]
+pub struct InducedRuleResult {
+    pub command: String,
+    pub warnings: Vec<String>,
+    pub blocked_reason: Option<String>,
+    pub notes: Vec<String>,
+}
+
 /// Induction engine for pattern mining
 pub struct InductionEngine {
     conn: Connection,
@@ -622,6 +631,116 @@ impl InductionEngine {
         }
 
         Ok(applied)
+    }
+
+    /// Load enabled induced rules from storage
+    pub fn enabled_rules(&self) -> SqliteResult<Vec<InducedRule>> {
+        let mut stmt = self.conn.prepare(
+            "SELECT id, pattern_id, rule_name, condition_type, condition_value,
+                    action_type, action_value, confidence, enabled
+             FROM induced_rules
+             WHERE enabled = 1",
+        )?;
+
+        let rows = stmt.query_map([], |row| {
+            let condition_type: String = row.get(3)?;
+            let condition_value: String = row.get(4)?;
+            let action_type: String = row.get(5)?;
+            let action_value: String = row.get(6)?;
+            Ok(InducedRule {
+                id: row.get(0)?,
+                pattern_id: row.get(1)?,
+                rule_name: row.get(2)?,
+                condition: self.parse_condition(&condition_type, &condition_value),
+                action: self.parse_action(&action_type, &action_value),
+                confidence: row.get(7)?,
+                enabled: row.get(8)?,
+            })
+        })?;
+
+        rows.collect()
+    }
+
+    /// Evaluate induced rules against a command and return adjustments/warnings
+    pub fn evaluate_command(&self, command: &str) -> SqliteResult<InducedRuleResult> {
+        let mut result = InducedRuleResult {
+            command: command.to_string(),
+            warnings: Vec::new(),
+            blocked_reason: None,
+            notes: Vec::new(),
+        };
+
+        let rules = self.enabled_rules()?;
+        for rule in rules {
+            if !self.rule_matches(&rule.condition, &result.command) {
+                continue;
+            }
+            result
+                .notes
+                .push(format!("Induced rule matched: {}", rule.rule_name));
+            match &rule.action {
+                RuleAction::AddPrefix(prefix) => {
+                    if !result.command.starts_with(prefix) {
+                        result.command = format!("{} {}", prefix, result.command);
+                    }
+                }
+                RuleAction::AddFlag(flag) => {
+                    if !result.command.split_whitespace().any(|t| t == flag) {
+                        result.command = format!("{} {}", result.command, flag);
+                    }
+                }
+                RuleAction::CheckService(service) => {
+                    result
+                        .warnings
+                        .push(format!("Ensure service '{}' is running", service));
+                }
+                RuleAction::Warn(msg) => {
+                    result.warnings.push(msg.clone());
+                }
+                RuleAction::Block(msg) => {
+                    result.blocked_reason = Some(msg.clone());
+                    break;
+                }
+                RuleAction::SuggestAlternative(msg) => {
+                    result.warnings.push(format!("Suggestion: {}", msg));
+                }
+            }
+        }
+
+        Ok(result)
+    }
+
+    fn rule_matches(&self, condition: &RuleCondition, command: &str) -> bool {
+        match condition {
+            RuleCondition::PathMatches(p) => command.contains(p),
+            RuleCondition::CommandContains(c) => command.contains(c),
+            RuleCondition::FailureType(_) => false,
+            RuleCondition::ErrorMessageContains(_) => false,
+            RuleCondition::And(a, b) => self.rule_matches(a, command) && self.rule_matches(b, command),
+            RuleCondition::Or(a, b) => self.rule_matches(a, command) || self.rule_matches(b, command),
+        }
+    }
+
+    fn parse_condition(&self, kind: &str, value: &str) -> RuleCondition {
+        match kind {
+            "path_matches" => RuleCondition::PathMatches(value.to_string()),
+            "command_contains" => RuleCondition::CommandContains(value.to_string()),
+            "failure_type" => RuleCondition::FailureType(FailureType::Other),
+            "error_contains" => RuleCondition::ErrorMessageContains(value.to_string()),
+            _ => RuleCondition::CommandContains(value.to_string()),
+        }
+    }
+
+    fn parse_action(&self, kind: &str, value: &str) -> RuleAction {
+        match kind {
+            "add_prefix" => RuleAction::AddPrefix(value.to_string()),
+            "add_flag" => RuleAction::AddFlag(value.to_string()),
+            "check_service" => RuleAction::CheckService(value.to_string()),
+            "warn" => RuleAction::Warn(value.to_string()),
+            "block" => RuleAction::Block(value.to_string()),
+            "suggest" => RuleAction::SuggestAlternative(value.to_string()),
+            _ => RuleAction::Warn(value.to_string()),
+        }
     }
 
     /// Get statistics

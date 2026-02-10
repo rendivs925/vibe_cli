@@ -100,6 +100,26 @@ impl RagService {
         self.query_with_feedback(question, "").await
     }
 
+    pub async fn relevant_chunks(&self, question: &str, limit: usize) -> Result<Vec<String>> {
+        let query_embedding = self.client.generate_embedding(question).await?;
+        let all_embeddings = self.storage.get_all_embeddings().await?;
+        let mut chunks =
+            SearchEngine::find_relevant_chunks(&query_embedding, &all_embeddings, limit);
+
+        if question.to_lowercase().contains("project") || question.to_lowercase().contains("what is")
+        {
+            if let Ok(readme_content) = std::fs::read_to_string("README.md") {
+                chunks.insert(0, format!("FILE: README.md\n{}", readme_content));
+            }
+            let dir_overview = self.scanner.directory_overview(8, 2000);
+            if !dir_overview.is_empty() {
+                chunks.insert(0, format!("DIRECTORY TREE:\n{}", dir_overview));
+            }
+        }
+
+        Ok(chunks)
+    }
+
     pub async fn query_with_feedback(&self, question: &str, feedback: &str) -> Result<String> {
         let query_embedding = self.client.generate_embedding(question).await?;
         let all_embeddings = self.storage.get_all_embeddings().await?;

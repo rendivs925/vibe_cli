@@ -19,7 +19,7 @@ use infrastructure::{
     storage::{
         experience_buffer::{ExperienceBuffer, FailureType},
         induction_engine::InductionEngine,
-        knowledge_graph::KnowledgeGraph,
+        knowledge_graph::{EntityType, KnowledgeGraph},
         risk_scorer::{RiskLevel, RiskProfile, RiskScorer},
         ManpageCache,
     },
@@ -121,6 +121,8 @@ pub struct NeurosymbolicResult {
     pub block_reason: Option<String>,
     /// Reasoning trace
     pub trace: Vec<String>,
+    /// Induced rule warnings
+    pub induced_warnings: Vec<String>,
 }
 
 impl NeurosymbolicResult {
@@ -173,6 +175,13 @@ impl NeurosymbolicResult {
                 status,
                 proof.confidence * 100.0
             ));
+        }
+
+        if !self.induced_warnings.is_empty() {
+            output.push_str("Induced Warnings:\n");
+            for warning in &self.induced_warnings {
+                output.push_str(&format!("  - {}\n", warning));
+            }
         }
 
         // Execution status
@@ -428,6 +437,8 @@ impl IntegratedNeurosymbolicService {
             None
         };
 
+        self.apply_knowledge_graph_hints(query, &mut trace);
+
         // Step 3: Generate command (simplified - would use domain config)
         trace.push("Step 2: Generating command...".to_string());
         let reasoning_template = self
@@ -435,52 +446,9 @@ impl IntegratedNeurosymbolicService {
             .as_ref()
             .and_then(|registry| registry.resolve_reasoning_template(query))
             .map(|template| self.render_reasoning_template(&template, intent));
-        let command = self.generate_command(query, learning_context.as_deref(), &mut trace)?;
-        trace.push(format!("  Generated: {}", command));
-
-        // Step 4: Safety Validation
-        let safety_report = if self.config.enable_safety {
-            trace.push("Step 3: Validating safety...".to_string());
-            let report = self.safety_engine.analyze(&command);
-            trace.push(format!("  Risk level: {}", report.overall_risk));
-            if !report.violations.is_empty() {
-                trace.push(format!("  Violations: {}", report.violations.len()));
-            }
-            report
-        } else {
-            SafetyReport::safe(&command)
-        };
-
-        // Step 5: Syntax/Manpage Validation
-        let (mut syntax_valid, mut invalid_flags) = if self.config.enable_manpage_validation {
-            trace.push("Step 4: Validating syntax...".to_string());
-            let validation = self.syntax_validator.validate(&command);
-            let valid = validation.is_valid;
-            let invalid = validation.invalid_flags.clone();
-            if !valid {
-                trace.push(format!("  Invalid flags: {:?}", invalid));
-            } else {
-                trace.push("  Syntax valid".to_string());
-            }
-            (valid, invalid)
-        } else {
-            (true, vec![])
-        };
-
-        // Retry once by stripping invalid flags if syntax is invalid
-        if self.config.enable_manpage_validation && !syntax_valid && !invalid_flags.is_empty() {
-            if let Some(cleaned) = self.strip_invalid_flags(&command, &invalid_flags) {
-                trace.push(format!("  Retrying without invalid flags: {}", cleaned));
-                let retry = self.syntax_validator.validate(&cleaned);
-                syntax_valid = retry.is_valid;
-                invalid_flags = retry.invalid_flags.clone();
-                if syntax_valid {
-                    trace.push("  Syntax valid after retry".to_string());
-                } else if !invalid_flags.is_empty() {
-                    trace.push(format!("  Still invalid flags: {:?}", invalid_flags));
-                }
-            }
-        }
+        let (command, safety_report, syntax_valid, invalid_flags, induced_warnings) =
+            self.generate_with_backtracking(query, learning_context.as_deref(), &mut trace)?;
+        trace.push(format!("  Selected: {}", command));
 
         // Step 5.5: Risk Assessment
         let risk_profile = Some(self.risk_scorer.assess(&command, query));
@@ -518,6 +486,7 @@ impl IntegratedNeurosymbolicService {
             can_execute,
             block_reason,
             trace,
+            induced_warnings,
         })
     }
 
@@ -528,46 +497,168 @@ impl IntegratedNeurosymbolicService {
         learning_context: Option<&str>,
         trace: &mut Vec<String>,
     ) -> Result<String> {
-        if let Some(registry) = &self.domain_registry {
-            if let Some(resolved) = registry.resolve_operation(query) {
-                if resolved.confidence < 0.6 {
-                    return Err(anyhow!("Low confidence neurosymbolic match"));
+        let mut candidates = self.generate_candidates(query, learning_context, trace)?;
+        if let Some(best) = self.select_best_command(&mut candidates, trace) {
+            return Ok(best);
+        }
+        Err(anyhow!("No valid command candidates"))
+    }
+
+    fn generate_candidates(
+        &mut self,
+        query: &str,
+        learning_context: Option<&str>,
+        trace: &mut Vec<String>,
+    ) -> Result<Vec<GeneratedCommand>> {
+        let registry = self
+            .domain_registry
+            .as_ref()
+            .ok_or_else(|| anyhow!("Domain registry not available"))?;
+
+        let resolved = registry
+            .resolve_operation(query)
+            .ok_or_else(|| anyhow!("No neurosymbolic operation match"))?;
+
+        if resolved.confidence < 0.6 {
+            return Err(anyhow!("Low confidence neurosymbolic match"));
+        }
+
+        trace.push(format!(
+            "  Resolved operation: {} ({:.0}%)",
+            resolved.op_id,
+            resolved.confidence * 100.0
+        ));
+
+        let (_, operation) = registry
+            .get_operation(&resolved.op_id)
+            .ok_or_else(|| anyhow!("Resolved operation not found"))?;
+
+        if self.requires_service_input(operation, &resolved) {
+            return Err(anyhow!("Missing required service input"));
+        }
+
+        let mut generated = registry
+            .command_generator()
+            .generate(operation, &resolved.inputs);
+
+        if let Some(context) = learning_context {
+            generated = self.filter_with_learning_context(&generated, context);
+        }
+
+        if generated.is_empty() {
+            return Err(anyhow!("No command candidates generated"));
+        }
+
+        Ok(generated)
+    }
+
+    fn generate_with_backtracking(
+        &mut self,
+        query: &str,
+        learning_context: Option<&str>,
+        trace: &mut Vec<String>,
+    ) -> Result<(String, SafetyReport, bool, Vec<String>, Vec<String>)> {
+        let mut candidates = self.generate_candidates(query, learning_context, trace)?;
+
+        candidates.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let mut first_error: Option<String> = None;
+
+        for candidate in candidates.iter() {
+            let mut command = candidate.command.clone();
+            let mut induced_warnings = Vec::new();
+            trace.push(format!("  Candidate: {}", command));
+
+            if let Some(engine) = &self.induction_engine {
+                if let Ok(result) = engine.evaluate_command(&command) {
+                    command = result.command;
+                    induced_warnings.extend(result.warnings);
+                    for note in result.notes {
+                        trace.push(format!("  Induction: {}", note));
+                    }
+                    if let Some(reason) = result.blocked_reason {
+                        trace.push(format!("  Induction blocked: {}", reason));
+                        first_error = first_error.or(Some(reason));
+                        continue;
+                    }
                 }
-                trace.push(format!(
-                    "  Resolved operation: {} ({:.0}%)",
-                    resolved.op_id,
-                    resolved.confidence * 100.0
-                ));
-
-                if let Some((_, operation)) = registry.get_operation(&resolved.op_id) {
-                    if self.requires_service_input(operation, &resolved) {
-                        return Err(anyhow!("Missing required service input"));
-                    }
-
-                    let mut generated = registry
-                        .command_generator()
-                        .generate(operation, &resolved.inputs);
-
-                    if let Some(context) = learning_context {
-                        generated = self.filter_with_learning_context(&generated, context);
-                    }
-
-                    if generated.is_empty() {
-                        return Err(anyhow!("No command candidates generated"));
-                    }
-
-                    if let Some(best) = self.select_best_command(&mut generated, trace) {
-                        return Ok(best);
-                    }
-                    return Err(anyhow!("No valid command candidates"));
-                }
-
-                return Err(anyhow!("Resolved operation not found"));
-            } else {
-                return Err(anyhow!("No neurosymbolic operation match"));
             }
-        } else {
-            return Err(anyhow!("Domain registry not available"));
+
+            let safety_report = if self.config.enable_safety {
+                trace.push("  Validating safety...".to_string());
+                let report = self.safety_engine.analyze(&command);
+                if report.is_blocked() {
+                    trace.push(format!("  Blocked by safety: {}", report.summary));
+                    first_error = first_error.or(Some(report.summary.clone()));
+                    continue;
+                }
+                report
+            } else {
+                SafetyReport::safe(&command)
+            };
+
+            let (mut syntax_valid, mut invalid_flags) = if self.config.enable_manpage_validation {
+                trace.push("  Validating syntax...".to_string());
+                let validation = self.syntax_validator.validate(&command);
+                let valid = validation.is_valid;
+                let invalid = validation.invalid_flags.clone();
+                (valid, invalid)
+            } else {
+                (true, vec![])
+            };
+
+            if self.config.enable_manpage_validation && !syntax_valid && !invalid_flags.is_empty() {
+                if let Some(cleaned) = self.strip_invalid_flags(&command, &invalid_flags) {
+                    trace.push(format!("  Retrying without invalid flags: {}", cleaned));
+                    let retry = self.syntax_validator.validate(&cleaned);
+                    syntax_valid = retry.is_valid;
+                    invalid_flags = retry.invalid_flags.clone();
+                    if syntax_valid {
+                        command = cleaned;
+                    }
+                }
+            }
+
+            if self.config.block_on_invalid_syntax && !syntax_valid && !invalid_flags.is_empty() {
+                first_error = first_error.or(Some(format!(
+                    "Invalid flags: {}",
+                    invalid_flags.join(", ")
+                )));
+                trace.push("  Syntax invalid; backtracking".to_string());
+                continue;
+            }
+
+            return Ok((command, safety_report, syntax_valid, invalid_flags, induced_warnings));
+        }
+
+        Err(anyhow!(
+            "No valid command candidates{}",
+            first_error
+                .as_ref()
+                .map(|e| format!(" ({})", e))
+                .unwrap_or_default()
+        ))
+    }
+
+    fn apply_knowledge_graph_hints(&self, query: &str, trace: &mut Vec<String>) {
+        let Ok(graph) = KnowledgeGraph::new(&self.knowledge_graph_path) else {
+            return;
+        };
+        let query_lower = query.to_lowercase();
+        let services = ["nginx", "apache", "mysql", "postgres", "redis", "docker", "ssh"];
+        for svc in services {
+            if query_lower.contains(svc) {
+                if let Ok(Some(entity)) = graph.find_entity(EntityType::Service, svc) {
+                    trace.push(format!(
+                        "  KnowledgeGraph: service '{}' known (id {})",
+                        entity.name, entity.id
+                    ));
+                }
+            }
         }
     }
 

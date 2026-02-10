@@ -4,7 +4,9 @@ use crate::cli::streaming::{
 };
 
 use super::cache::{CacheManager, CommandCandidate};
-use super::command_extraction::{extract_command_from_response, parse_agent_plan};
+use super::command_extraction::{
+    extract_command_from_response, extract_commands, parse_agent_plan, query_keywords,
+};
 use super::utils::{detect_system_info, project_cache_suffix};
 use application::services::integrated_neurosymbolic_service::{
     DomainCommandValidation, IntegratedNeurosymbolicService, SymbolicCommandSuggestion,
@@ -309,7 +311,12 @@ User request: {}",
         self.handle_chat().await
     }
 
-    pub async fn handle_neurosymbolic(&mut self, query: &str, ai_interpret: bool) -> Result<()> {
+    pub async fn handle_neurosymbolic(
+        &mut self,
+        query: &str,
+        ai_interpret: bool,
+        use_rag_constraints: bool,
+    ) -> Result<()> {
         if self.integrated_service.is_none() {
             self.integrated_service = IntegratedNeurosymbolicService::new().ok();
         }
@@ -317,6 +324,35 @@ User request: {}",
         let mut attempts = 0;
         let max_attempts = 3;
         let mut critique_feedback: Option<String> = None;
+        let mut allowed_commands: Option<std::collections::HashSet<String>> = None;
+
+        if use_rag_constraints {
+            if self.rag_service.is_none() {
+                let client = OllamaClient::new()?;
+                self.rag_service = Some(
+                    RagService::new(".", &self.config.db_path, client, self.config.clone()).await?,
+                );
+                let keywords = query_keywords(query);
+                self.rag_service
+                    .as_ref()
+                    .unwrap()
+                    .build_index_for_keywords(&keywords)
+                    .await?;
+            }
+
+            if let Some(rag) = self.rag_service.as_ref() {
+                let chunks = rag.relevant_chunks(query, 30).await?;
+                let mut allowed = std::collections::HashSet::new();
+                for chunk in chunks {
+                    for cmd in extract_commands(&chunk, query) {
+                        allowed.insert(cmd.command);
+                    }
+                }
+                if !allowed.is_empty() {
+                    allowed_commands = Some(allowed);
+                }
+            }
+        }
 
         loop {
             attempts += 1;
@@ -349,7 +385,7 @@ User request: {}",
             }
 
             let (valid_candidates, has_symbolic, validation, suggestion) =
-                self.filter_candidates_by_domain(query, candidates);
+                self.filter_candidates_by_domain(query, candidates, allowed_commands.as_ref());
 
             if !valid_candidates.is_empty() {
                 if let Some(cmd) = select_command_from_candidates(valid_candidates, query)? {
@@ -461,6 +497,7 @@ User request: {}",
         &self,
         query: &str,
         candidates: Vec<CommandCandidate>,
+        allowed_commands: Option<&std::collections::HashSet<String>>,
     ) -> (
         Vec<CommandCandidate>,
         bool,
@@ -480,6 +517,17 @@ User request: {}",
         let mut last_validation: Option<DomainCommandValidation> = None;
         let suggestion = service.suggest_commands_from_domains(query);
         let suggestion_for_validation = suggestion.as_ref();
+        let allowed_suggestion = suggestion.map(|mut s| {
+            if let Some(allowed) = allowed_commands {
+                s.commands = s
+                    .commands
+                    .into_iter()
+                    .filter(|cmd| allowed.contains(cmd))
+                    .collect();
+            }
+            s
+        });
+        let suggestion_for_validation = allowed_suggestion.as_ref();
 
         for candidate in candidates {
             if is_disallowed_by_learning(&candidate.command, &failed_commands) {
@@ -489,21 +537,26 @@ User request: {}",
                 Some(s) => service.validate_command_against_suggestion(&candidate.command, s),
                 None => service.validate_command_against_domain(query, &candidate.command),
             };
-            let mut updated = candidate.clone();
             if validation.is_valid {
                 has_symbolic = true;
+                if let Some(allowed) = allowed_commands {
+                    if !allowed.contains(&candidate.command) {
+                        continue;
+                    }
+                }
+                let mut updated = candidate.clone();
                 if let Some(suggestion) = validation.suggestion.as_ref() {
                     updated = updated.with_label(format!("recommended (symbolic: {})", suggestion.op_id));
                 } else {
                     updated = updated.with_label("recommended (symbolic)".to_string());
                 }
+                valid.push(updated);
             } else if last_validation.is_none() {
                 last_validation = Some(validation);
             }
-            valid.push(updated);
         }
 
-        (valid, has_symbolic, last_validation, suggestion)
+        (valid, has_symbolic, last_validation, allowed_suggestion)
     }
 
     fn build_domain_critique_prompt(
