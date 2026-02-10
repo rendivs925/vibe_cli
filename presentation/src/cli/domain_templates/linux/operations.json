@@ -20,6 +20,29 @@
     ]
   },
   {
+    "op_id": "check_zombie_processes",
+    "name": "Check zombie processes",
+    "description": "Find zombie processes and show PID/PPID/state/command",
+    "input_schema": {},
+    "generators": [
+      {
+        "name": "ps_zombies_awk",
+        "tool": "ps",
+        "template": "ps -eo pid,ppid,state,cmd | awk '$3 ~ /Z/ {print}'",
+        "when": []
+      },
+      {
+        "name": "ps_zombies_grep",
+        "tool": "ps",
+        "template": "ps -eo pid,ppid,state,cmd | grep ' Z '",
+        "when": []
+      }
+    ],
+    "examples": [
+      {"description": "Check for zombie processes", "inputs": {}}
+    ]
+  },
+  {
     "op_id": "check_memory",
     "name": "Check memory usage",
     "description": "Display memory and swap usage",
