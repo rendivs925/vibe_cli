@@ -353,48 +353,20 @@ User request: {}",
         ai_interpret: bool,
         use_rag_constraints: bool,
     ) -> Result<()> {
-        if self.integrated_service.is_none() {
-            self.integrated_service = IntegratedNeurosymbolicService::new().ok();
-        }
-        if let Some(service) = self.integrated_service.as_ref() {
-            if let Some(answer) = service.direct_answer(query) {
-                println!("{}", answer);
-                return Ok(());
-            }
+        self.ensure_integrated_service();
+        if let Some(answer) = self.direct_answer(query) {
+            println!("{}", answer);
+            return Ok(());
         }
 
         let mut attempts = 0;
         let max_attempts = 3;
         let mut critique_feedback: Option<String> = None;
-        let mut allowed_commands: Option<std::collections::HashSet<String>> = None;
-
-        if use_rag_constraints {
-            if self.rag_service.is_none() {
-                let client = OllamaClient::new()?;
-                self.rag_service = Some(
-                    RagService::new(".", &self.config.db_path, client, self.config.clone()).await?,
-                );
-                let keywords = query_keywords(query);
-                self.rag_service
-                    .as_ref()
-                    .unwrap()
-                    .build_index_for_keywords(&keywords)
-                    .await?;
-            }
-
-            if let Some(rag) = self.rag_service.as_ref() {
-                let chunks = rag.relevant_chunks(query, 30).await?;
-                let mut allowed = std::collections::HashSet::new();
-                for chunk in chunks {
-                    for cmd in extract_commands(&chunk, query) {
-                        allowed.insert(cmd.command);
-                    }
-                }
-                if !allowed.is_empty() {
-                    allowed_commands = Some(allowed);
-                }
-            }
-        }
+        let allowed_commands = if use_rag_constraints {
+            self.allowed_commands_from_rag(query).await?
+        } else {
+            None
+        };
 
         loop {
             attempts += 1;
@@ -406,19 +378,7 @@ User request: {}",
                 }
             }
 
-            let user_message = if let Some(feedback) = critique_feedback.as_ref() {
-                Message {
-                    role: "user".to_string(),
-                    content: feedback.clone(),
-                }
-            } else {
-                Message {
-                    role: "user".to_string(),
-                    content: query.to_string(),
-                }
-            };
-
-            messages.push(user_message);
+            messages.push(Self::user_message(query, critique_feedback.as_deref()));
             let (_, candidates) =
                 request_command_candidates_from_llm(&self.config, &messages, Some(query)).await?;
 
@@ -885,6 +845,61 @@ User request: {}",
     fn config_dir(&self) -> PathBuf {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
         PathBuf::from(home).join(".config/vibe_cli/domains")
+    }
+
+    fn ensure_integrated_service(&mut self) {
+        if self.integrated_service.is_none() {
+            self.integrated_service = IntegratedNeurosymbolicService::new().ok();
+        }
+    }
+
+    fn direct_answer(&self, query: &str) -> Option<String> {
+        self.integrated_service
+            .as_ref()
+            .and_then(|service| service.direct_answer(query))
+    }
+
+    async fn allowed_commands_from_rag(
+        &mut self,
+        query: &str,
+    ) -> Result<Option<std::collections::HashSet<String>>> {
+        if self.rag_service.is_none() {
+            let client = OllamaClient::new()?;
+            self.rag_service = Some(
+                RagService::new(".", &self.config.db_path, client, self.config.clone()).await?,
+            );
+            let keywords = query_keywords(query);
+            self.rag_service
+                .as_ref()
+                .unwrap()
+                .build_index_for_keywords(&keywords)
+                .await?;
+        }
+
+        let Some(rag) = self.rag_service.as_ref() else {
+            return Ok(None);
+        };
+
+        let chunks = rag.relevant_chunks(query, 30).await?;
+        let mut allowed = std::collections::HashSet::new();
+        for chunk in chunks {
+            for cmd in extract_commands(&chunk, query) {
+                allowed.insert(cmd.command);
+            }
+        }
+
+        if allowed.is_empty() {
+            Ok(None)
+        } else {
+            Ok(Some(allowed))
+        }
+    }
+
+    fn user_message(query: &str, critique_feedback: Option<&str>) -> Message {
+        Message {
+            role: "user".to_string(),
+            content: critique_feedback.unwrap_or(query).to_string(),
+        }
     }
 
     fn load_explain_content(&self, file: &str) -> Result<Option<String>> {
