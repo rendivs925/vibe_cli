@@ -401,6 +401,12 @@ User request: {}",
         if self.integrated_service.is_none() {
             self.integrated_service = IntegratedNeurosymbolicService::new().ok();
         }
+        if let Some(service) = self.integrated_service.as_ref() {
+            if let Some(answer) = service.direct_answer(query) {
+                println!("{}", answer);
+                return Ok(());
+            }
+        }
 
         let mut attempts = 0;
         let max_attempts = 3;

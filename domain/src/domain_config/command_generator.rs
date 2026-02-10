@@ -227,10 +227,12 @@ impl CommandGenerator {
 
     /// Check if a tool is available
     pub fn is_tool_available(&self, tool: &str) -> bool {
-        self.tool_registry
-            .get(tool)
-            .map(|t| t.available)
-            .unwrap_or(false)
+        if let Some(info) = self.tool_registry.get(tool) {
+            if info.available {
+                return true;
+            }
+        }
+        which::which(tool).is_ok()
     }
 
     /// Get list of available tools

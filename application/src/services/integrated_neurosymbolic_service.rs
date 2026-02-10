@@ -423,6 +423,26 @@ impl IntegratedNeurosymbolicService {
         query: &str,
         intent: Option<&IntentSignal>,
     ) -> Result<NeurosymbolicResult> {
+        if let Some(_answer) = self.direct_answer(query) {
+            return Ok(NeurosymbolicResult {
+                query: query.to_string(),
+                safety_report: SafetyReport::safe(""),
+                command: String::new(),
+                syntax_valid: true,
+                invalid_flags: Vec::new(),
+                learning_context: None,
+                risk_profile: None,
+                safety_proof: None,
+                reasoning_template: None,
+                can_execute: false,
+                block_reason: Some("answered from knowledge graph".to_string()),
+                trace: vec![
+                    format!("Processing query: '{}'", query),
+                    "KnowledgeGraph: direct answer".to_string(),
+                ],
+                induced_warnings: Vec::new(),
+            });
+        }
         let mut trace = vec![];
         trace.push(format!("Processing query: '{}'", query));
 
@@ -882,6 +902,93 @@ impl IntegratedNeurosymbolicService {
         }
 
         true
+    }
+
+    pub fn direct_answer(&self, query: &str) -> Option<String> {
+        let query_lower = query.to_lowercase();
+        let wants_system_info = query_lower.contains("system information")
+            || query_lower.contains("system info")
+            || query_lower.contains("system status");
+        let wants_os = query_lower.contains("distro")
+            || query_lower.contains("distribution")
+            || query_lower.contains("os release")
+            || query_lower.contains("kernel")
+            || query_lower.contains("os ");
+
+        if !(wants_system_info || wants_os) {
+            return None;
+        }
+
+        self.ensure_knowledge_graph_for_query(query);
+        let graph = KnowledgeGraph::new(&self.knowledge_graph_path).ok()?;
+
+        let mut lines: Vec<String> = Vec::new();
+
+        if let Ok(distros) = graph.get_entities_by_type(EntityType::Distribution) {
+            if let Some(distro) = distros.first() {
+                let version = distro
+                    .attributes
+                    .get("version")
+                    .cloned()
+                    .unwrap_or_else(|| "unknown".to_string());
+                let id_like = distro
+                    .attributes
+                    .get("id_like")
+                    .cloned()
+                    .unwrap_or_default();
+                if id_like.is_empty() {
+                    lines.push(format!("Distro: {} {}", distro.name, version));
+                } else {
+                    lines.push(format!(
+                        "Distro: {} {} (like: {})",
+                        distro.name, version, id_like
+                    ));
+                }
+            }
+        }
+
+        if let Ok(os_entities) = graph.get_entities_by_type(EntityType::OperatingSystem) {
+            if let Some(os) = os_entities.first() {
+                if let Some(hostname) = os.attributes.get("hostname") {
+                    lines.push(format!("Hostname: {}", hostname));
+                }
+                if let Some(kernel) = os.attributes.get("kernel") {
+                    lines.push(format!("Kernel: {}", kernel));
+                }
+            }
+        }
+
+        if wants_system_info {
+            if let Ok(cpus) = graph.get_entities_by_type(EntityType::Cpu) {
+                if let Some(cpu) = cpus.first() {
+                    let model = cpu
+                        .attributes
+                        .get("model")
+                        .cloned()
+                        .unwrap_or_else(|| "unknown".to_string());
+                    let cores = cpu
+                        .attributes
+                        .get("cores")
+                        .cloned()
+                        .unwrap_or_else(|| "unknown".to_string());
+                    lines.push(format!("CPU: {} ({} cores)", model, cores));
+                }
+            }
+
+            if let Ok(mem) = graph.get_entities_by_type(EntityType::Memory) {
+                if let Some(memory) = mem.first() {
+                    if let Some(total) = memory.attributes.get("MemTotal") {
+                        lines.push(format!("Memory: {} kB total", total));
+                    }
+                }
+            }
+        }
+
+        if lines.is_empty() {
+            None
+        } else {
+            Some(lines.join("\n"))
+        }
     }
 
     fn render_reasoning_template(
@@ -1617,13 +1724,10 @@ mod tests {
         .unwrap();
         service.reload_domain_registry().unwrap();
 
-        let result = service.process("check distribution").unwrap();
+        let answer = service.direct_answer("check distribution").unwrap_or_default();
         assert!(
-            result
-                .trace
-                .iter()
-                .any(|t| t.contains("KnowledgeGraph: distribution 'TestDistro' version 9")),
-            "Expected distribution hint in trace"
+            answer.contains("TestDistro") && answer.contains("9"),
+            "Expected distribution in direct answer"
         );
     }
 
