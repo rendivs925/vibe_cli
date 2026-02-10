@@ -1,16 +1,32 @@
 use super::super::entities::command::{Command, SafetyCheck};
 use super::super::value_objects::safety_policy::{SafetyPolicy, SafetyResult};
 use async_trait::async_trait;
+use shared::command_extraction::normalize_command_candidate;
 use smallvec::{smallvec, SmallVec};
+use std::sync::Arc;
 
 /// Domain service for planning commands with safety validation
 pub struct CommandPlanner {
     safety_policy: SafetyPolicy,
+    extractor: Option<Arc<dyn CommandExtractor>>,
 }
 
 impl CommandPlanner {
     pub fn new(safety_policy: SafetyPolicy) -> Self {
-        Self { safety_policy }
+        Self {
+            safety_policy,
+            extractor: None,
+        }
+    }
+
+    pub fn with_extractor(
+        safety_policy: SafetyPolicy,
+        extractor: Arc<dyn CommandExtractor>,
+    ) -> Self {
+        Self {
+            safety_policy,
+            extractor: Some(extractor),
+        }
     }
 
     pub fn with_default_policy() -> Self {
@@ -67,7 +83,16 @@ impl CommandPlanner {
             return Err(CommandPlannerError::EmptyInput);
         }
 
-        // Simple extraction - in real implementation, this would use NLP/AI
+        if let Some(extractor) = &self.extractor {
+            if let Some(candidate) = extractor.extract_command(cleaned) {
+                let normalized = normalize_command_candidate(&candidate);
+                if !normalized.is_empty() {
+                    return Ok(normalized);
+                }
+            }
+        }
+
+        // Fallback extraction - simple heuristic parsing
         let command = if cleaned.starts_with("run ") {
             cleaned[4..].trim().to_string()
         } else if cleaned.starts_with("execute ") {
@@ -82,6 +107,8 @@ impl CommandPlanner {
         } else {
             cleaned.to_string()
         };
+
+        let command = normalize_command_candidate(&command);
 
         if command.is_empty() {
             Err(CommandPlannerError::CannotExtractCommand)
@@ -153,6 +180,11 @@ impl CommandPlanner {
         let overall_safe = all_checks.iter().all(|check| check.passed());
         SafetyResult::new(overall_safe, all_checks)
     }
+
+}
+
+pub trait CommandExtractor: Send + Sync {
+    fn extract_command(&self, input: &str) -> Option<String>;
 }
 
 /// Result of command planning

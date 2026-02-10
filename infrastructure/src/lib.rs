@@ -1,4 +1,5 @@
 pub mod cache;
+pub mod ai_command_extractor;
 pub mod config;
 pub mod embedder;
 pub mod embedding_storage;

@@ -1,13 +1,16 @@
 use crate::cli::cache::CommandCandidate;
 use crate::cli::command_safety::is_blocked_command;
+use infrastructure::ai_command_extractor::OllamaCommandExtractor;
+use std::env;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
 enum Source {
-    ExplicitPrefix = 0,
-    CodeFence = 1,
-    InlineBackticks = 2,
-    PromptLine = 3,
-    OperatorLine = 4,
+    Ai = 0,
+    ExplicitPrefix = 1,
+    CodeFence = 2,
+    InlineBackticks = 3,
+    PromptLine = 4,
+    OperatorLine = 5,
 }
 
 pub fn extract_command(raw: &str, user_query: &str) -> Option<String> {
@@ -15,6 +18,24 @@ pub fn extract_command(raw: &str, user_query: &str) -> Option<String> {
         .into_iter()
         .next()
         .map(|candidate| candidate.command)
+}
+
+fn should_use_ai_extractor() -> bool {
+    if cfg!(test) {
+        return false;
+    }
+    match env::var("VIBE_CLI_DISABLE_AI_EXTRACT") {
+        Ok(value) if value == "1" || value.eq_ignore_ascii_case("true") => false,
+        _ => true,
+    }
+}
+
+fn try_ai_extract(raw: &str) -> Option<String> {
+    if raw.trim().is_empty() || !should_use_ai_extractor() {
+        return None;
+    }
+    let extractor = OllamaCommandExtractor::new().ok()?;
+    extractor.extract(raw)
 }
 
 fn normalize(mut s: &str) -> String {
@@ -285,6 +306,11 @@ pub fn extract_commands(raw: &str, user_query: &str) -> Vec<CommandCandidate> {
     let q_keywords = query_keywords(user_query);
 
     let mut found: Vec<(Source, CommandCandidate)> = Vec::new();
+
+    // 0) AI extractor (highest confidence if available)
+    if let Some(ai_cmd) = try_ai_extract(raw) {
+        push_candidate(&mut found, Source::Ai, &ai_cmd, &q_keywords);
+    }
 
     // 1) Explicit prefixes (highest confidence)
     for line in raw.lines() {
