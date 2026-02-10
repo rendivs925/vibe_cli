@@ -131,7 +131,9 @@ vibe_cli --ai-interpret "show my gpu name"
 
 When `--ai-interpret` is enabled, command execution streams in small output chunks with
 AI chunk summaries followed by a concise final summary. This keeps long outputs readable
-without dumping everything at once.
+without dumping everything at once. For chunk rendering, the CLI will use `bat` (if
+installed) or `less` to keep long lines readable; otherwise it falls back to wrapped
+plain output.
 
 ---
 

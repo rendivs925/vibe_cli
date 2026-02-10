@@ -22,7 +22,7 @@ use application::services::rag_service::RagService;
 use infrastructure::config::Config;
 use shared::types::Message;
 use shared::types::Result;
-use std::io::{BufRead, BufReader};
+use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Command, ExitStatus, Stdio};
 use std::sync::{mpsc, Arc, Mutex};
@@ -344,10 +344,11 @@ fn flush_chunk(
     sink: Option<&OutputSink>,
 ) {
     println!("\n--- Output Chunk ---");
+    let mut lines: Vec<String> = Vec::new();
     for entry in chunk {
         match entry {
             OutputLine::Stdout(line) => {
-                print_wrapped(line, false);
+                lines.push(line.clone());
                 if let Ok(mut buf) = out_buf.lock() {
                     buf.push_str(line);
                     buf.push('\n');
@@ -357,7 +358,7 @@ fn flush_chunk(
                 }
             }
             OutputLine::Stderr(line) => {
-                print_wrapped(line, true);
+                lines.push(format!("STDERR: {}", line));
                 if let Ok(mut buf) = err_buf.lock() {
                     buf.push_str(line);
                     buf.push('\n');
@@ -370,10 +371,61 @@ fn flush_chunk(
         }
     }
 
+    if !lines.is_empty() && !print_with_pager(&lines) {
+        for line in &lines {
+            print_wrapped(line, false);
+        }
+    }
+
     if let Some(sink) = sink {
         let _ = sink.tx.send(OutputLine::ChunkEnd);
         let _ = sink.ack.recv();
     }
+}
+
+fn print_with_pager(lines: &[String]) -> bool {
+    if CliHandlers::has_in_path("bat") {
+        let mut child = match Command::new("bat")
+            .arg("--plain")
+            .arg("--paging=never")
+            .arg("--wrap=character")
+            .arg("--terminal-width=80")
+            .stdin(Stdio::piped())
+            .spawn()
+        {
+            Ok(child) => child,
+            Err(_) => return false,
+        };
+
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(lines.join("\n").as_bytes());
+            let _ = stdin.write_all(b"\n");
+        }
+        let _ = child.wait();
+        return true;
+    }
+
+    if CliHandlers::has_in_path("less") {
+        let mut child = match Command::new("less")
+            .arg("-R")
+            .arg("-F")
+            .arg("-X")
+            .stdin(Stdio::piped())
+            .spawn()
+        {
+            Ok(child) => child,
+            Err(_) => return false,
+        };
+
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(lines.join("\n").as_bytes());
+            let _ = stdin.write_all(b"\n");
+        }
+        let _ = child.wait();
+        return true;
+    }
+
+    false
 }
 
 fn print_wrapped(line: &str, is_err: bool) {
