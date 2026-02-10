@@ -294,7 +294,7 @@ pub fn extract_commands(raw: &str, user_query: &str) -> Vec<CommandCandidate> {
         // - For low-confidence sources, require at least one query keyword match.
         let high_conf = matches!(
             src,
-            Source::ExplicitPrefix | Source::CodeFence | Source::InlineBackticks
+            Source::Ai | Source::ExplicitPrefix | Source::CodeFence | Source::InlineBackticks
         );
         if !high_conf && !matches_query(&cmd, q_keywords) {
             return;
