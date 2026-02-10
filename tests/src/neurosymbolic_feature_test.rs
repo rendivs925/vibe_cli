@@ -1,4 +1,4 @@
-use application::services::integrated_neurosymbolic_service::{
+use application::services::neurosymbolic_service::{
     IntegratedNeurosymbolicService, NeurosymbolicConfig,
 };
 use domain::domain_config::DomainRegistry;

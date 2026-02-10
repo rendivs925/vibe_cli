@@ -8,7 +8,7 @@ use super::command_extraction::{
     extract_command_from_response, extract_commands, parse_agent_plan, query_keywords,
 };
 use super::utils::{detect_system_info, project_cache_suffix};
-use application::services::integrated_neurosymbolic_service::{
+use application::services::neurosymbolic_service::{
     DomainCommandValidation, IntegratedNeurosymbolicService, SymbolicCommandSuggestion,
 };
 use application::services::rag_service::RagService;
