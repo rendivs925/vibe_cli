@@ -152,7 +152,6 @@ New output:\n{}\n",
                             }
                         }
                         buffer.clear();
-                        thread::sleep(Duration::from_secs(2));
                         let _ = ack.send(());
                     }
                 }
