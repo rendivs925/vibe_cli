@@ -542,7 +542,6 @@ mod tests {
             .log_failure(
                 "test-session",
                 "list processes",
-                None,
                 "ps aux",
                 FailureType::ExecutionFailed,
                 Some("permission denied"),
@@ -564,9 +563,8 @@ mod tests {
             .log_success(
                 "test-session",
                 "list processes",
-                Some("ACTION(list) & TARGET(process)"),
                 "ps aux",
-                None,
+                Some("ACTION(list) & TARGET(process)"),
             )
             .unwrap();
 
@@ -586,7 +584,6 @@ mod tests {
             .log_failure(
                 "test-session",
                 "list running processes",
-                None,
                 "invalid command",
                 FailureType::CommandNotFound,
                 None,
@@ -620,13 +617,13 @@ mod tests {
 
         // Log 2 successes and 1 failure
         buffer
-            .log_success("s1", "test query", None, "cmd1", None)
+            .log_success("s1", "test query", "cmd1", None)
             .unwrap();
         buffer
-            .log_success("s2", "test query", None, "cmd2", None)
+            .log_success("s2", "test query", "cmd2", None)
             .unwrap();
         buffer
-            .log_failure("s3", "test query", None, "cmd3", FailureType::Other, None)
+            .log_failure("s3", "test query", "cmd3", FailureType::Other, None)
             .unwrap();
 
         let rate = buffer.get_success_rate("test query").unwrap();

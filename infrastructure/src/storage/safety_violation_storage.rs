@@ -274,6 +274,7 @@ pub struct RuleStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use domain::ViolationType;
     use std::path::PathBuf;
 
     fn test_db_path() -> PathBuf {

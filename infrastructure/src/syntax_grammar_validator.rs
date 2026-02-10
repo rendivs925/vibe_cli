@@ -286,7 +286,7 @@ mod tests {
 
     #[test]
     fn test_extract_flags() {
-        let validator = SyntaxGrammarValidator::new();
+        let mut validator = SyntaxGrammarValidator::new();
         let parts = vec!["ls", "-la", "-h", "--directory", "/tmp"];
         let flags = validator.extract_flags("ls", &parts);
 

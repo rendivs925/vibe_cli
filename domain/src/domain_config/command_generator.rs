@@ -299,6 +299,7 @@ mod tests {
             template: "ps -eo pid,cmd".to_string(),
             when: vec![RequiredInput {
                 name: "filter".to_string(),
+                equals: None,
             }],
             optional: vec![],
             timeout_seconds: None,

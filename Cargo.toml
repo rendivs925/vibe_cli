@@ -10,6 +10,16 @@ path = "src/main.rs"
 [workspace]
 resolver = "2"
 members = [
+    ".",
+    "domain",
+    "application",
+    "infrastructure",
+    "presentation",
+    "shared",
+    "tests",
+]
+default-members = [
+    ".",
     "domain",
     "application",
     "infrastructure",

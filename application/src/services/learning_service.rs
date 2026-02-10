@@ -244,7 +244,6 @@ mod tests {
         service
             .record_failure(
                 "list processes",
-                None,
                 "invalid command",
                 FailureType::CommandNotFound,
                 Some("command not found"),
@@ -271,7 +270,6 @@ mod tests {
         service
             .record_failure(
                 "list processes",
-                None,
                 "bad command",
                 FailureType::SyntaxError,
                 Some("syntax error"),
@@ -294,13 +292,13 @@ mod tests {
 
         // Record successes and failures
         service
-            .record_success("test query", None, "cmd1", None)
+            .record_success("test query", "cmd1", None)
             .unwrap();
         service
-            .record_success("test query", None, "cmd2", None)
+            .record_success("test query", "cmd2", None)
             .unwrap();
         service
-            .record_failure("test query", None, "cmd3", FailureType::Other, None)
+            .record_failure("test query", "cmd3", FailureType::Other, None)
             .unwrap();
 
         let rate = service.get_success_rate("test query").unwrap();
