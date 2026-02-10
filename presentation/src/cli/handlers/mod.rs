@@ -22,8 +22,11 @@ use application::services::rag_service::RagService;
 use infrastructure::config::Config;
 use shared::types::Message;
 use shared::types::Result;
+use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
-use std::process::{Command, ExitStatus};
+use std::process::{Command, ExitStatus, Stdio};
+use std::sync::{Arc, Mutex};
+use std::thread;
 
 pub struct CliHandlers {
     cache_manager: CacheManager,
@@ -154,6 +157,68 @@ impl CliHandlers {
     fn run_shell_command(&self, cmd: &str) -> Result<CommandOutput> {
         let output = Command::new("bash").arg("-c").arg(cmd).output()?;
         Ok(CommandOutput::from(output))
+    }
+
+    fn run_shell_command_streaming(&self, cmd: &str) -> Result<CommandOutput> {
+        let mut child = Command::new("bash")
+            .arg("-c")
+            .arg(cmd)
+            .stdout(Stdio::piped())
+            .stderr(Stdio::piped())
+            .spawn()?;
+
+        let stdout = child.stdout.take().unwrap();
+        let stderr = child.stderr.take().unwrap();
+
+        let out_buf = Arc::new(Mutex::new(String::new()));
+        let err_buf = Arc::new(Mutex::new(String::new()));
+
+        let out_buf_clone = Arc::clone(&out_buf);
+        let stdout_handle = thread::spawn(move || {
+            let reader = BufReader::new(stdout);
+            for line in reader.lines() {
+                if let Ok(line) = line {
+                    println!("{}", line);
+                    if let Ok(mut buf) = out_buf_clone.lock() {
+                        buf.push_str(&line);
+                        buf.push('\n');
+                    }
+                }
+            }
+        });
+
+        let err_buf_clone = Arc::clone(&err_buf);
+        let stderr_handle = thread::spawn(move || {
+            let reader = BufReader::new(stderr);
+            for line in reader.lines() {
+                if let Ok(line) = line {
+                    eprintln!("{}", line);
+                    if let Ok(mut buf) = err_buf_clone.lock() {
+                        buf.push_str(&line);
+                        buf.push('\n');
+                    }
+                }
+            }
+        });
+
+        let status = child.wait()?;
+        let _ = stdout_handle.join();
+        let _ = stderr_handle.join();
+
+        let stdout = out_buf.lock().map(|s| s.clone()).unwrap_or_default();
+        let stderr = err_buf.lock().map(|s| s.clone()).unwrap_or_default();
+        let full_output = if stderr.trim().is_empty() {
+            stdout.clone()
+        } else {
+            format!("{}\nErrors:\n{}", stdout, stderr)
+        };
+
+        Ok(CommandOutput {
+            stdout,
+            stderr,
+            full_output,
+            status,
+        })
     }
 
     fn keywords_from_text(text: &str) -> Vec<String> {

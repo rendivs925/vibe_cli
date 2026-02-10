@@ -113,7 +113,7 @@ impl CliHandlers {
             return Ok(());
         };
 
-        let output = self.run_shell_command(&cmd)?;
+        let output = self.run_shell_command_streaming(&cmd)?;
         if ai_interpret {
             self.interpret_output(query, &output.full_output).await?;
         } else {
@@ -154,7 +154,7 @@ impl CliHandlers {
         cmd: &str,
         ai_interpret: bool,
     ) -> Result<()> {
-        let output = self.run_shell_command(cmd)?;
+        let output = self.run_shell_command_streaming(cmd)?;
         if ai_interpret {
             self.interpret_output(query, &output.full_output).await?;
         } else {
