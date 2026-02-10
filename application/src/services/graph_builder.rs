@@ -82,7 +82,7 @@ impl GraphBuilder {
     }
 
     /// Discover OS information
-    fn discover_os(&self) -> Result<()> {
+    pub fn discover_os(&self) -> Result<()> {
         // Try to get OS info from various sources
         let os_type = self
             .run_command("uname", &["-s"])
@@ -171,7 +171,7 @@ impl GraphBuilder {
     }
 
     /// Discover installed tools
-    fn discover_tools(&self) -> Result<usize> {
+    pub fn discover_tools(&self) -> Result<usize> {
         let mut count = 0;
 
         // Common tools to check
@@ -285,7 +285,7 @@ impl GraphBuilder {
     }
 
     /// Discover users
-    fn discover_users(&self) -> Result<usize> {
+    pub fn discover_users(&self) -> Result<usize> {
         let mut count = 0;
 
         // Try to read /etc/passwd
@@ -333,7 +333,7 @@ impl GraphBuilder {
     }
 
     /// Discover system services
-    fn discover_services(&self) -> Result<usize> {
+    pub fn discover_services(&self) -> Result<usize> {
         let mut count = 0;
 
         // Try systemctl
@@ -372,7 +372,7 @@ impl GraphBuilder {
     }
 
     /// Discover environment variables
-    fn discover_env_vars(&self) -> Result<()> {
+    pub fn discover_env_vars(&self) -> Result<()> {
         let important_vars = vec![
             "HOME",
             "USER",
@@ -428,7 +428,7 @@ impl GraphBuilder {
     }
 
     /// Discover CPU, memory, and disk summary
-    fn discover_hardware(&self) -> Result<usize> {
+    pub fn discover_hardware(&self) -> Result<usize> {
         let mut count = 0;
 
         if let Ok(content) = std::fs::read_to_string("/proc/cpuinfo") {
@@ -489,7 +489,7 @@ impl GraphBuilder {
     }
 
     /// Discover container runtime information
-    fn discover_containers(&self) -> Result<usize> {
+    pub fn discover_containers(&self) -> Result<usize> {
         let mut count = 0;
 
         if self.command_exists("docker") {
@@ -546,7 +546,7 @@ impl GraphBuilder {
     }
 
     /// Discover filesystems and mounts
-    fn discover_filesystems(&self) -> Result<usize> {
+    pub fn discover_filesystems(&self) -> Result<usize> {
         let mut count = 0;
 
         if let Ok(content) = std::fs::read_to_string("/proc/mounts") {
@@ -585,7 +585,7 @@ impl GraphBuilder {
     }
 
     /// Discover network interfaces
-    fn discover_network_interfaces(&self) -> Result<usize> {
+    pub fn discover_network_interfaces(&self) -> Result<usize> {
         let mut count = 0;
         if let Ok(content) = std::fs::read_to_string("/proc/net/dev") {
             for line in content.lines().skip(2) {

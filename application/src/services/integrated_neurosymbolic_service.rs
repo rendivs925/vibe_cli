@@ -249,9 +249,7 @@ impl IntegratedNeurosymbolicService {
             }
         };
 
-        if let Ok(builder) = GraphBuilder::new() {
-            let _ = builder.discover_system();
-        }
+        // Lazy discovery: only populate KG on-demand based on user queries.
 
         Ok(Self {
             config: config.clone(),
@@ -513,7 +511,7 @@ impl IntegratedNeurosymbolicService {
         learning_context: Option<&str>,
         trace: &mut Vec<String>,
     ) -> Result<Vec<GeneratedCommand>> {
-        self.ensure_knowledge_graph_initialized();
+        self.ensure_knowledge_graph_for_query(query);
 
         let registry = self
             .domain_registry
@@ -671,7 +669,7 @@ impl IntegratedNeurosymbolicService {
     }
 
     fn apply_knowledge_graph_hints(&self, query: &str, trace: &mut Vec<String>) {
-        self.ensure_knowledge_graph_initialized();
+        self.ensure_knowledge_graph_for_query(query);
 
         let Ok(graph) = KnowledgeGraph::new(&self.knowledge_graph_path) else {
             return;
@@ -710,7 +708,7 @@ impl IntegratedNeurosymbolicService {
     }
 
     fn is_service_known(&self, service: &str) -> bool {
-        self.ensure_knowledge_graph_initialized();
+        self.ensure_knowledge_graph_for_services();
 
         let Ok(graph) = KnowledgeGraph::new(&self.knowledge_graph_path) else {
             return true; // do not block if KG unavailable
@@ -721,17 +719,141 @@ impl IntegratedNeurosymbolicService {
         false
     }
 
-    fn ensure_knowledge_graph_initialized(&self) {
+    fn ensure_knowledge_graph_for_query(&self, query: &str) {
+        let query_lower = query.to_lowercase();
+        if query_lower.contains("distro")
+            || query_lower.contains("distribution")
+            || query_lower.contains("os release")
+            || query_lower.contains("kernel")
+            || query_lower.contains("os ")
+        {
+            self.ensure_knowledge_graph_for_os();
+        }
+
+        if query_lower.contains("service")
+            || query_lower.contains("nginx")
+            || query_lower.contains("apache")
+            || query_lower.contains("mysql")
+            || query_lower.contains("postgres")
+            || query_lower.contains("redis")
+            || query_lower.contains("docker")
+            || query_lower.contains("ssh")
+        {
+            self.ensure_knowledge_graph_for_services();
+        }
+
+        if query_lower.contains("container")
+            || query_lower.contains("docker")
+            || query_lower.contains("podman")
+        {
+            self.ensure_knowledge_graph_for_containers();
+        }
+
+        if query_lower.contains("disk")
+            || query_lower.contains("filesystem")
+            || query_lower.contains("mount")
+            || query_lower.contains("storage")
+        {
+            self.ensure_knowledge_graph_for_filesystems();
+        }
+
+        if query_lower.contains("network")
+            || query_lower.contains("interface")
+            || query_lower.contains("ip ")
+        {
+            self.ensure_knowledge_graph_for_network();
+        }
+
+        if query_lower.contains("cpu")
+            || query_lower.contains("memory")
+            || query_lower.contains("ram")
+            || query_lower.contains("hardware")
+        {
+            self.ensure_knowledge_graph_for_hardware();
+        }
+    }
+
+    fn ensure_knowledge_graph_for_os(&self) {
         let Ok(graph) = KnowledgeGraph::new(&self.knowledge_graph_path) else {
             return;
         };
-        if let Ok((entities, _)) = graph.stats() {
-            if entities > 0 {
+        if let Ok(entities) = graph.get_entities_by_type(EntityType::Distribution) {
+            if !entities.is_empty() {
                 return;
             }
         }
         if let Ok(builder) = GraphBuilder::new() {
-            let _ = builder.discover_system();
+            let _ = builder.discover_os();
+        }
+    }
+
+    fn ensure_knowledge_graph_for_services(&self) {
+        let Ok(graph) = KnowledgeGraph::new(&self.knowledge_graph_path) else {
+            return;
+        };
+        if let Ok(entities) = graph.get_entities_by_type(EntityType::Service) {
+            if !entities.is_empty() {
+                return;
+            }
+        }
+        if let Ok(builder) = GraphBuilder::new() {
+            let _ = builder.discover_services();
+        }
+    }
+
+    fn ensure_knowledge_graph_for_containers(&self) {
+        let Ok(graph) = KnowledgeGraph::new(&self.knowledge_graph_path) else {
+            return;
+        };
+        if let Ok(entities) = graph.get_entities_by_type(EntityType::Container) {
+            if !entities.is_empty() {
+                return;
+            }
+        }
+        if let Ok(builder) = GraphBuilder::new() {
+            let _ = builder.discover_containers();
+        }
+    }
+
+    fn ensure_knowledge_graph_for_filesystems(&self) {
+        let Ok(graph) = KnowledgeGraph::new(&self.knowledge_graph_path) else {
+            return;
+        };
+        if let Ok(entities) = graph.get_entities_by_type(EntityType::Filesystem) {
+            if !entities.is_empty() {
+                return;
+            }
+        }
+        if let Ok(builder) = GraphBuilder::new() {
+            let _ = builder.discover_filesystems();
+        }
+    }
+
+    fn ensure_knowledge_graph_for_network(&self) {
+        let Ok(graph) = KnowledgeGraph::new(&self.knowledge_graph_path) else {
+            return;
+        };
+        if let Ok(entities) = graph.get_entities_by_type(EntityType::NetworkInterface) {
+            if !entities.is_empty() {
+                return;
+            }
+        }
+        if let Ok(builder) = GraphBuilder::new() {
+            let _ = builder.discover_network_interfaces();
+        }
+    }
+
+    fn ensure_knowledge_graph_for_hardware(&self) {
+        let Ok(graph) = KnowledgeGraph::new(&self.knowledge_graph_path) else {
+            return;
+        };
+        if let Ok(entities) = graph.get_entities_by_type(EntityType::Cpu) {
+            if !entities.is_empty() {
+                return;
+            }
+        }
+        if let Ok(builder) = GraphBuilder::new() {
+            let _ = builder.discover_hardware();
         }
     }
 
