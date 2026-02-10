@@ -52,7 +52,7 @@ Return a concise final summary in up to 5 bullets. Highlight errors and key resu
         );
 
         let response = client.generate_response(&prompt).await?;
-        println!("{}", response);
+        println!("{}", Self::format_ai_update(&response));
         Ok(())
     }
 
@@ -112,10 +112,10 @@ Return a concise update in 1-3 short bullets. If no new findings, say \"No new f
                     }
                     super::OutputLine::ChunkEnd => {
                         if let Some(update) = flush(&buffer, &summary) {
-                            let trimmed = update.trim();
-                            if !trimmed.is_empty() {
-                                println!("\n=== AI Update ===\n{}\n", trimmed);
-                                summary = trimmed.to_string();
+                            let formatted = Self::format_ai_update(&update);
+                            if !formatted.is_empty() {
+                                println!("\n=== AI Update ===\n{}\n", formatted);
+                                summary = formatted;
                             }
                         }
                         buffer.clear();
@@ -126,9 +126,9 @@ Return a concise update in 1-3 short bullets. If no new findings, say \"No new f
 
             if !buffer.trim().is_empty() {
                 if let Some(update) = flush(&buffer, &summary) {
-                    let trimmed = update.trim();
-                    if !trimmed.is_empty() {
-                        println!("\n=== AI Update ===\n{}\n", trimmed);
+                    let formatted = Self::format_ai_update(&update);
+                    if !formatted.is_empty() {
+                        println!("\n=== AI Update ===\n{}\n", formatted);
                     }
                 }
             }
@@ -136,5 +136,29 @@ Return a concise update in 1-3 short bullets. If no new findings, say \"No new f
             thread::sleep(Duration::from_millis(10));
             summary
         })
+    }
+
+    fn format_ai_update(raw: &str) -> String {
+        let mut lines: Vec<String> = Vec::new();
+        for line in raw.lines() {
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            if trimmed.eq_ignore_ascii_case("bullets:") {
+                continue;
+            }
+            let normalized = if trimmed.starts_with('-') {
+                trimmed.to_string()
+            } else if trimmed.eq_ignore_ascii_case("no new findings.")
+                || trimmed.eq_ignore_ascii_case("no new findings")
+            {
+                "No new findings.".to_string()
+            } else {
+                format!("- {}", trimmed)
+            };
+            lines.push(normalized);
+        }
+        lines.join("\n")
     }
 }
