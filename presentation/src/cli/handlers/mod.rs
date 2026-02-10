@@ -347,7 +347,7 @@ fn flush_chunk(
     for entry in chunk {
         match entry {
             OutputLine::Stdout(line) => {
-                println!("{}", line);
+                print_wrapped(line, false);
                 if let Ok(mut buf) = out_buf.lock() {
                     buf.push_str(line);
                     buf.push('\n');
@@ -357,7 +357,7 @@ fn flush_chunk(
                 }
             }
             OutputLine::Stderr(line) => {
-                eprintln!("{}", line);
+                print_wrapped(line, true);
                 if let Ok(mut buf) = err_buf.lock() {
                     buf.push_str(line);
                     buf.push('\n');
@@ -373,6 +373,33 @@ fn flush_chunk(
     if let Some(sink) = sink {
         let _ = sink.tx.send(OutputLine::ChunkEnd);
         let _ = sink.ack.recv();
+    }
+}
+
+fn print_wrapped(line: &str, is_err: bool) {
+    let prefix = "  ";
+    let wrap_width = 80usize;
+    let available = wrap_width.saturating_sub(prefix.len()).max(40);
+    let clean = line.trim_end();
+    let mut chars: Vec<char> = clean.chars().collect();
+
+    if chars.is_empty() {
+        if is_err {
+            eprintln!("{}", prefix);
+        } else {
+            println!("{}", prefix);
+        }
+        return;
+    }
+
+    while !chars.is_empty() {
+        let take = available.min(chars.len());
+        let segment: String = chars.drain(..take).collect();
+        if is_err {
+            eprintln!("{}{}", prefix, segment);
+        } else {
+            println!("{}{}", prefix, segment);
+        }
     }
 }
 
