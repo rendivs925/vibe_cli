@@ -268,25 +268,35 @@ fn parse_category(s: &str) -> FlagCategory {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
-    fn test_db_path() -> PathBuf {
-        PathBuf::from("/tmp/test_manpage_cache.db")
+    fn test_db_path(prefix: &str) -> PathBuf {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let dir = PathBuf::from(home).join(".config/vibe_cli/test_dbs");
+        let _ = std::fs::create_dir_all(&dir);
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        dir.join(format!("{}_{}.db", prefix, nanos))
     }
 
     #[test]
     fn test_init_tables() {
-        let _ = std::fs::remove_file(test_db_path());
-        let cache = ManpageCache::new(test_db_path()).unwrap();
+        let db_path = test_db_path("mp_init");
+        let _ = std::fs::remove_file(&db_path);
+        let cache = ManpageCache::new(db_path.clone()).unwrap();
         let (commands, flags) = cache.stats().unwrap();
         assert_eq!(commands, 0);
         assert_eq!(flags, 0);
-        let _ = std::fs::remove_file(test_db_path());
+        let _ = std::fs::remove_file(&db_path);
     }
 
     #[test]
     fn test_store_and_retrieve() {
-        let _ = std::fs::remove_file(test_db_path());
-        let cache = ManpageCache::new(test_db_path()).unwrap();
+        let db_path = test_db_path("mp_store");
+        let _ = std::fs::remove_file(&db_path);
+        let cache = ManpageCache::new(db_path.clone()).unwrap();
 
         let entry = ManpageEntry {
             command: "testcmd".to_string(),
@@ -311,13 +321,14 @@ mod tests {
         assert_eq!(retrieved.command, "testcmd");
         assert_eq!(retrieved.short_flags.len(), 1);
 
-        let _ = std::fs::remove_file(test_db_path());
+        let _ = std::fs::remove_file(&db_path);
     }
 
     #[test]
     fn test_has_flag() {
-        let _ = std::fs::remove_file(test_db_path());
-        let cache = ManpageCache::new(test_db_path()).unwrap();
+        let db_path = test_db_path("mp_flag");
+        let _ = std::fs::remove_file(&db_path);
+        let cache = ManpageCache::new(db_path.clone()).unwrap();
 
         let entry = ManpageEntry {
             command: "testcmd".to_string(),
@@ -339,6 +350,6 @@ mod tests {
         assert!(cache.has_flag("testcmd", "-v").unwrap());
         assert!(!cache.has_flag("testcmd", "-x").unwrap());
 
-        let _ = std::fs::remove_file(test_db_path());
+        let _ = std::fs::remove_file(&db_path);
     }
 }

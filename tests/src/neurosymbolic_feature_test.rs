@@ -269,7 +269,7 @@ fn test_neurosymbolic_feature_requests() {
     let mut context = HashMap::new();
     context.insert(
         "Process".to_string(),
-        serde_json::Value::String("Z".to_string()),
+        serde_json::Value::String("\"Z\"".to_string()),
     );
     let inferences = registry.apply_inference_rules(&context);
     assert!(

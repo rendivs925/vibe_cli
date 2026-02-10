@@ -490,7 +490,7 @@ mod tests {
             FlagCategory::Output
         );
         assert_eq!(
-            FlagCategory::from_description("recursive search"),
+            FlagCategory::from_description("recursive directory"),
             FlagCategory::Recursive
         );
         assert_eq!(

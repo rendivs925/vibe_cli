@@ -7,13 +7,24 @@ mod domain_config_tests {
     use std::collections::HashMap;
     use std::env;
     use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
     fn test_home() -> PathBuf {
         PathBuf::from(env::var("HOME").unwrap_or_else(|_| "/tmp".to_string()))
     }
 
-    fn test_user_dir(subpath: &str) -> PathBuf {
-        test_home().join(".config/vibe_cli").join(subpath)
+    fn test_root_dir() -> PathBuf {
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        test_home()
+            .join(".config/vibe_cli/test_domains")
+            .join(format!("run_{}", nanos))
+    }
+
+    fn test_user_dir(base: &PathBuf, subpath: &str) -> PathBuf {
+        base.join(subpath)
     }
 
     fn setup_test_domain(user: &PathBuf, name: &str) {
@@ -53,9 +64,10 @@ mod domain_config_tests {
 
     #[test]
     fn test_domain_loading() {
-        let user = test_user_dir("domains");
-        let shared = test_user_dir("shared_entities");
-        let prebuilt = test_user_dir("domains");
+        let base = test_root_dir();
+        let user = test_user_dir(&base, "domains");
+        let shared = test_user_dir(&base, "shared_entities");
+        let prebuilt = test_user_dir(&base, "domains");
 
         std::fs::create_dir_all(&user).unwrap();
         std::fs::create_dir_all(&shared).unwrap();
@@ -205,9 +217,10 @@ mod domain_config_tests {
 
     #[test]
     fn test_query_intent() {
-        let user = test_user_dir("domains");
-        let shared = test_user_dir("shared_entities");
-        let prebuilt = test_user_dir("domains");
+        let base = test_root_dir();
+        let user = test_user_dir(&base, "domains");
+        let shared = test_user_dir(&base, "shared_entities");
+        let prebuilt = test_user_dir(&base, "domains");
 
         std::fs::create_dir_all(&user).unwrap();
         std::fs::create_dir_all(&shared).unwrap();
@@ -254,9 +267,10 @@ mod domain_config_tests {
 
     #[test]
     fn test_operation_lookup() {
-        let user = test_user_dir("domains");
-        let shared = test_user_dir("shared_entities");
-        let prebuilt = test_user_dir("domains");
+        let base = test_root_dir();
+        let user = test_user_dir(&base, "domains");
+        let shared = test_user_dir(&base, "shared_entities");
+        let prebuilt = test_user_dir(&base, "domains");
 
         std::fs::create_dir_all(&user).unwrap();
         std::fs::create_dir_all(&shared).unwrap();
@@ -274,9 +288,10 @@ mod domain_config_tests {
 
     #[test]
     fn test_entity_lookup() {
-        let user = test_user_dir("domains");
-        let shared = test_user_dir("shared_entities");
-        let prebuilt = test_user_dir("domains");
+        let base = test_root_dir();
+        let user = test_user_dir(&base, "domains");
+        let shared = test_user_dir(&base, "shared_entities");
+        let prebuilt = test_user_dir(&base, "domains");
 
         std::fs::create_dir_all(&user).unwrap();
         std::fs::create_dir_all(&shared).unwrap();

@@ -651,24 +651,35 @@ impl InductionEngine {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
-    fn test_db_path() -> PathBuf {
-        PathBuf::from("/tmp/test_induction_engine.db")
+    fn test_db_path(prefix: &str) -> PathBuf {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let dir = PathBuf::from(home).join(".config/vibe_cli/test_dbs");
+        let _ = std::fs::create_dir_all(&dir);
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        dir.join(format!("{}_{}.db", prefix, nanos))
     }
 
     #[test]
     fn test_init_tables() {
-        let _ = std::fs::remove_file(test_db_path());
-        let engine = InductionEngine::new(test_db_path()).unwrap();
+        let db_path = test_db_path("induction_init");
+        let _ = std::fs::remove_file(&db_path);
+        let engine = InductionEngine::new(db_path.clone()).unwrap();
         let (patterns, rules) = engine.stats().unwrap();
         assert_eq!(patterns, 0);
         assert_eq!(rules, 0);
-        let _ = std::fs::remove_file(test_db_path());
+        let _ = std::fs::remove_file(&db_path);
     }
 
     #[test]
     fn test_extract_path() {
-        let engine = InductionEngine::new(test_db_path()).unwrap();
+        let db_path = test_db_path("induction_path");
+        let _ = std::fs::remove_file(&db_path);
+        let engine = InductionEngine::new(db_path.clone()).unwrap();
 
         assert_eq!(
             engine.extract_path("ls /opt/myapp"),
@@ -679,16 +690,20 @@ mod tests {
             Some("/etc/nginx".to_string())
         );
         assert_eq!(engine.extract_path("echo hello"), None);
+        let _ = std::fs::remove_file(&db_path);
     }
 
     #[test]
     fn test_extract_command_pattern() {
-        let engine = InductionEngine::new(test_db_path()).unwrap();
+        let db_path = test_db_path("induction_pattern");
+        let _ = std::fs::remove_file(&db_path);
+        let engine = InductionEngine::new(db_path.clone()).unwrap();
 
         assert_eq!(engine.extract_command_pattern("docker ps -a"), "docker");
         assert_eq!(
             engine.extract_command_pattern("systemctl status nginx"),
             "systemctl"
         );
+        let _ = std::fs::remove_file(&db_path);
     }
 }

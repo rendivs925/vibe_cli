@@ -344,6 +344,7 @@ impl Default for ProofGenerator {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{SafetyViolation, ViolationType};
 
     #[test]
     fn test_safety_proof_generation() {
@@ -361,7 +362,15 @@ mod tests {
     fn test_blocked_command_proof() {
         let generator = ProofGenerator::new();
         // Create a mock blocked report
-        let violations = vec![];
+        let violations = vec![SafetyViolation::new(
+            "TEST-BLOCK",
+            "Blocked Rule",
+            ViolationType::DataDestruction,
+            "Dangerous command",
+            true,
+            "rm -rf /",
+            Some("Use safer delete"),
+        )];
         let safety_report = SafetyReport::with_violations("rm -rf /", violations);
 
         let proof = generator.generate_safety_proof("rm -rf /", &safety_report);

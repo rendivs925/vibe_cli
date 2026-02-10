@@ -67,6 +67,18 @@ fn looks_like_command(s: &str) -> bool {
 
     let lower = t.to_ascii_lowercase();
 
+    let has_shell_signal = t.contains('|')
+        || t.contains("&&")
+        || t.contains("||")
+        || t.contains(';')
+        || t.contains(" -")
+        || t.contains("--")
+        || t.contains(">/")
+        || t.contains("</")
+        || t.contains("$(")
+        || t.contains('`')
+        || t.contains('/'); // Paths indicate commands
+
     // Reject obvious prose / UI noise - expanded list
     let bad_prefixes = [
         "to ",
@@ -119,7 +131,7 @@ fn looks_like_command(s: &str) -> bool {
         "generated command",
         "replacing xx",
     ];
-    if bad_prefixes.iter().any(|p| lower.starts_with(p)) {
+    if bad_prefixes.iter().any(|p| lower.starts_with(p)) && !has_shell_signal {
         return false;
     }
 
@@ -194,18 +206,6 @@ fn looks_like_command(s: &str) -> bool {
         || lower.starts_with("use ")
         || lower.starts_with("here ")
         || lower.starts_with("you'll");
-
-    let has_shell_signal = t.contains('|')
-        || t.contains("&&")
-        || t.contains("||")
-        || t.contains(';')
-        || t.contains(" -")
-        || t.contains("--")
-        || t.contains(">/")
-        || t.contains("</")
-        || t.contains("$(")
-        || t.contains('`')
-        || t.contains('/'); // Paths indicate commands
 
     let tokens: Vec<&str> = t.split_whitespace().collect();
     let first_tok = tokens.first().copied().unwrap_or("");

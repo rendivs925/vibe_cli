@@ -525,25 +525,35 @@ impl KnowledgeGraph {
 mod tests {
     use super::*;
     use std::path::PathBuf;
+    use std::time::{SystemTime, UNIX_EPOCH};
 
-    fn test_db_path() -> PathBuf {
-        PathBuf::from("/tmp/test_knowledge_graph.db")
+    fn test_db_path(prefix: &str) -> PathBuf {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let dir = PathBuf::from(home).join(".config/vibe_cli/test_dbs");
+        let _ = std::fs::create_dir_all(&dir);
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        dir.join(format!("{}_{}.db", prefix, nanos))
     }
 
     #[test]
     fn test_init_tables() {
-        let _ = std::fs::remove_file(test_db_path());
-        let graph = KnowledgeGraph::new(test_db_path()).unwrap();
+        let db_path = test_db_path("kg_init");
+        let _ = std::fs::remove_file(&db_path);
+        let graph = KnowledgeGraph::new(db_path.clone()).unwrap();
         let (entities, rels) = graph.stats().unwrap();
         assert_eq!(entities, 0);
         assert_eq!(rels, 0);
-        let _ = std::fs::remove_file(test_db_path());
+        let _ = std::fs::remove_file(&db_path);
     }
 
     #[test]
     fn test_add_and_get_entity() {
-        let _ = std::fs::remove_file(test_db_path());
-        let graph = KnowledgeGraph::new(test_db_path()).unwrap();
+        let db_path = test_db_path("kg_entity");
+        let _ = std::fs::remove_file(&db_path);
+        let graph = KnowledgeGraph::new(db_path.clone()).unwrap();
 
         let mut attrs = HashMap::new();
         attrs.insert("version".to_string(), "1.0".to_string());
@@ -558,13 +568,14 @@ mod tests {
         assert_eq!(entity.entity_type, EntityType::Tool);
         assert_eq!(entity.attributes.get("version").unwrap(), "1.0");
 
-        let _ = std::fs::remove_file(test_db_path());
+        let _ = std::fs::remove_file(&db_path);
     }
 
     #[test]
     fn test_relationships() {
-        let _ = std::fs::remove_file(test_db_path());
-        let graph = KnowledgeGraph::new(test_db_path()).unwrap();
+        let db_path = test_db_path("kg_rels");
+        let _ = std::fs::remove_file(&db_path);
+        let graph = KnowledgeGraph::new(db_path.clone()).unwrap();
 
         // Create entities
         let tool_id = graph
@@ -585,13 +596,14 @@ mod tests {
         assert_eq!(rels[0].0.rel_type, "depends_on");
         assert_eq!(rels[0].1.name, "nginx-core");
 
-        let _ = std::fs::remove_file(test_db_path());
+        let _ = std::fs::remove_file(&db_path);
     }
 
     #[test]
     fn test_find_entity() {
-        let _ = std::fs::remove_file(test_db_path());
-        let graph = KnowledgeGraph::new(test_db_path()).unwrap();
+        let db_path = test_db_path("kg_find");
+        let _ = std::fs::remove_file(&db_path);
+        let graph = KnowledgeGraph::new(db_path.clone()).unwrap();
 
         graph
             .add_entity(EntityType::User, "root", HashMap::new())
@@ -603,6 +615,6 @@ mod tests {
         let not_found = graph.find_entity(EntityType::User, "nobody").unwrap();
         assert!(not_found.is_none());
 
-        let _ = std::fs::remove_file(test_db_path());
+        let _ = std::fs::remove_file(&db_path);
     }
 }
