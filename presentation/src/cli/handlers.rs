@@ -1285,7 +1285,7 @@ User request: {}",
             .and_then(|s| s.failed_commands_for_query(query, 5).ok())
             .unwrap_or_default();
 
-        let mut candidates: Vec<CommandCandidate> = commands
+        let candidates: Vec<CommandCandidate> = commands
             .into_iter()
             .filter(|cmd| !is_disallowed_by_learning(cmd, &failed_commands))
             .map(|cmd| {

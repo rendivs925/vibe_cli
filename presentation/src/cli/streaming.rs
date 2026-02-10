@@ -63,12 +63,9 @@ fn report_rejected(rejected: &[crate::cli::command_review::RejectedCandidate], l
     println!();
 }
 
-fn review_for_selection(
-    candidates: &[CommandCandidate],
-    user_query: &str,
-) -> ReviewedCandidates {
+fn review_for_selection(candidates: &[CommandCandidate]) -> ReviewedCandidates {
     let mut validator = SyntaxGrammarValidator::new();
-    review_candidates(candidates, user_query, &mut validator)
+    review_candidates(candidates, &mut validator)
 }
 
 fn build_system_instruction(platform: &str, cwd: &str, project_root: &str) -> String {
@@ -159,7 +156,7 @@ fn handle_cached_candidates(
     candidates: Vec<CommandCandidate>,
     user_query: &str,
 ) -> anyhow::Result<Option<String>> {
-    let reviewed = review_for_selection(&candidates, user_query);
+    let reviewed = review_for_selection(&candidates);
     report_rejected(&reviewed.rejected, "cached");
     let valid_candidates = reviewed.usable;
 
@@ -214,7 +211,7 @@ fn handle_candidate_selection(
         return Ok(None);
     }
 
-    let reviewed = review_for_selection(&candidates, user_query);
+    let reviewed = review_for_selection(&candidates);
     report_rejected(&reviewed.rejected, "generated");
     let candidates = reviewed.usable;
     if candidates.is_empty() {

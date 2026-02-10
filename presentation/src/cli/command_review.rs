@@ -1,5 +1,4 @@
 use crate::cli::cache::CommandCandidate;
-use crate::cli::command_extraction::{matches_query, query_keywords};
 use crate::cli::command_safety::{blocked_reason, is_blocked_command};
 use infrastructure::syntax_grammar_validator::{SyntaxGrammarValidator, ValidationResult};
 use std::path::Path;
@@ -41,21 +40,15 @@ impl CommandReview {
 
 pub fn review_candidates(
     candidates: &[CommandCandidate],
-    user_query: &str,
     validator: &mut SyntaxGrammarValidator,
 ) -> ReviewedCandidates {
-    let keywords = query_keywords(user_query);
-    let suppress_low_relevance = candidates.len() == 1;
     let mut usable = Vec::new();
     let mut rejected = Vec::new();
 
     for candidate in candidates {
         let review = review_command(
             &candidate.command,
-            &keywords,
             validator,
-            candidate.label.as_deref(),
-            suppress_low_relevance,
         );
         if review.is_usable() {
             let mut updated = candidate.clone();
@@ -76,10 +69,7 @@ pub fn review_candidates(
 
 fn review_command(
     command: &str,
-    keywords: &[String],
     validator: &mut SyntaxGrammarValidator,
-    existing_label: Option<&str>,
-    suppress_low_relevance: bool,
 ) -> CommandReview {
     let mut warnings = Vec::new();
     let mut reasons = Vec::new();
@@ -135,10 +125,6 @@ fn review_command(
     if manpage_missing {
         warnings.push("manpage unavailable".to_string());
     }
-
-    let is_symbolic = existing_label
-        .map(|label| label.contains("symbolic"))
-        .unwrap_or(false);
 
     CommandReview { warnings, reasons }
 }
