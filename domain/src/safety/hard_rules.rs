@@ -118,6 +118,30 @@ pub struct SafetyRule {
 pub struct HardRules;
 
 impl HardRules {
+    fn rule(
+        id: &'static str,
+        name: &'static str,
+        description: &'static str,
+        violation_type: ViolationType,
+        action: RuleAction,
+        patterns: Vec<&'static str>,
+        case_insensitive: bool,
+        suggestion: Option<&'static str>,
+    ) -> SafetyRule {
+        SafetyRule {
+            id,
+            name,
+            description,
+            violation_type,
+            action,
+            patterns,
+            case_insensitive,
+            suggestion,
+        }
+    }
+}
+
+impl HardRules {
     /// Get all safety rules
     pub fn all_rules() -> Vec<SafetyRule> {
         vec![
@@ -155,13 +179,13 @@ impl HardRules {
     // === DESTRUCTIVE WILDCARDS ===
 
     fn destructive_wildcards() -> SafetyRule {
-        SafetyRule {
-            id: "SAFETY-001",
-            name: "Destructive Wildcard Pattern",
-            description: "Commands using wildcards that could delete system files or home directory",
-            violation_type: ViolationType::DestructiveWildcard,
-            action: RuleAction::Block,
-            patterns: vec![
+        Self::rule(
+            "SAFETY-001",
+            "Destructive Wildcard Pattern",
+            "Commands using wildcards that could delete system files or home directory",
+            ViolationType::DestructiveWildcard,
+            RuleAction::Block,
+            vec![
                 r"rm\s+-[rf]*\s+/",
                 r"rm\s+-[rf]*\s+~/",
                 r"rm\s+-[rf]*\s+\$HOME",
@@ -169,21 +193,21 @@ impl HardRules {
                 r"find\s+/\s+-exec\s+rm",
                 r"rm\s+-[rf]*\s+\*/",
             ],
-            case_insensitive: true,
-            suggestion: Some("Use specific paths instead of wildcards. Consider using 'rm -i' for interactive mode."),
-        }
+            true,
+            Some("Use specific paths instead of wildcards. Consider using 'rm -i' for interactive mode."),
+        )
     }
 
     // === SYSTEM DIRECTORY DELETION ===
 
     fn system_directory_deletion() -> SafetyRule {
-        SafetyRule {
-            id: "SAFETY-002",
-            name: "System Directory Deletion",
-            description: "Attempting to delete critical system directories",
-            violation_type: ViolationType::SystemDirectoryDeletion,
-            action: RuleAction::Block,
-            patterns: vec![
+        Self::rule(
+            "SAFETY-002",
+            "System Directory Deletion",
+            "Attempting to delete critical system directories",
+            ViolationType::SystemDirectoryDeletion,
+            RuleAction::Block,
+            vec![
                 r"rm\s+-[rf]*\s+/etc(\s|/|\z)",
                 r"rm\s+-[rf]*\s+/usr(\s|/|\z)",
                 r"rm\s+-[rf]*\s+/bin(\s|/|\z)",
@@ -195,28 +219,28 @@ impl HardRules {
                 r"rm\s+-[rf]*\s+/proc(\s|/|\z)",
                 r"rm\s+-[rf]*\s+/dev(\s|/|\z)",
             ],
-            case_insensitive: true,
-            suggestion: Some("System directories should never be deleted. Use package manager to remove software."),
-        }
+            true,
+            Some("System directories should never be deleted. Use package manager to remove software."),
+        )
     }
 
     // === DISK FORMATTING ===
 
     fn disk_formatting() -> SafetyRule {
-        SafetyRule {
-            id: "SAFETY-003",
-            name: "Disk Formatting",
-            description: "Formatting a filesystem which will destroy all data",
-            violation_type: ViolationType::DiskFormatting,
-            action: RuleAction::Block,
-            patterns: vec![
+        Self::rule(
+            "SAFETY-003",
+            "Disk Formatting",
+            "Formatting a filesystem which will destroy all data",
+            ViolationType::DiskFormatting,
+            RuleAction::Block,
+            vec![
                 r"mkfs\.\w+\s+/dev/[sh]d[a-z]\d*",
                 r"mkfs\s+/dev/[sh]d[a-z]\d*",
                 r"newfs\s+/dev/[sh]d[a-z]\d*",
             ],
-            case_insensitive: true,
-            suggestion: Some("Disk formatting destroys all data. Ensure you have backups and are targeting the correct device."),
-        }
+            true,
+            Some("Disk formatting destroys all data. Ensure you have backups and are targeting the correct device."),
+        )
     }
 
     fn dd_to_disk() -> SafetyRule {
