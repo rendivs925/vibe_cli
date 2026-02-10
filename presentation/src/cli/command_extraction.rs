@@ -20,6 +20,60 @@ pub fn extract_command(raw: &str, user_query: &str) -> Option<String> {
         .map(|candidate| candidate.command)
 }
 
+const BAD_PREFIXES: &[&str] = &[
+    "to ",
+    "run ",
+    "then ",
+    "next ",
+    "this will",
+    "choose ",
+    "selected:",
+    "generated",
+    "method",
+    "in `",
+    "if you",
+    "you can",
+    "here are",
+    "these commands",
+    "this command",
+    "open a terminal",
+    "get the",
+    "show the",
+    "check the",
+    "display the",
+    "list the",
+    "find the",
+    "retrieve the",
+    "execute ",
+    "run the",
+    "please ",
+    "you can ",
+    "here is",
+    "use the",
+    "you'll need",
+    "install ",
+    "download ",
+    "create ",
+    "make sure",
+    "cpu ",
+    "disk ",
+    "memory ",
+    "hostname",
+    "operating",
+    "platform",
+    "kernel",
+    "shell:",
+    "total ",
+    "free ",
+    "cpu type",
+    "processor",
+    "information:",
+    "generated command",
+    "replacing xx",
+];
+
+const SHELL_LANG_TAGS: &[&str] = &["bash", "sh", "zsh", "shell", "console"];
+
 fn should_use_ai_extractor() -> bool {
     if cfg!(test) {
         return false;
@@ -36,6 +90,20 @@ fn try_ai_extract(raw: &str) -> Option<String> {
     }
     let extractor = OllamaCommandExtractor::new().ok()?;
     extractor.extract(raw)
+}
+
+fn has_shell_signal(s: &str) -> bool {
+    s.contains('|')
+        || s.contains("&&")
+        || s.contains("||")
+        || s.contains(';')
+        || s.contains(" -")
+        || s.contains("--")
+        || s.contains(">/")
+        || s.contains("</")
+        || s.contains("$(")
+        || s.contains('`')
+        || s.contains('/')
 }
 
 fn normalize(mut s: &str) -> String {
@@ -88,71 +156,10 @@ fn looks_like_command(s: &str) -> bool {
 
     let lower = t.to_ascii_lowercase();
 
-    let has_shell_signal = t.contains('|')
-        || t.contains("&&")
-        || t.contains("||")
-        || t.contains(';')
-        || t.contains(" -")
-        || t.contains("--")
-        || t.contains(">/")
-        || t.contains("</")
-        || t.contains("$(")
-        || t.contains('`')
-        || t.contains('/'); // Paths indicate commands
+    let has_shell_signal = has_shell_signal(t);
 
     // Reject obvious prose / UI noise - expanded list
-    let bad_prefixes = [
-        "to ",
-        "run ",
-        "then ",
-        "next ",
-        "this will",
-        "choose ",
-        "selected:",
-        "generated",
-        "method",
-        "in `",
-        "if you",
-        "you can",
-        "here are",
-        "these commands",
-        "this command",
-        "open a terminal",
-        "get the",
-        "show the",
-        "check the",
-        "display the",
-        "list the",
-        "find the",
-        "retrieve the",
-        "execute ",
-        "run the",
-        "please ",
-        "you can ",
-        "here is",
-        "use the",
-        "you'll need",
-        "install ",
-        "download ",
-        "create ",
-        "make sure",
-        "cpu ",
-        "disk ",
-        "memory ",
-        "hostname",
-        "operating",
-        "platform",
-        "kernel",
-        "shell:",
-        "total ",
-        "free ",
-        "cpu type",
-        "processor",
-        "information:",
-        "generated command",
-        "replacing xx",
-    ];
-    if bad_prefixes.iter().any(|p| lower.starts_with(p)) && !has_shell_signal {
+    if BAD_PREFIXES.iter().any(|p| lower.starts_with(p)) && !has_shell_signal {
         return false;
     }
 
@@ -186,7 +193,7 @@ fn looks_like_command(s: &str) -> bool {
     }
 
     // Reject bare language tags
-    if matches!(lower.as_str(), "bash" | "sh" | "zsh" | "shell" | "console") {
+    if SHELL_LANG_TAGS.contains(&lower.as_str()) {
         return false;
     }
 
@@ -275,34 +282,6 @@ pub(crate) fn matches_query(cmd: &str, keywords: &[String]) -> bool {
 pub fn extract_commands(raw: &str, user_query: &str) -> Vec<CommandCandidate> {
     let raw = raw.trim();
 
-    fn push_candidate(
-        out: &mut Vec<(Source, CommandCandidate)>,
-        src: Source,
-        raw_cmd: &str,
-        q_keywords: &[String],
-    ) {
-        let cmd = normalize(raw_cmd);
-        if cmd.is_empty() {
-            return;
-        }
-        if !looks_like_command(&cmd) || is_blocked_command(&cmd) {
-            return;
-        }
-
-        // Relevance filter (soft):
-        // - Always accept high-confidence sources.
-        // - For low-confidence sources, require at least one query keyword match.
-        let high_conf = matches!(
-            src,
-            Source::Ai | Source::ExplicitPrefix | Source::CodeFence | Source::InlineBackticks
-        );
-        if !high_conf && !matches_query(&cmd, q_keywords) {
-            return;
-        }
-
-        out.push((src, CommandCandidate::new(cmd)));
-    }
-
     let q_keywords = query_keywords(user_query);
 
     let mut found: Vec<(Source, CommandCandidate)> = Vec::new();
@@ -333,7 +312,7 @@ pub fn extract_commands(raw: &str, user_query: &str) -> Vec<CommandCandidate> {
             }
             if in_fence {
                 // ignore fence language tags accidentally inside
-                if matches!(t.trim(), "bash" | "sh" | "zsh" | "shell" | "console") {
+                if SHELL_LANG_TAGS.contains(&t.trim()) {
                     continue;
                 }
                 push_candidate(&mut found, Source::CodeFence, t, &q_keywords);
@@ -352,14 +331,7 @@ pub fn extract_commands(raw: &str, user_query: &str) -> Vec<CommandCandidate> {
                     // Only allow multi-word commands or commands with shell signals
                     let normalized = normalize(snippet);
                     let token_count = normalized.split_whitespace().count();
-                    let has_shell_signal = normalized.contains('|')
-                        || normalized.contains("&&")
-                        || normalized.contains("||")
-                        || normalized.contains(';')
-                        || normalized.contains(" -")
-                        || normalized.contains("--")
-                        || normalized.contains(">/")
-                        || normalized.contains("</");
+                    let has_shell_signal = has_shell_signal(&normalized);
 
                     if token_count > 1 || has_shell_signal {
                         push_candidate(&mut found, Source::InlineBackticks, snippet, &q_keywords);
@@ -407,6 +379,31 @@ pub fn extract_commands(raw: &str, user_query: &str) -> Vec<CommandCandidate> {
     out
 }
 
+fn push_candidate(
+    out: &mut Vec<(Source, CommandCandidate)>,
+    src: Source,
+    raw_cmd: &str,
+    q_keywords: &[String],
+) {
+    let cmd = normalize(raw_cmd);
+    if cmd.is_empty() {
+        return;
+    }
+    if !looks_like_command(&cmd) || is_blocked_command(&cmd) {
+        return;
+    }
+
+    let high_conf = matches!(
+        src,
+        Source::Ai | Source::ExplicitPrefix | Source::CodeFence | Source::InlineBackticks
+    );
+    if !high_conf && !matches_query(&cmd, q_keywords) {
+        return;
+    }
+
+    out.push((src, CommandCandidate::new(cmd)));
+}
+
 pub fn looks_like_shell_command(s: &str) -> bool {
     // Keep this for backward compatibility if other code calls it.
     // Delegate to the stricter matcher used by extract_commands.
@@ -431,13 +428,7 @@ pub fn looks_like_shell_command(s: &str) -> bool {
             .chars()
             .all(|c| c.is_ascii_alphanumeric() || "_-./".contains(c));
 
-        let has_signal = t.contains('|')
-            || t.contains("&&")
-            || t.contains("||")
-            || t.contains(';')
-            || t.contains('/')
-            || t.contains(" -")
-            || t.contains("--");
+        let has_signal = has_shell_signal(t);
 
         // Require more than just a bare word unless it’s allowlisted.
         let token_count = t.split_whitespace().count();

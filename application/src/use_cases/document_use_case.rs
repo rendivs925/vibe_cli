@@ -126,10 +126,11 @@ impl DocumentUseCase {
         // Get all documents and filter by content matching
         let documents = self.storage.list_all_documents().await?;
         let mut results = Vec::new();
+        let query_lower = query.to_lowercase();
 
         for doc in documents.into_iter().take(limit) {
             let content = doc.content();
-            if content.to_lowercase().contains(&query.to_lowercase()) {
+            if content.to_lowercase().contains(&query_lower) {
                 let relevance = self.calculate_relevance(query, content);
                 let title = std::path::Path::new(doc.path())
                     .file_stem()
@@ -162,14 +163,12 @@ impl DocumentUseCase {
     ) -> Result<Option<domain::services::document_analyzer::DocumentAnalysis>, AppError> {
         // Find document
         let document = self.storage.find_document_by_id(document_id).await?;
+        let Some(doc) = document else {
+            return Ok(None);
+        };
 
-        match document {
-            Some(doc) => {
-                let analysis = self.analyzer.analyze(&doc);
-                Ok(Some(analysis))
-            }
-            None => Ok(None),
-        }
+        let analysis = self.analyzer.analyze(&doc);
+        Ok(Some(analysis))
     }
 
     /// Find similar documents
@@ -180,32 +179,28 @@ impl DocumentUseCase {
     ) -> Result<Vec<DocumentSimilarityResult>, AppError> {
         // Find target document
         let target_document = self.storage.find_document_by_id(document_id).await?;
+        let Some(target) = target_document else {
+            return Ok(vec![]);
+        };
 
-        match target_document {
-            Some(target) => {
-                // Get all documents for comparison
-                let all_documents = self.storage.list_all_documents().await?;
+        // Get all documents for comparison
+        let all_documents = self.storage.list_all_documents().await?;
 
-                // Find similar ones
-                let similar_scores = self
-                    .analyzer
-                    .find_similar_documents(&target, &all_documents);
+        // Find similar ones
+        let similar_scores = self
+            .analyzer
+            .find_similar_documents(&target, &all_documents);
 
-                let results: Vec<DocumentSimilarityResult> = similar_scores
-                    .into_iter()
-                    .take(limit)
-                    .map(|score| {
-                        DocumentSimilarityResult::new(
-                            score.document_id().to_string(),
-                            score.similarity(),
-                        )
-                    })
-                    .collect();
+        let results: Vec<DocumentSimilarityResult> = similar_scores
+            .into_iter()
+            .take(limit)
+            .map(|score| DocumentSimilarityResult::new(
+                score.document_id().to_string(),
+                score.similarity(),
+            ))
+            .collect();
 
-                Ok(results)
-            }
-            None => Ok(vec![]),
-        }
+        Ok(results)
     }
 
     /// Get document statistics
@@ -299,11 +294,10 @@ impl DirectoryProcessingResult {
     }
 
     pub fn success_rate(&self) -> f32 {
-        if self.total_files > 0 {
-            self.successful as f32 / self.total_files as f32
-        } else {
-            0.0
+        if self.total_files == 0 {
+            return 0.0;
         }
+        self.successful as f32 / self.total_files as f32
     }
 }
 

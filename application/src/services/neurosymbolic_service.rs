@@ -430,16 +430,7 @@ impl IntegratedNeurosymbolicService {
         trace.push(format!("Processing query: '{}'", query));
 
         // Step 2: Learning - Get context from past experiences
-        let learning_context = if self.config.enable_learning {
-            trace.push("Step 1: Retrieving learning context...".to_string());
-            let context = self.learning_service.get_context_for_query(query)?;
-            if context.is_some() {
-                trace.push("  Found relevant past experiences".to_string());
-            }
-            context
-        } else {
-            None
-        };
+        let learning_context = self.get_learning_context(query, &mut trace)?;
 
         self.apply_knowledge_graph_hints(query, &mut trace);
 
@@ -513,6 +504,23 @@ impl IntegratedNeurosymbolicService {
             ],
             induced_warnings: Vec::new(),
         }
+    }
+
+    fn get_learning_context(
+        &self,
+        query: &str,
+        trace: &mut Vec<String>,
+    ) -> Result<Option<String>> {
+        if !self.config.enable_learning {
+            return Ok(None);
+        }
+
+        trace.push("Step 1: Retrieving learning context...".to_string());
+        let context = self.learning_service.get_context_for_query(query)?;
+        if context.is_some() {
+            trace.push("  Found relevant past experiences".to_string());
+        }
+        Ok(context)
     }
 
     fn config_dirs() -> (PathBuf, PathBuf, PathBuf) {
