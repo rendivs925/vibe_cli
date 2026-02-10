@@ -114,7 +114,7 @@ Return a concise update in 1-3 short bullets. If no new findings, say \"No new f
                         if let Some(update) = flush(&buffer, &summary) {
                             let formatted = Self::format_ai_update(&update);
                             if !formatted.is_empty() {
-                                println!("\n=== AI Update ===\n{}\n", formatted);
+                                println!("\n=== AI Chunk Summary ===\n{}\n", formatted);
                                 summary = formatted;
                             }
                         }
@@ -129,7 +129,7 @@ Return a concise update in 1-3 short bullets. If no new findings, say \"No new f
                 if let Some(update) = flush(&buffer, &summary) {
                     let formatted = Self::format_ai_update(&update);
                     if !formatted.is_empty() {
-                        println!("\n=== AI Update ===\n{}\n", formatted);
+                        println!("\n=== AI Chunk Summary ===\n{}\n", formatted);
                     }
                 }
             }
