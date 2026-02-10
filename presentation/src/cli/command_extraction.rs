@@ -1,17 +1,8 @@
 use crate::cli::cache::CommandCandidate;
 use crate::cli::command_safety::is_blocked_command;
 use infrastructure::ai_command_extractor::OllamaCommandExtractor;
+use shared::command_extraction::{extract_candidate_commands, query_keywords as shared_query_keywords};
 use std::env;
-
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
-enum Source {
-    Ai = 0,
-    ExplicitPrefix = 1,
-    CodeFence = 2,
-    InlineBackticks = 3,
-    PromptLine = 4,
-    OperatorLine = 5,
-}
 
 pub fn extract_command(raw: &str, user_query: &str) -> Option<String> {
     extract_commands(raw, user_query)
@@ -19,60 +10,6 @@ pub fn extract_command(raw: &str, user_query: &str) -> Option<String> {
         .next()
         .map(|candidate| candidate.command)
 }
-
-const BAD_PREFIXES: &[&str] = &[
-    "to ",
-    "run ",
-    "then ",
-    "next ",
-    "this will",
-    "choose ",
-    "selected:",
-    "generated",
-    "method",
-    "in `",
-    "if you",
-    "you can",
-    "here are",
-    "these commands",
-    "this command",
-    "open a terminal",
-    "get the",
-    "show the",
-    "check the",
-    "display the",
-    "list the",
-    "find the",
-    "retrieve the",
-    "execute ",
-    "run the",
-    "please ",
-    "you can ",
-    "here is",
-    "use the",
-    "you'll need",
-    "install ",
-    "download ",
-    "create ",
-    "make sure",
-    "cpu ",
-    "disk ",
-    "memory ",
-    "hostname",
-    "operating",
-    "platform",
-    "kernel",
-    "shell:",
-    "total ",
-    "free ",
-    "cpu type",
-    "processor",
-    "information:",
-    "generated command",
-    "replacing xx",
-];
-
-const SHELL_LANG_TAGS: &[&str] = &["bash", "sh", "zsh", "shell", "console"];
 
 fn should_use_ai_extractor() -> bool {
     if cfg!(test) {
@@ -92,354 +29,36 @@ fn try_ai_extract(raw: &str) -> Option<String> {
     extractor.extract(raw)
 }
 
-fn has_shell_signal(s: &str) -> bool {
-    s.contains('|')
-        || s.contains("&&")
-        || s.contains("||")
-        || s.contains(';')
-        || s.contains(" -")
-        || s.contains("--")
-        || s.contains(">/")
-        || s.contains("</")
-        || s.contains("$(")
-        || s.contains('`')
-        || s.contains('/')
-}
-
-fn normalize(mut s: &str) -> String {
-    s = s.trim();
-
-    // Strip common prompt markers
-    for p in ["$ ", "# ", "> "] {
-        if let Some(rest) = s.strip_prefix(p) {
-            s = rest.trim_start();
-            break;
-        }
-    }
-
-    // Strip shell wrapper prefixes (with or without newlines/spaces)
-    // Handles: "bash cmd", "bash\ncmd", "sh cmd", "sh\ncmd", "zsh cmd", "zsh\ncmd"
-    for shell in ["bash", "sh", "zsh"] {
-        if let Some(rest) = s.strip_prefix(shell) {
-            let rest_trim = rest.trim_start();
-            // Only strip if it's NOT a real shell invocation like: "bash -lc ..."
-            if !rest_trim.starts_with('-') {
-                s = rest_trim;
-                break; // strip at most one wrapper
-            }
-        }
-    }
-
-    s.trim()
-        .trim_matches('`')
-        .trim_matches('"')
-        .trim_matches('\'')
-        .trim()
-        .trim_end_matches(';')
-        .trim_end_matches('.')
-        .trim()
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
-}
-
-fn looks_like_command(s: &str) -> bool {
-    let t = s.trim();
-    if t.is_empty() {
-        return false;
-    }
-
-    // Reject code fence markers
-    if t.starts_with("```") {
-        return false;
-    }
-
-    let lower = t.to_ascii_lowercase();
-
-    let has_shell_signal = has_shell_signal(t);
-
-    // Reject obvious prose / UI noise - expanded list
-    if BAD_PREFIXES.iter().any(|p| lower.starts_with(p)) && !has_shell_signal {
-        return false;
-    }
-
-    // Reject numbered list items like "[1] Get the CPU" or "1] Get the CPU"
-    if t.starts_with('[')
-        || (t.chars().next().is_some_and(|c| c.is_ascii_digit()) && t.contains("] "))
-    {
-        return false;
-    }
-
-    // Reject URLs / markdown links
-    if lower.contains("http://") || lower.contains("https://") {
-        return false;
-    }
-
-    // Reject numbered/bulleted markdown lines
-    if t.starts_with('-') || t.starts_with('*') || t.starts_with('•') {
-        return false;
-    }
-    if t.chars().next().is_some_and(|c| c.is_ascii_digit()) {
-        let rest: String = t.chars().skip_while(|c| c.is_ascii_digit()).collect();
-        let r = rest.trim_start();
-        if r.starts_with('.') || r.starts_with(')') {
-            return false;
-        }
-    }
-
-    // Reject headings
-    if t.ends_with(':') {
-        return false;
-    }
-
-    // Reject bare language tags
-    if SHELL_LANG_TAGS.contains(&lower.as_str()) {
-        return false;
-    }
-
-    // First token must be a plausible executable/path
-    let first = t.split_whitespace().next().unwrap_or("");
-    if first.is_empty() {
-        return false;
-    }
-    if !first
-        .chars()
-        .all(|c| c.is_ascii_alphanumeric() || "_-./".contains(c))
-    {
-        return false;
-    }
-
-    // If it looks like a sentence or description, require shell syntax
-    // These phrases indicate prose, not commands
-    let sentencey = lower.contains(" you ")
-        || lower.contains(" this ")
-        || lower.contains(" should ")
-        || lower.contains(" able ")
-        || lower.contains(" provides ")
-        || lower.contains(" display ")
-        || lower.starts_with("get ")
-        || lower.starts_with("show ")
-        || lower.starts_with("check ")
-        || lower.starts_with("list ")
-        || lower.starts_with("find ")
-        || lower.starts_with("display ")
-        || lower.starts_with("retrieve ")
-        || lower.starts_with("execute ")
-        || lower.starts_with("run ")
-        || lower.starts_with("install ")
-        || lower.starts_with("download ")
-        || lower.starts_with("create ")
-        || lower.starts_with("make ")
-        || lower.starts_with("please ")
-        || lower.starts_with("use ")
-        || lower.starts_with("here ")
-        || lower.starts_with("you'll");
-
-    let tokens: Vec<&str> = t.split_whitespace().collect();
-    let first_tok = tokens.first().copied().unwrap_or("");
-    let second_tok = tokens.get(1).copied().unwrap_or("");
-    let allow_no_signal = matches!(first_tok, "systemctl" | "service")
-        || (first_tok == "sudo" && matches!(second_tok, "systemctl" | "service"));
-
-    if sentencey && !has_shell_signal {
-        return false;
-    }
-
-    // Single-word commands are allowed if they pass basic checks
-    let token_count = t.split_whitespace().count();
-    if token_count == 1 {
-        return true;
-    }
-
-    // For multi-word, require shell signal or be very confident
-    if token_count >= 2 && !has_shell_signal && !allow_no_signal {
-        return false;
-    }
-
-    true
-}
 
 pub(crate) fn query_keywords(query: &str) -> Vec<String> {
-    // Tiny heuristic: split and keep "word-ish" tokens.
-    // Used only as a soft filter later.
-    query
-        .to_ascii_lowercase()
-        .split(|c: char| !c.is_ascii_alphanumeric() && c != '_' && c != '-')
-        .map(str::trim)
-        .filter(|w| w.len() >= 3)
-        .map(|w| w.to_string())
-        .collect()
-}
-
-pub(crate) fn matches_query(cmd: &str, keywords: &[String]) -> bool {
-    if keywords.is_empty() {
-        return true;
-    }
-    let c = cmd.to_ascii_lowercase();
-    keywords.iter().any(|k| c.contains(k))
+    shared_query_keywords(query)
 }
 
 pub fn extract_commands(raw: &str, user_query: &str) -> Vec<CommandCandidate> {
     let raw = raw.trim();
+    let mut ordered = Vec::new();
 
-    let q_keywords = query_keywords(user_query);
-
-    let mut found: Vec<(Source, CommandCandidate)> = Vec::new();
-
-    // 0) AI extractor (highest confidence if available)
     if let Some(ai_cmd) = try_ai_extract(raw) {
-        push_candidate(&mut found, Source::Ai, &ai_cmd, &q_keywords);
+        ordered.push(ai_cmd);
     }
 
-    // 1) Explicit prefixes (highest confidence)
-    for line in raw.lines() {
-        let l = line.trim();
-        for p in ["COMMAND:", "Command:", "CMD:"] {
-            if let Some(rest) = l.strip_prefix(p) {
-                push_candidate(&mut found, Source::ExplicitPrefix, rest, &q_keywords);
-            }
-        }
-    }
+    ordered.extend(extract_candidate_commands(raw, user_query));
 
-    // 2) Code fences
-    {
-        let mut in_fence = false;
-        for line in raw.lines() {
-            let t = line.trim_end();
-            if t.trim_start().starts_with("```") {
-                in_fence = !in_fence;
-                continue;
-            }
-            if in_fence {
-                // ignore fence language tags accidentally inside
-                if SHELL_LANG_TAGS.contains(&t.trim()) {
-                    continue;
-                }
-                push_candidate(&mut found, Source::CodeFence, t, &q_keywords);
-            }
-        }
-    }
-
-    // 3) Inline backticks
-    {
-        let mut start = None;
-        for (i, ch) in raw.char_indices() {
-            if ch == '`' {
-                if let Some(st) = start {
-                    let snippet = &raw[st..i];
-                    // Skip single-word inline backticks that look like command mentions in prose
-                    // Only allow multi-word commands or commands with shell signals
-                    let normalized = normalize(snippet);
-                    let token_count = normalized.split_whitespace().count();
-                    let has_shell_signal = has_shell_signal(&normalized);
-
-                    if token_count > 1 || has_shell_signal {
-                        push_candidate(&mut found, Source::InlineBackticks, snippet, &q_keywords);
-                    }
-                    start = None;
-                } else {
-                    start = Some(i + 1);
-                }
-            }
-        }
-    }
-
-    // 4) Prompt-style / UI-style lines (lower confidence)
-    for line in raw.lines() {
-        let t = line.trim();
-        if t.starts_with("$ ")
-            || t.starts_with("# ")
-            || t.starts_with("> ")
-            || t.starts_with("bash ")
-        {
-            push_candidate(&mut found, Source::PromptLine, t, &q_keywords);
-            continue;
-        }
-
-        // 5) Operator-heavy lines (lowest confidence)
-        if t.contains('|') || t.contains("&&") || t.contains("||") {
-            push_candidate(&mut found, Source::OperatorLine, t, &q_keywords);
-        }
-    }
-
-    // Rank by source first, then command lexicographically for stable output
-    found.sort_by(|(sa, a), (sb, b)| sa.cmp(sb).then_with(|| a.command.cmp(&b.command)));
-
-    // Dedup by command string, keeping best-ranked (lowest Source)
-    let mut seen_commands = std::collections::HashSet::new();
+    let mut seen = std::collections::HashSet::new();
     let mut out: Vec<CommandCandidate> = Vec::new();
-    for (_src, cand) in found {
-        if seen_commands.contains(&cand.command) {
+    for cmd in ordered {
+        if cmd.is_empty() || is_blocked_command(&cmd) || seen.contains(&cmd) {
             continue;
         }
-        seen_commands.insert(cand.command.clone());
-        out.push(cand);
+        seen.insert(cmd.clone());
+        out.push(CommandCandidate::new(cmd));
     }
 
     out
 }
 
-fn push_candidate(
-    out: &mut Vec<(Source, CommandCandidate)>,
-    src: Source,
-    raw_cmd: &str,
-    q_keywords: &[String],
-) {
-    let cmd = normalize(raw_cmd);
-    if cmd.is_empty() {
-        return;
-    }
-    if !looks_like_command(&cmd) || is_blocked_command(&cmd) {
-        return;
-    }
-
-    let high_conf = matches!(
-        src,
-        Source::Ai | Source::ExplicitPrefix | Source::CodeFence | Source::InlineBackticks
-    );
-    if !high_conf && !matches_query(&cmd, q_keywords) {
-        return;
-    }
-
-    out.push((src, CommandCandidate::new(cmd)));
-}
-
 pub fn looks_like_shell_command(s: &str) -> bool {
-    // Keep this for backward compatibility if other code calls it.
-    // Delegate to the stricter matcher used by extract_commands.
-    fn inner(s: &str) -> bool {
-        let t = s.trim();
-        if t.is_empty() {
-            return false;
-        }
-        let lower = t.to_ascii_lowercase();
-        if lower.starts_with("to ") || lower.starts_with("run ") || lower.starts_with("then ") {
-            return false;
-        }
-        if t.starts_with('-')
-            || t.starts_with('*')
-            || t.chars().next().is_some_and(|c| c.is_ascii_digit())
-        {
-            return false;
-        }
-
-        let first = t.split_whitespace().next().unwrap_or("");
-        let starts_ok = first
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || "_-./".contains(c));
-
-        let has_signal = has_shell_signal(t);
-
-        // Require more than just a bare word unless it’s allowlisted.
-        let token_count = t.split_whitespace().count();
-        if token_count == 1 {
-            return matches!(lower.as_str(), "htop" | "top" | "free" | "uname" | "ls");
-        }
-
-        starts_ok && has_signal
-    }
-
-    inner(s)
+    extract_candidate_commands(s, "").first().is_some()
 }
 
 pub fn clean_command_output(raw: &str) -> String {

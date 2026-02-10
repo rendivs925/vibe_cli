@@ -37,6 +37,122 @@ pub fn cleanup_ai_response(response: &str) -> String {
     normalize_command_candidate(response)
 }
 
+pub fn extract_best_command(raw: &str, user_query: &str) -> Option<String> {
+    extract_candidate_commands(raw, user_query)
+        .into_iter()
+        .next()
+}
+
+pub fn extract_candidate_commands(raw: &str, user_query: &str) -> Vec<String> {
+    let raw = raw.trim();
+    if raw.is_empty() {
+        return Vec::new();
+    }
+
+    let q_keywords = query_keywords(user_query);
+    let mut found: Vec<(Source, String)> = Vec::new();
+
+    // 1) Explicit prefixes
+    for line in raw.lines() {
+        let l = line.trim();
+        for p in ["COMMAND:", "Command:", "CMD:"] {
+            if let Some(rest) = l.strip_prefix(p) {
+                push_candidate(&mut found, Source::ExplicitPrefix, rest, &q_keywords);
+            }
+        }
+    }
+
+    // 2) Code fences
+    {
+        let mut in_fence = false;
+        for line in raw.lines() {
+            let t = line.trim_end();
+            if t.trim_start().starts_with("```") {
+                in_fence = !in_fence;
+                continue;
+            }
+            if in_fence {
+                if SHELL_LANG_TAGS.contains(&t.trim()) {
+                    continue;
+                }
+                push_candidate(&mut found, Source::CodeFence, t, &q_keywords);
+            }
+        }
+    }
+
+    // 3) Inline backticks
+    {
+        let mut start = None;
+        for (i, ch) in raw.char_indices() {
+            if ch == '`' {
+                if let Some(st) = start {
+                    let snippet = &raw[st..i];
+                    let normalized = normalize_command(snippet);
+                    let token_count = normalized.split_whitespace().count();
+                    let has_shell_signal = has_shell_signal(&normalized);
+
+                    if token_count > 1 || has_shell_signal {
+                        push_candidate(&mut found, Source::InlineBackticks, snippet, &q_keywords);
+                    }
+                    start = None;
+                } else {
+                    start = Some(i + 1);
+                }
+            }
+        }
+    }
+
+    // 4) Prompt-style / UI-style lines
+    for line in raw.lines() {
+        let t = line.trim();
+        if t.starts_with("$ ")
+            || t.starts_with("# ")
+            || t.starts_with("> ")
+            || t.starts_with("bash ")
+        {
+            push_candidate(&mut found, Source::PromptLine, t, &q_keywords);
+            continue;
+        }
+
+        // 5) Operator-heavy lines
+        if t.contains('|') || t.contains("&&") || t.contains("||") {
+            push_candidate(&mut found, Source::OperatorLine, t, &q_keywords);
+        }
+    }
+
+    found.sort_by(|(sa, a), (sb, b)| sa.cmp(sb).then_with(|| a.cmp(b)));
+
+    let mut seen = std::collections::HashSet::new();
+    let mut out: Vec<String> = Vec::new();
+    for (_src, cmd) in found {
+        if seen.contains(&cmd) {
+            continue;
+        }
+        seen.insert(cmd.clone());
+        out.push(cmd);
+    }
+
+    out
+}
+
+pub fn query_keywords(query: &str) -> Vec<String> {
+    query
+        .to_ascii_lowercase()
+        .split(|c: char| !c.is_ascii_alphanumeric() && c != '_' && c != '-')
+        .map(str::trim)
+        .filter(|w| w.len() >= 3)
+        .map(|w| w.to_string())
+        .collect()
+}
+
+fn matches_query(cmd: &str, keywords: &[String]) -> bool {
+    if keywords.is_empty() {
+        return true;
+    }
+    let c = cmd.to_ascii_lowercase();
+    keywords.iter().any(|k| c.contains(k))
+}
+
 fn strip_command_prefix(input: &str) -> &str {
     let trimmed = input.trim_start();
     if let Some(prefix) = trimmed.get(..8) {
@@ -45,4 +161,237 @@ fn strip_command_prefix(input: &str) -> &str {
         }
     }
     trimmed
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum Source {
+    ExplicitPrefix = 1,
+    CodeFence = 2,
+    InlineBackticks = 3,
+    PromptLine = 4,
+    OperatorLine = 5,
+}
+
+const BAD_PREFIXES: &[&str] = &[
+    "to ",
+    "run ",
+    "then ",
+    "next ",
+    "this will",
+    "choose ",
+    "selected:",
+    "generated",
+    "method",
+    "in `",
+    "if you",
+    "you can",
+    "here are",
+    "these commands",
+    "this command",
+    "open a terminal",
+    "get the",
+    "show the",
+    "check the",
+    "display the",
+    "list the",
+    "find the",
+    "retrieve the",
+    "execute ",
+    "run the",
+    "please ",
+    "you can ",
+    "here is",
+    "use the",
+    "you'll need",
+    "install ",
+    "download ",
+    "create ",
+    "make sure",
+    "cpu ",
+    "disk ",
+    "memory ",
+    "hostname",
+    "operating",
+    "platform",
+    "kernel",
+    "shell:",
+    "total ",
+    "free ",
+    "cpu type",
+    "processor",
+    "information:",
+    "generated command",
+    "replacing xx",
+];
+
+const SHELL_LANG_TAGS: &[&str] = &["bash", "sh", "zsh", "shell", "console"];
+
+fn push_candidate(out: &mut Vec<(Source, String)>, src: Source, raw_cmd: &str, q_keywords: &[String]) {
+    let cmd = normalize_command(raw_cmd);
+    if cmd.is_empty() {
+        return;
+    }
+    if !looks_like_command(&cmd) {
+        return;
+    }
+
+    let high_conf = matches!(
+        src,
+        Source::ExplicitPrefix | Source::CodeFence | Source::InlineBackticks
+    );
+    if !high_conf && !matches_query(&cmd, q_keywords) {
+        return;
+    }
+
+    out.push((src, cmd));
+}
+
+fn has_shell_signal(s: &str) -> bool {
+    s.contains('|')
+        || s.contains("&&")
+        || s.contains("||")
+        || s.contains(';')
+        || s.contains(" -")
+        || s.contains("--")
+        || s.contains(">/")
+        || s.contains("</")
+        || s.contains("$(")
+        || s.contains('`')
+        || s.contains('/')
+}
+
+fn normalize_command(mut s: &str) -> String {
+    s = s.trim();
+
+    for p in ["$ ", "# ", "> "] {
+        if let Some(rest) = s.strip_prefix(p) {
+            s = rest.trim_start();
+            break;
+        }
+    }
+
+    for shell in ["bash", "sh", "zsh"] {
+        if let Some(rest) = s.strip_prefix(shell) {
+            let rest_trim = rest.trim_start();
+            if !rest_trim.starts_with('-') {
+                s = rest_trim;
+                break;
+            }
+        }
+    }
+
+    s.trim()
+        .trim_matches('`')
+        .trim_matches('"')
+        .trim_matches('\'')
+        .trim()
+        .trim_end_matches(';')
+        .trim_end_matches('.')
+        .trim()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+fn looks_like_command(s: &str) -> bool {
+    let t = s.trim();
+    if t.is_empty() {
+        return false;
+    }
+
+    if t.starts_with("```") {
+        return false;
+    }
+
+    let lower = t.to_ascii_lowercase();
+    let has_shell_signal = has_shell_signal(t);
+
+    if BAD_PREFIXES.iter().any(|p| lower.starts_with(p)) && !has_shell_signal {
+        return false;
+    }
+
+    if t.starts_with('[')
+        || (t.chars().next().is_some_and(|c| c.is_ascii_digit()) && t.contains("] "))
+    {
+        return false;
+    }
+
+    if lower.contains("http://") || lower.contains("https://") {
+        return false;
+    }
+
+    if t.starts_with('-') || t.starts_with('*') || t.starts_with('•') {
+        return false;
+    }
+    if t.chars().next().is_some_and(|c| c.is_ascii_digit()) {
+        let rest: String = t.chars().skip_while(|c| c.is_ascii_digit()).collect();
+        let r = rest.trim_start();
+        if r.starts_with('.') || r.starts_with(')') {
+            return false;
+        }
+    }
+
+    if t.ends_with(':') {
+        return false;
+    }
+
+    if SHELL_LANG_TAGS.contains(&lower.as_str()) {
+        return false;
+    }
+
+    let first = t.split_whitespace().next().unwrap_or("");
+    if first.is_empty() {
+        return false;
+    }
+    if !first
+        .chars()
+        .all(|c| c.is_ascii_alphanumeric() || "_-./".contains(c))
+    {
+        return false;
+    }
+
+    let sentencey = lower.contains(" you ")
+        || lower.contains(" this ")
+        || lower.contains(" should ")
+        || lower.contains(" able ")
+        || lower.contains(" provides ")
+        || lower.contains(" display ")
+        || lower.starts_with("get ")
+        || lower.starts_with("show ")
+        || lower.starts_with("check ")
+        || lower.starts_with("list ")
+        || lower.starts_with("find ")
+        || lower.starts_with("display ")
+        || lower.starts_with("retrieve ")
+        || lower.starts_with("execute ")
+        || lower.starts_with("run ")
+        || lower.starts_with("install ")
+        || lower.starts_with("download ")
+        || lower.starts_with("create ")
+        || lower.starts_with("make ")
+        || lower.starts_with("please ")
+        || lower.starts_with("use ")
+        || lower.starts_with("here ")
+        || lower.starts_with("you'll");
+
+    let tokens: Vec<&str> = t.split_whitespace().collect();
+    let first_tok = tokens.first().copied().unwrap_or("");
+    let second_tok = tokens.get(1).copied().unwrap_or("");
+    let allow_no_signal = matches!(first_tok, "systemctl" | "service")
+        || (first_tok == "sudo" && matches!(second_tok, "systemctl" | "service"));
+
+    if sentencey && !has_shell_signal {
+        return false;
+    }
+
+    let token_count = t.split_whitespace().count();
+    if token_count == 1 {
+        return true;
+    }
+
+    if token_count >= 2 && !has_shell_signal && !allow_no_signal {
+        return false;
+    }
+
+    true
 }

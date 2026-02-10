@@ -92,29 +92,11 @@ impl CommandPlanner {
             }
         }
 
-        // Fallback extraction - simple heuristic parsing
-        let command = if cleaned.starts_with("run ") {
-            cleaned[4..].trim().to_string()
-        } else if cleaned.starts_with("execute ") {
-            cleaned[8..].trim().to_string()
-        } else if cleaned.contains("command:") {
-            cleaned
-                .split("command:")
-                .nth(1)
-                .unwrap_or("")
-                .trim()
-                .to_string()
-        } else {
-            cleaned.to_string()
-        };
-
-        let command = normalize_command_candidate(&command);
-
-        if command.is_empty() {
-            Err(CommandPlannerError::CannotExtractCommand)
-        } else {
-            Ok(command)
+        if let Some(command) = shared::command_extraction::extract_best_command(cleaned, "") {
+            return Ok(command);
         }
+
+        Err(CommandPlannerError::CannotExtractCommand)
     }
 
     fn generate_description(&self, input: &str, _command: &str) -> String {
