@@ -510,6 +510,8 @@ impl IntegratedNeurosymbolicService {
         learning_context: Option<&str>,
         trace: &mut Vec<String>,
     ) -> Result<Vec<GeneratedCommand>> {
+        self.ensure_knowledge_graph_initialized();
+
         let registry = self
             .domain_registry
             .as_ref()
@@ -532,6 +534,19 @@ impl IntegratedNeurosymbolicService {
         let (_, operation) = registry
             .get_operation(&resolved.op_id)
             .ok_or_else(|| anyhow!("Resolved operation not found"))?;
+
+        if let Some(service) = resolved.inputs.get("service").and_then(|v| v.as_str()) {
+            if operation.input_schema.contains_key("service") && !self.is_service_known(service) {
+                trace.push(format!(
+                    "  KnowledgeGraph: service '{}' not found; blocking",
+                    service
+                ));
+                return Err(anyhow!(
+                    "Unknown service in knowledge graph: {}",
+                    service
+                ));
+            }
+        }
 
         if self.requires_service_input(operation, &resolved) {
             return Err(anyhow!("Missing required service input"));
@@ -572,6 +587,14 @@ impl IntegratedNeurosymbolicService {
             let mut command = candidate.command.clone();
             let mut induced_warnings = Vec::new();
             trace.push(format!("  Candidate: {}", command));
+
+            if !self.is_tool_available(&candidate.tool) {
+                trace.push(format!(
+                    "  Skipping unavailable tool: {}",
+                    candidate.tool
+                ));
+                continue;
+            }
 
             if let Some(engine) = &self.induction_engine {
                 if let Ok(result) = engine.evaluate_command(&command) {
@@ -645,6 +668,8 @@ impl IntegratedNeurosymbolicService {
     }
 
     fn apply_knowledge_graph_hints(&self, query: &str, trace: &mut Vec<String>) {
+        self.ensure_knowledge_graph_initialized();
+
         let Ok(graph) = KnowledgeGraph::new(&self.knowledge_graph_path) else {
             return;
         };
@@ -660,6 +685,39 @@ impl IntegratedNeurosymbolicService {
                 }
             }
         }
+    }
+
+    fn is_service_known(&self, service: &str) -> bool {
+        self.ensure_knowledge_graph_initialized();
+
+        let Ok(graph) = KnowledgeGraph::new(&self.knowledge_graph_path) else {
+            return true; // do not block if KG unavailable
+        };
+        if let Ok(Some(_)) = graph.find_entity(EntityType::Service, service) {
+            return true;
+        }
+        false
+    }
+
+    fn ensure_knowledge_graph_initialized(&self) {
+        let Ok(graph) = KnowledgeGraph::new(&self.knowledge_graph_path) else {
+            return;
+        };
+        if let Ok((entities, _)) = graph.stats() {
+            if entities > 0 {
+                return;
+            }
+        }
+        if let Ok(builder) = GraphBuilder::new() {
+            let _ = builder.discover_system();
+        }
+    }
+
+    fn is_tool_available(&self, tool: &str) -> bool {
+        self.domain_registry
+            .as_ref()
+            .map(|registry| registry.is_tool_available(tool))
+            .unwrap_or(true)
     }
 
     fn requires_service_input(
@@ -1350,6 +1408,9 @@ mod tests {
         graph
             .add_entity(EntityType::Service, "nginx", HashMap::new())
             .unwrap();
+        graph
+            .add_entity(EntityType::OperatingSystem, "linux", HashMap::new())
+            .unwrap();
 
         let mut service = IntegratedNeurosymbolicService::with_config(NeurosymbolicConfig {
             enable_safety: true,
@@ -1369,6 +1430,30 @@ mod tests {
                 .any(|t| t.contains("KnowledgeGraph: service 'nginx' known")),
             "Expected knowledge graph hint in trace"
         );
+    }
+
+    #[test]
+    fn test_unknown_service_blocked_by_knowledge_graph() {
+        let _guard = setup_temp_home_with_domain();
+        let home = std::env::var("HOME").unwrap();
+        let graph_path = PathBuf::from(home).join(".config/vibe_cli/knowledge_graph.db");
+        let graph = KnowledgeGraph::new(graph_path).unwrap();
+        graph
+            .add_entity(EntityType::OperatingSystem, "linux", HashMap::new())
+            .unwrap();
+
+        let mut service = IntegratedNeurosymbolicService::with_config(NeurosymbolicConfig {
+            enable_safety: true,
+            enable_manpage_validation: false,
+            enable_learning: false,
+            block_on_safety: true,
+            block_on_invalid_syntax: true,
+        })
+        .unwrap();
+        service.reload_domain_registry().unwrap();
+
+        let result = service.process("service status definitelynotaservice123");
+        assert!(result.is_err(), "Expected unknown service to be blocked");
     }
 
     #[test]
