@@ -22,7 +22,20 @@ pub fn blocked_reason(command: &str) -> Option<BlockedCommand> {
     }
 
     // Power / disruption actions
-    let bad_anywhere = ["shutdown", "reboot", "poweroff", ":(){", "killall"];
+    let bad_anywhere = [
+        "shutdown",
+        "reboot",
+        "poweroff",
+        "halt",
+        "init 0",
+        "telinit 0",
+        "systemctl reboot",
+        "systemctl poweroff",
+        "systemctl halt",
+        "systemctl shutdown",
+        ":(){",
+        "killall",
+    ];
     if bad_anywhere.iter().any(|b| c.contains(b)) {
         return Some(BlockedCommand {
             reason: "disruptive command".to_string(),
@@ -48,10 +61,27 @@ pub fn blocked_reason(command: &str) -> Option<BlockedCommand> {
         "fdisk",
         "sfdisk",
         "parted",
+        "sgdisk",
+        "wipefs",
         "dd of=",
         "> /dev",
         "< /dev",
         "2> /dev",
+        "chmod -r 777 /",
+        "chmod -r 666 /",
+        "chown -r /",
+        "curl | sh",
+        "curl | bash",
+        "wget | sh",
+        "wget | bash",
+        "bash <(",
+        "sh <(",
+        "drop database",
+        "drop schema",
+        "delete from",
+        "git push --force",
+        "git push -f",
+        "git reset --hard",
     ];
     if dangerous_patterns.iter().any(|pattern| c.contains(pattern)) {
         return Some(BlockedCommand {

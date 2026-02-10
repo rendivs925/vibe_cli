@@ -158,6 +158,7 @@ impl HardRules {
             Self::service_disruption(),
             Self::kill_init(),
             Self::stop_ssh_while_connected(),
+            Self::system_power_actions(),
             Self::data_destruction(),
             Self::shred_system_files(),
             Self::write_to_disk_device(),
@@ -426,6 +427,26 @@ impl HardRules {
             ],
             true,
             Some("You appear to be connected via SSH. Stopping SSH will disconnect you. Ensure you have console access."),
+        )
+    }
+
+    fn system_power_actions() -> SafetyRule {
+        Self::rule(
+            "SAFETY-013A",
+            "System Power Actions",
+            "Shutting down or rebooting the system",
+            ViolationType::ServiceDisruption,
+            RuleAction::Block,
+            vec![
+                r"\bshutdown\b",
+                r"\breboot\b",
+                r"\bpoweroff\b",
+                r"\bhalt\b",
+                r"systemctl\s+(reboot|poweroff|halt|shutdown)",
+                r"(telinit|init)\s+0",
+            ],
+            true,
+            Some("Power actions interrupt all services and can cause data loss. Use maintenance windows and ensure you have console access."),
         )
     }
 
