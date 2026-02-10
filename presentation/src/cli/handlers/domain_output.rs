@@ -76,7 +76,7 @@ Return a concise final summary in up to 5 bullets. Highlight errors and key resu
             let mut buffer = String::new();
             let mut summary = String::new();
 
-            let mut flush = |chunk: &str, summary: &str| -> Option<String> {
+            let flush = |chunk: &str, summary: &str| -> Option<String> {
                 if chunk.trim().is_empty() {
                     return None;
                 }

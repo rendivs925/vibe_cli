@@ -211,7 +211,7 @@ impl CliHandlers {
         let dispatcher = {
             let out_buf = Arc::clone(&out_buf);
             let err_buf = Arc::clone(&err_buf);
-            let sink = sink.clone();
+            let sink = sink;
             thread::spawn(move || {
                 let mut chunk: Vec<OutputLine> = Vec::with_capacity(3);
                 for line in line_rx {
@@ -306,7 +306,7 @@ pub(crate) enum OutputLine {
     ChunkEnd,
 }
 
-#[derive(Clone, Debug)]
+#[derive(Debug)]
 pub(crate) struct OutputSink {
     pub tx: mpsc::Sender<OutputLine>,
     pub ack: mpsc::Receiver<()>,
