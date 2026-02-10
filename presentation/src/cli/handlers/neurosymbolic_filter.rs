@@ -61,6 +61,13 @@ impl CliHandlers {
         };
 
         let mut suggestion = service.suggest_commands_from_domains(query);
+        if suggestion
+            .as_ref()
+            .map(|s| s.confidence < 0.5)
+            .unwrap_or(false)
+        {
+            suggestion = None;
+        }
         let allowed_normalized = allowed_commands.map(normalize_set);
 
         if let Some(allowed) = &allowed_normalized {
