@@ -3,6 +3,7 @@ use colored::Colorize;
 use infrastructure::storage::experience_buffer::FailureType;
 use shared::confirmation::ask_confirmation;
 use shared::types::{Message, Result};
+use std::sync::mpsc;
 
 impl CliHandlers {
     pub async fn handle_neurosymbolic(
@@ -113,7 +114,15 @@ impl CliHandlers {
             return Ok(());
         };
 
-        let output = self.run_shell_command_streaming(&cmd)?;
+        let output = if ai_interpret {
+            let (tx, rx) = mpsc::channel();
+            let handle = self.spawn_incremental_interpreter(query, rx);
+            let result = self.run_shell_command_streaming_with_sink(&cmd, Some(tx))?;
+            let _ = handle.join();
+            result
+        } else {
+            self.run_shell_command_streaming(&cmd)?
+        };
         if ai_interpret {
             self.interpret_output(query, &output.full_output).await?;
         } else {
@@ -154,7 +163,15 @@ impl CliHandlers {
         cmd: &str,
         ai_interpret: bool,
     ) -> Result<()> {
-        let output = self.run_shell_command_streaming(cmd)?;
+        let output = if ai_interpret {
+            let (tx, rx) = mpsc::channel();
+            let handle = self.spawn_incremental_interpreter(query, rx);
+            let result = self.run_shell_command_streaming_with_sink(cmd, Some(tx))?;
+            let _ = handle.join();
+            result
+        } else {
+            self.run_shell_command_streaming(cmd)?
+        };
         if ai_interpret {
             self.interpret_output(query, &output.full_output).await?;
         } else {

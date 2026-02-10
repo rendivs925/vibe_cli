@@ -25,7 +25,7 @@ use shared::types::Result;
 use std::io::{BufRead, BufReader};
 use std::path::PathBuf;
 use std::process::{Command, ExitStatus, Stdio};
-use std::sync::{Arc, Mutex};
+use std::sync::{mpsc, Arc, Mutex};
 use std::thread;
 
 pub struct CliHandlers {
@@ -160,6 +160,14 @@ impl CliHandlers {
     }
 
     fn run_shell_command_streaming(&self, cmd: &str) -> Result<CommandOutput> {
+        self.run_shell_command_streaming_with_sink(cmd, None)
+    }
+
+    fn run_shell_command_streaming_with_sink(
+        &self,
+        cmd: &str,
+        sink: Option<mpsc::Sender<OutputLine>>,
+    ) -> Result<CommandOutput> {
         let mut child = Command::new("bash")
             .arg("-c")
             .arg(cmd)
@@ -174,11 +182,15 @@ impl CliHandlers {
         let err_buf = Arc::new(Mutex::new(String::new()));
 
         let out_buf_clone = Arc::clone(&out_buf);
+        let out_sender = sink.clone();
         let stdout_handle = thread::spawn(move || {
             let reader = BufReader::new(stdout);
             for line in reader.lines() {
                 if let Ok(line) = line {
                     println!("{}", line);
+                    if let Some(ref sender) = out_sender {
+                        let _ = sender.send(OutputLine::Stdout(line.clone()));
+                    }
                     if let Ok(mut buf) = out_buf_clone.lock() {
                         buf.push_str(&line);
                         buf.push('\n');
@@ -188,11 +200,15 @@ impl CliHandlers {
         });
 
         let err_buf_clone = Arc::clone(&err_buf);
+        let err_sender = sink.clone();
         let stderr_handle = thread::spawn(move || {
             let reader = BufReader::new(stderr);
             for line in reader.lines() {
                 if let Ok(line) = line {
                     eprintln!("{}", line);
+                    if let Some(ref sender) = err_sender {
+                        let _ = sender.send(OutputLine::Stderr(line.clone()));
+                    }
                     if let Ok(mut buf) = err_buf_clone.lock() {
                         buf.push_str(&line);
                         buf.push('\n');
@@ -240,6 +256,12 @@ struct CommandOutput {
     stderr: String,
     full_output: String,
     status: ExitStatus,
+}
+
+#[derive(Clone, Debug)]
+pub(crate) enum OutputLine {
+    Stdout(String),
+    Stderr(String),
 }
 
 impl From<std::process::Output> for CommandOutput {
