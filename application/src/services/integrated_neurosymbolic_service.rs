@@ -290,6 +290,13 @@ impl IntegratedNeurosymbolicService {
         })
     }
 
+    pub fn has_enabled_domains(&self) -> bool {
+        self.domain_registry
+            .as_ref()
+            .map(|registry| !registry.enabled_domains().is_empty())
+            .unwrap_or(false)
+    }
+
     pub fn suggest_commands_from_domains(&self, query: &str) -> Option<SymbolicCommandSuggestion> {
         let registry = self.domain_registry.as_ref()?;
         let resolved = registry.resolve_operation(query)?;

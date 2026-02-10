@@ -63,7 +63,7 @@ Intelligent command generation through JSON configurations:
 
 ### Workflow
 
-Every request goes through a deterministic pipeline. `--neurosymbolic` uses the LLM to propose commands, then validates them against the symbolic domain. If validation fails, it self-critiques and retries; otherwise it falls back to standard LLM generation:
+When domains are installed, every request goes through a deterministic pipeline. The CLI uses the LLM to propose commands, then validates them against the symbolic domain. If validation fails, it self-critiques and retries; otherwise it falls back to standard LLM generation:
 
 1. **LLM Propose**: Generate candidate commands (normal LLM output).
 2. **Symbolic Verification**: Match the candidates against domain operation templates (fuzzy similarity).
@@ -92,9 +92,9 @@ sudo mv target/release/vibe_cli /usr/local/bin/vibe_cli
 # Initialize neurosymbolic domain
 vibe_cli --neurosymbolic-init
 
-# Query examples
-vibe_cli --neurosymbolic "list processes"
-vibe_cli --neurosymbolic "show my gpu name"
+# Query examples (neurosymbolic when domains are installed)
+vibe_cli "list processes"
+vibe_cli "show my gpu name"
 vibe_cli "find all .rs files larger than 1MB"
 ```
 
@@ -124,11 +124,9 @@ vibe_cli --agent "collect system health: disk, cpu, memory"
 ### AI Output Interpretation
 
 ```bash
-# With standard query
+# With standard query (or neurosymbolic if domains are installed)
 vibe_cli --ai-interpret "list processes"
-
-# With neurosymbolic (executes multiple commands, then summarizes)
-vibe_cli --neurosymbolic --ai-interpret "show my gpu name"
+vibe_cli --ai-interpret "show my gpu name"
 ```
 
 ---
@@ -139,12 +137,12 @@ vibe_cli --neurosymbolic --ai-interpret "show my gpu name"
 # Initialize domain
 vibe_cli --neurosymbolic-init
 
-# Query with symbolic reasoning
-vibe_cli --neurosymbolic "list processes"
-vibe_cli --neurosymbolic "check memory usage"
-vibe_cli --neurosymbolic "nginx is not running"
-vibe_cli --neurosymbolic "show my gpu name"
-vibe_cli --neurosymbolic "check last 20 lines journalctl"
+# Query with symbolic reasoning (default when domains are installed)
+vibe_cli "list processes"
+vibe_cli "check memory usage"
+vibe_cli "nginx is not running"
+vibe_cli "show my gpu name"
+vibe_cli "check last 20 lines journalctl"
 
 # Domain management
 vibe_cli --neurosymbolic-list                    # List domains
@@ -222,7 +220,7 @@ Execution
 When neurosymbolic matching fails and the LLM fallback succeeds, you can teach the system new commands:
 
 ```bash
-$ vibe_cli --neurosymbolic "check last 20 lines journalctl"
+$ vibe_cli "check last 20 lines journalctl"
 # Falls back to LLM, executes successfully
 
 Command succeeded! Learn this for future queries? [y/N]

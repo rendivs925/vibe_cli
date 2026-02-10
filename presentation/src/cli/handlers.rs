@@ -128,6 +128,13 @@ impl CliHandlers {
         }
     }
 
+    pub fn has_neurosymbolic_domains(&self) -> bool {
+        self.integrated_service
+            .as_ref()
+            .map(|service| service.has_enabled_domains())
+            .unwrap_or(false)
+    }
+
     fn default_cache_dir() -> PathBuf {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
         let mut path = PathBuf::from(home);
@@ -1116,10 +1123,10 @@ User request: {}",
         println!("  - 21 reasoning templates for step-by-step diagnostics");
 
         println!("\n{}", "Usage:".green());
-        println!("  vibe_cli --neurosymbolic \"list processes\"");
-        println!("  vibe_cli --neurosymbolic \"check disk usage\"");
-        println!("  vibe_cli --neurosymbolic \"nginx is not running\"");
-        println!("  vibe_cli --neurosymbolic \"memory is full\"");
+        println!("  vibe_cli \"list processes\"");
+        println!("  vibe_cli \"check disk usage\"");
+        println!("  vibe_cli \"nginx is not running\"");
+        println!("  vibe_cli \"memory is full\"");
 
         Ok(())
     }
@@ -1356,7 +1363,7 @@ User request: {}",
         }
 
         println!("\n{}", "Usage:".green());
-        println!("  vibe_cli --neurosymbolic \"your query\"");
+        println!("  vibe_cli \"your query\"");
         println!("  vibe_cli --neurosymbolic-edit <domain>  # Edit a domain");
         println!("  vibe_cli --neurosymbolic-remove <domain>  # Remove a domain");
 
