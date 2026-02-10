@@ -457,10 +457,13 @@ impl HardRules {
             ViolationType::DataDestruction,
             RuleAction::Block,
             vec![
-                r"shred\s+.*-u\s+/", r"shred\s+.*--remove\s+/"
+                r"shred\s+.*-u\s+/",
+                r"shred\s+.*--remove\s+/",
             ],
             true,
-            Some(,
+            Some(
+                "Shred with removal permanently destroys data. Double-check your target path.",
+            ),
         )
     }
 
@@ -497,7 +500,9 @@ impl HardRules {
                 r"sudo\s+dd\s+.*of=/dev/",
             ],
             true,
-            Some(,
+            Some(
+                "Sudo amplifies the danger of destructive commands. Double-check before executing.",
+            ),
         )
     }
 
@@ -526,10 +531,14 @@ impl HardRules {
             ViolationType::SudoMisuse,
             RuleAction::Warn,
             vec![
-                r"sudo\s+(bash|sh|zsh|fish)$", r"sudo\s+-i$", r"sudo\s+su$"
+                r"sudo\s+(bash|sh|zsh|fish)$",
+                r"sudo\s+-i$",
+                r"sudo\s+su$",
             ],
             true,
-            Some(,
+            Some(
+                "Root shells bypass all safety checks. Use sudo for specific commands instead.",
+            ),
         )
     }
 
@@ -599,7 +608,9 @@ impl HardRules {
                 r"git\s+reset\s+--hard",
             ],
             true,
-            Some(,
+            Some(
+                "Force push and hard reset can permanently lose work. Ensure you have backups.",
+            ),
         )
     }
 
@@ -631,7 +642,9 @@ impl HardRules {
                 r"git\s+reset\s+--hard\s+~\d+",
             ],
             true,
-            Some(,
+            Some(
+                "Hard reset permanently deletes uncommitted changes. Stash or commit first.",
+            ),
         )
     }
 
@@ -645,7 +658,9 @@ impl HardRules {
             ViolationType::DatabaseDestruction,
             RuleAction::Warn,
             vec![
-                r"mysql\s+.*DROP", r"psql\s+.*DROP", r"mongo\s+.*drop"
+                r"mysql\s+.*DROP",
+                r"psql\s+.*DROP",
+                r"mongo\s+.*drop",
             ],
             true,
             Some("Database operations cannot be undone. Ensure you have backups."),
@@ -660,10 +675,13 @@ impl HardRules {
             ViolationType::DatabaseDestruction,
             RuleAction::Block,
             vec![
-                r"DROP\s+DATABASE\s+\w+", r"DROP\s+SCHEMA\s+\w+"
+                r"DROP\s+DATABASE\s+\w+",
+                r"DROP\s+SCHEMA\s+\w+",
             ],
             true,
-            Some(,
+            Some(
+                "Dropping a database destroys all data. Ensure you have verified backups.",
+            ),
         )
     }
 
@@ -680,7 +698,9 @@ impl HardRules {
                 r"DELETE\s+\w+\s+FROM\s+\w+\s*$",
             ],
             true,
-            Some(,
+            Some(
+                "DELETE without WHERE removes all rows. Add a WHERE clause to limit scope.",
+            ),
         )
     }
 }
