@@ -34,16 +34,18 @@ impl RiskLevel {
 
     pub fn from_score(score: f32) -> Self {
         if score < 0.2 {
-            RiskLevel::Minimal
-        } else if score < 0.4 {
-            RiskLevel::Low
-        } else if score < 0.6 {
-            RiskLevel::Medium
-        } else if score < 0.8 {
-            RiskLevel::High
-        } else {
-            RiskLevel::Critical
+            return RiskLevel::Minimal;
         }
+        if score < 0.4 {
+            return RiskLevel::Low;
+        }
+        if score < 0.6 {
+            return RiskLevel::Medium;
+        }
+        if score < 0.8 {
+            return RiskLevel::High;
+        }
+        RiskLevel::Critical
     }
 }
 
@@ -114,49 +116,43 @@ impl RiskScorer {
         let mut total_weight = 0.0;
         let mut weighted_score = 0.0;
 
-        // Destructiveness factor
-        let destruct_factor = self.assess_destructiveness(command);
-        let destruct_weight = self.weights[&RiskCategory::Destructiveness];
-        factors.push(destruct_factor.clone());
-        weighted_score += destruct_factor.score * destruct_weight;
-        total_weight += destruct_weight;
+        self.push_factor(
+            &mut factors,
+            &mut total_weight,
+            &mut weighted_score,
+            self.assess_destructiveness(command),
+        );
+        self.push_factor(
+            &mut factors,
+            &mut total_weight,
+            &mut weighted_score,
+            self.assess_target_sensitivity(command),
+        );
+        self.push_factor(
+            &mut factors,
+            &mut total_weight,
+            &mut weighted_score,
+            self.assess_permission_requirements(command),
+        );
+        self.push_factor(
+            &mut factors,
+            &mut total_weight,
+            &mut weighted_score,
+            self.assess_historical_success(query),
+        );
+        self.push_factor(
+            &mut factors,
+            &mut total_weight,
+            &mut weighted_score,
+            self.assess_system_impact(command),
+        );
+        self.push_factor(
+            &mut factors,
+            &mut total_weight,
+            &mut weighted_score,
+            self.assess_scope(command),
+        );
 
-        // Target sensitivity factor
-        let target_factor = self.assess_target_sensitivity(command);
-        let target_weight = self.weights[&RiskCategory::TargetSensitivity];
-        factors.push(target_factor.clone());
-        weighted_score += target_factor.score * target_weight;
-        total_weight += target_weight;
-
-        // Permission requirements factor
-        let perm_factor = self.assess_permission_requirements(command);
-        let perm_weight = self.weights[&RiskCategory::PermissionRequirements];
-        factors.push(perm_factor.clone());
-        weighted_score += perm_factor.score * perm_weight;
-        total_weight += perm_weight;
-
-        // Historical success factor
-        let history_factor = self.assess_historical_success(query);
-        let history_weight = self.weights[&RiskCategory::HistoricalSuccess];
-        factors.push(history_factor.clone());
-        weighted_score += history_factor.score * history_weight;
-        total_weight += history_weight;
-
-        // System impact factor
-        let impact_factor = self.assess_system_impact(command);
-        let impact_weight = self.weights[&RiskCategory::SystemImpact];
-        factors.push(impact_factor.clone());
-        weighted_score += impact_factor.score * impact_weight;
-        total_weight += impact_weight;
-
-        // Scope factor
-        let scope_factor = self.assess_scope(command);
-        let scope_weight = self.weights[&RiskCategory::Scope];
-        factors.push(scope_factor.clone());
-        weighted_score += scope_factor.score * scope_weight;
-        total_weight += scope_weight;
-
-        // Calculate final score
         let overall_score = if total_weight > 0.0 {
             weighted_score / total_weight
         } else {
@@ -331,41 +327,40 @@ impl RiskScorer {
 
     /// Assess historical success rate
     fn assess_historical_success(&self, query: &str) -> RiskFactor {
-        if let Some(ref buffer) = self.experience_buffer {
-            match buffer.get_success_rate(query) {
-                Ok(rate) => {
-                    let score = 1.0 - rate; // Higher failure rate = higher risk
-                    let description = if rate < 0.3 {
-                        "Very low historical success rate"
-                    } else if rate < 0.5 {
-                        "Low historical success rate"
-                    } else if rate < 0.7 {
-                        "Moderate historical success rate"
-                    } else {
-                        "Good historical success rate"
-                    };
-
-                    RiskFactor {
-                        category: RiskCategory::HistoricalSuccess,
-                        description: description.to_string(),
-                        score,
-                        weight: self.weights[&RiskCategory::HistoricalSuccess],
-                    }
-                }
-                Err(_) => RiskFactor {
-                    category: RiskCategory::HistoricalSuccess,
-                    description: "No historical data available".to_string(),
-                    score: 0.5,
-                    weight: self.weights[&RiskCategory::HistoricalSuccess],
-                },
-            }
-        } else {
-            RiskFactor {
+        let Some(ref buffer) = self.experience_buffer else {
+            return RiskFactor {
                 category: RiskCategory::HistoricalSuccess,
                 description: "Experience buffer not configured".to_string(),
                 score: 0.5,
                 weight: self.weights[&RiskCategory::HistoricalSuccess],
-            }
+            };
+        };
+
+        let Ok(rate) = buffer.get_success_rate(query) else {
+            return RiskFactor {
+                category: RiskCategory::HistoricalSuccess,
+                description: "No historical data available".to_string(),
+                score: 0.5,
+                weight: self.weights[&RiskCategory::HistoricalSuccess],
+            };
+        };
+
+        let score = 1.0 - rate; // Higher failure rate = higher risk
+        let description = if rate < 0.3 {
+            "Very low historical success rate"
+        } else if rate < 0.5 {
+            "Low historical success rate"
+        } else if rate < 0.7 {
+            "Moderate historical success rate"
+        } else {
+            "Good historical success rate"
+        };
+
+        RiskFactor {
+            category: RiskCategory::HistoricalSuccess,
+            description: description.to_string(),
+            score,
+            weight: self.weights[&RiskCategory::HistoricalSuccess],
         }
     }
 
@@ -429,26 +424,27 @@ impl RiskScorer {
     fn assess_scope(&self, command: &str) -> RiskFactor {
         if command.contains(" -r ") || command.contains(" -R ") || command.contains(" --recursive")
         {
-            RiskFactor {
+            return RiskFactor {
                 category: RiskCategory::Scope,
                 description: "Recursive operation (affects multiple files/directories)".to_string(),
                 score: 0.7,
                 weight: self.weights[&RiskCategory::Scope],
-            }
-        } else if command.contains("*") || command.contains("?") {
-            RiskFactor {
+            };
+        }
+        if command.contains('*') || command.contains('?') {
+            return RiskFactor {
                 category: RiskCategory::Scope,
                 description: "Wildcard operation (affects multiple files)".to_string(),
                 score: 0.5,
                 weight: self.weights[&RiskCategory::Scope],
-            }
-        } else {
-            RiskFactor {
-                category: RiskCategory::Scope,
-                description: "Single target operation".to_string(),
-                score: 0.2,
-                weight: self.weights[&RiskCategory::Scope],
-            }
+            };
+        }
+
+        RiskFactor {
+            category: RiskCategory::Scope,
+            description: "Single target operation".to_string(),
+            score: 0.2,
+            weight: self.weights[&RiskCategory::Scope],
         }
     }
 
@@ -463,10 +459,9 @@ impl RiskScorer {
             .any(|f| f.category == RiskCategory::HistoricalSuccess && f.score != 0.5);
 
         if has_history {
-            coverage * 1.0
-        } else {
-            coverage * 0.8
+            return coverage;
         }
+        coverage * 0.8
     }
 
     /// Generate mitigation steps based on risk factors
@@ -500,6 +495,19 @@ impl RiskScorer {
         }
 
         mitigations
+    }
+
+    fn push_factor(
+        &self,
+        factors: &mut Vec<RiskFactor>,
+        total_weight: &mut f32,
+        weighted_score: &mut f32,
+        factor: RiskFactor,
+    ) {
+        let weight = self.weights[&factor.category];
+        *weighted_score += factor.score * weight;
+        *total_weight += weight;
+        factors.push(factor);
     }
 
     /// Format risk profile for display

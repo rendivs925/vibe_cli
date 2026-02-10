@@ -68,14 +68,7 @@ impl DomainRegistry {
         let loader = DomainLoader::new(prebuilt_base, user_base.clone(), shared_base.clone());
         let domains = loader.load_all()?;
 
-        let mut entities = HashMap::new();
-        for (_name, domain) in &domains {
-            for (entity_name, entity) in &domain.entities {
-                if !entities.contains_key(entity_name) {
-                    entities.insert(entity_name.clone(), entity.clone());
-                }
-            }
-        }
+        let entities = Self::collect_entities(&domains);
 
         Ok(Self {
             domains,
@@ -143,20 +136,7 @@ impl DomainRegistry {
         }
 
         // Find best matching operation by fuzzy intent similarity
-        let mut best_match: Option<(f32, &Operation)> = None;
-
-        for op in &domain.operations {
-            let confidence = self.score_text_match(intent, op);
-            if confidence <= 0.0 {
-                continue;
-            }
-
-            if best_match.map(|(c, _)| confidence > c).unwrap_or(true) {
-                best_match = Some((confidence, op));
-            }
-        }
-
-        if let Some((confidence, op)) = best_match {
+        if let Some((confidence, op)) = self.best_operation_match(intent, &domain.operations) {
             return Some(IntentMatch {
                 domain: domain.id.clone(),
                 confidence,
@@ -198,6 +178,7 @@ impl DomainRegistry {
 
     /// Get operation by ID from any domain
     pub fn get_operation(&self, op_id: &str) -> Option<(&Domain, &Operation)> {
+        let op_lower = op_id.to_lowercase();
         for domain in self.enabled_domains() {
             if let Some(op) = domain.operations.iter().find(|o| o.id == op_id) {
                 return Some((domain, op));
@@ -205,7 +186,7 @@ impl DomainRegistry {
             if let Some(op) = domain
                 .operations
                 .iter()
-                .find(|o| o.name.to_lowercase() == op_id.to_lowercase())
+                .find(|o| o.name.to_lowercase() == op_lower)
             {
                 return Some((domain, op));
             }
@@ -237,11 +218,12 @@ impl DomainRegistry {
 
     /// Get relationship by name
     pub fn get_relationship(&self, name: &str) -> Option<&Relationship> {
+        let name_lower = name.to_lowercase();
         for domain in self.enabled_domains() {
             if let Some(rel) = domain
                 .relationships
                 .iter()
-                .find(|r| r.name.to_lowercase() == name.to_lowercase())
+                .find(|r| r.name.to_lowercase() == name_lower)
             {
                 return Some(rel);
             }
@@ -252,15 +234,16 @@ impl DomainRegistry {
     /// Find related entities through relationships
     pub fn get_related_entities(&self, entity_name: &str) -> Vec<&Entity> {
         let mut related = Vec::new();
+        let entity_lower = entity_name.to_lowercase();
 
         for domain in self.enabled_domains() {
             for rel in &domain.relationships {
-                if rel.from_entity.to_lowercase() == entity_name.to_lowercase() {
+                if rel.from_entity.to_lowercase() == entity_lower {
                     if let Some(e) = self.entities.get(&rel.to_entity) {
                         related.push(e);
                     }
                 }
-                if rel.to_entity.to_lowercase() == entity_name.to_lowercase() {
+                if rel.to_entity.to_lowercase() == entity_lower {
                     if let Some(e) = self.entities.get(&rel.from_entity) {
                         related.push(e);
                     }
@@ -327,11 +310,12 @@ impl DomainRegistry {
         &self,
         pattern_id: &str,
     ) -> Option<(&Domain, &TroubleshootingPattern)> {
+        let pattern_lower = pattern_id.to_lowercase();
         for domain in self.enabled_domains() {
             if let Some(pattern) = domain
                 .troubleshooting_patterns
                 .iter()
-                .find(|p| p.id.to_lowercase() == pattern_id.to_lowercase())
+                .find(|p| p.id.to_lowercase() == pattern_lower)
             {
                 return Some((domain, pattern));
             }
@@ -373,11 +357,12 @@ impl DomainRegistry {
         &self,
         template_id: &str,
     ) -> Option<(&Domain, &ReasoningTemplate)> {
+        let template_lower = template_id.to_lowercase();
         for domain in self.enabled_domains() {
             if let Some(template) = domain
                 .reasoning_templates
                 .iter()
-                .find(|t| t.id.to_lowercase() == template_id.to_lowercase())
+                .find(|t| t.id.to_lowercase() == template_lower)
             {
                 return Some((domain, template));
             }
@@ -386,10 +371,7 @@ impl DomainRegistry {
     }
 
     /// Resolve the best reasoning template for a query using fuzzy matching
-    pub fn resolve_reasoning_template(
-        &self,
-        query: &str,
-    ) -> Option<ReasoningTemplate> {
+    pub fn resolve_reasoning_template(&self, query: &str) -> Option<ReasoningTemplate> {
         let mut best: Option<(f32, ReasoningTemplate)> = None;
 
         for domain in self.enabled_domains() {
@@ -440,32 +422,8 @@ impl DomainRegistry {
 
     /// Resolve the best operation for a query using semantic intent matching
     pub fn resolve_operation(&self, query: &str) -> Option<ResolvedOperation> {
-        let mut best: Option<(f32, String, String, MatchSource, String)> = None;
-
-        for domain in self.enabled_domains() {
-            for op in &domain.operations {
-                let score = self.score_text_match(query, op);
-                if score <= 0.0 {
-                    continue;
-                }
-
-                if best
-                    .as_ref()
-                    .map(|(c, _, _, _, _)| score > *c)
-                    .unwrap_or(true)
-                {
-                    best = Some((
-                        score,
-                        domain.id.clone(),
-                        op.id.clone(),
-                        self.best_match_source(query, op),
-                        op.name.clone(),
-                    ));
-                }
-            }
-        }
-
-        let (confidence, domain_id, op_id, matched_on, matched_value) = best?;
+        let (confidence, domain_id, op_id, matched_on, matched_value) =
+            self.best_operation_match_across_domains(query)?;
         let operation = self.get_operation(&op_id)?;
         let inputs = self.extract_inputs(operation.1, query);
 
@@ -775,6 +733,59 @@ impl DomainRegistry {
             .filter(|t| t.len() > 2)
             .map(|t| t.to_string())
             .collect()
+    }
+
+    fn collect_entities(domains: &HashMap<String, Domain>) -> HashMap<String, Entity> {
+        let mut entities = HashMap::new();
+        for domain in domains.values() {
+            for (entity_name, entity) in &domain.entities {
+                entities.entry(entity_name.clone()).or_insert_with(|| entity.clone());
+            }
+        }
+        entities
+    }
+
+    fn best_operation_match<'a>(
+        &self,
+        query: &str,
+        operations: &'a [Operation],
+    ) -> Option<(f32, &'a Operation)> {
+        let mut best: Option<(f32, &'a Operation)> = None;
+        for op in operations {
+            let confidence = self.score_text_match(query, op);
+            if confidence <= 0.0 {
+                continue;
+            }
+            if best.map(|(c, _)| confidence > c).unwrap_or(true) {
+                best = Some((confidence, op));
+            }
+        }
+        best
+    }
+
+    fn best_operation_match_across_domains(
+        &self,
+        query: &str,
+    ) -> Option<(f32, String, String, MatchSource, String)> {
+        let mut best: Option<(f32, String, String, MatchSource, String)> = None;
+        for domain in self.enabled_domains() {
+            if let Some((score, op)) = self.best_operation_match(query, &domain.operations) {
+                if best
+                    .as_ref()
+                    .map(|(c, _, _, _, _)| score > *c)
+                    .unwrap_or(true)
+                {
+                    best = Some((
+                        score,
+                        domain.id.clone(),
+                        op.id.clone(),
+                        self.best_match_source(query, op),
+                        op.name.clone(),
+                    ));
+                }
+            }
+        }
+        best
     }
 }
 
