@@ -233,13 +233,7 @@ impl IntegratedNeurosymbolicService {
         let domain_registry_result =
             DomainRegistry::new(domains_dir.clone(), domains_dir.clone(), shared_dir.clone());
         let domain_registry = match domain_registry_result {
-            Ok(registry) => {
-                eprintln!(
-                    "Domain registry loaded successfully with {} domains",
-                    registry.list_domains().len()
-                );
-                Some(registry)
-            }
+            Ok(registry) => Some(registry),
             Err(e) => {
                 eprintln!("Failed to load domain registry: {:?}", e);
                 None
@@ -441,8 +435,7 @@ impl IntegratedNeurosymbolicService {
             .as_ref()
             .and_then(|registry| registry.resolve_reasoning_template(query))
             .map(|template| self.render_reasoning_template(&template, intent));
-        let command =
-            self.generate_command(query, learning_context.as_deref(), &mut trace)?;
+        let command = self.generate_command(query, learning_context.as_deref(), &mut trace)?;
         trace.push(format!("  Generated: {}", command));
 
         // Step 4: Safety Validation
@@ -682,7 +675,6 @@ impl IntegratedNeurosymbolicService {
         }
     }
 
-
     fn select_best_command(
         &mut self,
         candidates: &mut Vec<GeneratedCommand>,
@@ -790,8 +782,7 @@ impl IntegratedNeurosymbolicService {
     /// Record successful execution for learning
     pub fn record_success(&self, query: &str, command: &str) -> Result<()> {
         if self.config.enable_learning {
-            self.learning_service
-                .record_success(query, command, None)?;
+            self.learning_service.record_success(query, command, None)?;
         }
         Ok(())
     }
