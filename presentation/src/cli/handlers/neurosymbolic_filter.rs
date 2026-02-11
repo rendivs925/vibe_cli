@@ -11,9 +11,12 @@ use std::collections::HashSet;
 
 impl CliHandlers {
     pub(crate) fn build_learning_context_message(&self, query: &str) -> Option<Message> {
-        let service = self.integrated_service.as_ref()?;
+        let service = self.neurosymbolic_service.as_ref()?;
         let context = service.learning_context(query).ok().flatten();
-        let failed = service.failed_commands_for_query(query, 6).ok().unwrap_or_default();
+        let failed = service
+            .failed_commands_for_query(query, 6)
+            .ok()
+            .unwrap_or_default();
 
         let has_context = context
             .as_deref()
@@ -56,7 +59,7 @@ impl CliHandlers {
         Option<DomainCommandValidation>,
         Option<SymbolicCommandSuggestion>,
     ) {
-        let Some(service) = self.integrated_service.as_ref() else {
+        let Some(service) = self.neurosymbolic_service.as_ref() else {
             return (candidates, false, None, None);
         };
 
@@ -82,7 +85,9 @@ impl CliHandlers {
         }
 
         let has_symbolic = suggestion.is_some();
-        let failed_commands = service.failed_commands_for_query(query, 10).unwrap_or_default();
+        let failed_commands = service
+            .failed_commands_for_query(query, 10)
+            .unwrap_or_default();
 
         let mut validation: Option<DomainCommandValidation> = None;
         let mut valid_candidates = Vec::new();

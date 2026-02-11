@@ -1,6 +1,4 @@
-use application::services::neurosymbolic_service::{
-    IntegratedNeurosymbolicService, NeurosymbolicConfig,
-};
+use application::services::neurosymbolic_service::{NeurosymbolicConfig, NeurosymbolicService};
 use domain::domain_config::DomainRegistry;
 use std::collections::HashMap;
 use std::env;
@@ -151,7 +149,11 @@ fn write_test_domain(home: &PathBuf) {
             "then": [{"conclude": "zombie_process", "confidence": 0.99}]
         }
     ]"#;
-    fs::write(domain_dir.join("inference_rules.json"), inference_rules_json).unwrap();
+    fs::write(
+        domain_dir.join("inference_rules.json"),
+        inference_rules_json,
+    )
+    .unwrap();
 
     let troubleshooting_json = r#"[
         {
@@ -163,7 +165,11 @@ fn write_test_domain(home: &PathBuf) {
             "actions": [{"action": "kill_process", "methods": ["kill", "pkill"]}]
         }
     ]"#;
-    fs::write(domain_dir.join("troubleshooting.json"), troubleshooting_json).unwrap();
+    fs::write(
+        domain_dir.join("troubleshooting.json"),
+        troubleshooting_json,
+    )
+    .unwrap();
 
     let templates_json = r#"[
         {
@@ -216,7 +222,7 @@ fn test_neurosymbolic_feature_requests() {
     let (home, _guard) = set_temp_home();
     write_test_domain(&home);
 
-    let mut service = IntegratedNeurosymbolicService::with_config(NeurosymbolicConfig {
+    let mut service = NeurosymbolicService::with_config(NeurosymbolicConfig {
         enable_safety: true,
         enable_manpage_validation: false,
         enable_learning: false,
@@ -232,7 +238,11 @@ fn test_neurosymbolic_feature_requests() {
         ("disk is full", "df -h", true),
         ("memory is full", "free -h", false),
         ("check nginx status", "systemctl status nginx", false),
-        ("show last 50 lines of syslog", "tail -n 50 /var/log/syslog", false),
+        (
+            "show last 50 lines of syslog",
+            "tail -n 50 /var/log/syslog",
+            false,
+        ),
         ("show my gpu name", "lspci | grep -i vga", false),
     ];
 
@@ -248,8 +258,7 @@ fn test_neurosymbolic_feature_requests() {
         assert!(
             result.can_execute,
             "Query '{}' should be executable, got block reason: {:?}",
-            query,
-            result.block_reason
+            query, result.block_reason
         );
         if expect_template {
             assert!(

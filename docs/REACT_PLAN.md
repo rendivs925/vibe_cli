@@ -11,7 +11,7 @@ vibe_cli --neurosymbolic "list processes"    # Works today
 
 Current behavior (already implemented):
 - `cli_app.rs` routes `--neurosymbolic` to `handle_neurosymbolic()`
-- Uses `IntegratedNeurosymbolicService` for domain operations
+- Uses `NeurosymbolicService` for domain operations
 - Falls back to LLM if no matching domain operation
 
 ---
@@ -153,7 +153,7 @@ The `--react` handler uses the same `NeurosymbolicCapability` as other modes:
             | Delegates to
             v
 +---------------------------------------------------------------------+
-|                    IntegratedNeurosymbolicService (existing)         |
+|                    NeurosymbolicService (existing)         |
 +---------------------------------------------------------------------+
 ```
 
@@ -638,7 +638,7 @@ Mode: ReAct + Neurosymbolic
 
 | Existing Component | How Used by ReAct |
 |--------------------|-------------------|
-| `IntegratedNeurosymbolicService` | Source of domain operations |
+| `NeurosymbolicService` | Source of domain operations |
 | `DomainRegistry` | Match operations, generate commands |
 | `SafetyEngine` | Validate actions |
 | `OllamaClient` | Generate thoughts, reflections |

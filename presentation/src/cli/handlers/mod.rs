@@ -17,7 +17,7 @@ mod tests;
 use super::cache::CacheManager;
 use super::command_extraction::query_keywords;
 use super::utils::{detect_system_info, project_cache_suffix};
-use application::services::neurosymbolic_service::IntegratedNeurosymbolicService;
+use application::services::neurosymbolic_service::NeurosymbolicService;
 use application::services::rag_service::RagService;
 use infrastructure::config::Config;
 use shared::types::Message;
@@ -33,7 +33,7 @@ pub struct CliHandlers {
     system_info: String,
     config: Config,
     rag_service: Option<RagService>,
-    integrated_service: Option<IntegratedNeurosymbolicService>,
+    neurosymbolic_service: Option<NeurosymbolicService>,
 }
 
 impl CliHandlers {
@@ -42,19 +42,19 @@ impl CliHandlers {
         let system_info_path = Self::default_system_info_path();
         let system_info = Self::load_or_collect_system_info(&system_info_path);
 
-        let integrated_service = IntegratedNeurosymbolicService::new().ok();
+        let neurosymbolic_service = NeurosymbolicService::new().ok();
 
         Self {
             cache_manager: CacheManager::new(cache_dir.clone(), false),
             system_info,
             config,
             rag_service: None,
-            integrated_service,
+            neurosymbolic_service,
         }
     }
 
     pub fn has_neurosymbolic_domains(&self) -> bool {
-        self.integrated_service
+        self.neurosymbolic_service
             .as_ref()
             .map(|service| service.has_enabled_domains())
             .unwrap_or(false)
@@ -99,14 +99,14 @@ impl CliHandlers {
         detected
     }
 
-    fn ensure_integrated_service(&mut self) {
-        if self.integrated_service.is_none() {
-            self.integrated_service = IntegratedNeurosymbolicService::new().ok();
+    fn ensure_neurosymbolic_service(&mut self) {
+        if self.neurosymbolic_service.is_none() {
+            self.neurosymbolic_service = NeurosymbolicService::new().ok();
         }
     }
 
     fn direct_answer(&self, query: &str) -> Option<String> {
-        self.integrated_service
+        self.neurosymbolic_service
             .as_ref()
             .and_then(|service| service.direct_answer(query))
     }

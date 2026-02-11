@@ -79,7 +79,7 @@ impl CliHandlers {
                 "\n{}",
                 format!("Saved new operation to: {}", ops_file.display()).green()
             );
-            if let Some(service) = self.integrated_service.as_mut() {
+            if let Some(service) = self.neurosymbolic_service.as_mut() {
                 let _ = service.reload_domain_registry();
             }
         }

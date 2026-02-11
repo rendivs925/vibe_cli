@@ -200,7 +200,7 @@ impl NeurosymbolicResult {
 }
 
 /// Integrated neurosymbolic service
-pub struct IntegratedNeurosymbolicService {
+pub struct NeurosymbolicService {
     config: NeurosymbolicConfig,
     safety_engine: SafetyEngine,
     syntax_validator: SyntaxGrammarValidator,
@@ -214,7 +214,7 @@ pub struct IntegratedNeurosymbolicService {
     domain_registry: Option<DomainRegistry>,
 }
 
-impl IntegratedNeurosymbolicService {
+impl NeurosymbolicService {
     /// Create new integrated service with default config
     pub fn new() -> Result<Self> {
         let config = NeurosymbolicConfig::default();
@@ -1412,7 +1412,7 @@ fn missing_flags(required: &[String], actual: &[String]) -> Vec<String> {
         .collect()
 }
 
-impl Default for IntegratedNeurosymbolicService {
+impl Default for NeurosymbolicService {
     fn default() -> Self {
         Self::new().expect("Failed to initialize neurosymbolic service")
     }
@@ -1572,7 +1572,7 @@ mod tests {
     #[test]
     fn test_process_safe_command() {
         let _guard = setup_temp_home_with_domain();
-        let mut service = IntegratedNeurosymbolicService::with_config(NeurosymbolicConfig {
+        let mut service = NeurosymbolicService::with_config(NeurosymbolicConfig {
             enable_safety: true,
             enable_manpage_validation: false,
             enable_learning: false,
@@ -1590,7 +1590,7 @@ mod tests {
     #[test]
     fn test_process_dangerous_command() {
         let _guard = setup_temp_home_with_domain();
-        let mut service = IntegratedNeurosymbolicService::with_config(NeurosymbolicConfig {
+        let mut service = NeurosymbolicService::with_config(NeurosymbolicConfig {
             enable_safety: true,
             enable_manpage_validation: false,
             enable_learning: false,
@@ -1606,7 +1606,7 @@ mod tests {
     #[test]
     fn test_backtracking_on_safety_block() {
         let _guard = setup_temp_home_with_domain();
-        let mut service = IntegratedNeurosymbolicService::with_config(NeurosymbolicConfig {
+        let mut service = NeurosymbolicService::with_config(NeurosymbolicConfig {
             enable_safety: true,
             enable_manpage_validation: false,
             enable_learning: false,
@@ -1658,7 +1658,7 @@ mod tests {
         let graph = KnowledgeGraph::new(graph_path).unwrap();
         let _ = engine.apply_rules_to_graph(&graph, &patterns);
 
-        let mut service = IntegratedNeurosymbolicService::with_config(NeurosymbolicConfig {
+        let mut service = NeurosymbolicService::with_config(NeurosymbolicConfig {
             enable_safety: true,
             enable_manpage_validation: false,
             enable_learning: false,
@@ -1689,7 +1689,7 @@ mod tests {
             .add_entity(EntityType::OperatingSystem, "linux", HashMap::new())
             .unwrap();
 
-        let mut service = IntegratedNeurosymbolicService::with_config(NeurosymbolicConfig {
+        let mut service = NeurosymbolicService::with_config(NeurosymbolicConfig {
             enable_safety: true,
             enable_manpage_validation: false,
             enable_learning: false,
@@ -1724,7 +1724,7 @@ mod tests {
             .add_entity(EntityType::OperatingSystem, "linux", HashMap::new())
             .unwrap();
 
-        let mut service = IntegratedNeurosymbolicService::with_config(NeurosymbolicConfig {
+        let mut service = NeurosymbolicService::with_config(NeurosymbolicConfig {
             enable_safety: true,
             enable_manpage_validation: false,
             enable_learning: false,
@@ -1753,7 +1753,7 @@ mod tests {
             .add_entity(EntityType::OperatingSystem, "linux", HashMap::new())
             .unwrap();
 
-        let mut service = IntegratedNeurosymbolicService::with_config(NeurosymbolicConfig {
+        let mut service = NeurosymbolicService::with_config(NeurosymbolicConfig {
             enable_safety: true,
             enable_manpage_validation: false,
             enable_learning: false,

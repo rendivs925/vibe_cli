@@ -13,7 +13,7 @@ impl CliHandlers {
         ai_interpret: bool,
         use_rag_constraints: bool,
     ) -> Result<()> {
-        self.ensure_integrated_service();
+        self.ensure_neurosymbolic_service();
         if let Some(answer) = self.direct_answer(query) {
             println!("{}", answer);
             return Ok(());
@@ -83,7 +83,7 @@ impl CliHandlers {
                     .as_deref()
                     .unwrap_or("symbolic validation failed");
                 eprintln!("Symbolic validation failed: {}", reason);
-                if let Some(service) = self.integrated_service.as_ref() {
+                if let Some(service) =         self.neurosymbolic_service.as_ref() {
                     let _ = service.record_failure(query, "", FailureType::Other, Some(reason));
                 }
                 eprintln!("Falling back to standard query...");
@@ -239,7 +239,7 @@ impl CliHandlers {
             if !output.stderr.is_empty() {
                 println!("{}", output.stderr.red());
             }
-            if let Some(service) = self.integrated_service.as_ref() {
+            if let Some(service) =         self.neurosymbolic_service.as_ref() {
                 let _ = service.record_failure(
                     query,
                     cmd,
@@ -247,7 +247,7 @@ impl CliHandlers {
                     Some(output.stderr.trim()),
                 );
             }
-        } else if let Some(service) = self.integrated_service.as_ref() {
+        } else if let Some(service) =         self.neurosymbolic_service.as_ref() {
             let _ = service.record_success(query, cmd);
         }
 
