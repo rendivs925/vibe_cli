@@ -4,6 +4,12 @@ pub struct Telemetry {
     start: Instant,
 }
 
+impl Default for Telemetry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl Telemetry {
     pub fn new() -> Self {
         Self {

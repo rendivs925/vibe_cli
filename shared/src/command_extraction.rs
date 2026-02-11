@@ -289,7 +289,6 @@ fn normalize_command(mut s: &str) -> String {
         .trim()
         .trim_end_matches(';')
         .trim_end_matches('.')
-        .trim()
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
