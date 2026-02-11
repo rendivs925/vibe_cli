@@ -1,9 +1,9 @@
 use crate::cli::cache::CommandCandidate;
 use crate::cli::command_safety::is_blocked_command;
-use infrastructure::ai_command_extractor::OllamaCommandExtractor;
-use shared::command_extraction::{
+use domain::services::command_extraction::{
     extract_candidate_commands, query_keywords as shared_query_keywords,
 };
+use infrastructure::ai_command_extractor::OllamaCommandExtractor;
 use std::env;
 
 pub fn extract_command(raw: &str, user_query: &str) -> Option<String> {

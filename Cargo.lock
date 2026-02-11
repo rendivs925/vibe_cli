@@ -1846,6 +1846,7 @@ dependencies = [
  "colored",
  "dialoguer",
  "docx-rs",
+ "domain",
  "futures-util",
  "infrastructure",
  "pdf-extract",

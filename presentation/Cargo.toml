@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 application = { path = "../application" }
+domain = { path = "../domain" }
 infrastructure = { path = "../infrastructure" }
 shared = { path = "../shared" }
 clap.workspace = true

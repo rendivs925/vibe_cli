@@ -1,6 +1,6 @@
 use crate::ollama_client::OllamaClient;
+use domain::services::command_extraction::cleanup_ai_response;
 use domain::services::CommandExtractor;
-use shared::command_extraction::cleanup_ai_response;
 use tokio::runtime::Handle;
 
 pub struct OllamaCommandExtractor {
@@ -31,7 +31,10 @@ User request:\n{}\n",
 
     fn generate_blocking(&self, prompt: &str) -> Option<String> {
         if let Ok(handle) = Handle::try_current() {
-            return tokio::task::block_in_place(|| handle.block_on(self.client.generate_response(prompt))).ok();
+            return tokio::task::block_in_place(|| {
+                handle.block_on(self.client.generate_response(prompt))
+            })
+            .ok();
         }
 
         let rt = tokio::runtime::Runtime::new().ok()?;

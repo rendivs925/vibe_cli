@@ -1,9 +1,10 @@
 use super::super::entities::command::{Command, SafetyCheck};
 use super::super::value_objects::safety_policy::{SafetyPolicy, SafetyResult};
 use async_trait::async_trait;
-use shared::command_extraction::normalize_command_candidate;
 use smallvec::{smallvec, SmallVec};
 use std::sync::Arc;
+
+use crate::services::command_extraction::{extract_best_command, normalize_command_candidate};
 
 /// Domain service for planning commands with safety validation
 pub struct CommandPlanner {
@@ -92,7 +93,7 @@ impl CommandPlanner {
             }
         }
 
-        if let Some(command) = shared::command_extraction::extract_best_command(cleaned, "") {
+        if let Some(command) = extract_best_command(cleaned, "") {
             return Ok(command);
         }
 
