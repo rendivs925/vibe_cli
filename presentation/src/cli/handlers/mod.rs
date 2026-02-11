@@ -121,11 +121,9 @@ impl CliHandlers {
                 RagService::new(".", &self.config.db_path, client, self.config.clone()).await?,
             );
             let keywords = query_keywords(query);
-            self.rag_service
-                .as_ref()
-                .unwrap()
-                .build_index_for_keywords(&keywords)
-                .await?;
+            if let Some(rag) = self.rag_service.as_ref() {
+                rag.build_index_for_keywords(&keywords).await?;
+            }
         }
 
         let Some(rag) = self.rag_service.as_ref() else {
@@ -172,8 +170,14 @@ impl CliHandlers {
             .stderr(Stdio::piped())
             .spawn()?;
 
-        let stdout = child.stdout.take().unwrap();
-        let stderr = child.stderr.take().unwrap();
+        let stdout = child
+            .stdout
+            .take()
+            .expect("stdout should be piped (configured above with Stdio::piped())");
+        let stderr = child
+            .stderr
+            .take()
+            .expect("stderr should be piped (configured above with Stdio::piped())");
 
         let out_buf = Arc::new(Mutex::new(String::new()));
         let err_buf = Arc::new(Mutex::new(String::new()));

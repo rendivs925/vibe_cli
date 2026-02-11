@@ -25,22 +25,18 @@ impl CliHandlers {
                 .await?,
             );
             let keywords = Self::keywords_from_text(question);
-            self.rag_service
-                .as_ref()
-                .unwrap()
-                .build_index_for_keywords(&keywords)
-                .await?;
+            if let Some(rag) = self.rag_service.as_ref() {
+                rag.build_index_for_keywords(&keywords).await?;
+            }
         }
 
         let mut feedback = String::new();
         loop {
             eprintln!("Thinking...");
-            let response = self
-                .rag_service
-                .as_ref()
-                .unwrap()
-                .query_with_feedback(question, &feedback)
-                .await?;
+        let Some(rag) = self.rag_service.as_ref() else {
+            return Err(anyhow::anyhow!("RAG service not initialized"));
+        };
+            let response = rag.query_with_feedback(question, &feedback).await?;
 
             println!("{}", response);
 
@@ -69,7 +65,9 @@ impl CliHandlers {
             )
             .await?,
         );
-        self.rag_service.as_ref().unwrap().build_index().await?;
+        if let Some(rag) = self.rag_service.as_ref() {
+            rag.build_index().await?;
+        }
         eprintln!("Context loaded from {}", path);
         self.handle_chat().await
     }

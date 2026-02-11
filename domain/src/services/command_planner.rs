@@ -132,7 +132,7 @@ impl CommandPlanner {
             "cmd_{}",
             SystemTime::now()
                 .duration_since(UNIX_EPOCH)
-                .unwrap()
+                .expect("SystemTime should always be after UNIX_EPOCH")
                 .as_secs()
         )
     }

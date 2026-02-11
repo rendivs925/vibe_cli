@@ -5,6 +5,86 @@ use crate::domain_config::types::*;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
+use std::sync::OnceLock;
+
+// Cached regex patterns to avoid recompilation on every extraction call
+static REGEX_PATH: OnceLock<Regex> = OnceLock::new();
+static REGEX_SERVICE: OnceLock<Regex> = OnceLock::new();
+static REGEX_QUOTED_PATTERN: OnceLock<Regex> = OnceLock::new();
+static REGEX_CONTAINS_PATTERN: OnceLock<Regex> = OnceLock::new();
+static REGEX_LOG_PATH: OnceLock<Regex> = OnceLock::new();
+static REGEX_PROCESS_FILTER: OnceLock<Regex> = OnceLock::new();
+static REGEX_FILE_MODE: OnceLock<Regex> = OnceLock::new();
+static REGEX_OWNER: OnceLock<Regex> = OnceLock::new();
+static REGEX_GROUP: OnceLock<Regex> = OnceLock::new();
+static REGEX_TARGET: OnceLock<Regex> = OnceLock::new();
+static REGEX_SIZE: OnceLock<Regex> = OnceLock::new();
+static REGEX_NAME: OnceLock<Regex> = OnceLock::new();
+
+fn get_path_regex() -> &'static Regex {
+    REGEX_PATH.get_or_init(|| Regex::new(r"(/[^\\s]+)").expect("Invalid path regex"))
+}
+
+fn get_service_regex() -> &'static Regex {
+    REGEX_SERVICE
+        .get_or_init(|| Regex::new(r"service\s+([a-z0-9._-]+)").expect("Invalid service regex"))
+}
+
+fn get_quoted_pattern_regex() -> &'static Regex {
+    REGEX_QUOTED_PATTERN
+        .get_or_init(|| Regex::new(r#""([^"]+)"|'([^']+)'"#).expect("Invalid quoted pattern regex"))
+}
+
+fn get_contains_pattern_regex() -> &'static Regex {
+    REGEX_CONTAINS_PATTERN.get_or_init(|| {
+        Regex::new(r"(?:contains|containing|match(?:ing)?|grep)\s+([a-z0-9._-]+)")
+            .expect("Invalid contains pattern regex")
+    })
+}
+
+fn get_log_path_regex() -> &'static Regex {
+    REGEX_LOG_PATH
+        .get_or_init(|| Regex::new(r"/var/log/([a-z0-9._-]+)").expect("Invalid log path regex"))
+}
+
+fn get_process_filter_regex() -> &'static Regex {
+    REGEX_PROCESS_FILTER.get_or_init(|| {
+        Regex::new(r"process(?:es)?\s+([a-z0-9._-]+)").expect("Invalid process filter regex")
+    })
+}
+
+fn get_file_mode_regex() -> &'static Regex {
+    REGEX_FILE_MODE
+        .get_or_init(|| Regex::new(r"\b([0-7]{3,4})\b").expect("Invalid file mode regex"))
+}
+
+fn get_owner_regex() -> &'static Regex {
+    REGEX_OWNER.get_or_init(|| {
+        Regex::new(r"(?:owner|user)\s+([a-z0-9._-]+)").expect("Invalid owner regex")
+    })
+}
+
+fn get_group_regex() -> &'static Regex {
+    REGEX_GROUP
+        .get_or_init(|| Regex::new(r"(?:group)\s+([a-z0-9._-]+)").expect("Invalid group regex"))
+}
+
+fn get_target_regex() -> &'static Regex {
+    REGEX_TARGET.get_or_init(|| {
+        Regex::new(r"(?:pid|process)\s+([a-z0-9._-]+)").expect("Invalid target regex")
+    })
+}
+
+fn get_size_regex() -> &'static Regex {
+    REGEX_SIZE
+        .get_or_init(|| Regex::new(r"(\+?\d+(?:\.\d+)?\s*[kmgt]?b)").expect("Invalid size regex"))
+}
+
+fn get_name_regex() -> &'static Regex {
+    REGEX_NAME.get_or_init(|| {
+        Regex::new(r"(?:named|called)\s+([a-z0-9._-]+)").expect("Invalid name regex")
+    })
+}
 
 /// Intent match result with detailed scoring
 #[derive(Debug, Clone)]
@@ -97,7 +177,11 @@ impl DomainRegistry {
             }
         }
 
-        matches.sort_by(|a, b| b.confidence.partial_cmp(&a.confidence).unwrap());
+        matches.sort_by(|a, b| {
+            b.confidence
+                .partial_cmp(&a.confidence)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
         matches
     }
 
@@ -105,16 +189,12 @@ impl DomainRegistry {
     pub fn query_intent(&self, intent: &str) -> Vec<&Domain> {
         self.query_intent_detailed(intent)
             .into_iter()
-            .map(|m| self.domains.get(&m.domain).unwrap())
+            .filter_map(|m| self.domains.get(&m.domain))
             .collect()
     }
 
     /// Match an intent to a domain with detailed scoring
-    fn match_intent_detailed(
-        &self,
-        domain: &Domain,
-        intent: &str,
-    ) -> Option<IntentMatch> {
+    fn match_intent_detailed(&self, domain: &Domain, intent: &str) -> Option<IntentMatch> {
         let intent_lower = intent.to_lowercase();
 
         if intent_lower.contains(&domain.id.to_lowercase()) {
@@ -506,14 +586,13 @@ impl DomainRegistry {
     }
 
     fn extract_path(&self, query: &str) -> Option<String> {
-        let re = Regex::new(r"(/[^\\s]+)").ok()?;
-        re.captures(query)
+        get_path_regex()
+            .captures(query)
             .and_then(|cap| cap.get(1).map(|m| m.as_str().to_string()))
     }
 
     fn extract_service(&self, query_lower: &str) -> Option<String> {
-        let re = Regex::new(r"service\s+([a-z0-9._-]+)").ok()?;
-        if let Some(cap) = re.captures(query_lower) {
+        if let Some(cap) = get_service_regex().captures(query_lower) {
             return Some(cap[1].to_string());
         }
 
@@ -540,15 +619,14 @@ impl DomainRegistry {
     }
 
     fn extract_pattern(&self, query: &str) -> Option<String> {
-        let re = Regex::new(r#""([^"]+)"|'([^']+)'"#).ok()?;
-        if let Some(cap) = re.captures(query) {
+        if let Some(cap) = get_quoted_pattern_regex().captures(query) {
             if let Some(m) = cap.get(1).or_else(|| cap.get(2)) {
                 return Some(m.as_str().to_string());
             }
         }
 
-        let re = Regex::new(r"(?:contains|containing|match(?:ing)?|grep)\s+([a-z0-9._-]+)").ok()?;
-        re.captures(&query.to_lowercase())
+        get_contains_pattern_regex()
+            .captures(&query.to_lowercase())
             .and_then(|cap| cap.get(1).map(|m| m.as_str().to_string()))
     }
 
@@ -560,8 +638,8 @@ impl DomainRegistry {
             return Some("messages".to_string());
         }
 
-        let re = Regex::new(r"/var/log/([a-z0-9._-]+)").ok()?;
-        re.captures(query)
+        get_log_path_regex()
+            .captures(query)
             .and_then(|cap| cap.get(1).map(|m| m.as_str().to_string()))
     }
 
@@ -576,44 +654,44 @@ impl DomainRegistry {
     }
 
     fn extract_filter(&self, query_lower: &str) -> Option<String> {
-        let re = Regex::new(r"process(?:es)?\s+([a-z0-9._-]+)").ok()?;
-        re.captures(query_lower)
+        get_process_filter_regex()
+            .captures(query_lower)
             .and_then(|cap| cap.get(1).map(|m| m.as_str().to_string()))
     }
 
     fn extract_mode(&self, query_lower: &str) -> Option<String> {
-        let re = Regex::new(r"\b([0-7]{3,4})\b").ok()?;
-        re.captures(query_lower)
+        get_file_mode_regex()
+            .captures(query_lower)
             .and_then(|cap| cap.get(1).map(|m| m.as_str().to_string()))
     }
 
     fn extract_owner(&self, query_lower: &str) -> Option<String> {
-        let re = Regex::new(r"(?:owner|user)\s+([a-z0-9._-]+)").ok()?;
-        re.captures(query_lower)
+        get_owner_regex()
+            .captures(query_lower)
             .and_then(|cap| cap.get(1).map(|m| m.as_str().to_string()))
     }
 
     fn extract_group(&self, query_lower: &str) -> Option<String> {
-        let re = Regex::new(r"(?:group)\s+([a-z0-9._-]+)").ok()?;
-        re.captures(query_lower)
+        get_group_regex()
+            .captures(query_lower)
             .and_then(|cap| cap.get(1).map(|m| m.as_str().to_string()))
     }
 
     fn extract_target(&self, query_lower: &str) -> Option<String> {
-        let re = Regex::new(r"(?:pid|process)\s+([a-z0-9._-]+)").ok()?;
-        re.captures(query_lower)
+        get_target_regex()
+            .captures(query_lower)
             .and_then(|cap| cap.get(1).map(|m| m.as_str().to_string()))
     }
 
     fn extract_size(&self, query_lower: &str) -> Option<String> {
-        let re = Regex::new(r"(\+?\d+(?:\.\d+)?\s*[kmgt]?b)").ok()?;
-        re.captures(query_lower)
+        get_size_regex()
+            .captures(query_lower)
             .and_then(|cap| cap.get(1).map(|m| m.as_str().replace(' ', "")))
     }
 
     fn extract_name(&self, query: &str) -> Option<String> {
-        let re = Regex::new(r"(?:named|called)\s+([a-z0-9._-]+)").ok()?;
-        re.captures(&query.to_lowercase())
+        get_name_regex()
+            .captures(&query.to_lowercase())
             .and_then(|cap| cap.get(1).map(|m| m.as_str().to_string()))
     }
 
@@ -697,11 +775,9 @@ impl DomainRegistry {
         if !op.description.is_empty() && query_lower.contains(&op.description.to_lowercase()) {
             return MatchSource::OperationDescription;
         }
-        if op
-            .examples
-            .iter()
-            .any(|ex| !ex.description.is_empty() && query_lower.contains(&ex.description.to_lowercase()))
-        {
+        if op.examples.iter().any(|ex| {
+            !ex.description.is_empty() && query_lower.contains(&ex.description.to_lowercase())
+        }) {
             return MatchSource::OperationExample;
         }
         MatchSource::OperationIntent
@@ -739,7 +815,9 @@ impl DomainRegistry {
         let mut entities = HashMap::new();
         for domain in domains.values() {
             for (entity_name, entity) in &domain.entities {
-                entities.entry(entity_name.clone()).or_insert_with(|| entity.clone());
+                entities
+                    .entry(entity_name.clone())
+                    .or_insert_with(|| entity.clone());
             }
         }
         entities

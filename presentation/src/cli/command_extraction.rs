@@ -1,7 +1,9 @@
 use crate::cli::cache::CommandCandidate;
 use crate::cli::command_safety::is_blocked_command;
 use infrastructure::ai_command_extractor::OllamaCommandExtractor;
-use shared::command_extraction::{extract_candidate_commands, query_keywords as shared_query_keywords};
+use shared::command_extraction::{
+    extract_candidate_commands, query_keywords as shared_query_keywords,
+};
 use std::env;
 
 pub fn extract_command(raw: &str, user_query: &str) -> Option<String> {
@@ -28,7 +30,6 @@ fn try_ai_extract(raw: &str) -> Option<String> {
     let extractor = OllamaCommandExtractor::new().ok()?;
     extractor.extract(raw)
 }
-
 
 pub(crate) fn query_keywords(query: &str) -> Vec<String> {
     shared_query_keywords(query)
@@ -67,7 +68,7 @@ pub fn clean_command_output(raw: &str) -> String {
         let lines: Vec<&str> = trimmed.lines().collect();
         if lines.len() >= 3
             && lines[0].trim().starts_with("```")
-            && lines.last().unwrap().trim() == "```"
+            && lines.last().map(|l| l.trim()) == Some("```")
         {
             return lines[1..lines.len() - 1].join("\n").trim().to_string();
         }
