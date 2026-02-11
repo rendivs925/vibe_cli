@@ -182,6 +182,59 @@ impl CliHandlers {
         let out_buf = Arc::new(Mutex::new(String::new()));
         let err_buf = Arc::new(Mutex::new(String::new()));
 
+        if sink.is_none() {
+            let out_buf_clone = Arc::clone(&out_buf);
+            let err_buf_clone = Arc::clone(&err_buf);
+
+            let stdout_handle = thread::spawn(move || {
+                let reader = BufReader::new(stdout);
+                for line in reader.lines() {
+                    if let Ok(line) = line {
+                        if let Ok(mut buf) = out_buf_clone.lock() {
+                            buf.push_str(&line);
+                            buf.push('\n');
+                        }
+                    }
+                }
+            });
+
+            let stderr_handle = thread::spawn(move || {
+                let reader = BufReader::new(stderr);
+                for line in reader.lines() {
+                    if let Ok(line) = line {
+                        if let Ok(mut buf) = err_buf_clone.lock() {
+                            buf.push_str(&line);
+                            buf.push('\n');
+                        }
+                    }
+                }
+            });
+
+            let status = child.wait()?;
+            let _ = stdout_handle.join();
+            let _ = stderr_handle.join();
+
+            let stdout = out_buf.lock().map(|s| s.clone()).unwrap_or_default();
+            let stderr = err_buf.lock().map(|s| s.clone()).unwrap_or_default();
+            let full_output = if stderr.trim().is_empty() {
+                stdout
+            } else {
+                format!("{}\nErrors:\n{}", stdout, stderr)
+            };
+
+            if !full_output.trim().is_empty() {
+                if !print_with_pager(&full_output) {
+                    print!("{full_output}");
+                }
+            }
+
+            return Ok(CommandOutput {
+                stderr,
+                full_output,
+                status,
+            });
+        }
+
         let (line_tx, line_rx) = mpsc::channel::<OutputLine>();
 
         let stdout_handle = {
@@ -381,7 +434,7 @@ fn flush_chunk(
         }
     }
 
-    if !lines.is_empty() && !print_with_pager(&lines) {
+    if !lines.is_empty() && !print_with_pager(&lines.join("\n")) {
         for line in &lines {
             print_wrapped(line, false);
         }
@@ -393,28 +446,7 @@ fn flush_chunk(
     }
 }
 
-fn print_with_pager(lines: &[String]) -> bool {
-    if CliHandlers::has_in_path("bat") {
-        let mut child = match Command::new("bat")
-            .arg("--plain")
-            .arg("--paging=never")
-            .arg("--wrap=character")
-            .arg("--terminal-width=80")
-            .stdin(Stdio::piped())
-            .spawn()
-        {
-            Ok(child) => child,
-            Err(_) => return false,
-        };
-
-        if let Some(mut stdin) = child.stdin.take() {
-            let _ = stdin.write_all(lines.join("\n").as_bytes());
-            let _ = stdin.write_all(b"\n");
-        }
-        let _ = child.wait();
-        return true;
-    }
-
+fn print_with_pager(content: &str) -> bool {
     if CliHandlers::has_in_path("less") {
         let mut child = match Command::new("less")
             .arg("-R")
@@ -428,7 +460,7 @@ fn print_with_pager(lines: &[String]) -> bool {
         };
 
         if let Some(mut stdin) = child.stdin.take() {
-            let _ = stdin.write_all(lines.join("\n").as_bytes());
+            let _ = stdin.write_all(content.as_bytes());
             let _ = stdin.write_all(b"\n");
         }
         let _ = child.wait();
