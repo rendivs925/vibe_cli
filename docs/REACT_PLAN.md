@@ -2,20 +2,20 @@
 
 ## Overview
 
-Implement ReAct (Reasoning + Acting) for the agentic CLI with optional neurosymbolic enhancement for complex tasks:
+Implement ReAct (Reasoning + Acting) for the agentic CLI with optional neurosymbolic enhancement.
 
-- **Simple tasks**: Pure ReAct with LLM reasoning
-- **Complex tasks**: ReAct + neurosymbolic domain operations for structured, non-guessing execution
+- **Default**: Pure ReAct with LLM reasoning
+- **With --neurosymbolic**: Use domain operations if available, otherwise fall back to pure ReAct
 
 ---
 
 ## CLI Interface
 
 ```bash
-# Pure ReAct - LLM reasoning for simple tasks
+# Pure ReAct - LLM reasoning
 vibe_cli --react "list processes"
 
-# ReAct + Neurosymbolic - structured operations for complex tasks
+# ReAct + Neurosymbolic - use domain operations when available
 vibe_cli --react --neurosymbolic "nginx is not running, diagnose and fix"
 
 # With custom config
@@ -52,13 +52,13 @@ Always ask user before executing each action:
 ```
 --- STEP 2: ACTION ---
 
-Thought: I found nginx is not running. I need to check the logs to 
+Thought: I found nginx is not running. I need to check the logs to
          understand why it failed before restarting.
 
 Proposed command:
   bash: journalctl -u nginx --no-pager -n 50
 
-Execute this command? [Y/n/a(ll)]: 
+Execute this command? [Y/n/a(ll)]:
 
 Options:
   Y - Execute this step
@@ -70,34 +70,21 @@ Options:
 
 ---
 
-## Dual Mode Architecture
+## Mode Selection Logic
 
 ```
-+---------------------------------------------------------------------+
-|                         ReAct Agent                                  |
-+---------------------------------------------------------------------+
-|                                                                     |
-|  +----------------------------------------------------------------+ |
-|  |                    REACT MODE (Simple)                          | |
-|  |  - LLM generates thoughts, actions from natural language        | |
-|  |  - Flexible but may "guess" for complex scenarios               | |
-|  |  - Best for: exploration, learning, unknown domains             | |
-|  +----------------------------------------------------------------+ |
-|                                                                     |
-|  +----------------------------------------------------------------+ |
-|  |               REACT + NEUROSYMBOLIC MODE (Complex)              | |
-|  |  - ReAct reasoning + structured domain operations               | |
-|  |  - Uses: operations.json, entities, inference_rules             | |
-|  |  - No guessing: exact commands from verified templates          | |
-|  |  - Best for: known domains, production troubleshooting          | |
-|  +----------------------------------------------------------------+ |
-|                                                                     |
-+---------------------------------------------------------------------+
+if --neurosymbolic is specified:
+    if domain operations available for task:
+        use domain operations
+    else:
+        fall back to pure ReAct (show warning)
+else:
+    use pure ReAct
 ```
 
 ---
 
-## How Neurosymbolic Enhances ReAct
+## How Neurosymbolic Works with ReAct
 
 ### Without Neurosymbolic (Pure ReAct)
 
@@ -110,7 +97,7 @@ Action: bash: journalctl -u nginx -n 50
 -- May guess wrong commands, flags, or tools
 ```
 
-### With Neurosymbolic (Structured)
+### With Neurosymbolic (When Available)
 
 ```
 Thought: "User says nginx is not running. This matches troubleshooting pattern."
@@ -166,10 +153,6 @@ pub enum Tool {
         parameters: HashMap<String, Value>,
         generated_commands: Vec<String>,
     },
-    SymbolicCheck {
-        check_type: String,
-        rule_id: String,
-    },
 }
 
 pub struct ReActConfig {
@@ -220,36 +203,36 @@ impl ReActAgentService {
     pub async fn run(&mut self, goal: &str) -> Result<ReActResult> {
         let mut trace = ReActTrace::new(goal);
         let mut context = ReActContext::new(goal);
-        
+
         for iteration in 0..self.config.max_iterations {
             // 1. Generate thought
             let thought = self.generate_thought(&context).await?;
             context.add_thought(&thought);
-            
+
             // 2. Parse intent, check if goal achieved
             if self.is_goal_achieved(&context) {
                 trace.final_result = Some(context.get_summary());
                 trace.success = true;
                 break;
             }
-            
+
             // 3. Generate action (LLM or Domain Operation)
             let action = self.generate_action(&context, &thought).await?;
-            
+
             // 4. Validation (safety + syntax)
             let validation = self.validate_action(&action).await?;
             if !validation.is_safe {
                 context.add_reflection(&format!("Action blocked: {}", validation.reason));
                 continue;
             }
-            
+
             // 5. Return action for user confirmation
             return Ok(ReActResult::pending_action(action, context.clone()));
         }
-        
+
         ReActResult::from_trace(trace)
     }
-    
+
     async fn generate_action(&self, context: &ReActContext) -> Result<Action> {
         // If neurosymbolic enabled, try domain operations first
         if self.config.use_neurosymbolic {
@@ -261,58 +244,24 @@ impl ReActAgentService {
                     generated_commands: commands,
                 });
             }
+            // No matching domain operation - will fall through to LLM
         }
-        
+
         // Fall back to LLM-generated action
         self.generate_llm_action(context).await
     }
-    
+
     async fn apply_inference_rules(&self, context: &ReActContext) -> Result<Vec<Conclusion>> {
         let registry = self.domain_registry.as_ref()?;
         let mut conclusions = Vec::new();
-        
+
         for rule in registry.get_inference_rules() {
             if rule.evaluate(&context.observed_facts) {
                 conclusions.push(rule.conclusion.clone());
             }
         }
-        
+
         Ok(conclusions)
-    }
-}
-```
-
-**File:** `application/src/services/complexity_detector.rs`
-
-```rust
-pub enum TaskComplexity {
-    Simple,      // Pure ReAct
-    Moderate,    // ReAct with fallback to symbolic
-    Complex,     // ReAct + Neurosymbolic recommended
-}
-
-impl ComplexityDetector {
-    fn estimate_complexity(&self, task: &str) -> Result<TaskComplexity> {
-        let task_lower = task.to_lowercase();
-        
-        // Check for known services
-        let known_services = ["nginx", "apache", "mysql", "postgres", "redis", "docker"];
-        let has_known_service = known_services.iter().any(|s| task_lower.contains(s));
-        
-        // Check for known actions
-        let known_actions = ["restart", "status", "check", "diagnose", "fix", "debug"];
-        let has_known_action = known_actions.iter().any(|a| task_lower.contains(a));
-        
-        // Check for troubleshooting keywords
-        let trouble_keywords = ["not running", "failed", "error", "crash", "memory", "cpu"];
-        let is_troubleshooting = trouble_keywords.iter().any(|k| task_lower.contains(k));
-        
-        Ok(match (has_known_service, has_known_action, is_troubleshooting) {
-            (true, true, true) => TaskComplexity::Complex,
-            (true, _, _) => TaskComplexity::Moderate,
-            (_, true, _) => TaskComplexity::Moderate,
-            _ => TaskComplexity::Simple,
-        })
     }
 }
 ```
@@ -329,28 +278,20 @@ impl CliHandlers {
         use_neurosymbolic: bool,
         config: ReActConfig,
     ) -> Result<()> {
-        // Detect task complexity
-        let complexity = self.estimate_complexity(task).await?;
-        
-        let use_symbolic = if use_neurosymbolic {
-            true
-        } else if complexity.is_complex() && self.has_enabled_domains() {
-            println!("This task matches known domain operations.");
-            println!("Enable neurosymbolic mode for structured execution?");
-            ask_confirmation("Use verified commands from domain config?", false)?
-        } else {
-            false
-        };
-        
         let mut service = ReActAgentService::new(
             self.ollama_client()?,
             self.domain_registry(),
-            use_symbolic,
+            use_neurosymbolic,
             config,
         )?;
-        
-        let mut session = ReActSession::new(task, use_symbolic);
-        
+
+        let mut session = ReActSession::new(task, use_neurosymbolic);
+
+        // Check if neurosymbolic was requested but not available
+        if use_neurosymbolic && !service.has_domain_operations() {
+            println!("[Warning: No matching domain operations found, using pure ReAct]");
+        }
+
         loop {
             match service.run_step(&session.context).await? {
                 ReActStepResult::Thought(thought) => {
@@ -360,14 +301,14 @@ impl CliHandlers {
                     if action.is_domain_operation() {
                         println!("[Domain Operation: {}]", action.op_id);
                     }
-                    
+
                     let decision = session.prompt_action(&action).await?;
                     match decision {
                         ActionDecision::Execute => {
                             let output = self.execute_action(&action).await?;
                             session.display_observation(&output);
                             session.context.add_observation(&output);
-                            
+
                             let reflection = service.generate_reflection(&session.context).await?;
                             session.display_reflection(&reflection);
                             session.context.add_reflection(&reflection);
@@ -399,7 +340,7 @@ impl CliHandlers {
                     return Ok(());
                 }
             }
-            
+
             if let Some(cmd) = session.check_session_command().await? {
                 match cmd {
                     SessionCommand::ReviseGoal(new_goal) => {
@@ -422,13 +363,13 @@ impl CliHandlers {
             }
         }
     }
-    
+
     async fn prompt_action(&self, action: &Action) -> Result<ActionDecision> {
         println!("\n--- STEP {}: ACTION ---\n", action.step_number);
         println!("Thought: {}", action.thought);
         println!("\nProposed command:");
         println!("  {}", action.command.yellow());
-        
+
         println!("\nOptions:");
         println!("  [Y] Execute this command");
         println!("  [n] Skip this step");
@@ -436,7 +377,7 @@ impl CliHandlers {
         println!("  [g] Revise the goal");
         println!("  [a] Execute all remaining steps automatically");
         println!("  [x] Abort session");
-        
+
         loop {
             let input = shared::utils::prompt("Execute? [Y/n/r/g/a/x]: ")?;
             match input.trim().to_lowercase().as_str() {
@@ -467,19 +408,19 @@ pub struct Cli {
     /// ReAct agent with iterative reasoning (vs one-shot planning)
     #[arg(long)]
     pub react: bool,
-    
-    /// Enable neurosymbolic mode for complex tasks
+
+    /// Enable neurosymbolic mode (use domain operations if available)
     #[arg(long, requires = "react")]
     pub neurosymbolic: bool,
-    
+
     /// Max ReAct iterations (default: 30)
     #[arg(long, value_name = "N", requires = "react")]
     pub max_iterations: Option<usize>,
-    
+
     /// Show full reasoning trace
     #[arg(long, requires = "react")]
     pub show_thoughts: bool,
-    
+
     /// Task description
     #[arg(trailing_var_arg = true)]
     pub task: Vec<String>,
@@ -498,7 +439,7 @@ pub struct ReActStorage {
 impl ReActStorage {
     pub fn new(path: PathBuf) -> Result<Self> {
         let db = rusqlite::Connection::open(path)?;
-        
+
         db.execute("
             CREATE TABLE IF NOT EXISTS react_traces (
                 id TEXT PRIMARY KEY,
@@ -511,7 +452,7 @@ impl ReActStorage {
                 created_at INTEGER NOT NULL
             )
         ")?;
-        
+
         Ok(Self { db })
     }
 }
@@ -519,7 +460,7 @@ impl ReActStorage {
 impl ReActRepository for ReActStorage {
     fn save_trace(&self, trace: &ReActTrace) -> Result<()> {
         let steps_json = serde_json::to_string(&trace.steps)?;
-        
+
         db.execute(
             "INSERT INTO react_traces VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
             params![
@@ -533,10 +474,10 @@ impl ReActRepository for ReActStorage {
                 chrono::Utc::now().timestamp(),
             ],
         )?;
-        
+
         Ok(())
     }
-    
+
     fn find_similar_traces(&self, goal: &str, limit: usize) -> Result<Vec<ReActTrace>> {
         // Use embedding similarity or text matching
         // Return similar successful traces
@@ -564,8 +505,6 @@ impl ReActRepository for ReActStorage {
 | Action | User Asked? |
 |--------|-------------|
 | Execute each command | YES - every step |
-| Enable neurosymbolic for complex task | YES - suggested if complexity detected |
-| Choose between symbolic recommendations | YES - when multiple options |
 | Revise goal mid-session | YES - `/revise` command |
 | Retry skipped step | YES - `/retry` command |
 | Apply learning from trace | YES - at end of session |
@@ -578,10 +517,8 @@ impl ReActRepository for ReActStorage {
 ```
 $ vibe_cli --react --neurosymbolic "nginx is crashing randomly"
 
---- DETECTED: Complex task matching Linux domain ---
-
 --- STEP 1: THOUGHT ---
-User reports nginx crashing randomly. This matches troubleshooting 
+User reports nginx crashing randomly. This matches troubleshooting
 pattern "service_unstable". I'll use structured diagnostics.
 
 --- STEP 2: ACTION (Domain Operation: check_service) ---
@@ -600,7 +537,7 @@ Error log shows: "worker process exited unexpectedly"
 
 --- STEP 3: SYMBOLIC INFERENCE ---
 Rule: worker_crash
-Conditions: 
+Conditions:
   - service active but workers crashing
 Conclusion: Worker process restart loop, likely configuration issue
 Recommendations:
@@ -619,7 +556,7 @@ Syntax OK
 Configuration test successful
 
 --- STEP 5: THOUGHT ---
-Config is valid. Worker crash could be resource limits. 
+Config is valid. Worker crash could be resource limits.
 Let me check file descriptors and worker configuration.
 
 --- STEP 5: ACTION ---
@@ -646,7 +583,7 @@ Generated commands:
   1. echo "nginx soft nofile 4096" >> /etc/security/limits.conf
   2. Edit nginx.conf: worker_rlimit_nofile 4096
 
-Execute? [Y/n/r/g/a/x]: 
+Execute? [Y/n/r/g/a/x]:
 
 --- GOAL ACHIEVED ---
 Root cause: File descriptor limit too low
@@ -663,12 +600,11 @@ Mode: ReAct + Neurosymbolic
 |-------|------|-------|
 | 1 | Domain types | `domain/src/entities/react.rs`, `domain/src/repositories/react_repository.rs` |
 | 2 | Agent service | `application/src/services/react_agent_service.rs`, `application/src/services/thought_parser.rs` |
-| 3 | Complexity detector | `application/src/services/complexity_detector.rs` |
-| 4 | Storage | `infrastructure/src/react_storage.rs` |
-| 5 | CLI handler | `presentation/src/cli/handlers/react.rs` |
-| 6 | CLI app update | `presentation/src/cli/cli_app.rs` |
-| 7 | Integration | Connect OllamaClient, SafetyEngine, LearningService, DomainRegistry |
-| 8 | Tests | Unit + integration tests for both modes |
+| 3 | Storage | `infrastructure/src/react_storage.rs` |
+| 4 | CLI handler | `presentation/src/cli/handlers/react.rs` |
+| 5 | CLI app update | `presentation/src/cli/cli_app.rs` |
+| 6 | Integration | Connect OllamaClient, SafetyEngine, LearningService, DomainRegistry |
+| 7 | Tests | Unit + integration tests for both modes |
 
 ---
 
@@ -718,31 +654,179 @@ Mode: ReAct + Neurosymbolic
 |     | Update confidence, check if goal achieved                  |  |
 |     +------------------------------------------------------------+  |
 |                                                                     |
-|  5. Loop until: goal achieved OR max iterations OR user interrupt   |
-|                                                                     |
+|  5. Loop until: goal achieved OR max iterations OR user interrupt   |                                                                    |
 +---------------------------------------------------------------------+
 ```
 
 ---
 
-## Complexity Detection Rules
+# Future: Neurosymbolic Enhancement Plan
 
-| Conditions | Complexity | Recommended Mode |
-|------------|------------|------------------|
-| Known service + known action + troubleshooting | Complex | ReAct + Neurosymbolic |
-| Known service + known action | Moderate | ReAct (suggest symbolic) |
-| Known action only | Moderate | ReAct (suggest symbolic) |
-| Unknown service/action | Simple | Pure ReAct |
+Make neurosymbolic system more reusable, DRY, and type-safe.
+
+## Current Issues
+
+1. **Plain JSON configurations** - operations.json, entities.json, inference_rules.json
+2. **Code duplication** - similar patterns across domains
+3. **No type safety** - parsing JSON at runtime, no compile-time validation
+4. **Hard to extend** - adding new operation types requires code changes
+
+## Goals
+
+1. **Type-safe domain definitions** using Rust structs with serde
+2. **Code generation** from domain definitions (optional)
+3. **Reusable operation templates** - compose operations from smaller units
+4. **Better separation** - domain logic from infrastructure
+5. **Validation at load time** - fail fast on invalid configs
+
+## Proposed Changes
+
+### 1. Typed Operation Definitions
+
+Instead of plain JSON, use Rust structs:
+
+```rust
+// Current: operations.json
+{
+    "op_id": "list_processes",
+    "name": "List processes",
+    "generators": [
+        {"tool": "ps", "template": "ps aux", "when": []}
+    ]
+}
+
+// Proposed: Rust struct with derive
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct Operation {
+    pub op_id: String,
+    pub name: String,
+    pub description: String,
+    pub intent: String,
+    #[serde(default)]
+    pub input_schema: HashMap<String, InputField>,
+    pub generators: Vec<Generator>,
+    pub examples: Vec<OperationExample>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
+pub struct Generator {
+    pub name: String,
+    pub tool: String,
+    pub template: String,
+    #[serde(default)]
+    pub when: Vec<Condition>,
+    #[serde(default)]
+    pub preference_score: f32,
+}
+```
+
+### 2. Operation Traits for Reusability
+
+```rust
+pub trait Operation {
+    type Input: Validate + Default;
+    type Output: ParseOutput;
+
+    fn id(&self) -> &str;
+    fn name(&self) -> &str;
+    fn generate_commands(&self, input: &Self::Input) -> Result<Vec<GeneratedCommand>>;
+    fn parse_output(&self, raw: &str) -> Self::Output;
+}
+
+// Composable operations
+pub struct CompositeOperation {
+    operations: Vec<Box<dyn Operation<Input = (), Output = ()>>>,
+}
+
+pub struct ConditionalOperation<C: Condition, O: Operation> {
+    condition: C,
+    operation: O,
+}
+```
+
+### 3. Derive Macros for Code Generation
+
+```rust
+// Generate operations from struct definitions
+#[derive(Operation)]
+#[operation(
+    id = "list_files",
+    name = "List Files",
+    generators = [
+        "ls -la" => Tool::Bash,
+        "find . -type f" => Tool::Bash
+    ]
+)]
+pub struct ListFilesOperation {
+    #[arg(description = "Directory to list")]
+    path: PathBuf,
+
+    #[arg(default = "false")]
+    recursive: bool,
+}
+```
+
+### 4. Validation at Load Time
+
+```rust
+impl DomainConfig {
+    pub fn load_and_validate(path: PathBuf) -> Result<Self> {
+        let config = Self::load(path)?;
+
+        // Validate all operation references
+        config.validate_operations()?;
+
+        // Validate all entity references
+        config.validate_entities()?;
+
+        // Validate inference rule conditions
+        config.validate_rules()?;
+
+        // Check for duplicate IDs
+        config.validate_unique_ids()?;
+
+        Ok(config)
+    }
+}
+```
+
+### 5. Migration Strategy
+
+```
+Phase 1: Type-safe wrappers
+- Keep JSON configs
+- Add Rust structs with full validation
+- Fail at load time on invalid configs
+
+Phase 2: Code generation (optional)
+- Generate Rust structs from JSON schemas
+- Add derive macros for common patterns
+- Allow pure Rust domain definitions
+
+Phase 3: Optional Rust-native domains
+- Allow defining domains entirely in Rust
+- Use trait bounds for type-safe operations
+- Enable compile-time validation
+```
 
 ---
 
-## Known Patterns for Detection
+## Files to Modify for Enhancement
 
-**Known Services:**
-- nginx, apache, mysql, postgres, redis, docker
+| File | Change |
+|------|--------|
+| `domain/src/domain_config/types.rs` | Add type-safe structs with JsonSchema derive |
+| `domain/src/domain_config/loader.rs` | Add comprehensive validation |
+| `domain/src/domain_config/command_generator.rs` | Use typed Operation structs |
+| `domain/src/domain_config/registry.rs` | Type-safe registry with generics |
 
-**Known Actions:**
-- restart, status, check, diagnose, fix, debug
+---
 
-**Troubleshooting Keywords:**
-- not running, failed, error, crash, memory, cpu, slow, hanging
+## Benefits
+
+1. **Compile-time errors** - Invalid operations caught early
+2. **IDE support** - Autocomplete for operation fields
+3. **Documentation** - Generate docs from struct derives
+4. **Refactoring** - Rename refactoring across domain definitions
+5. **Testing** - Unit test operations in isolation
+6. **Reusability** - Compose operations from smaller traits
