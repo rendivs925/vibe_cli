@@ -223,6 +223,16 @@ impl IntegratedNeurosymbolicService {
     /// Create with custom configuration
     pub fn with_config(config: NeurosymbolicConfig) -> Result<Self> {
         let (cache_dir, domains_dir, shared_dir) = Self::config_dirs();
+        Self::with_paths(config, cache_dir, domains_dir, shared_dir)
+    }
+
+    /// Create with explicit paths for testing (avoids environment variable manipulation)
+    pub fn with_paths(
+        config: NeurosymbolicConfig,
+        cache_dir: PathBuf,
+        domains_dir: PathBuf,
+        shared_dir: PathBuf,
+    ) -> Result<Self> {
         let _ = std::fs::create_dir_all(&cache_dir);
         let _ = std::fs::create_dir_all(&domains_dir);
         let _ = std::fs::create_dir_all(&shared_dir);
@@ -1409,10 +1419,14 @@ mod tests {
 
     impl Drop for HomeGuard {
         fn drop(&mut self) {
-            if let Some(value) = &self.original {
-                std::env::set_var("HOME", value);
-            } else {
-                std::env::remove_var("HOME");
+            // SAFETY: This is test code that runs with RUST_TEST_THREADS=1
+            // or under a mutex. We restore the original HOME value here.
+            unsafe {
+                if let Some(value) = &self.original {
+                    std::env::set_var("HOME", value);
+                } else {
+                    std::env::remove_var("HOME");
+                }
             }
             let _ = fs::remove_dir_all(&self.temp_home);
         }
@@ -1435,7 +1449,12 @@ mod tests {
                 .join(format!("vibe_cli_test_home_{}", nanos));
             fs::create_dir_all(&temp_home).unwrap();
         }
-        std::env::set_var("HOME", &temp_home);
+        // SAFETY: This is test code that runs with RUST_TEST_THREADS=1
+        // or under a mutex, so no other threads will race on environment access.
+        // Production code should use explicit path configuration instead.
+        unsafe {
+            std::env::set_var("HOME", &temp_home);
+        }
 
         let domain_dir = temp_home.join(".config/vibe_cli/domains/linux");
         let _ = fs::create_dir_all(domain_dir.join("entities"));

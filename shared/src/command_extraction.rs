@@ -7,12 +7,9 @@ pub fn normalize_command_candidate(input: &str) -> String {
     let mut lines = candidate.lines().map(str::trim).filter(|l| !l.is_empty());
     if let Some(first) = lines.next() {
         if first.starts_with("```") {
-            for line in lines {
-                if line.starts_with("```") {
-                    break;
-                }
+            // Extract first non-fence line from code block
+            if let Some(line) = lines.find(|l| !l.starts_with("```")) {
                 candidate = line.to_string();
-                break;
             }
         } else {
             candidate = first.to_string();
@@ -226,7 +223,12 @@ const BAD_PREFIXES: &[&str] = &[
 
 const SHELL_LANG_TAGS: &[&str] = &["bash", "sh", "zsh", "shell", "console"];
 
-fn push_candidate(out: &mut Vec<(Source, String)>, src: Source, raw_cmd: &str, q_keywords: &[String]) {
+fn push_candidate(
+    out: &mut Vec<(Source, String)>,
+    src: Source,
+    raw_cmd: &str,
+    q_keywords: &[String],
+) {
     let cmd = normalize_command(raw_cmd);
     if cmd.is_empty() {
         return;

@@ -1,5 +1,16 @@
-msrv = "1.70"
-deny = ["unwrap_used", "panic"]
+# Clippy configuration for vibe_cli
+# See: https://doc.rust-lang.org/clippy/configuration.html
 
-[workspace.lints.clippy]
-expect_used = "allow"
+# Minimum supported Rust version
+msrv = "1.70"
+
+# Lint levels can be configured here using the lint names without the clippy:: prefix
+# Note: 'deny' and 'workspace.lints' are not valid in this file
+# Use cargo command line or Cargo.toml [lints] section for those
+
+# Example of valid configurations:
+# allow = ["needless_return"]
+# warn = ["cargo"]
+
+# Documentation for clippy.toml:
+# https://github.com/rust-lang/rust-clippy/blob/master/clippy.toml

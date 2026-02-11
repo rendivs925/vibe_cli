@@ -247,15 +247,19 @@ impl CliHandlers {
 
     fn wrap_streaming_command(cmd: &str) -> String {
         if Self::has_in_path("script") {
-            let escaped = Self::escape_single_quotes(cmd);
-            return format!("script -q /dev/null -c '{}'", escaped);
+            let escaped = Self::shell_escape(cmd);
+            return format!("script -q /dev/null -c {}", escaped);
         }
 
         if Self::has_in_path("stdbuf") {
-            return format!("stdbuf -oL -eL {}", cmd);
+            // stdbuf passes command directly to execvp, but we still need
+            // to pass it through bash -c in the parent, so escape properly
+            let escaped = Self::shell_escape(cmd);
+            return format!("stdbuf -oL -eL {}", escaped);
         }
 
-        cmd.to_string()
+        // Fallback: escape the command for direct shell execution
+        Self::shell_escape(cmd)
     }
 
     fn apply_streaming_fixes(cmd: &str) -> String {
@@ -293,8 +297,17 @@ impl CliHandlers {
         false
     }
 
-    fn escape_single_quotes(input: &str) -> String {
-        input.replace('\'', "'\\''")
+    /// Properly escape a string for safe use in shell commands.
+    /// Uses single quotes and escapes any embedded single quotes.
+    fn shell_escape(input: &str) -> String {
+        // If the input is empty, return empty quoted string
+        if input.is_empty() {
+            return "''".to_string();
+        }
+        
+        // Wrap in single quotes and escape any embedded single quotes
+        // by ending the quote, adding an escaped quote, and starting a new quote
+        format!("'{}'", input.replace('\'', "'\\''"))
     }
 
     fn keywords_from_text(text: &str) -> Vec<String> {
