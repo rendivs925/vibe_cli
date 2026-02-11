@@ -5,13 +5,24 @@ use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use dialoguer::console::Term;
 use std::io;
 
+fn write_prompt(term: &Term, prompt: &str, hint: Option<&str>) -> Result<()> {
+    let prompt_text = prompt.cyan().bold();
+    if let Some(hint) = hint {
+        let hint_text = hint.dimmed();
+        term.write_str(&format!("{prompt_text} {hint_text} "))?;
+    } else {
+        term.write_str(&format!("{prompt_text} "))?;
+    }
+    term.flush()?;
+    Ok(())
+}
+
 /// Standardized confirmation prompt used across binaries.
 /// Returns immediately on single keypress: y/Y, n/N, or Enter for default.
 pub fn ask_confirmation(prompt: &str, default_yes: bool) -> Result<bool> {
     let term = Term::stdout();
     let default_hint = if default_yes { "[Y/n]" } else { "[y/N]" };
-    term.write_str(&format!("{prompt} {default_hint} "))?;
-    term.flush()?;
+    write_prompt(&term, prompt, Some(default_hint))?;
 
     enable_raw_mode()?;
     let result = loop {
@@ -39,8 +50,7 @@ pub fn ask_confirmation(prompt: &str, default_yes: bool) -> Result<bool> {
 pub fn ask_command_confirmation(prompt: &str, allow_generate: bool) -> Result<Option<bool>> {
     let term = Term::stdout();
     let hint = if allow_generate { "[y/N/g]" } else { "[y/N]" };
-    term.write_str(&format!("{prompt} {hint} "))?;
-    term.flush()?;
+    write_prompt(&term, prompt, Some(hint))?;
 
     enable_raw_mode()?;
     let result = loop {
@@ -73,15 +83,12 @@ pub fn ask_selection(options: &[String], allow_generate_new: bool) -> Result<Opt
     let term = Term::stdout();
 
     // Build prompt based on available actions
-    if allow_generate_new {
-        term.write_str(&format!(
-            "Choose [1-{}] (g)enerate new (q)uit: ",
-            options.len()
-        ))?;
+    let hint = if allow_generate_new {
+        format!("[1-{}] (g)enerate new (q)uit:", options.len())
     } else {
-        term.write_str(&format!("Choose [1-{}] (q)uit: ", options.len()))?;
-    }
-    term.flush()?;
+        format!("[1-{}] (q)uit:", options.len())
+    };
+    write_prompt(&term, "Choose", Some(&hint))?;
 
     let mut input = String::new();
     io::stdin().read_line(&mut input)?;
@@ -93,12 +100,14 @@ pub fn ask_selection(options: &[String], allow_generate_new: bool) -> Result<Opt
         return Err(anyhow::anyhow!("generate_new"));
     } else if let Ok(choice) = input.parse::<usize>() {
         if choice >= 1 && choice <= options.len() {
-            term.write_line(&format!("Selected: {}", options[choice - 1]))?;
+            let label = "Selected:".dimmed();
+            let choice_text = options[choice - 1].green();
+            term.write_line(&format!("{label} {choice_text}"))?;
             return Ok(Some(choice - 1));
         }
     }
 
-    term.write_line("Invalid choice. Please try again.")?;
+    term.write_line(&"Invalid choice. Please try again.".red().to_string())?;
     // Retry by calling again (recursive call with same parameters)
     ask_selection(options, allow_generate_new)
 }
@@ -106,8 +115,7 @@ pub fn ask_selection(options: &[String], allow_generate_new: bool) -> Result<Opt
 /// Simple text input prompt for collecting user feedback.
 pub fn ask_feedback(prompt: &str) -> Result<String> {
     let term = Term::stdout();
-    term.write_str(prompt)?;
-    term.flush()?;
+    write_prompt(&term, prompt, None)?;
 
     let mut input = String::new();
     io::stdin().read_line(&mut input)?;

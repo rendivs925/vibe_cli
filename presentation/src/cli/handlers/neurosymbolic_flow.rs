@@ -110,13 +110,7 @@ impl CliHandlers {
                     println!("Found cached command for: {}", query);
                     println!("Using: {}", first_candidate.command);
 
-                    let confirm = dialoguer::Confirm::new()
-                        .with_prompt("Use cached command?")
-                        .default(true)
-                        .show_default(true)
-                        .interact()?;
-
-                    if confirm {
+                    if ask_confirmation("Use cached command?", true)? {
                         let cmd = &first_candidate.command;
                         let mut summary = String::new();
                         let output = if ai_interpret {
