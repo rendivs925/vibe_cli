@@ -45,7 +45,10 @@ impl CommandPlanner {
         let description = self.generate_description(input, &command_line);
 
         // Generate safety checks
-        let safety_checks: Vec<SafetyCheck> = self.generate_safety_checks(&command_line).into_iter().collect();
+        let safety_checks: Vec<SafetyCheck> = self
+            .generate_safety_checks(&command_line)
+            .into_iter()
+            .collect();
 
         // Validate against safety policy
         let safety_result = self.safety_policy.validate_command(&command_line);
@@ -163,7 +166,6 @@ impl CommandPlanner {
         let overall_safe = all_checks.iter().all(|check| check.passed());
         SafetyResult::new(overall_safe, all_checks)
     }
-
 }
 
 pub trait CommandExtractor: Send + Sync {

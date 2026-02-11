@@ -33,9 +33,9 @@ impl CliHandlers {
         let mut feedback = String::new();
         loop {
             eprintln!("Thinking...");
-        let Some(rag) = self.rag_service.as_ref() else {
-            return Err(anyhow::anyhow!("RAG service not initialized"));
-        };
+            let Some(rag) = self.rag_service.as_ref() else {
+                return Err(anyhow::anyhow!("RAG service not initialized"));
+            };
             let response = rag.query_with_feedback(question, &feedback).await?;
 
             println!("{}", response);

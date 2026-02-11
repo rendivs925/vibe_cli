@@ -141,8 +141,7 @@ impl CliHandlers {
             .iter()
             .filter(|w| {
                 let w = w.to_lowercase();
-                ["check", "show", "list", "get", "find", "view", "display"]
-                    .contains(&w.as_str())
+                ["check", "show", "list", "get", "find", "view", "display"].contains(&w.as_str())
             })
             .copied()
             .collect();

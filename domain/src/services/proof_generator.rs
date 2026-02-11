@@ -225,10 +225,7 @@ impl ProofGenerator {
     }
 
     /// Generate reversibility proof
-    pub fn generate_reversibility_proof(
-        &self,
-        command: &str,
-    ) -> SafetyProof {
+    pub fn generate_reversibility_proof(&self, command: &str) -> SafetyProof {
         let mut proof_steps = vec![];
 
         proof_steps.push(ProofStep {

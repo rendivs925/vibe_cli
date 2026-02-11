@@ -91,16 +91,12 @@ pub fn blocked_reason(command: &str) -> Option<BlockedCommand> {
 
     // Shell injection patterns
     let injection_patterns = [
-        "; rm",
-        "&& rm",
-        "|| rm",
-        "$(rm",
-        "`rm`",
-        "| rm",
-        "> rm",
-        "< rm",
+        "; rm", "&& rm", "|| rm", "$(rm", "`rm`", "| rm", "> rm", "< rm",
     ];
-    if injection_patterns.iter().any(|pattern| command.contains(pattern)) {
+    if injection_patterns
+        .iter()
+        .any(|pattern| command.contains(pattern))
+    {
         return Some(BlockedCommand {
             reason: "shell injection pattern".to_string(),
         });

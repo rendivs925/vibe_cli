@@ -30,10 +30,7 @@ pub struct ChatResponse {
     done: bool,
 }
 
-fn confirm_and_run_command(
-    command: &str,
-    allow_generate: bool,
-) -> anyhow::Result<Option<String>> {
+fn confirm_and_run_command(command: &str, allow_generate: bool) -> anyhow::Result<Option<String>> {
     match ask_command_confirmation("Run this command?", allow_generate)? {
         Some(true) => Ok(Some(command.to_string())),
         Some(false) => {

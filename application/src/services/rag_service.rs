@@ -106,7 +106,8 @@ impl RagService {
         let mut chunks =
             SearchEngine::find_relevant_chunks(&query_embedding, &all_embeddings, limit);
 
-        if question.to_lowercase().contains("project") || question.to_lowercase().contains("what is")
+        if question.to_lowercase().contains("project")
+            || question.to_lowercase().contains("what is")
         {
             if let Ok(readme_content) = std::fs::read_to_string("README.md") {
                 chunks.insert(0, format!("FILE: README.md\n{}", readme_content));

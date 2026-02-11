@@ -37,11 +37,7 @@ impl ReactAgentService {
         self
     }
 
-    pub async fn start_session(
-        &self,
-        query: String,
-        neurosymbolic: bool,
-    ) -> Result<ReactSession> {
+    pub async fn start_session(&self, query: String, neurosymbolic: bool) -> Result<ReactSession> {
         let session = ReactSession::new(query, neurosymbolic);
         self.react_repository
             .save_session(&session)
@@ -197,6 +193,85 @@ Constraints:\n\
         Ok(())
     }
 
+    pub async fn generate_symbolic_inference(
+        &self,
+        session: &ReactSession,
+    ) -> Result<Option<String>> {
+        if !session.neurosymbolic_enabled {
+            return Ok(None);
+        }
+
+        let history = Self::format_history(session);
+        let prompt = format!(
+            "You are a symbolic diagnostics engine for Linux troubleshooting.\n\
+Based on the ReAct history, produce a concise symbolic inference in this exact shape:\n\
+Rule: <rule_name>\n\
+Conditions:\n\
+  - <condition 1>\n\
+Conclusion: <single sentence>\n\
+No markdown fences. No extra sections.\n\
+Goal: {goal}\n\
+History:\n{history}\n",
+            goal = session.query,
+            history = if history.is_empty() {
+                "(none)"
+            } else {
+                &history
+            }
+        );
+
+        let response = self.client.generate_response(&prompt).await?;
+        let cleaned = response.trim().to_string();
+        if cleaned.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(cleaned))
+    }
+
+    pub async fn is_goal_achieved(&self, session: &ReactSession) -> Result<bool> {
+        let history = Self::format_history(session);
+        let prompt = format!(
+            "Decide if the troubleshooting goal is achieved based on history.\n\
+Reply with ONLY YES or NO.\n\
+Goal: {goal}\n\
+History:\n{history}\n",
+            goal = session.query,
+            history = if history.is_empty() {
+                "(none)"
+            } else {
+                &history
+            }
+        );
+
+        let response = self.client.generate_response(&prompt).await?;
+        Ok(response.trim().eq_ignore_ascii_case("yes"))
+    }
+
+    pub async fn generate_goal_summary(&self, session: &ReactSession) -> Result<String> {
+        let history = Self::format_history(session);
+        let prompt = format!(
+            "Summarize troubleshooting result in this exact format:\n\
+Root cause: <text>\n\
+Fix applied: <text>\n\
+Use \"Unknown\" when not confirmed. No extra lines.\n\
+Goal: {goal}\n\
+History:\n{history}\n",
+            goal = session.query,
+            history = if history.is_empty() {
+                "(none)"
+            } else {
+                &history
+            }
+        );
+
+        let response = self.client.generate_response(&prompt).await?;
+        let summary = response.trim().to_string();
+        if summary.is_empty() {
+            return Ok("Root cause: Unknown\nFix applied: Unknown".to_string());
+        }
+        Ok(summary)
+    }
+
     pub async fn save_session(&self, session: &ReactSession) -> Result<()> {
         self.react_repository
             .update_session(session)
@@ -259,10 +334,7 @@ Constraints:\n\
                 lines.push(format!("{}: {}", label, content));
             }
             if !step.observations.is_empty() {
-                lines.push(format!(
-                    "Observations: {}",
-                    step.observations.join(" | ")
-                ));
+                lines.push(format!("Observations: {}", step.observations.join(" | ")));
             }
         }
         lines.join("\n")

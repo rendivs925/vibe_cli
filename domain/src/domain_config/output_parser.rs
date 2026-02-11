@@ -39,9 +39,7 @@ impl OutputParser {
             return arr
                 .into_iter()
                 .map(|v| match v {
-                    serde_json::Value::Object(map) => {
-                        map.into_iter().collect()
-                    }
+                    serde_json::Value::Object(map) => map.into_iter().collect(),
                     _ => HashMap::new(),
                 })
                 .collect();

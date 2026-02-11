@@ -71,17 +71,50 @@ impl CliHandlers {
         println!("  {}", "OK operations.json (merged)");
 
         let entity_files = [
-            ("process.json", include_str!("../domain_templates/linux/entities/process.json")),
-            ("file.json", include_str!("../domain_templates/linux/entities/file.json")),
-            ("service.json", include_str!("../domain_templates/linux/entities/service.json")),
-            ("network_connection.json", include_str!("../domain_templates/linux/entities/network_connection.json")),
-            ("user.json", include_str!("../domain_templates/linux/entities/user.json")),
-            ("filesystem.json", include_str!("../domain_templates/linux/entities/filesystem.json")),
-            ("memory.json", include_str!("../domain_templates/linux/entities/memory.json")),
-            ("cpu.json", include_str!("../domain_templates/linux/entities/cpu.json")),
-            ("network_interface.json", include_str!("../domain_templates/linux/entities/network_interface.json")),
-            ("docker_container.json", include_str!("../domain_templates/linux/entities/docker_container.json")),
-            ("systemd_unit.json", include_str!("../domain_templates/linux/entities/systemd_unit.json")),
+            (
+                "process.json",
+                include_str!("../domain_templates/linux/entities/process.json"),
+            ),
+            (
+                "file.json",
+                include_str!("../domain_templates/linux/entities/file.json"),
+            ),
+            (
+                "service.json",
+                include_str!("../domain_templates/linux/entities/service.json"),
+            ),
+            (
+                "network_connection.json",
+                include_str!("../domain_templates/linux/entities/network_connection.json"),
+            ),
+            (
+                "user.json",
+                include_str!("../domain_templates/linux/entities/user.json"),
+            ),
+            (
+                "filesystem.json",
+                include_str!("../domain_templates/linux/entities/filesystem.json"),
+            ),
+            (
+                "memory.json",
+                include_str!("../domain_templates/linux/entities/memory.json"),
+            ),
+            (
+                "cpu.json",
+                include_str!("../domain_templates/linux/entities/cpu.json"),
+            ),
+            (
+                "network_interface.json",
+                include_str!("../domain_templates/linux/entities/network_interface.json"),
+            ),
+            (
+                "docker_container.json",
+                include_str!("../domain_templates/linux/entities/docker_container.json"),
+            ),
+            (
+                "systemd_unit.json",
+                include_str!("../domain_templates/linux/entities/systemd_unit.json"),
+            ),
         ];
         for (name, content) in entity_files {
             std::fs::write(linux_dir.join(name), content)?;
@@ -90,7 +123,10 @@ impl CliHandlers {
         println!("  {}", "OK entities/ (11 entities: Process, File, Service, NetworkConnection, User, Filesystem, MemoryInfo, Cpu, NetworkInterface, DockerContainer, SystemdUnit)");
 
         let relationships_json = include_str!("../domain_templates/linux/relationships.json");
-        std::fs::write(config_dir.join("linux/relationships.json"), relationships_json)?;
+        std::fs::write(
+            config_dir.join("linux/relationships.json"),
+            relationships_json,
+        )?;
         println!("  {}", "OK relationships.json (8 relationships)");
 
         let inference_rules_json = include_str!("../domain_templates/linux/inference_rules.json");
@@ -129,7 +165,10 @@ impl CliHandlers {
         }
 
         for base in base_templates {
-            let base_id = base.get("template_id").and_then(|v| v.as_str()).unwrap_or("");
+            let base_id = base
+                .get("template_id")
+                .and_then(|v| v.as_str())
+                .unwrap_or("");
             if base_id.is_empty() {
                 continue;
             }

@@ -180,9 +180,7 @@ New output:\n{}\n",
             .map(|s| s.trim().to_ascii_lowercase())
             .collect::<Vec<_>>();
 
-        (update.key_points.is_empty()
-            && update.errors.is_empty()
-            && update.warnings.is_empty())
+        (update.key_points.is_empty() && update.errors.is_empty() && update.warnings.is_empty())
             || all
                 .iter()
                 .all(|x| x == "no new findings." || x == "no new findings")

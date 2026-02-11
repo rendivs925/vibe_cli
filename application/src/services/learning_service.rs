@@ -316,12 +316,8 @@ mod tests {
         let service = LearningService::with_path(db_path.clone()).unwrap();
 
         // Record successes and failures
-        service
-            .record_success("test query", "cmd1", None)
-            .unwrap();
-        service
-            .record_success("test query", "cmd2", None)
-            .unwrap();
+        service.record_success("test query", "cmd1", None).unwrap();
+        service.record_success("test query", "cmd2", None).unwrap();
         service
             .record_failure("test query", "cmd3", FailureType::Other, None)
             .unwrap();

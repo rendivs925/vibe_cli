@@ -62,10 +62,7 @@ impl ReactRepository for InMemoryReactStorage {
         Ok(())
     }
 
-    async fn get_session(
-        &self,
-        session_id: &str,
-    ) -> Result<Option<ReactSession>, Box<dyn Error>> {
+    async fn get_session(&self, session_id: &str) -> Result<Option<ReactSession>, Box<dyn Error>> {
         let sessions = self
             .sessions
             .lock()
@@ -124,10 +121,7 @@ impl ReactRepository for InMemoryReactStorage {
         self.save_step(step).await
     }
 
-    async fn get_recent_sessions(
-        &self,
-        limit: usize,
-    ) -> Result<Vec<ReactSession>, Box<dyn Error>> {
+    async fn get_recent_sessions(&self, limit: usize) -> Result<Vec<ReactSession>, Box<dyn Error>> {
         let sessions = self
             .sessions
             .lock()
@@ -177,10 +171,7 @@ impl ReactCommandRepository for InMemoryReactStorage {
             .commands_by_step
             .lock()
             .map_err(|_| "failed to lock commands_by_step")?;
-        Ok(commands_by_step
-            .get(step_id)
-            .cloned()
-            .unwrap_or_default())
+        Ok(commands_by_step.get(step_id).cloned().unwrap_or_default())
     }
 
     async fn get_pending_commands(

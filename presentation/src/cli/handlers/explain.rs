@@ -63,10 +63,10 @@ impl CliHandlers {
     }
 
     fn read_docx_text(file: &str) -> Result<String> {
-        let bytes =
-            std::fs::read(file).map_err(|e| anyhow!("Error reading DOCX file '{}': {}", file, e))?;
-        let docx =
-            docx_rs::read_docx(&bytes).map_err(|e| anyhow!("Error parsing DOCX '{}': {}", file, e))?;
+        let bytes = std::fs::read(file)
+            .map_err(|e| anyhow!("Error reading DOCX file '{}': {}", file, e))?;
+        let docx = docx_rs::read_docx(&bytes)
+            .map_err(|e| anyhow!("Error parsing DOCX '{}': {}", file, e))?;
         let mut text = String::new();
         for child in &docx.document.children {
             match child {

@@ -1,8 +1,8 @@
 use crate::ports::{Cache, StorageService};
+use crate::services::cache_codec::{decode_cache, encode_cache};
 use async_trait::async_trait;
 use domain::entities::session::{Message, Session};
 use shared::error::AppError;
-use crate::services::cache_codec::{decode_cache, encode_cache};
 
 /// Use case for session management
 pub struct SessionUseCase {

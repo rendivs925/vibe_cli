@@ -1,5 +1,5 @@
 use async_trait::async_trait;
-use domain::repositories::execution_repository::{ExecutionRepository, CommandExecution};
+use domain::repositories::execution_repository::{CommandExecution, ExecutionRepository};
 use rusqlite::{params, Connection, Result as SqlResult};
 use shared::error::AppError;
 use std::path::Path;
@@ -55,7 +55,7 @@ impl ExecutionRepository for ExecutionStorage {
     async fn save(&self, execution: &CommandExecution) -> Result<(), AppError> {
         let conn = Arc::clone(&self.conn);
         let execution = execution.clone();
-        
+
         task::spawn_blocking(move || -> Result<(), AppError> {
             let conn = conn.blocking_lock();
             conn.execute(
@@ -77,7 +77,7 @@ impl ExecutionRepository for ExecutionStorage {
 
     async fn get_all(&self) -> Result<Vec<CommandExecution>, AppError> {
         let conn = Arc::clone(&self.conn);
-        
+
         task::spawn_blocking(move || -> Result<Vec<CommandExecution>, AppError> {
             let conn = conn.blocking_lock();
             let mut stmt = conn.prepare("SELECT id, command_line, executed_at, exit_code, duration_ms FROM command_executions ORDER BY executed_at DESC")?;
@@ -111,7 +111,7 @@ impl ExecutionRepository for ExecutionStorage {
     async fn get_by_id(&self, id: &str) -> Result<Option<CommandExecution>, AppError> {
         let conn = Arc::clone(&self.conn);
         let id = id.to_string();
-        
+
         task::spawn_blocking(move || -> Result<Option<CommandExecution>, AppError> {
             let conn = conn.blocking_lock();
             let mut stmt = conn.prepare("SELECT id, command_line, executed_at, exit_code, duration_ms FROM command_executions WHERE id = ?")?;
@@ -144,7 +144,7 @@ impl ExecutionRepository for ExecutionStorage {
     async fn get_by_command(&self, command_line: &str) -> Result<Vec<CommandExecution>, AppError> {
         let conn = Arc::clone(&self.conn);
         let command_line = command_line.to_string();
-        
+
         task::spawn_blocking(move || -> Result<Vec<CommandExecution>, AppError> {
             let conn = conn.blocking_lock();
             let mut stmt = conn.prepare("SELECT id, command_line, executed_at, exit_code, duration_ms FROM command_executions WHERE command_line = ? ORDER BY executed_at DESC")?;
@@ -175,11 +175,15 @@ impl ExecutionRepository for ExecutionStorage {
         }).await?
     }
 
-    async fn get_by_date_range(&self, start: chrono::DateTime<chrono::Utc>, end: chrono::DateTime<chrono::Utc>) -> Result<Vec<CommandExecution>, AppError> {
+    async fn get_by_date_range(
+        &self,
+        start: chrono::DateTime<chrono::Utc>,
+        end: chrono::DateTime<chrono::Utc>,
+    ) -> Result<Vec<CommandExecution>, AppError> {
         let conn = Arc::clone(&self.conn);
         let start_str = start.to_rfc3339();
         let end_str = end.to_rfc3339();
-        
+
         task::spawn_blocking(move || -> Result<Vec<CommandExecution>, AppError> {
             let conn = conn.blocking_lock();
             let mut stmt = conn.prepare("SELECT id, command_line, executed_at, exit_code, duration_ms FROM command_executions WHERE executed_at BETWEEN ? AND ? ORDER BY executed_at DESC")?;

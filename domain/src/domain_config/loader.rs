@@ -1,8 +1,8 @@
 // Domain configuration loader with $ref support for shared entities
 
 use crate::domain_config::types::*;
-use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -198,9 +198,8 @@ impl DomainLoader {
 
                 let mut merged_derived = prebuilt_entity.derived_properties.clone();
                 for derived in entity.derived_properties {
-                    if let Some(existing) = merged_derived
-                        .iter_mut()
-                        .find(|p| p.name == derived.name)
+                    if let Some(existing) =
+                        merged_derived.iter_mut().find(|p| p.name == derived.name)
                     {
                         *existing = derived;
                     } else {

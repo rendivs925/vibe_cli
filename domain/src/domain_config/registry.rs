@@ -95,8 +95,7 @@ pub struct IntentMatch {
     pub matched_value: String,
 }
 
-#[derive(Debug, Clone, PartialEq)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub enum MatchSource {
     DomainId,
     DomainDescription,
@@ -125,7 +124,6 @@ impl std::fmt::Display for MatchSource {
         }
     }
 }
-
 
 /// Registry for all loaded domains
 #[derive(Debug, Clone)]

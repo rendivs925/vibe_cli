@@ -1,5 +1,5 @@
 //! Enhanced Safety Kernel
-//! 
+//!
 //! Provides comprehensive safety checking for commands with 28 hard rules
 //! that prevent catastrophic system actions.
 
@@ -16,8 +16,7 @@ use serde::{Deserialize, Serialize};
 use std::fmt;
 
 /// Risk level for commands
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum RiskLevel {
     /// Safe to execute without confirmation
     Safe,
@@ -40,4 +39,3 @@ impl fmt::Display for RiskLevel {
         }
     }
 }
-

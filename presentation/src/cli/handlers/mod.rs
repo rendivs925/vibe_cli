@@ -6,11 +6,11 @@ mod domain_learning;
 mod domain_manage;
 mod domain_output;
 mod explain;
-mod react;
 mod neurosymbolic_filter;
 mod neurosymbolic_flow;
 mod neurosymbolic_utils;
 mod rag;
+mod react;
 
 #[cfg(test)]
 mod tests;
@@ -360,7 +360,7 @@ impl CliHandlers {
         if input.is_empty() {
             return "''".to_string();
         }
-        
+
         // Wrap in single quotes and escape any embedded single quotes
         // by ending the quote, adding an escaped quote, and starting a new quote
         format!("'{}'", input.replace('\'', "'\\''"))

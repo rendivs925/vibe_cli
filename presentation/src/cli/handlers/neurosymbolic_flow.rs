@@ -38,13 +38,12 @@ impl CliHandlers {
             }
 
             messages.push(Self::user_message(query, critique_feedback.as_deref()));
-            let (_, candidates) =
-                crate::cli::streaming::request_command_candidates_from_llm(
-                    &self.config,
-                    &messages,
-                    Some(query),
-                )
-                .await?;
+            let (_, candidates) = crate::cli::streaming::request_command_candidates_from_llm(
+                &self.config,
+                &messages,
+                Some(query),
+            )
+            .await?;
 
             if candidates.is_empty() {
                 return Ok(());
@@ -83,7 +82,7 @@ impl CliHandlers {
                     .as_deref()
                     .unwrap_or("symbolic validation failed");
                 eprintln!("Symbolic validation failed: {}", reason);
-                if let Some(service) =         self.neurosymbolic_service.as_ref() {
+                if let Some(service) = self.neurosymbolic_service.as_ref() {
                     let _ = service.record_failure(query, "", FailureType::Other, Some(reason));
                 }
                 eprintln!("Falling back to standard query...");
@@ -118,7 +117,8 @@ impl CliHandlers {
                             let (ack_tx, ack_rx) = mpsc::channel();
                             let handle = self.spawn_incremental_interpreter(query, rx, ack_tx);
                             let sink = super::OutputSink { tx, ack: ack_rx };
-                            let result = self.run_shell_command_streaming_with_sink(cmd, Some(sink))?;
+                            let result =
+                                self.run_shell_command_streaming_with_sink(cmd, Some(sink))?;
                             summary = handle.join().unwrap_or_default();
                             result
                         } else {
@@ -129,14 +129,22 @@ impl CliHandlers {
                             last_successful_command = cmd.to_string();
                             last_successful_query = query.to_string();
                         } else {
-                            println!("{}", format!("Command failed with exit code: {:?}", output.status.code()).red());
+                            println!(
+                                "{}",
+                                format!(
+                                    "Command failed with exit code: {:?}",
+                                    output.status.code()
+                                )
+                                .red()
+                            );
                             if !output.stderr.is_empty() {
                                 println!("{}", output.stderr.red());
                             }
                         }
 
                         if ai_interpret {
-                            self.interpret_output_final(query, &output.full_output, &summary).await?;
+                            self.interpret_output_final(query, &output.full_output, &summary)
+                                .await?;
                         }
 
                         return Ok(());
@@ -185,10 +193,9 @@ impl CliHandlers {
 
             // Cache successful command
             let candidate = CommandCandidate::new(last_successful_command.clone());
-            let _ = self.cache_manager.save_command_cached(
-                query,
-                vec![candidate],
-            );
+            let _ = self
+                .cache_manager
+                .save_command_cached(query, vec![candidate]);
         }
 
         if from_fallback && !last_successful_command.is_empty() {
@@ -211,12 +218,7 @@ impl CliHandlers {
         Ok(())
     }
 
-    async fn execute_or_interpret(
-        &self,
-        query: &str,
-        cmd: &str,
-        ai_interpret: bool,
-    ) -> Result<()> {
+    async fn execute_or_interpret(&self, query: &str, cmd: &str, ai_interpret: bool) -> Result<()> {
         let mut summary = String::new();
         let output = if ai_interpret {
             let (tx, rx) = mpsc::channel();
@@ -239,7 +241,7 @@ impl CliHandlers {
             if !output.stderr.is_empty() {
                 println!("{}", output.stderr.red());
             }
-            if let Some(service) =         self.neurosymbolic_service.as_ref() {
+            if let Some(service) = self.neurosymbolic_service.as_ref() {
                 let _ = service.record_failure(
                     query,
                     cmd,
@@ -247,7 +249,7 @@ impl CliHandlers {
                     Some(output.stderr.trim()),
                 );
             }
-        } else if let Some(service) =         self.neurosymbolic_service.as_ref() {
+        } else if let Some(service) = self.neurosymbolic_service.as_ref() {
             let _ = service.record_success(query, cmd);
         }
 

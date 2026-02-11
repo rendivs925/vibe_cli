@@ -5,8 +5,7 @@ use serde::Serialize;
 use shared::error::AppError;
 
 pub fn encode_cache<T: Serialize>(value: &T) -> Result<String, AppError> {
-    let bytes =
-        bincode::serialize(value).map_err(|e| AppError::serialization(e.to_string()))?;
+    let bytes = bincode::serialize(value).map_err(|e| AppError::serialization(e.to_string()))?;
     Ok(STANDARD.encode(bytes))
 }
 

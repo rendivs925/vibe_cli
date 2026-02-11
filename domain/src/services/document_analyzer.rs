@@ -210,9 +210,7 @@ impl DocumentAnalyzer {
         text.to_lowercase()
             .split_whitespace()
             .map(|word| {
-                let vowel_groups = word
-                    .matches(['a', 'e', 'i', 'o', 'u'])
-                    .count();
+                let vowel_groups = word.matches(['a', 'e', 'i', 'o', 'u']).count();
                 std::cmp::max(1, vowel_groups)
             })
             .sum()

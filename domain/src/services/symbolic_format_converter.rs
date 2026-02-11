@@ -145,10 +145,7 @@ impl SymbolicFormatConverter {
         };
 
         ConstraintData {
-            constraint_id: format!(
-                "legacy_{}",
-                &uuid::Uuid::new_v4().to_string()[..8]
-            ),
+            constraint_id: format!("legacy_{}", &uuid::Uuid::new_v4().to_string()[..8]),
             constraint_type,
             expression_refs,
             parameters,
@@ -277,10 +274,7 @@ impl PartialSolutionExt for PartialSolution {
 
         // Create conclusion
         let conclusions = vec![SymbolicConclusion {
-            conclusion_id: format!(
-                "concl_{}",
-                &uuid::Uuid::new_v4().to_string()[..8]
-            ),
+            conclusion_id: format!("concl_{}", &uuid::Uuid::new_v4().to_string()[..8]),
             conclusion_type: ConclusionType::Satisfiable,
             confidence: self.quality_score as f64,
             supporting_steps: steps.iter().map(|s| s.step_id.clone()).collect(),
@@ -293,10 +287,7 @@ impl PartialSolutionExt for PartialSolution {
         }];
 
         SymbolicReasoningTrace {
-            id: format!(
-                "trace_{}",
-                &uuid::Uuid::new_v4().to_string()[..8]
-            ),
+            id: format!("trace_{}", &uuid::Uuid::new_v4().to_string()[..8]),
             version: TraceVersion::current(),
             timestamp: chrono::Utc::now(),
             domain,

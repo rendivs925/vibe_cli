@@ -216,12 +216,7 @@ impl CliHandlers {
                                 .unwrap_or(true);
 
                             let status = if enabled { "enabled" } else { "disabled" };
-                            println!(
-                                "  {} - {} [{}]",
-                                domain_name.green().bold(),
-                                desc,
-                                status
-                            );
+                            println!("  {} - {} [{}]", domain_name.green().bold(), desc, status);
                             domains.push(domain_name);
                         }
                     }

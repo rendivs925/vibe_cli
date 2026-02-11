@@ -194,10 +194,9 @@ impl DocumentUseCase {
         let results: Vec<DocumentSimilarityResult> = similar_scores
             .into_iter()
             .take(limit)
-            .map(|score| DocumentSimilarityResult::new(
-                score.document_id().to_string(),
-                score.similarity(),
-            ))
+            .map(|score| {
+                DocumentSimilarityResult::new(score.document_id().to_string(), score.similarity())
+            })
             .collect();
 
         Ok(results)

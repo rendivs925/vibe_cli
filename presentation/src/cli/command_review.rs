@@ -46,10 +46,7 @@ pub fn review_candidates(
     let mut rejected = Vec::new();
 
     for candidate in candidates {
-        let review = review_command(
-            &candidate.command,
-            validator,
-        );
+        let review = review_command(&candidate.command, validator);
         if review.is_usable() {
             let mut updated = candidate.clone();
             if let Some(label) = review.label_with_existing(updated.label.as_deref()) {
@@ -67,10 +64,7 @@ pub fn review_candidates(
     ReviewedCandidates { usable, rejected }
 }
 
-fn review_command(
-    command: &str,
-    validator: &mut SyntaxGrammarValidator,
-) -> CommandReview {
+fn review_command(command: &str, validator: &mut SyntaxGrammarValidator) -> CommandReview {
     let mut warnings = Vec::new();
     let mut reasons = Vec::new();
 

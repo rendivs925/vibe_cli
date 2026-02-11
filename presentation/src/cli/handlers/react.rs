@@ -1,23 +1,22 @@
 use super::CliHandlers;
 use crate::cli::cache::CommandCandidate;
 use crate::cli::command_review::review_candidates;
+use anyhow::anyhow;
 use application::services::react_agent_service::ReactAgentService;
-use colored::Colorize;
-use dialoguer::{theme::ColorfulTheme, Input};
 use domain::entities::react::{
-    ProposedCommand, ReactSession, ReactStatus, ReactStep, ReactStepStatus, ReactStepType,
+    ProposedCommand, ReactSession, ReactStatus, ReactStep, ReactStepType,
 };
 use infrastructure::react_storage::InMemoryReactStorage;
 use infrastructure::syntax_grammar_validator::SyntaxGrammarValidator;
-use shared::confirmation::ask_confirmation;
 use shared::types::Result;
 use std::collections::HashMap;
+use std::io::{self, Write};
 use std::sync::Arc;
 
 impl CliHandlers {
     pub async fn handle_react(&mut self, query: &str, neurosymbolic: bool) -> Result<()> {
         if query.trim().is_empty() {
-            println!("{}", "Provide a task for --react".red());
+            println!("Provide a task for --react");
             return Ok(());
         }
 
@@ -25,210 +24,226 @@ impl CliHandlers {
         let react_repo = storage.clone();
         let cmd_repo = storage.clone();
         let neurosymbolic_service = if neurosymbolic {
-            Some(Arc::new(application::services::neurosymbolic_service::NeurosymbolicService::new()?))
+            Some(Arc::new(
+                application::services::neurosymbolic_service::NeurosymbolicService::new()?,
+            ))
         } else {
             None
         };
 
-        let service = ReactAgentService::new(neurosymbolic_service, react_repo, cmd_repo)?;
+        let service = ReactAgentService::new(neurosymbolic_service, react_repo, cmd_repo)?
+            .with_max_iterations(30);
         let mut session = service
             .start_session(query.to_string(), neurosymbolic)
             .await?;
 
-        println!(
-            "{} {}",
-            "ReAct session started:".green(),
-            session.id.blue()
-        );
-        println!("{} {}", "Goal:".green(), session.query.yellow());
+        println!("ReAct session for: \"{}\"", session.query);
         print_react_help();
 
         let mut validator = SyntaxGrammarValidator::new();
         let mut iteration = 0_u32;
-        let mut last_action_step_id: Option<String> = None;
-        let mut last_action_commands: Vec<ProposedCommand> = Vec::new();
+        let mut step_no = 1_u32;
+        let mut auto_execute_all = false;
+        let mut last_action_commands: Option<Vec<ProposedCommand>> = None;
 
-        while iteration < 10 && matches!(session.status, ReactStatus::Running) {
+        while iteration < 30 && matches!(session.status, ReactStatus::Running) {
             iteration += 1;
-            println!(
-                "\n{} {}",
-                "Iteration".green().bold(),
-                format!("{}:", iteration).green().bold()
-            );
 
-            if let Some(cmd) = maybe_handle_session_command()? {
-                match cmd {
-                    SessionCommand::Help => {
-                        print_react_help();
-                        continue;
-                    }
-                    SessionCommand::Context => {
-                        print_react_context(&session, iteration);
-                        continue;
-                    }
-                    SessionCommand::Revise(text) => {
-                        session.query = text;
-                        service.save_session(&session).await?;
-                        println!("{}", "Goal updated.".green());
-                        continue;
-                    }
-                    SessionCommand::Observation(text) => {
-                        let mut observation_step = ReactStep::new(
-                            session.id.clone(),
-                            ReactStepType::Observation,
-                            text,
-                        );
-                        observation_step.start();
-                        observation_step.complete();
-                        service.save_step(&observation_step).await?;
-                        session.add_step(observation_step);
-                        service.save_session(&session).await?;
-                        continue;
-                    }
-                    SessionCommand::Abort => {
-                        session.abort();
-                        service.save_session(&session).await?;
-                        println!("{}", "Session aborted.".yellow());
-                        break;
-                    }
-                    SessionCommand::Retry => {
-                        if let Some(step_id) = last_action_step_id.clone() {
-                            retry_last_commands(
-                                self,
-                                &service,
-                                &mut session,
-                                &mut last_action_commands,
-                                &step_id,
-                            )
-                            .await?;
-                        } else {
-                            println!("{}", "No prior commands to retry.".yellow());
-                        }
-                        continue;
-                    }
-                    SessionCommand::Skip => {
-                        println!("{}", "Skipping iteration.".yellow());
-                        continue;
-                    }
-                }
-            }
+            let thought = service.generate_reasoning(&session).await?;
+            print_step_header(step_no, "THOUGHT");
+            println!("{thought}");
+            step_no += 1;
 
-            let reasoning = service.generate_reasoning(&session).await?;
-            println!("{} {}", "Thought:".green(), reasoning.white());
-            let mut thought_step = ReactStep::new(
-                session.id.clone(),
-                ReactStepType::Thought,
-                reasoning.clone(),
-            )
-            .with_reasoning(reasoning.clone());
+            let mut thought_step =
+                ReactStep::new(session.id.clone(), ReactStepType::Thought, thought.clone())
+                    .with_reasoning(thought);
             thought_step.start();
             thought_step.complete();
             service.save_step(&thought_step).await?;
             session.add_step(thought_step);
             service.save_session(&session).await?;
 
-            let commands = service.propose_commands(&reasoning, &session).await?;
+            let mut commands = service.propose_commands("", &session).await?;
             if commands.is_empty() {
-                println!("{}", "No commands proposed. Provide input or /revise.".yellow());
-                let user_input: String = Input::with_theme(&ColorfulTheme::default())
-                    .with_prompt("Observation")
-                    .interact_text()?;
-                let mut observation_step = ReactStep::new(
-                    session.id.clone(),
-                    ReactStepType::Observation,
-                    user_input.clone(),
+                println!("\nNo commands proposed for this step.");
+                break;
+            }
+
+            let domain_operation = detect_domain_operation(&commands);
+            let action_title = match domain_operation.as_deref() {
+                Some(op) => format!("ACTION (Domain Operation: {op})"),
+                None => "ACTION".to_string(),
+            };
+            print_step_header(step_no, &action_title);
+            if let Some(op) = domain_operation.as_deref() {
+                println!(
+                    "Operation: {}{}",
+                    op,
+                    infer_operation_inputs(op, &session.query)
                 );
-                observation_step.start();
-                observation_step.complete();
-                service.save_step(&observation_step).await?;
-                session.add_step(observation_step);
-                service.save_session(&session).await?;
-                continue;
+            }
+            println!("Generated commands:");
+            for (idx, cmd) in commands.iter().enumerate() {
+                println!("  {}. {}", idx + 1, cmd.command);
             }
 
-            println!("{}", "Proposed commands:".green());
-            for (i, cmd) in commands.iter().enumerate() {
-                println!("  {} {}", format!("[{}]", i + 1).blue(), cmd.command);
+            loop {
+                let decision = if auto_execute_all {
+                    ActionDecision::Execute
+                } else {
+                    prompt_action()?
+                };
+
+                match decision {
+                    ActionDecision::Execute => break,
+                    ActionDecision::Skip => {
+                        println!("\nSkipping this action.");
+                        commands.clear();
+                        break;
+                    }
+                    ActionDecision::Revise => {
+                        let revised = prompt_line("How should the command be revised? ")?;
+                        if revised.trim().is_empty() {
+                            println!("Revision cannot be empty.");
+                            continue;
+                        }
+                        commands = vec![ProposedCommand::new(
+                            revised.clone(),
+                            "User revised command".to_string(),
+                            "Manual revision".to_string(),
+                        )];
+                        println!("Revised commands:");
+                        println!("  1. {revised}");
+                    }
+                    ActionDecision::ReviseGoal => {
+                        let new_goal = prompt_line("New goal: ")?;
+                        if !new_goal.trim().is_empty() {
+                            session.query = new_goal;
+                            service.save_session(&session).await?;
+                            println!("Goal updated.");
+                        }
+                    }
+                    ActionDecision::AutoAll => {
+                        auto_execute_all = true;
+                        break;
+                    }
+                    ActionDecision::Abort => {
+                        session.abort();
+                        service.save_session(&session).await?;
+                        println!("Session aborted.");
+                        return Ok(());
+                    }
+                    ActionDecision::SessionCommand(command) => match command {
+                        SessionCommand::Help => {
+                            print_react_help();
+                        }
+                        SessionCommand::Context => {
+                            print_react_context(&session, iteration);
+                        }
+                        SessionCommand::Retry => {
+                            if let Some(previous) = last_action_commands.as_ref() {
+                                commands = previous.clone();
+                                println!("Retrying last action commands.");
+                            } else {
+                                println!("No previous action to retry.");
+                            }
+                        }
+                        SessionCommand::Skip => {
+                            println!("Skipping this action.");
+                            commands.clear();
+                            break;
+                        }
+                        SessionCommand::Abort => {
+                            session.abort();
+                            service.save_session(&session).await?;
+                            println!("Session aborted.");
+                            return Ok(());
+                        }
+                        SessionCommand::Revise(text) => {
+                            if !text.trim().is_empty() {
+                                session.query = text;
+                                service.save_session(&session).await?;
+                                println!("Goal updated.");
+                            }
+                        }
+                    },
+                }
             }
+            step_no += 1;
 
-            let mut action_step = ReactStep::new(
-                session.id.clone(),
-                ReactStepType::Action,
-                "Proposed commands".to_string(),
-            );
-            for cmd in &commands {
-                action_step.add_command(cmd.clone());
-            }
-            action_step.start();
-            action_step.complete();
-            service.save_step(&action_step).await?;
-            session.add_step(action_step.clone());
-            service.save_session(&session).await?;
-
-            last_action_step_id = Some(action_step.id.clone());
-            last_action_commands = commands.clone();
-
-            let mut rejected = HashMap::new();
-            let candidates: Vec<CommandCandidate> = commands
-                .iter()
-                .map(|cmd| CommandCandidate::new(cmd.command.clone()))
-                .collect();
-            let reviewed = review_candidates(&candidates, &mut validator);
-            for rejected_candidate in reviewed.rejected {
-                rejected.insert(rejected_candidate.command, rejected_candidate.reasons);
-            }
-
-            for cmd in &mut last_action_commands {
-                if let Some(reasons) = rejected.get(&cmd.command) {
-                    println!(
-                        "{} {}",
-                        "Rejected: ".red(),
-                        format!("{} ({})", cmd.command, reasons.join(", ")).red()
-                    );
-                    cmd.reject();
-                    service.update_command(cmd).await.ok();
-                    continue;
+            if !commands.is_empty() {
+                let mut rejected = HashMap::new();
+                let candidates: Vec<CommandCandidate> = commands
+                    .iter()
+                    .map(|cmd| CommandCandidate::new(cmd.command.clone()))
+                    .collect();
+                let reviewed = review_candidates(&candidates, &mut validator);
+                for rejected_candidate in reviewed.rejected {
+                    rejected.insert(rejected_candidate.command, rejected_candidate.reasons);
                 }
 
-                println!("{} {}", "Command:".green(), cmd.command.yellow());
-                if ask_confirmation("Run this command?", false)? {
+                let mut observation_lines = Vec::new();
+                for cmd in &mut commands {
+                    if let Some(reasons) = rejected.get(&cmd.command) {
+                        println!("Rejected: {} ({})", cmd.command, reasons.join(", "));
+                        cmd.reject();
+                        service.update_command(cmd).await.ok();
+                        continue;
+                    }
+
                     cmd.approve();
                     let output = self.run_shell_command_streaming(&cmd.command)?;
                     let exit_code = output.status.code().unwrap_or(-1);
                     cmd.execute(exit_code, output.full_output.clone(), output.stderr.clone());
                     service.update_command(cmd).await.ok();
 
-                    let observation = format_observation(&cmd.command, &output);
+                    observation_lines.push(summarize_output_for_observation(&output.full_output));
+                }
+
+                if !observation_lines.is_empty() {
+                    print_observation(&observation_lines.join("\n"));
                     let mut observation_step = ReactStep::new(
                         session.id.clone(),
                         ReactStepType::Observation,
-                        observation.clone(),
+                        observation_lines.join("\n"),
                     );
-                    observation_step.add_observation(observation);
+                    for line in observation_lines {
+                        observation_step.add_observation(line);
+                    }
                     observation_step.start();
                     observation_step.complete();
                     service.save_step(&observation_step).await?;
                     session.add_step(observation_step);
                     service.save_session(&session).await?;
-                } else {
-                    cmd.reject();
-                    service.update_command(cmd).await.ok();
-                    println!("{}", "Skipping command.".yellow());
                 }
             }
 
-            if !prompt_continue()? {
-                session.abort();
+            if !commands.is_empty() {
+                last_action_commands = Some(commands.clone());
+            }
+
+            if let Some(inference) = service.generate_symbolic_inference(&session).await? {
+                print_step_header(step_no, "SYMBOLIC INFERENCE");
+                println!("{inference}");
+                step_no += 1;
+            }
+
+            if service.is_goal_achieved(&session).await.unwrap_or(false) {
+                session.complete();
                 service.save_session(&session).await?;
-                println!("{}", "Session aborted.".yellow());
-                break;
+                let summary = service
+                    .generate_goal_summary(&session)
+                    .await
+                    .unwrap_or_else(|_| "Root cause: Unknown\nFix applied: Unknown".to_string());
+                print_goal_achieved(&summary, iteration, session.neurosymbolic_enabled);
+                return Ok(());
             }
         }
 
-        if iteration >= 10 && matches!(session.status, ReactStatus::Running) {
+        if matches!(session.status, ReactStatus::Running) {
             session.fail();
             service.save_session(&session).await?;
-            println!("{}", "Max iterations reached.".yellow());
+            println!("\nSession ended without a confirmed resolution.");
         }
 
         Ok(())
@@ -239,153 +254,162 @@ impl CliHandlers {
 enum SessionCommand {
     Help,
     Context,
-    Observation(String),
     Revise(String),
     Retry,
     Skip,
     Abort,
 }
 
-fn maybe_handle_session_command() -> Result<Option<SessionCommand>> {
-    let input: String = Input::with_theme(&ColorfulTheme::default())
-        .with_prompt("ReAct")
-        .allow_empty(true)
-        .interact_text()?;
-    let trimmed = input.trim();
-    if trimmed.is_empty() {
-        return Ok(None);
-    }
-    if !trimmed.starts_with('/') {
-        return Ok(Some(SessionCommand::Observation(trimmed.to_string())));
-    }
+#[derive(Debug)]
+enum ActionDecision {
+    Execute,
+    Skip,
+    Revise,
+    ReviseGoal,
+    AutoAll,
+    Abort,
+    SessionCommand(SessionCommand),
+}
 
-    let mut parts = trimmed.splitn(2, ' ');
-    let cmd = parts.next().unwrap_or("");
-    let arg = parts.next().unwrap_or("").trim();
-    let result = match cmd {
-        "/help" => SessionCommand::Help,
-        "/context" => SessionCommand::Context,
-        "/retry" => SessionCommand::Retry,
-        "/skip" => SessionCommand::Skip,
-        "/abort" => SessionCommand::Abort,
-        "/revise" => {
-            let text = if arg.is_empty() {
-                Input::with_theme(&ColorfulTheme::default())
-                    .with_prompt("New goal")
-                    .interact_text()?
-            } else {
-                arg.to_string()
-            };
-            SessionCommand::Revise(text)
-        }
-        _ => {
-            println!("{}", "Unknown command. Use /help".yellow());
-            return Ok(None);
-        }
-    };
-    Ok(Some(result))
+fn print_step_header(step_no: u32, title: &str) {
+    println!("\n--- STEP {step_no}: {title} ---");
+}
+
+fn print_observation(summary: &str) {
+    println!("\n--- OBSERVATION ---");
+    println!("{summary}");
+}
+
+fn print_goal_achieved(summary: &str, iterations: u32, neurosymbolic_enabled: bool) {
+    println!("\n--- GOAL ACHIEVED ---");
+    println!("{summary}");
+    println!("Iterations: {iterations}");
+    if neurosymbolic_enabled {
+        println!("Mode: ReAct + Neurosymbolic");
+    } else {
+        println!("Mode: ReAct");
+    }
 }
 
 fn print_react_help() {
-    println!("{}", "Session commands:".green());
-    println!("  /revise <text>  Update the goal");
-    println!("  /context        Show current session state");
-    println!("  /retry          Retry last proposed commands");
-    println!("  /skip           Skip current iteration");
-    println!("  /abort          Abort the session");
-    println!("  /help           Show this help");
+    println!("\nAvailable commands during session:");
+    println!("  /revise <new_goal>  - Update the goal mid-session");
+    println!("  /context            - Show current reasoning context");
+    println!("  /retry              - Retry last action");
+    println!("  /skip               - Skip to next step");
+    println!("  /abort              - End session");
+    println!("  /help               - Show commands");
 }
 
 fn print_react_context(session: &ReactSession, iteration: u32) {
-    println!("{} {}", "Goal:".green(), session.query.yellow());
-    println!("{} {}", "Iterations:".green(), iteration);
-    println!("{} {}", "Steps:".green(), session.steps.len());
-    if let Some(step) = session.current_step() {
-        println!(
-            "{} {:?}",
-            "Last step:".green(),
-            step.step_type
-        );
-    }
+    println!("Goal: {}", session.query);
+    println!("Iterations: {iteration}");
+    println!("Steps: {}", session.steps.len());
 }
 
-fn prompt_continue() -> Result<bool> {
-    ask_confirmation("Continue ReAct loop?", true)
-}
-
-fn format_observation(command: &str, output: &super::CommandOutput) -> String {
-    let mut summary = String::new();
-    summary.push_str(&format!("Command: {}\n", command));
-    summary.push_str(&format!(
-        "Exit: {}\n",
-        output.status.code().unwrap_or(-1)
-    ));
-    if !output.full_output.trim().is_empty() {
-        summary.push_str("Stdout:\n");
-        summary.push_str(trim_output(&output.full_output));
-        summary.push('\n');
-    }
-    if !output.stderr.trim().is_empty() {
-        summary.push_str("Stderr:\n");
-        summary.push_str(trim_output(&output.stderr));
-        summary.push('\n');
-    }
-    summary
-}
-
-fn trim_output(output: &str) -> &str {
-    const LIMIT: usize = 2000;
-    let trimmed = output.trim();
-    if trimmed.len() <= LIMIT {
-        trimmed
-    } else {
-        &trimmed[..LIMIT]
-    }
-}
-
-async fn retry_last_commands(
-    handlers: &CliHandlers,
-    service: &ReactAgentService,
-    session: &mut ReactSession,
-    commands: &mut Vec<ProposedCommand>,
-    step_id: &str,
-) -> Result<()> {
-    if commands.is_empty() {
-        println!("{}", "No commands available to retry.".yellow());
-        return Ok(());
+fn prompt_action() -> Result<ActionDecision> {
+    let input = prompt_line("Execute? [Y/n/r/g/a/x]: ")?;
+    let trimmed = input.trim();
+    if trimmed.starts_with('/') {
+        return match parse_session_command(trimmed) {
+            Ok(command) => Ok(ActionDecision::SessionCommand(command)),
+            Err(err) => {
+                println!("{err}");
+                prompt_action()
+            }
+        };
     }
 
-    println!("{}", "Retrying last commands".green());
-    for cmd in commands.iter_mut() {
-        println!("{} {}", "Command:".green(), cmd.command.yellow());
-        if ask_confirmation("Run this command?", false)? {
-            cmd.approve();
-            let output = handlers.run_shell_command_streaming(&cmd.command)?;
-            let exit_code = output.status.code().unwrap_or(-1);
-            cmd.execute(exit_code, output.full_output.clone(), output.stderr.clone());
-            service.update_command(cmd).await.ok();
-
-            let observation = format_observation(&cmd.command, &output);
-            let mut observation_step = ReactStep::new(
-                session.id.clone(),
-                ReactStepType::Observation,
-                observation.clone(),
-            );
-            observation_step.add_observation(observation);
-            observation_step.start();
-            observation_step.complete();
-            service.save_step(&observation_step).await?;
-            session.add_step(observation_step);
-            service.save_session(session).await?;
-        } else {
-            cmd.reject();
-            service.update_command(cmd).await.ok();
+    match trimmed.to_lowercase().as_str() {
+        "" | "y" => Ok(ActionDecision::Execute),
+        "n" => Ok(ActionDecision::Skip),
+        "r" => Ok(ActionDecision::Revise),
+        "g" => Ok(ActionDecision::ReviseGoal),
+        "a" => Ok(ActionDecision::AutoAll),
+        "x" => Ok(ActionDecision::Abort),
+        _ => {
+            println!("Invalid option. Use Y/n/r/g/a/x.");
+            prompt_action()
         }
     }
+}
 
-    if let Some(step) = session.steps.iter_mut().find(|s| s.id == step_id) {
-        step.status = ReactStepStatus::Completed;
+fn parse_session_command(input: &str) -> Result<SessionCommand> {
+    let mut parts = input.trim().splitn(2, ' ');
+    let cmd = parts.next().unwrap_or_default();
+    let arg = parts.next().unwrap_or_default().trim();
+    match cmd {
+        "/help" => Ok(SessionCommand::Help),
+        "/context" => Ok(SessionCommand::Context),
+        "/retry" => Ok(SessionCommand::Retry),
+        "/skip" => Ok(SessionCommand::Skip),
+        "/abort" => Ok(SessionCommand::Abort),
+        "/revise" => Ok(SessionCommand::Revise(arg.to_string())),
+        _ => Err(anyhow!("Unknown command. Use /help")),
+    }
+}
+
+fn prompt_line(prompt: &str) -> Result<String> {
+    print!("{prompt}");
+    io::stdout().flush()?;
+    let mut input = String::new();
+    io::stdin().read_line(&mut input)?;
+    Ok(input.trim_end().to_string())
+}
+
+fn detect_domain_operation(commands: &[ProposedCommand]) -> Option<String> {
+    let first = commands.first()?;
+    let prefix = "Domain op: ";
+    if first.description.starts_with(prefix) {
+        Some(first.description[prefix.len()..].trim().to_string())
+    } else {
+        None
+    }
+}
+
+fn infer_operation_inputs(operation: &str, query: &str) -> String {
+    if operation.contains("service") {
+        if let Some(service_name) = extract_service_name(query) {
+            return format!(" {{service: \"{service_name}\"}}");
+        }
+    }
+    String::new()
+}
+
+fn extract_service_name(query: &str) -> Option<String> {
+    let candidates = [
+        "nginx",
+        "apache2",
+        "httpd",
+        "mysql",
+        "postgresql",
+        "postgres",
+        "redis",
+        "docker",
+        "sshd",
+        "ssh",
+    ];
+    let lowered = query.to_lowercase();
+    candidates
+        .iter()
+        .find(|service| lowered.contains(**service))
+        .map(|s| s.to_string())
+}
+
+fn summarize_output_for_observation(output: &str) -> String {
+    let mut lines = Vec::new();
+    for line in output
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .take(4)
+    {
+        lines.push(line.to_string());
     }
 
-    Ok(())
+    if lines.is_empty() {
+        "No significant output captured.".to_string()
+    } else {
+        lines.join("\n")
+    }
 }

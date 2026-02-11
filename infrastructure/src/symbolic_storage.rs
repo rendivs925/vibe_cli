@@ -89,8 +89,9 @@ impl FileSymbolicStorage {
                 .await
                 .map_err(|e| SymbolicStorageError::NotFound(format!("File not found: {}", e)))?;
             let mmap = unsafe {
-                memmap2::Mmap::map(&file)
-                    .map_err(|e| SymbolicStorageError::StorageError(format!("Failed to mmap file: {}", e)))?
+                memmap2::Mmap::map(&file).map_err(|e| {
+                    SymbolicStorageError::StorageError(format!("Failed to mmap file: {}", e))
+                })?
             };
             Ok(mmap.to_vec())
         } else {
