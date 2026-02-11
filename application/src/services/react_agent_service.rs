@@ -1,0 +1,322 @@
+use anyhow::anyhow;
+use domain::entities::react::{
+    ProposedCommand, ReactContext, ReactSession, ReactStatus, ReactStep, ReactStepType,
+};
+use domain::repositories::react_repository::{ReactCommandRepository, ReactRepository};
+use infrastructure::ollama_client::OllamaClient;
+use shared::types::Result;
+use std::sync::Arc;
+
+use crate::services::neurosymbolic_service::NeurosymbolicService;
+
+pub struct ReactAgentService {
+    neurosymbolic_service: Option<Arc<NeurosymbolicService>>,
+    react_repository: Arc<dyn ReactRepository>,
+    command_repository: Arc<dyn ReactCommandRepository>,
+    client: OllamaClient,
+    max_iterations: u32,
+}
+
+impl ReactAgentService {
+    pub fn new(
+        neurosymbolic_service: Option<Arc<NeurosymbolicService>>,
+        react_repository: Arc<dyn ReactRepository>,
+        command_repository: Arc<dyn ReactCommandRepository>,
+    ) -> Result<Self> {
+        Ok(Self {
+            neurosymbolic_service,
+            react_repository,
+            command_repository,
+            client: OllamaClient::new()?,
+            max_iterations: 10,
+        })
+    }
+
+    pub fn with_max_iterations(mut self, max_iterations: u32) -> Self {
+        self.max_iterations = max_iterations;
+        self
+    }
+
+    pub async fn start_session(
+        &self,
+        query: String,
+        neurosymbolic: bool,
+    ) -> Result<ReactSession> {
+        let session = ReactSession::new(query, neurosymbolic);
+        self.react_repository
+            .save_session(&session)
+            .await
+            .map_err(|e| anyhow!(e.to_string()))?;
+        Ok(session)
+    }
+
+    pub async fn execute_react_loop(&self, session: &mut ReactSession) -> Result<()> {
+        let mut context = ReactContext::new(self.max_iterations);
+
+        while context.should_continue() && matches!(session.status, ReactStatus::Running) {
+            let reasoning = self.generate_reasoning(session).await?;
+            let thought_step = ReactStep::new(
+                session.id.clone(),
+                ReactStepType::Thought,
+                reasoning.clone(),
+            )
+            .with_reasoning(reasoning.clone());
+            self.add_step(session, thought_step).await?;
+
+            let commands = self.propose_commands(&reasoning, session).await?;
+            let mut action_step = ReactStep::new(
+                session.id.clone(),
+                ReactStepType::Action,
+                "Proposed commands".to_string(),
+            );
+            for command in commands {
+                self.command_repository
+                    .save_command(&command)
+                    .await
+                    .map_err(|e| anyhow!(e.to_string()))?;
+                action_step.add_command(command);
+            }
+            self.add_step(session, action_step).await?;
+
+            context.increment_iteration();
+            break;
+        }
+
+        Ok(())
+    }
+
+    pub async fn process_user_input(
+        &self,
+        session: &mut ReactSession,
+        input: String,
+    ) -> Result<ReactStep> {
+        let mut step = ReactStep::new(session.id.clone(), ReactStepType::Observation, input);
+        step.start();
+        step.complete();
+        self.add_step(session, step.clone()).await?;
+        Ok(step)
+    }
+
+    pub async fn generate_reasoning(&self, session: &ReactSession) -> Result<String> {
+        let history = Self::format_history(session);
+        let prompt = format!(
+            "You are a careful systems assistant using a ReAct loop. Produce the next THOUGHT only.\n\
+Goal: {goal}\n\
+History:\n{history}\n\
+Rules:\n\
+- Output a short thought (1-3 sentences).\n\
+- Do not include commands or code blocks.\n\
+- Focus on the next diagnostic step.\n",
+            goal = session.query,
+            history = if history.is_empty() { "(none)" } else { &history }
+        );
+
+        let response = self.client.generate_response(&prompt).await?;
+        let thought = response.trim().to_string();
+        if thought.is_empty() {
+            return Err(anyhow!("empty reasoning response"));
+        }
+        Ok(thought)
+    }
+
+    pub async fn propose_commands(
+        &self,
+        reasoning: &str,
+        session: &ReactSession,
+    ) -> Result<Vec<ProposedCommand>> {
+        if session.neurosymbolic_enabled {
+            if let Some(service) = self.neurosymbolic_service.as_ref() {
+                if let Some(suggestion) = service.suggest_commands_from_domains(&session.query) {
+                    let mut commands = Vec::new();
+                    for command in suggestion.commands {
+                        commands.push(ProposedCommand::new(
+                            command,
+                            format!("Domain op: {}", suggestion.op_name),
+                            suggestion.reasoning.clone(),
+                        ));
+                    }
+                    if !commands.is_empty() {
+                        return Ok(commands);
+                    }
+                }
+            }
+        }
+
+        let history = Self::format_history(session);
+        let prompt = format!(
+            "You are a cautious systems assistant. Based on the goal and reasoning, propose 1-3 bash commands.\n\
+Respond ONLY with a JSON array of strings. No prose.\n\
+Goal: {goal}\n\
+Reasoning: {reasoning}\n\
+History:\n{history}\n\
+Constraints:\n\
+- Prefer read-only diagnostics first.\n\
+- Avoid destructive commands.\n\
+- Use standard Linux tools.\n",
+            goal = session.query,
+            reasoning = reasoning,
+            history = if history.is_empty() { "(none)" } else { &history }
+        );
+
+        let response = self.client.generate_response(&prompt).await?;
+        let parsed = parse_command_list(&response);
+        let mut commands = Vec::new();
+        for command in parsed {
+            if command.trim().is_empty() {
+                continue;
+            }
+            commands.push(ProposedCommand::new(
+                command,
+                "LLM proposed".to_string(),
+                reasoning.to_string(),
+            ));
+        }
+        Ok(commands)
+    }
+
+    pub async fn execute_approved_command(&self, command: &mut ProposedCommand) -> Result<()> {
+        if command.approved != Some(true) {
+            return Err(anyhow!("command not approved"));
+        }
+
+        let output = std::process::Command::new("bash")
+            .arg("-c")
+            .arg(&command.command)
+            .output()?;
+
+        let exit_code = output.status.code().unwrap_or(-1);
+        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
+        command.execute(exit_code, stdout, stderr);
+        Ok(())
+    }
+
+    pub async fn save_session(&self, session: &ReactSession) -> Result<()> {
+        self.react_repository
+            .update_session(session)
+            .await
+            .map_err(|e| anyhow!(e.to_string()))
+    }
+
+    pub async fn save_step(&self, step: &ReactStep) -> Result<()> {
+        self.react_repository
+            .save_step(step)
+            .await
+            .map_err(|e| anyhow!(e.to_string()))
+    }
+
+    pub async fn update_step(&self, step: &ReactStep) -> Result<()> {
+        self.react_repository
+            .update_step(step)
+            .await
+            .map_err(|e| anyhow!(e.to_string()))
+    }
+
+    pub async fn save_command(&self, command: &ProposedCommand) -> Result<()> {
+        self.command_repository
+            .save_command(command)
+            .await
+            .map_err(|e| anyhow!(e.to_string()))
+    }
+
+    pub async fn update_command(&self, command: &ProposedCommand) -> Result<()> {
+        self.command_repository
+            .update_command(command)
+            .await
+            .map_err(|e| anyhow!(e.to_string()))
+    }
+
+    async fn add_step(&self, session: &mut ReactSession, mut step: ReactStep) -> Result<()> {
+        step.start();
+        step.complete();
+        self.react_repository
+            .save_step(&step)
+            .await
+            .map_err(|e| anyhow!(e.to_string()))?;
+        session.add_step(step);
+        self.react_repository
+            .update_session(session)
+            .await
+            .map_err(|e| anyhow!(e.to_string()))
+    }
+
+    fn format_history(session: &ReactSession) -> String {
+        let mut lines = Vec::new();
+        for step in session.steps.iter().rev().take(6).rev() {
+            let label = match step.step_type {
+                ReactStepType::Thought => "Thought",
+                ReactStepType::Action => "Action",
+                ReactStepType::Observation => "Observation",
+            };
+            let content = step.content.trim();
+            if !content.is_empty() {
+                lines.push(format!("{}: {}", label, content));
+            }
+            if !step.observations.is_empty() {
+                lines.push(format!(
+                    "Observations: {}",
+                    step.observations.join(" | ")
+                ));
+            }
+        }
+        lines.join("\n")
+    }
+}
+
+fn parse_command_list(response: &str) -> Vec<String> {
+    if let Ok(list) = serde_json::from_str::<Vec<String>>(response.trim()) {
+        return list;
+    }
+
+    if let Some(json) = extract_json_array(response) {
+        if let Ok(list) = serde_json::from_str::<Vec<String>>(json) {
+            return list;
+        }
+    }
+
+    domain::services::command_extraction::extract_candidate_commands(response, "")
+}
+
+fn extract_json_array(text: &str) -> Option<&str> {
+    let bytes = text.as_bytes();
+    let mut depth = 0_i32;
+    let mut start = None;
+    let mut in_string = false;
+    let mut escape_next = false;
+
+    for (i, &b) in bytes.iter().enumerate() {
+        if escape_next {
+            escape_next = false;
+            continue;
+        }
+
+        match b {
+            b'"' => in_string = !in_string,
+            b'\\' => {
+                if in_string {
+                    escape_next = true;
+                }
+            }
+            b'[' => {
+                if !in_string && depth == 0 {
+                    start = Some(i);
+                }
+                if !in_string {
+                    depth += 1;
+                }
+            }
+            b']' => {
+                if !in_string {
+                    depth -= 1;
+                    if depth == 0 {
+                        if let Some(s) = start {
+                            return Some(&text[s..=i]);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}

@@ -6,6 +6,7 @@ mod domain_learning;
 mod domain_manage;
 mod domain_output;
 mod explain;
+mod react;
 mod neurosymbolic_filter;
 mod neurosymbolic_flow;
 mod neurosymbolic_utils;

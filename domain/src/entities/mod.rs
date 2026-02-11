@@ -3,9 +3,11 @@
 pub mod command;
 pub mod document;
 pub mod neurosymbolic_entities;
+pub mod react;
 pub mod session;
 
 pub use command::*;
 pub use document::*;
 pub use neurosymbolic_entities::*;
+pub use react::*;
 pub use session::*;

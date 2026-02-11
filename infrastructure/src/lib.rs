@@ -7,6 +7,7 @@ pub mod execution_storage;
 pub mod file_scanner;
 pub mod manpage_crawler;
 pub mod ollama_client;
+pub mod react_storage;
 pub mod search;
 pub mod storage;
 pub mod symbolic_storage;

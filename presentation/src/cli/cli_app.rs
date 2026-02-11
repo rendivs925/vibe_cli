@@ -25,6 +25,10 @@ pub struct Cli {
     #[arg(long)]
     pub agent: bool,
 
+    /// Use ReAct iterative reasoning mode
+    #[arg(long)]
+    pub react: bool,
+
     /// Explain a file
     #[arg(long)]
     pub explain: bool,
@@ -112,6 +116,12 @@ impl CliApp {
         }
         if cli.agent {
             return self.handlers.handle_agent(&args_str).await;
+        }
+        if cli.react {
+            return self
+                .handlers
+                .handle_react(&args_str, cli.neurosymbolic)
+                .await;
         }
         if cli.explain {
             return self.handlers.handle_explain(&args_str).await;
