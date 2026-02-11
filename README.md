@@ -33,55 +33,6 @@ No flags to remember. No man pages to read. Just natural language.
 
 ---
 
-## Features
-
-### Core Capabilities
-
-| Feature | Description |
-|---------|-------------|
-| **Natural Language -> Shell** | Convert descriptions to safe shell commands |
-| **Ultra-Safe Mode** | Blocks dangerous commands (`rm -rf /`, `mkfs`, `dd`) |
-| **RAG Context** | Codebase-aware responses using embeddings |
-| **Multi-Step Agent** | Complex task planning with safety validation |
-| **Neurosymbolic Reasoning** | Config-driven command generation |
-| **Autonomous Safety Stack** | Fuzzy symbolic matching, manpage-validated flags, risk scoring, safety proofs |
-| **Learning Loop** | Experience buffer + "do not repeat" context injection |
-| **AI Interpretation** | Get readable summaries with `--ai-interpret` |
-| **Syntax Validation** | Manpage-backed flag validation before execution |
-
-### Neurosymbolic Domain System
-
-Intelligent command generation through JSON configurations:
-
-| Component | Count | Description |
-|-----------|-------|-------------|
-| Operations | 15 | process, memory, disk, network, services, hardware, logs |
-| Entities | 7 | Process, File, Service, NetworkConnection, User, Filesystem, Memory |
-| Relationships | 8 | hierarchical, ownership, containment, usage, binding |
-| Inference Rules | 10 | zombie detection, high CPU/memory, disk full |
-| Troubleshooting | 5 | disk, service, CPU, memory, network issues |
-
-### Workflow
-
-When domains are installed, every request goes through a deterministic pipeline. The CLI uses the LLM to propose commands, then validates them against the symbolic domain. If validation fails, it self-critiques and retries; otherwise it falls back to standard LLM generation:
-
-1. **LLM Propose**: Generate candidate commands (normal LLM output).
-2. **Symbolic Verification**: Match the candidates against domain operation templates (fuzzy similarity).
-3. **Self-Critique Loop**: If mismatched, re-prompt with allowed templates and retry.
-4. **Safety Engine**: Block dangerous commands.
-5. **Manpage Validation**: Validate flags, retry once without invalid flags.
-6. **Execution**: Prompt and run command(s).
-7. **Learning**: If fallback succeeds, offer to save new operation and reload domain registry.
-
-### Supported File Types
-
-| Operation | Formats |
-|-----------|---------|
-| **Explain** | `.rs`, `.md`, `.toml`, `.json`, `.graphql`, `.pdf`, `.docx` |
-| **RAG Indexing** | Same as above, plus text files |
-
----
-
 ## Quick Start
 
 ```bash
@@ -92,7 +43,7 @@ sudo mv target/release/vibe_cli /usr/local/bin/vibe_cli
 # Initialize neurosymbolic domain
 vibe_cli --neurosymbolic-init
 
-# Query examples (neurosymbolic when domains are installed)
+# Query examples (uses neurosymbolic when domains are installed)
 vibe_cli "list processes"
 vibe_cli "show my gpu name"
 vibe_cli "find all .rs files larger than 1MB"
@@ -100,13 +51,15 @@ vibe_cli "find all .rs files larger than 1MB"
 
 ---
 
-## Usage Guide
+## Commands
 
 ### Standard Query
 
+Natural language to shell command conversion:
+
 ```bash
 vibe_cli "find all .rs files larger than 1MB"
-vibe_cli check ssh status
+vibe_cli "check ssh status"
 ```
 
 ### Interactive Chat
@@ -115,58 +68,99 @@ vibe_cli check ssh status
 vibe_cli --chat
 ```
 
+Enters an interactive chat session where you can have a conversation about system tasks.
+
 ### Multi-Step Agent
 
 ```bash
 vibe_cli --agent "collect system health: disk, cpu, memory"
 ```
 
-### AI Output Interpretation
+Plans and executes complex multi-step tasks with safety validation at each step.
+
+### Explain Files
 
 ```bash
-# With standard query (or neurosymbolic if domains are installed)
-vibe_cli --ai-interpret "list processes"
-vibe_cli --ai-interpret "show my gpu name"
+vibe_cli --explain /path/to/config.py
+vibe_cli --explain src/main.rs
 ```
 
-When `--ai-interpret` is enabled, command execution streams in small output chunks with
-AI chunk summaries followed by a concise final summary. This keeps long outputs readable
-without dumping everything at once. For chunk rendering, the CLI will use `bat` (if
-installed) or `less` to keep long lines readable; otherwise it falls back to wrapped
-plain output.
+Explains code files with syntax highlighting. Supported formats:
+- `.rs` (Rust), `.py` (Python), `.md` (Markdown)
+- `.toml`, `.json`, `.graphql`
+- `.pdf`, `.docx`
+
+### RAG-Based Queries
+
+```bash
+# Query with codebase context
+vibe_cli --rag "how do I configure systemd services?"
+
+# Load context from a specific path
+vibe_cli --context /path/to/project
+```
+
+Uses embeddings to understand your codebase and provide contextual answers.
+
+### AI Interpretation
+
+```bash
+# Get readable summaries of command output
+vibe_cli --ai-interpret "list processes"
+```
+
+Command execution streams with AI chunk summaries and a concise final summary.
+
+### Clear Cache
+
+```bash
+# Clear all cached commands
+vibe_cli --clear-cache
+```
+
+Removes cached commands from `~/.local/share/vibe_cli/`.
 
 ---
 
-## Neurosymbolic Commands
+## Neurosymbolic System
+
+The neurosymbolic system provides intelligent, config-driven command generation through JSON domain configurations.
+
+### Initialize
 
 ```bash
-# Initialize domain
 vibe_cli --neurosymbolic-init
+```
 
-# Query with symbolic reasoning (default when domains are installed)
+Sets up the domain configuration directory at `~/.config/vibe_cli/domains/`.
+
+### Query
+
+```bash
 vibe_cli "list processes"
 vibe_cli "check memory usage"
 vibe_cli "nginx is not running"
 vibe_cli "show my gpu name"
 vibe_cli "check last 20 lines journalctl"
-
-# Domain management
-vibe_cli --neurosymbolic-list                    # List domains
-vibe_cli --neurosymbolic-add <name>              # Add domain
-vibe_cli --neurosymbolic-edit <domain>           # Edit in $EDITOR
-vibe_cli --neurosymbolic-remove <domain>         # Remove domain
-vibe_cli --neurosymbolic-install <url_or_path>   # Install from URL
 ```
 
-### Managing Domains
+Queries are matched against domain operations and validated before execution.
 
-Add a new domain:
+### Domain Management
+
+List installed domains:
+
+```bash
+vibe_cli --neurosymbolic-list
+```
+
+Add a new domain from template:
 
 ```bash
 vibe_cli --neurosymbolic-add linux
 ```
 
-Edit an existing domain:
+Edit an existing domain in your editor:
 
 ```bash
 vibe_cli --neurosymbolic-edit linux
@@ -178,13 +172,7 @@ Remove a domain:
 vibe_cli --neurosymbolic-remove linux
 ```
 
-List installed domains:
-
-```bash
-vibe_cli --neurosymbolic-list
-```
-
-Install a domain from a local path or URL:
+Install a domain from local path or URL:
 
 ```bash
 vibe_cli --neurosymbolic-install /path/to/domain
@@ -195,15 +183,11 @@ vibe_cli --neurosymbolic-install https://example.com/linux-domain.zip
 
 ## Command Validation
 
-**Neurosymbolic commands are validated before execution.**
+Before execution, neurosymbolic commands pass through:
 
-### How It Works
-
-Before a neurosymbolic command is executed, it passes through:
-
-1. **Safety Engine**: Hard rules block catastrophic commands
+1. **Safety Engine**: Blocks dangerous commands (`rm -rf /`, `mkfs`, `dd`)
 2. **Manpage Validation**: Flags are checked against local man pages
-3. **Risk Scoring**: Risk profile and mitigations are computed
+3. **Risk Scoring**: Computes risk profile and suggests mitigations
 
 ### Validation Flow
 
@@ -219,11 +203,24 @@ Risk Scoring → Report + Mitigations
 Execution
 ```
 
+### Safety Rules
+
+Hard rules block catastrophic operations:
+
+| Pattern | Action |
+|---------|--------|
+| `rm -rf /` | Block |
+| `mkfs.*` | Block |
+| `dd if=/dev/zero` | Block |
+| `:(){:\|:&}` | Block (fork bomb) |
+
+Soft rules issue warnings for risky operations.
+
 ---
 
 ## Learning System
 
-When neurosymbolic matching fails and the LLM fallback succeeds, you can teach the system new commands:
+When neurosymbolic matching fails and the LLM fallback succeeds:
 
 ```bash
 $ vibe_cli "check last 20 lines journalctl"
@@ -240,41 +237,66 @@ Template: journalctl -n 20
 Saved to: ~/.config/vibe_cli/domains/linux/operations.json
 ```
 
-The new operation is available immediately after saving.
+New operations are available immediately after saving.
 
 ---
 
 ## Cache Management
-
-```bash
-# Clear all cached commands
-vibe_cli --clear-cache
-
-# Output
-Cleared: /home/user/.local/share/vibe_cli/xxx_cli_cache.bin
-Cleared: /home/user/.local/share/vibe_cli/xxx_explain_cache.bin
-Cleared: /home/user/.local/share/vibe_cli/xxx_rag_cache.bin
-Cleared: /home/user/.cache/vibe_cli/commands.json
-
-Cleared 4 cache file(s), 0 failed
-```
-
-### Cache Locations
 
 | Type | Location | Format | Compression |
 |------|----------|--------|-------------|
 | Commands | `~/.local/share/vibe_cli/*_cli_cache.bin` | bincode | gz (>1KB) |
 | Explain | `~/.local/share/vibe_cli/*_explain_cache.bin` | bincode | gz (>1KB) |
 | RAG | `~/.local/share/vibe_cli/*_rag_cache.bin` | bincode | gz (>1KB) |
-| Streaming | `~/.cache/vibe_cli/commands.json` | JSON | none |
 
-### Cache Performance Features
+### Cache Features
 
 - **Memory-mapped I/O**: Enabled by default for all cache operations
 - **Automatic compression**: Files > 1KB use flate2 gzip compression
 - **Binary serialization**: Pure bincode (3-5x faster than JSON)
 - **Semantic similarity**: Fuzzy matching for command retrieval
-- **TTL-based expiration**: Automatic cleanup of stale entries
+
+Clear cache:
+
+```bash
+vibe_cli --clear-cache
+```
+
+---
+
+## Troubleshooting
+
+### Command not found
+
+Ensure Ollama is running:
+
+```bash
+ollama serve
+```
+
+### Slow responses
+
+Reduce model size for faster responses:
+
+```bash
+ollama pull qwen2.5-coder:1.5b
+```
+
+### Domain not loading
+
+Check domain config syntax:
+
+```bash
+cat ~/.config/vibe_cli/domains/linux/domain.json | jq .
+```
+
+### Commands not being cached
+
+Verify cache directory exists:
+
+```bash
+ls -la ~/.local/share/vibe_cli/
+```
 
 ---
 
@@ -283,29 +305,20 @@ Cleared 4 cache file(s), 0 failed
 ```
 vibe_cli/
 ├── domain/                    # Core business logic
-│   ├── entities/             # Business entities (SmallVec optimized)
-│   ├── value_objects/        # Value objects (SmallVec optimized)
-│   ├── services/            # Domain services
+│   ├── entities/             # Business entities
+│   ├── value_objects/        # Value objects
+│   ├── services/             # Domain services
 │   └── domain_config/        # Neurosymbolic system
 ├── application/              # Use cases
-│   └── ports/
-│       └── configuration.rs  # Cache config (mmap enabled)
+│   └── services/            # Application services
 ├── infrastructure/          # External implementations
 │   ├── ai/                  # Ollama client
-│   ├── storage/             # SQLite + bincode embeddings
-│   └── cache/               # CacheManager (mmap + compression)
+│   ├── storage/             # SQLite storage
+│   └── cache/               # Cache management
 ├── presentation/            # CLI interface
-│   └── cli/
-│       └── cache.rs         # Pure bincode serialization
+│   └── cli/                 # Command handlers
 └── shared/                  # Common utilities
 ```
-
-### Key Performance Components
-
-- **CacheManager**: Memory-mapped I/O + flate2 compression + bincode
-- **FileSymbolicStorage**: Automatic mmap for large trace files (>1MB)
-- **EmbeddingStorage**: SQLite WAL mode with bincode vector serialization
-- **SmallVec Data Structures**: 8 optimized collections across domain layer
 
 ---
 
@@ -342,35 +355,6 @@ ollama pull qwen2.5-coder:3b
 
 ---
 
-## Performance
-
-| Optimization | Description | Impact |
-|--------------|-------------|--------|
-| **Build** | opt-level=3, LTO, codegen-units=1 | Maximum compilation optimization |
-| **Async** | Tokio with optimized settings | High-concurrency throughput |
-| **Memory** | SmallVec for 8 data structures | 20-30% fewer heap allocations |
-| **I/O** | Memory-mapped I/O enabled by default | 30-50% faster cache operations |
-| **Compression** | flate2 for cache files > 1KB | 25-40% reduced disk I/O |
-| **Serialization** | Pure bincode (no JSON fallback) | 3-5x faster serialization |
-| **Parallel** | Rayon for concurrent operations | Multi-threaded computation |
-| **Database** | SQLite WAL mode with bincode | Optimized embedding storage |
-| **Symbolic Storage** | Automatic mmap for files > 1MB | 40-60% faster trace operations |
-| **Caching** | Multi-level with semantic similarity | Instant command retrieval |
-
-### Memory Optimization Details
-
-The following data structures use `SmallVec<[T; N>]` for stack allocation:
-
-- **Session History**: `SmallVec<[Message; 8]>` - Most sessions have 2-6 messages
-- **Query Context**: `SmallVec<[String; 4]>` - Typically 1-3 context strings
-- **Query Results**: `SmallVec<[SearchResult; 8]>` - Top-N results
-- **Command Planning**: `SmallVec<[Command; 5]>` - Multi-step commands
-- **Safety Checks**: `SmallVec<[SafetyCheck; 3]>` - Fixed validation checks
-- **Similarity Results**: `SmallVec<[SearchResult; 8]>` - Filtered embeddings
-- **Outlier Detection**: `SmallVec<[usize; 8]>` - Index results
-
----
-
 ## Development
 
 ```bash
@@ -385,18 +369,6 @@ cargo check --package presentation
 
 # Build
 cargo build --release
-```
-
----
-
-## Installation
-
-```bash
-# Build
-cargo build --release
-
-# Install system-wide
-sudo mv target/release/vibe_cli /usr/local/bin/vibe_cli
 ```
 
 ---
