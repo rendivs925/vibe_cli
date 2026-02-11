@@ -23,12 +23,14 @@ The system models how human memory actually works - with decay, reinforcement, e
 
 ## Overview
 
-Design a hierarchical memory system with distinct memory types:
-- **Short-term**: Ephemeral, working memory (like human working memory)
-- **Medium-term**: Session-persistent learnings with reinforcement
-- **Long-term**: Persistent, reinforced memories
-- **Episodic**: Complete reasoning journeys (like autobiographical memory)
-- **Lifetime**: Time-decaying with importance and emotional weighting
+Design a hierarchical memory system with **4 distinct memory types**:
+
+1. **Short-term**: Ephemeral, working memory (like human working memory)
+2. **Medium-term**: Session-persistent learnings with reinforcement
+3. **Episodic**: Complete reasoning journeys (autobiographical memory)
+4. **Long-term**: Unified persistent store with time-decay, importance, emotional weighting, and spaced repetition
+
+**No duplication** - Long-term handles everything persistent.
 
 ---
 
@@ -36,14 +38,14 @@ Design a hierarchical memory system with distinct memory types:
 
 ### Existing Memory Components
 
-| Component | Type | Storage | Purpose |
-|-----------|------|---------|---------|
-| ExperienceBuffer | Long-term | SQLite | Failures/successes, patterns |
-| KnowledgeGraph | Long-term | SQLite | System entities, relationships |
-| LearningService | Wrapper | - | RAG-style retrieval |
-| CacheManager | Cache | bincode+gzip | Commands, explain, RAG |
-| ManpageCache | Cache | SQLite | Parsed man pages |
-| Session entity | Ephemeral | In-memory | Conversation history |
+| Component | Target Type | Purpose |
+|-----------|-------------|---------|
+| ExperienceBuffer | Long-term | Failures/successes, patterns |
+| KnowledgeGraph | Long-term | System entities, relationships |
+| LearningService | Wrapper | RAG-style retrieval |
+| CacheManager | Long-term | Commands, explain, RAG |
+| ManpageCache | Long-term | Parsed man pages |
+| Session entity | Medium-term | Conversation history |
 
 ### Current Gaps
 
@@ -51,7 +53,6 @@ Design a hierarchical memory system with distinct memory types:
 2. No time-decay or importance scoring
 3. No episodic memory for ReAct traces
 4. Session memory lost between invocations
-5. No human-like reinforcement or interference handling
 
 ---
 
@@ -70,13 +71,14 @@ Design a hierarchical memory system with distinct memory types:
 |  | - Chat history   |  | - Reinforced     |  | - Emotional tags   | |
 |  +------------------+  +------------------+  +--------------------+ |
 |                                                                     |
-|  +------------------+  +------------------+                          |
-|  | LONG-TERM        |  | LIFETIME         |                          |
-|  | (Consolidated)   |  | (Ebbinghaus)     |                          |
-|  | - Command cache  |  | - Decay curve    |                          |
-|  | - System KG      |  | - Spaced rep     |                          |
-|  | - Reinforced     |  | - Emotional wgt  |                          |
-|  +------------------+  +------------------+                          |
+|  +------------------+                                                   |
+|  | LONG-TERM        |                                                   |
+|  | (Unified Store)  |                                                   |
+|  | - Time-decay     |                                                   |
+|  | - Importance     |                                                   |
+|  | - Emotional wgt  |                                                   |
+|  | - Spaced rep     |                                                   |
+|  +------------------+                                                   |
 |                                                                     |
 +---------------------------------------------------------------------+
 ```
@@ -126,28 +128,7 @@ Memories being consolidated through repetition:
 "I'm learning this pattern - the more I use it, the stronger it gets."
 ```
 
-### 3. Long-Term Memory (Consolidated)
-
-Fully consolidated memories:
-
-- **Duration**: Persistent (until decay threshold)
-- **Capacity**: Unlimited
-- **Access**: SQLite with pattern indices
-- **Persistence**: ~/.config/vibe_cli/memory/
-
-**Contents:**
-- Successful commands
-- Query patterns
-- System knowledge (KnowledgeGraph)
-- Manpage cache
-- **Access count**: How many times successfully used
-
-**Human Parallel:**
-```
-"This is second nature now - I don't even have to think about it."
-```
-
-### 4. Episodic Memory (Autobiographical)
+### 3. Episodic Memory (Autobiographical)
 
 Complete "stories" of past experiences:
 
@@ -165,11 +146,13 @@ Complete "stories" of past experiences:
 **Structure:**
 ```rust
 struct Episode {
-    goal: String,
-    steps: Vec<EpisodeStep>,     // What happened
-    outcome: EpisodeOutcome,     // Success/failure
-    emotional_score: f32,        // -1.0 (frustrated) to 1.0 (satisfied)
-    reasoning_trace: String,     // Full "story"
+    id: Uuid,
+    goal: String,                   // Original user goal
+    steps: Vec<EpisodeStep>,        // What happened
+    outcome: EpisodeOutcome,        // Success/failure
+    emotional_score: f32,           // -1.0 (frustrated) to 1.0 (satisfied)
+    reasoning_trace: String,        // Full "story"
+    timestamp: DateTime<Utc>,
 }
 ```
 
@@ -178,39 +161,34 @@ struct Episode {
 "I remember when I fixed that nginx issue - I had to check the logs first..."
 ```
 
-### 5. Lifetime Memory (Ebbinghaus Curve)
+### 4. Long-Term Memory (Unified Persistent Store)
 
-Time-decaying with exact forgetting curve:
+All persistent memories unified with:
 
-```
-Forgetting Curve: R = e^(-t/S)
-Where:
-  R = retention (0-1)
-  t = time since learning
-  S = stability (strength of memory)
-```
-
-- **Duration**: Time-decaying with decay algorithm
-- **Capacity**: Dynamic (old items decay out)
+- **Duration**: Time-decaying with importance
+- **Capacity**: Dynamic (old/decayed items removed)
 - **Access**: SQLite with decay calculation
-- **Persistence**: memories.db
+- **Persistence**: ~/.config/vibe_cli/memory/long_term.db
 
-**Decay Formula:**
+**Features:**
+- Time-decay (Ebbinghaus curve)
+- Importance scoring
+- Emotional weighting
+- Spaced repetition
+
+**Contents:**
+- Successful commands with access counts
+- Query patterns with success rates
+- System knowledge (KnowledgeGraph)
+- Manpage cache
+- User preferences (promoted from medium-term)
+
+**Decay Formula (Ebbinghaus):**
 ```rust
 fn retention(memory: &Memory) -> f32 {
     let age_hours = (Utc::now() - memory.last_accessed).num_hours() as f32;
     let stability = memory.stability_score(); // Built through reinforcement
     (-age_hours / stability).exp()
-}
-```
-
-**Reinforcement (Spaced Repetition):**
-```rust
-fn recall_memory(memory: &mut MemoryItem) {
-    // Each successful recall strengthens the memory
-    memory.stability += REINFORCEMENT_BOOST;
-    memory.last_accessed = Utc::now();
-    memory.access_count += 1;
 }
 ```
 
@@ -269,19 +247,6 @@ enum InterferenceStrategy {
     UserPreference,       // Ask user
     Contextual,           // Use based on current context
 }
-
-fn resolve_interference(context: &InterferenceContext) -> MemoryItem {
-    match context.resolution_strategy {
-        InterferenceStrategy::MostSuccessful => {
-            context.memories
-                .iter()
-                .max_by(|a, b| a.success_rate.partial_cmp(&b.success_rate).unwrap())
-                .unwrap()
-                .clone()
-        }
-        // ...
-    }
-}
 ```
 
 **Example:**
@@ -313,25 +278,15 @@ fn calculate_next_review(&self, recall_quality: f32) {
     self.ease_factor = self.ease_factor + (0.1 - (5.0 - recall_quality) * (0.08 + (5.0 - recall_quality) * 0.02));
 
     if recall_quality < 3.0 {
-        self.interval_hours = 1; // Review soon
+        self.interval_hours = 1;
     } else if recall_quality < 4.0 {
-        self.interval_hours *= 1.2; // Slight increase
+        self.interval_hours *= 1.2;
     } else {
-        self.interval_hours *= self.ease_factor; // Significant increase
+        self.interval_hours *= self.ease_factor;
     }
 
     self.next_review = Utc::now() + Duration::hours(self.interval_hours);
 }
-```
-
-**CLI Integration:**
-```bash
-# Manual spaced repetition check
-vibe_cli --memory-review
-
-# Output might suggest:
-# "You haven't used 'journalctl -u nginx' in 30 days.
-#  Last success rate: 95%. Review?"
 ```
 
 ### D. Priming
@@ -344,33 +299,19 @@ fn prime_memory(context: &Context) -> Vec<MemoryItem> {
 
     // Check current goal/topic
     if let Some(goal) = &context.current_goal {
-        // Prime memories related to goal
-        primed.extend(lifetime_memory.search_by_keywords(goal));
+        primed.extend(long_term_memory.search_by_keywords(goal));
     }
 
     // Check system context
     let system_type = detect_os_type();
-    primed.extend(lifetime_memory.get_system_specific(system_type));
+    primed.extend(long_term_memory.get_system_specific(system_type));
 
     // Check recent patterns
     primed.extend(episodic_memory.get_recent_episodes(5));
 
-    // Limit to ~5 primed memories
     primed.truncate(5);
-
     primed
 }
-```
-
-**Example:**
-```
-User starts session with: "nginx is crashing"
-
-Primed memories loaded:
-- Last nginx episode (3 weeks ago)
-- Common nginx commands (systemctl, nginx -t)
-- User corrections about nginx (use journalctl)
-- System-specific nginx behavior (Ubuntu vs CentOS)
 ```
 
 ---
@@ -379,20 +320,17 @@ Primed memories loaded:
 
 ```
 ~/.config/vibe_cli/memory/
-├── short_term/           # Ephemeral (in-memory)
+├── short_term/           # Ephemeral (in-memory only)
 ├── medium_term/          # Session-scoped (JSON)
 │   └── sessions/
 │       ├── session_1234567890.json
-├── long_term/            # Persistent (SQLite)
-│   ├── experience.db
-│   ├── knowledge_graph.db
-│   └── manpage_cache.db
-├── episodic/             # ReAct traces
+├── episodic/             # ReAct traces (SQLite)
 │   └── episodes.db
-├── lifetime/             # Time-decaying
-│   └── memories.db
-└── spaced_repetition/    # Review schedules
-    └── schedules.db
+└── long_term/            # Unified persistent (SQLite)
+    ├── long_term.db      # Commands, patterns, preferences
+    ├── knowledge_graph.db # System entities
+    ├── manpage_cache.db  # Parsed man pages
+    └── spaced_repetition.db # Review schedules
 ```
 
 ---
@@ -412,44 +350,22 @@ Primed memories loaded:
 
 ---
 
-## Decay Algorithm (Ebbinghaus)
+## Reinforcement (Long-Term Potentiation)
 
 ```rust
-const MIN_RETENTION: f32 = 0.1;
-const INITIAL_STABILITY: f32 = 24.0; // Hours
+fn recall_memory(memory: &mut MemoryItem) {
+    // Each successful recall strengthens the memory
+    memory.stability += REINFORCEMENT_BOOST; // e.g., 2.0 hours
+    memory.last_accessed = Utc::now();
+    memory.access_count += 1;
 
-struct LifetimeMemory {
-    base_importance: f32,
-    stability: f32,           // Hours of retention at this importance
-    emotional_multiplier: f32,
-    reinforcement_count: u32,
-    last_accessed: DateTime<Utc>,
+    // Cap stability (max 1 year = 8760 hours)
+    memory.stability = memory.stability.min(8760.0);
 }
 
-impl LifetimeMemory {
-    fn current_retention(&self) -> f32 {
-        let age_hours = (Utc::now() - self.last_accessed).num_hours() as f32;
-        let adjusted_stability = self.stability * self.emotional_multiplier;
-        (-age_hours / adjusted_stability).exp()
-    }
-
-    fn should_reinforce(&self) -> bool {
-        self.current_retention() < REINFORCEMENT_THRESHOLD
-    }
-
-    fn apply_decay(&mut self) {
-        if self.current_retention() < MIN_RETENTION {
-            self.mark_for_deletion();
-        }
-    }
-
-    fn reinforce(&mut self) {
-        // Each reinforcement increases stability (longer retention)
-        self.stability *= STABILITY_MULTIPLIER; // e.g., 1.2x
-        self.stability = self.stability.min(MAX_STABILITY); // Cap at 8760 hours (1 year)
-        self.reinforcement_count += 1;
-        self.last_accessed = Utc::now();
-    }
+fn should_decay(memory: &MemoryItem) -> bool {
+    let retention = memory.retention();
+    retention < MIN_RETENTION_THRESHOLD // e.g., 0.1 (10%)
 }
 ```
 
@@ -459,23 +375,22 @@ impl LifetimeMemory {
 
 ### Phase 1: Memory Types & Infrastructure
 
-1. `domain/src/entities/memory.rs` - Memory type definitions with emotional tags
+1. `domain/src/entities/memory.rs` - Memory type definitions
 2. `domain/src/repositories/memory_repository.rs` - Repository interfaces
 3. `infrastructure/src/memory/short_term_store.rs` - Working memory
-4. `infrastructure/src/memory/medium_term_store.rs` - Session memory with reinforcement
+4. `infrastructure/src/memory/medium_term_store.rs` - Session memory
 
-### Phase 2: Long-Term & Lifetime
+### Phase 2: Long-Term & Episodic
 
-1. `infrastructure/src/memory/long_term_store.rs` - Refactor existing
-2. `infrastructure/src/memory/lifetime_store.rs` - Decay algorithm
-3. `infrastructure/src/memory/episodic_store.rs` - Episodes with emotional tags
+1. `infrastructure/src/memory/long_term_store.rs` - Unified persistent store
+2. `infrastructure/src/memory/episodic_store.rs` - Episodes with emotional tags
+3. Spaced repetition scheduler
 
 ### Phase 3: Advanced Features
 
 1. `application/src/services/memory_manager.rs` - Central coordinator
-2. Spaced repetition scheduler
-3. Interference resolution engine
-4. Priming system
+2. Interference resolution engine
+3. Priming system
 
 ### Phase 4: Integration & CLI
 
@@ -494,12 +409,12 @@ vibe_cli --memory-stats           # Show all memory statistics
 vibe_cli --memory-clear all       # Clear all memory
 vibe_cli --memory-decay           # Trigger decay cycle
 vibe_cli --memory-review          # Spaced repetition review
-vibe_cli --memory-export episodic # Export episodes
 
 # Chat mode commands
 /ch记忆 short                      # Show short-term memory
 /ch记忆 medium                    # Show medium-term memory
-/ch记忆 lifetime                  # Show lifetime with decay
+/ch记忆 episodic                   # Show episodes
+/ch记忆 long-term                 # Show long-term with decay
 /ch记忆 clear                     # Clear memories
 /ch记忆 interference              # Show conflicting memories
 /ch记忆 prime                     # Show currently primed memories
@@ -513,11 +428,11 @@ vibe_cli --memory-export episodic # Export episodes
 |---------|---------------|---------|
 | Short-term | Working memory | Focused context |
 | Medium-term | Learning phase | Gradual consolidation |
-| Long-term | Consolidated memory | Permanent knowledge |
 | Episodic | Autobiographical memory | Learn from past experiences |
-| Lifetime | Ebbinghaus forgetting | Adapt to change |
+| Long-term | Unified persistent | All knowledge in one place |
+| Time-decay | Ebbinghaus forgetting | Adapt to change |
 | Emotional | Amygdala tagging | Remember important events |
-| Spaced repetition | Optimal learning intervals | Efficient retention |
+| Spaced repetition | Optimal learning | Efficient retention |
 | Interference | Memory conflicts | Handle ambiguity |
 | Priming | Context activation | Faster responses |
 
@@ -525,19 +440,25 @@ vibe_cli --memory-export episodic # Export episodes
 
 ## Migration from Existing
 
-1. ExperienceBuffer -> Lifetime (add stability, emotional tags)
+1. ExperienceBuffer -> Long-term (add stability, emotional tags)
 2. KnowledgeGraph -> Long-term (no change)
-3. Session entity -> Medium-term (serialize to JSON with reinforcement)
+3. Session entity -> Medium-term (serialize to JSON)
 4. CacheManager -> Long-term (migrate to memory dir)
 5. ManpageCache -> Long-term (no change)
 
 ---
 
-## Why This Matters
+## Why 4 Types (Not 5)
 
-The system becomes:
-- **Adaptive**: Changes with user behavior over time
-- **Efficient**: Forgets unused patterns automatically
-- **Personal**: Learns user preferences and frustrations
-- **Learning**: Stores complete reasoning journeys
-- **Human-like**: Feels natural because it works like human memory
+**Simplified from earlier version:**
+
+| Old (Redundant) | New (Simplified) |
+|-----------------|------------------|
+| Long-term + Lifetime | Long-term (unified) |
+| Same semantics, different names | One store handles decay, importance, emotional |
+
+**Benefits:**
+- No duplication
+- Simpler mental model
+- Easier implementation
+- Less configuration
