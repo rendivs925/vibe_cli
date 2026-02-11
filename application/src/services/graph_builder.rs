@@ -6,7 +6,8 @@
 //! - Users and permissions
 //! - Services and processes
 
-use infrastructure::storage::knowledge_graph::{EntityType, KnowledgeGraph};
+use infrastructure::storage::knowledge_graph::KnowledgeGraph;
+use infrastructure::storage::knowledge_graph_entities::EntityType;
 use shared::types::Result;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -123,9 +124,9 @@ impl GraphBuilder {
             if let Some(id_like) = id_like {
                 distro_attrs.insert("id_like".to_string(), id_like);
             }
-            let distro_id = self
-                .graph
-                .upsert_entity(EntityType::Distribution, &distro, distro_attrs)?;
+            let distro_id =
+                self.graph
+                    .upsert_entity(EntityType::Distribution, &distro, distro_attrs)?;
 
             let _ = self.graph.add_relationship_unique(
                 os_id,
@@ -133,12 +134,9 @@ impl GraphBuilder {
                 "distribution",
                 HashMap::new(),
             );
-            let _ = self.graph.add_relationship_unique(
-                distro_id,
-                kernel_id,
-                "runs_on",
-                HashMap::new(),
-            );
+            let _ =
+                self.graph
+                    .add_relationship_unique(distro_id, kernel_id, "runs_on", HashMap::new());
         }
 
         Ok(())
@@ -308,7 +306,8 @@ impl GraphBuilder {
                         attrs.insert("is_root".to_string(), "true".to_string());
                     }
 
-                    self.graph.upsert_entity(EntityType::User, username, attrs)?;
+                    self.graph
+                        .upsert_entity(EntityType::User, username, attrs)?;
                     count += 1;
                 }
             }
@@ -359,7 +358,8 @@ impl GraphBuilder {
                                 let mut attrs = HashMap::new();
                                 attrs.insert("status".to_string(), "running".to_string());
 
-                                self.graph.upsert_entity(EntityType::Service, &name, attrs)?;
+                                self.graph
+                                    .upsert_entity(EntityType::Service, &name, attrs)?;
                                 count += 1;
                             }
                         }
@@ -453,7 +453,13 @@ impl GraphBuilder {
 
         if let Ok(content) = std::fs::read_to_string("/proc/meminfo") {
             let mut attrs = HashMap::new();
-            for key in ["MemTotal", "MemFree", "MemAvailable", "SwapTotal", "SwapFree"] {
+            for key in [
+                "MemTotal",
+                "MemFree",
+                "MemAvailable",
+                "SwapTotal",
+                "SwapFree",
+            ] {
                 if let Some(line) = content.lines().find(|l| l.starts_with(key)) {
                     let val = line.split_whitespace().nth(1).unwrap_or("");
                     attrs.insert(key.to_string(), val.to_string());
@@ -467,21 +473,25 @@ impl GraphBuilder {
         }
 
         if self.command_exists("lsblk") {
-            if let Ok(output) = Command::new("lsblk").arg("-o").arg("NAME,SIZE,TYPE").output() {
-            if output.status.success() {
-                if let Ok(stdout) = String::from_utf8(output.stdout) {
-                    for line in stdout.lines().skip(1) {
-                        let parts: Vec<&str> = line.split_whitespace().collect();
-                        if parts.len() >= 3 && parts[2] == "disk" {
-                            let mut attrs = HashMap::new();
-                            attrs.insert("size".to_string(), parts[1].to_string());
-                            self.graph
-                                .upsert_entity(EntityType::Disk, parts[0], attrs)?;
-                            count += 1;
+            if let Ok(output) = Command::new("lsblk")
+                .arg("-o")
+                .arg("NAME,SIZE,TYPE")
+                .output()
+            {
+                if output.status.success() {
+                    if let Ok(stdout) = String::from_utf8(output.stdout) {
+                        for line in stdout.lines().skip(1) {
+                            let parts: Vec<&str> = line.split_whitespace().collect();
+                            if parts.len() >= 3 && parts[2] == "disk" {
+                                let mut attrs = HashMap::new();
+                                attrs.insert("size".to_string(), parts[1].to_string());
+                                self.graph
+                                    .upsert_entity(EntityType::Disk, parts[0], attrs)?;
+                                count += 1;
+                            }
                         }
                     }
                 }
-            }
             }
         }
 
@@ -494,7 +504,7 @@ impl GraphBuilder {
 
         if self.command_exists("docker") {
             if let Ok(output) = Command::new("docker")
-                .args(&["ps", "-a", "--format", "{{.ID}} {{.Names}} {{.Status}}"]) 
+                .args(&["ps", "-a", "--format", "{{.ID}} {{.Names}} {{.Status}}"])
                 .output()
             {
                 if output.status.success() {
@@ -508,7 +518,8 @@ impl GraphBuilder {
                                 if let Some(status) = parts.get(2) {
                                     attrs.insert("status".to_string(), status.to_string());
                                 }
-                                self.graph.upsert_entity(EntityType::Container, name, attrs)?;
+                                self.graph
+                                    .upsert_entity(EntityType::Container, name, attrs)?;
                                 count += 1;
                             }
                         }
@@ -533,7 +544,8 @@ impl GraphBuilder {
                                 if let Some(status) = parts.get(2) {
                                     attrs.insert("status".to_string(), status.to_string());
                                 }
-                                self.graph.upsert_entity(EntityType::Container, name, attrs)?;
+                                self.graph
+                                    .upsert_entity(EntityType::Container, name, attrs)?;
                                 count += 1;
                             }
                         }
@@ -560,15 +572,15 @@ impl GraphBuilder {
                     let mut fs_attrs = HashMap::new();
                     fs_attrs.insert("device".to_string(), device.to_string());
                     fs_attrs.insert("fstype".to_string(), fstype.to_string());
-                    let fs_id = self
-                        .graph
-                        .upsert_entity(EntityType::Filesystem, mount, fs_attrs)?;
+                    let fs_id =
+                        self.graph
+                            .upsert_entity(EntityType::Filesystem, mount, fs_attrs)?;
 
                     let mut mount_attrs = HashMap::new();
                     mount_attrs.insert("mountpoint".to_string(), mount.to_string());
-                    let mount_id = self
-                        .graph
-                        .upsert_entity(EntityType::Mount, mount, mount_attrs)?;
+                    let mount_id =
+                        self.graph
+                            .upsert_entity(EntityType::Mount, mount, mount_attrs)?;
 
                     let _ = self.graph.add_relationship_unique(
                         fs_id,

@@ -9,7 +9,8 @@
 //! - "Docker commands fail when service is not running"
 
 use crate::storage::experience_buffer::{ExperienceBuffer, ExperienceEntry, FailureType};
-use crate::storage::knowledge_graph::{EntityType, KnowledgeGraph};
+use crate::storage::knowledge_graph::KnowledgeGraph;
+use crate::storage::knowledge_graph_entities::EntityType;
 use rusqlite::{params, Connection, Result as SqliteResult};
 use std::collections::HashMap;
 use std::path::Path;
@@ -716,8 +717,12 @@ impl InductionEngine {
             RuleCondition::CommandContains(c) => command.contains(c),
             RuleCondition::FailureType(_) => false,
             RuleCondition::ErrorMessageContains(_) => false,
-            RuleCondition::And(a, b) => self.rule_matches(a, command) && self.rule_matches(b, command),
-            RuleCondition::Or(a, b) => self.rule_matches(a, command) || self.rule_matches(b, command),
+            RuleCondition::And(a, b) => {
+                self.rule_matches(a, command) && self.rule_matches(b, command)
+            }
+            RuleCondition::Or(a, b) => {
+                self.rule_matches(a, command) || self.rule_matches(b, command)
+            }
         }
     }
 
@@ -742,7 +747,6 @@ impl InductionEngine {
             _ => RuleAction::Warn(value.to_string()),
         }
     }
-
 
     /// Get statistics
     pub fn stats(&self) -> SqliteResult<(usize, usize)> {

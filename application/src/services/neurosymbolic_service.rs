@@ -19,7 +19,8 @@ use infrastructure::{
     storage::{
         experience_buffer::{ExperienceBuffer, FailureType},
         induction_engine::InductionEngine,
-        knowledge_graph::{EntityType, KnowledgeGraph},
+        knowledge_graph::KnowledgeGraph,
+        knowledge_graph_entities::EntityType,
         risk_scorer::{RiskLevel, RiskProfile, RiskScorer},
         ManpageCache,
     },
