@@ -4,7 +4,6 @@
 // that orchestrate business logic and define interfaces for external systems.
 
 pub mod ports;
-pub mod rag_service;
 pub mod services;
 pub mod use_cases;
 
