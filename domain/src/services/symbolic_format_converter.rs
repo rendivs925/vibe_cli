@@ -147,7 +147,7 @@ impl SymbolicFormatConverter {
         ConstraintData {
             constraint_id: format!(
                 "legacy_{}",
-                uuid::Uuid::new_v4().to_string()[..8].to_string()
+                &uuid::Uuid::new_v4().to_string()[..8]
             ),
             constraint_type,
             expression_refs,
@@ -196,7 +196,7 @@ impl SymbolicFormatConverter {
         let hash = format!("{:x}", hash_bytes)[..16].to_string();
 
         SymbolicExpressionData {
-            id: format!("expr_{}", uuid::Uuid::new_v4().to_string()[..8].to_string()),
+            id: format!("expr_{}", &uuid::Uuid::new_v4().to_string()[..8]),
             version: TraceVersion::current(),
             expression_type,
             content,
@@ -239,7 +239,7 @@ impl PartialSolutionExt for PartialSolution {
         // Convert variable assignments to steps
         for (var_name, value) in &self.variable_assignments {
             steps.push(SymbolicStep {
-                step_id: format!("step_{}", uuid::Uuid::new_v4().to_string()[..8].to_string()),
+                step_id: format!("step_{}", &uuid::Uuid::new_v4().to_string()[..8]),
                 step_type: StepType::VariableDeclaration,
                 timestamp: chrono::Utc::now(),
                 duration_ms: 0,
@@ -258,7 +258,7 @@ impl PartialSolutionExt for PartialSolution {
         // Convert satisfied constraints to steps
         for constraint in &self.satisfied_constraints {
             steps.push(SymbolicStep {
-                step_id: format!("step_{}", uuid::Uuid::new_v4().to_string()[..8].to_string()),
+                step_id: format!("step_{}", &uuid::Uuid::new_v4().to_string()[..8]),
                 step_type: StepType::ConstraintCheck,
                 timestamp: chrono::Utc::now(),
                 duration_ms: 0,
@@ -279,7 +279,7 @@ impl PartialSolutionExt for PartialSolution {
         let conclusions = vec![SymbolicConclusion {
             conclusion_id: format!(
                 "concl_{}",
-                uuid::Uuid::new_v4().to_string()[..8].to_string()
+                &uuid::Uuid::new_v4().to_string()[..8]
             ),
             conclusion_type: ConclusionType::Satisfiable,
             confidence: self.quality_score as f64,
@@ -295,7 +295,7 @@ impl PartialSolutionExt for PartialSolution {
         SymbolicReasoningTrace {
             id: format!(
                 "trace_{}",
-                uuid::Uuid::new_v4().to_string()[..8].to_string()
+                &uuid::Uuid::new_v4().to_string()[..8]
             ),
             version: TraceVersion::current(),
             timestamp: chrono::Utc::now(),
@@ -315,11 +315,11 @@ impl ConstraintSetFactory {
     pub fn from_legacy_constraints(constraints: &[LegacyConstraint]) -> ConstraintSet {
         let converted_constraints: Vec<_> = constraints
             .iter()
-            .map(|c| SymbolicFormatConverter::convert_constraint(c))
+            .map(SymbolicFormatConverter::convert_constraint)
             .collect();
 
         ConstraintSet {
-            id: format!("cs_{}", uuid::Uuid::new_v4().to_string()[..8].to_string()),
+            id: format!("cs_{}", &uuid::Uuid::new_v4().to_string()[..8]),
             version: TraceVersion::current(),
             constraints: converted_constraints,
             variables: vec![],

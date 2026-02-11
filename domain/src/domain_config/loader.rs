@@ -263,7 +263,7 @@ impl DomainLoader {
                 .relationships
                 .clone()
                 .into_iter()
-                .chain(prebuilt.relationships.clone().into_iter())
+                .chain(prebuilt.relationships.clone())
                 .collect(),
             operations: merged_ops,
             inference_rules: merged_rules,
@@ -271,13 +271,13 @@ impl DomainLoader {
                 .troubleshooting_patterns
                 .clone()
                 .into_iter()
-                .chain(prebuilt.troubleshooting_patterns.clone().into_iter())
+                .chain(prebuilt.troubleshooting_patterns.clone())
                 .collect(),
             reasoning_templates: user_domain
                 .reasoning_templates
                 .clone()
                 .into_iter()
-                .chain(prebuilt.reasoning_templates.clone().into_iter())
+                .chain(prebuilt.reasoning_templates.clone())
                 .collect(),
             depends_on: user_domain.depends_on,
             priority: user_domain.priority,

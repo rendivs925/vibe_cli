@@ -140,7 +140,7 @@ impl CommandPlanner {
     fn parse_steps(&self, input: &str) -> Result<Vec<String>, CommandPlannerError> {
         // Simple step parsing - look for numbered steps or "then" keywords
         let steps: Vec<String> = input
-            .split(|c| c == '\n' || c == ';')
+            .split(['\n', ';'])
             .map(|s| s.trim())
             .filter(|s| !s.is_empty())
             .map(|s| s.to_string())

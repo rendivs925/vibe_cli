@@ -96,9 +96,11 @@ pub struct IntentMatch {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+#[derive(Default)]
 pub enum MatchSource {
     DomainId,
     DomainDescription,
+    #[default]
     OperationIntent,
     OperationName,
     OperationDescription,
@@ -124,11 +126,6 @@ impl std::fmt::Display for MatchSource {
     }
 }
 
-impl Default for MatchSource {
-    fn default() -> Self {
-        MatchSource::OperationIntent
-    }
-}
 
 /// Registry for all loaded domains
 #[derive(Debug, Clone)]
@@ -358,7 +355,7 @@ impl DomainRegistry {
                         let prop_value = value.as_str().map(|s| s.to_lowercase());
                         if let Some(pv) = prop_value {
                             return pv.contains(
-                                &condition
+                                condition
                                     .equals
                                     .as_ref()
                                     .unwrap_or(&serde_json::Value::Null)
@@ -520,7 +517,7 @@ impl DomainRegistry {
         let mut inputs = HashMap::new();
         let query_lower = query.to_lowercase();
 
-        for (name, _) in &op.input_schema {
+        for name in op.input_schema.keys() {
             if let Some(value) = self.extract_input_value(name, &query_lower, query) {
                 inputs.insert(name.clone(), value);
             }

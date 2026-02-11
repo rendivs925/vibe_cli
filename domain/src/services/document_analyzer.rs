@@ -4,6 +4,12 @@ use std::cmp::Ordering;
 /// Domain service for analyzing documents
 pub struct DocumentAnalyzer;
 
+impl Default for DocumentAnalyzer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl DocumentAnalyzer {
     pub fn new() -> Self {
         Self
@@ -205,7 +211,7 @@ impl DocumentAnalyzer {
             .split_whitespace()
             .map(|word| {
                 let vowel_groups = word
-                    .matches(|c| matches!(c, 'a' | 'e' | 'i' | 'o' | 'u'))
+                    .matches(['a', 'e', 'i', 'o', 'u'])
                     .count();
                 std::cmp::max(1, vowel_groups)
             })

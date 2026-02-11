@@ -40,7 +40,7 @@ impl OutputParser {
                 .into_iter()
                 .map(|v| match v {
                     serde_json::Value::Object(map) => {
-                        map.into_iter().map(|(k, v)| (k, v)).collect()
+                        map.into_iter().collect()
                     }
                     _ => HashMap::new(),
                 })
@@ -50,7 +50,7 @@ impl OutputParser {
         // Try to parse as single object
         if let Ok(obj) = serde_json::from_str::<serde_json::Value>(output) {
             if let serde_json::Value::Object(map) = obj {
-                return vec![map.into_iter().map(|(k, v)| (k, v)).collect()];
+                return vec![map.into_iter().collect()];
             }
         }
 

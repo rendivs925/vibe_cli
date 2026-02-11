@@ -17,6 +17,7 @@ use std::fmt;
 
 /// Risk level for commands
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum RiskLevel {
     /// Safe to execute without confirmation
     Safe,
@@ -25,6 +26,7 @@ pub enum RiskLevel {
     /// Catastrophic, execution blocked
     Dangerous,
     /// Unknown risk, treat as warning
+    #[default]
     Unknown,
 }
 
@@ -39,8 +41,3 @@ impl fmt::Display for RiskLevel {
     }
 }
 
-impl Default for RiskLevel {
-    fn default() -> Self {
-        RiskLevel::Unknown
-    }
-}

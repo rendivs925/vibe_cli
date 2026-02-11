@@ -193,7 +193,7 @@ impl ProofGenerator {
         let mut proof_steps = vec![];
 
         // Check if command is naturally idempotent
-        let idempotent_patterns = vec!["ls", "cat", "ps", "df", "free", "grep", "find"];
+        let idempotent_patterns = ["ls", "cat", "ps", "df", "free", "grep", "find"];
         let is_idempotent = idempotent_patterns.iter().any(|p| command.contains(p));
 
         proof_steps.push(ProofStep {
