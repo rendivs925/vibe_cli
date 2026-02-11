@@ -223,9 +223,7 @@ impl CliHandlers {
             };
 
             if !full_output.trim().is_empty() {
-                if !print_with_pager(&full_output) {
-                    print!("{full_output}");
-                }
+                print!("{full_output}");
             }
 
             return Ok(CommandOutput {

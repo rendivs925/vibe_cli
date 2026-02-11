@@ -72,7 +72,6 @@ Full output:\n{}\n",
 
             let mut buffer = String::new();
             let mut summary = String::new();
-            let mut last_printed = String::new();
 
             let flush = |chunk: &str, summary: &str| -> Option<String> {
                 if chunk.trim().is_empty() {
@@ -118,16 +117,16 @@ New output:\n{}\n",
                     }
                     super::OutputLine::ChunkEnd => {
                         if let Some(update) = flush(&buffer, &summary) {
-                            let formatted = Self::format_ai_response(&update);
-                            if !formatted.is_empty() && formatted != last_printed {
-                                println!(
-                                    "\n{}\n{}",
-                                    "=== AI Chunk Summary ===".green().bold(),
-                                    formatted.trim()
-                                );
-                                last_printed = formatted.clone();
-                                summary = formatted;
+                            let mut formatted = Self::format_ai_response(&update);
+                            if formatted.trim().is_empty() {
+                                formatted = "No summary available.".to_string();
                             }
+                            println!(
+                                "\n{}\n{}",
+                                "=== AI Chunk Summary ===".green().bold(),
+                                formatted.trim()
+                            );
+                            summary = formatted;
                         }
                         buffer.clear();
                         let _ = ack.send(());
@@ -137,14 +136,15 @@ New output:\n{}\n",
 
             if !buffer.trim().is_empty() {
                 if let Some(update) = flush(&buffer, &summary) {
-                    let formatted = Self::format_ai_response(&update);
-                    if !formatted.is_empty() && formatted != last_printed {
-                        println!(
-                            "\n{}\n{}",
-                            "=== AI Chunk Summary ===".green().bold(),
-                            formatted.trim()
-                        );
+                    let mut formatted = Self::format_ai_response(&update);
+                    if formatted.trim().is_empty() {
+                        formatted = "No summary available.".to_string();
                     }
+                    println!(
+                        "\n{}\n{}",
+                        "=== AI Chunk Summary ===".green().bold(),
+                        formatted.trim()
+                    );
                 }
             }
 
@@ -192,17 +192,26 @@ New output:\n{}\n",
         let cleaned = Self::strip_code_fences(raw);
         if let Ok(update) = serde_json::from_str::<AiUpdate>(&cleaned) {
             if Self::is_no_new_findings(&update) {
-                return String::new();
+                return "No new findings.".to_string();
             }
             let mut lines = Vec::new();
-            for err in &update.errors {
-                lines.push(format!("Error: {}", err.trim()));
+            if !update.errors.is_empty() {
+                lines.push("Errors:".to_string());
+                for err in &update.errors {
+                    lines.push(format!("- {}", err.trim()));
+                }
             }
-            for warn in &update.warnings {
-                lines.push(format!("Warning: {}", warn.trim()));
+            if !update.warnings.is_empty() {
+                lines.push("Warnings:".to_string());
+                for warn in &update.warnings {
+                    lines.push(format!("- {}", warn.trim()));
+                }
             }
-            for point in &update.key_points {
-                lines.push(point.trim().to_string());
+            if !update.key_points.is_empty() {
+                lines.push("Key points:".to_string());
+                for point in &update.key_points {
+                    lines.push(format!("- {}", point.trim()));
+                }
             }
             return lines.join("\n");
         }
@@ -212,6 +221,6 @@ New output:\n{}\n",
             .map(|l| l.trim_start())
             .filter(|l| !l.is_empty())
             .collect::<Vec<_>>()
-            .join(" ")
+            .join("\n")
     }
 }
