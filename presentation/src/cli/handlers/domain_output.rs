@@ -19,28 +19,6 @@ struct AiUpdate {
 }
 
 impl CliHandlers {
-    pub(crate) async fn interpret_output(&self, query: &str, output: &str) -> Result<()> {
-        let client = infrastructure::ollama_client::OllamaClient::new()?;
-        let prompt = format!(
-            "Summarize this command output in 1-2 sentences:\n\n\
-User asked: \"{}\"\n\n\
-Command output:\n{}\n",
-            query, output
-        );
-
-        let response = timeout(Duration::from_secs(8), client.generate_response(&prompt))
-            .await
-            .ok()
-            .and_then(Result::ok)
-            .unwrap_or_default();
-        let formatted = Self::format_ai_response(&response);
-        if !formatted.is_empty() {
-            println!("\n{}", "=== AI Interpretation ===".green().bold());
-            println!("{}", formatted.trim());
-        }
-        Ok(())
-    }
-
     pub(crate) async fn interpret_output_final(
         &self,
         query: &str,
@@ -210,29 +188,6 @@ New output:\n{}\n",
                 .all(|x| x == "no new findings." || x == "no new findings")
     }
 
-    fn render_section(
-        title: &str,
-        items: &[String],
-        color: fn(&str) -> colored::ColoredString,
-    ) -> String {
-        if items.is_empty() {
-            return String::new();
-        }
-        let mut out = String::new();
-        out.push_str(&format!("{}\n", color(title).bold()));
-        for it in items {
-            let msg = it
-                .trim()
-                .trim_start_matches(['-', '•', '*'])
-                .trim();
-            if msg.is_empty() {
-                continue;
-            }
-            out.push_str(&format!("  {} {}\n", "•".cyan(), msg));
-        }
-        out
-    }
-
     fn format_ai_response(raw: &str) -> String {
         let cleaned = Self::strip_code_fences(raw);
         if let Ok(update) = serde_json::from_str::<AiUpdate>(&cleaned) {
@@ -258,29 +213,5 @@ New output:\n{}\n",
             .filter(|l| !l.is_empty())
             .collect::<Vec<_>>()
             .join(" ")
-    }
-
-    fn format_ai_update(raw: &str) -> String {
-        let mut lines: Vec<String> = Vec::new();
-        for line in raw.lines() {
-            let trimmed = line.trim();
-            if trimmed.is_empty() {
-                continue;
-            }
-            if trimmed.eq_ignore_ascii_case("bullets:") {
-                continue;
-            }
-            let normalized = if trimmed.starts_with('-') {
-                trimmed.to_string()
-            } else if trimmed.eq_ignore_ascii_case("no new findings.")
-                || trimmed.eq_ignore_ascii_case("no new findings")
-            {
-                "No new findings.".to_string()
-            } else {
-                format!("- {}", trimmed)
-            };
-            lines.push(normalized);
-        }
-        lines.join("\n")
     }
 }

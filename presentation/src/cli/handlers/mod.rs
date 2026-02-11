@@ -154,11 +154,6 @@ impl CliHandlers {
         }
     }
 
-    fn run_shell_command(&self, cmd: &str) -> Result<CommandOutput> {
-        let output = Command::new("bash").arg("-c").arg(cmd).output()?;
-        Ok(CommandOutput::from(output))
-    }
-
     fn run_shell_command_streaming(&self, cmd: &str) -> Result<CommandOutput> {
         self.run_shell_command_streaming_with_sink(cmd, None)
     }
@@ -238,13 +233,12 @@ impl CliHandlers {
         let stdout = out_buf.lock().map(|s| s.clone()).unwrap_or_default();
         let stderr = err_buf.lock().map(|s| s.clone()).unwrap_or_default();
         let full_output = if stderr.trim().is_empty() {
-            stdout.clone()
+            stdout
         } else {
             format!("{}\nErrors:\n{}", stdout, stderr)
         };
 
         Ok(CommandOutput {
-            stdout,
             stderr,
             full_output,
             status,
@@ -318,7 +312,6 @@ impl CliHandlers {
 }
 
 struct CommandOutput {
-    stdout: String,
     stderr: String,
     full_output: String,
     status: ExitStatus,
@@ -460,12 +453,11 @@ impl From<std::process::Output> for CommandOutput {
         let stdout = String::from_utf8_lossy(&output.stdout).to_string();
         let stderr = String::from_utf8_lossy(&output.stderr).to_string();
         let full_output = if stderr.is_empty() {
-            stdout.clone()
+            stdout
         } else {
             format!("{}\nErrors:\n{}", stdout, stderr)
         };
         Self {
-            stdout,
             stderr,
             full_output,
             status: output.status,

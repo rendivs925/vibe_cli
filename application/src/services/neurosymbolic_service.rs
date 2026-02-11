@@ -506,11 +506,7 @@ impl IntegratedNeurosymbolicService {
         }
     }
 
-    fn get_learning_context(
-        &self,
-        query: &str,
-        trace: &mut Vec<String>,
-    ) -> Result<Option<String>> {
+    fn get_learning_context(&self, query: &str, trace: &mut Vec<String>) -> Result<Option<String>> {
         if !self.config.enable_learning {
             return Ok(None);
         }
@@ -529,20 +525,6 @@ impl IntegratedNeurosymbolicService {
         let domains_dir = base_dir.join("domains");
         let shared_dir = base_dir.join("shared_entities");
         (base_dir, domains_dir, shared_dir)
-    }
-
-    /// Generate command from query using fuzzy symbolic matching
-    fn generate_command(
-        &mut self,
-        query: &str,
-        learning_context: Option<&str>,
-        trace: &mut Vec<String>,
-    ) -> Result<String> {
-        let mut candidates = self.generate_candidates(query, learning_context, trace)?;
-        if let Some(best) = self.select_best_command(&mut candidates, trace) {
-            return Ok(best);
-        }
-        Err(anyhow!("No valid command candidates"))
     }
 
     fn generate_candidates(
@@ -582,10 +564,7 @@ impl IntegratedNeurosymbolicService {
                     "  KnowledgeGraph: service '{}' not found; blocking",
                     service
                 ));
-                return Err(anyhow!(
-                    "Unknown service in knowledge graph: {}",
-                    service
-                ));
+                return Err(anyhow!("Unknown service in knowledge graph: {}", service));
             }
         }
 
@@ -630,10 +609,7 @@ impl IntegratedNeurosymbolicService {
             trace.push(format!("  Candidate: {}", command));
 
             if !self.is_tool_available(&candidate.tool) {
-                trace.push(format!(
-                    "  Skipping unavailable tool: {}",
-                    candidate.tool
-                ));
+                trace.push(format!("  Skipping unavailable tool: {}", candidate.tool));
                 continue;
             }
 
@@ -688,15 +664,19 @@ impl IntegratedNeurosymbolicService {
             }
 
             if self.config.block_on_invalid_syntax && !syntax_valid && !invalid_flags.is_empty() {
-                first_error = first_error.or(Some(format!(
-                    "Invalid flags: {}",
-                    invalid_flags.join(", ")
-                )));
+                first_error =
+                    first_error.or(Some(format!("Invalid flags: {}", invalid_flags.join(", "))));
                 trace.push("  Syntax invalid; backtracking".to_string());
                 continue;
             }
 
-            return Ok((command, safety_report, syntax_valid, invalid_flags, induced_warnings));
+            return Ok((
+                command,
+                safety_report,
+                syntax_valid,
+                invalid_flags,
+                induced_warnings,
+            ));
         }
 
         Err(anyhow!(
@@ -715,7 +695,9 @@ impl IntegratedNeurosymbolicService {
             return;
         };
         let query_lower = query.to_lowercase();
-        let services = ["nginx", "apache", "mysql", "postgres", "redis", "docker", "ssh"];
+        let services = [
+            "nginx", "apache", "mysql", "postgres", "redis", "docker", "ssh",
+        ];
         for svc in services {
             if query_lower.contains(svc) {
                 if let Ok(Some(entity)) = graph.find_entity(EntityType::Service, svc) {
@@ -1093,36 +1075,6 @@ impl IntegratedNeurosymbolicService {
         } else {
             Some(result)
         }
-    }
-
-    fn select_best_command(
-        &mut self,
-        candidates: &mut Vec<GeneratedCommand>,
-        trace: &mut Vec<String>,
-    ) -> Option<String> {
-        if candidates.is_empty() {
-            return None;
-        }
-
-        candidates.sort_by(|a, b| {
-            b.score
-                .partial_cmp(&a.score)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
-
-        for candidate in candidates.iter() {
-            let validation = self.syntax_validator.validate(&candidate.command);
-            if validation.is_valid {
-                trace.push(format!(
-                    "  Manpage-validated generator: {}",
-                    candidate.generator_name
-                ));
-                return Some(candidate.command.clone());
-            }
-        }
-
-        trace.push("  Manpage validation found no valid candidates".to_string());
-        candidates.first().map(|c| c.command.clone())
     }
 
     fn filter_with_learning_context(
@@ -1744,7 +1696,9 @@ mod tests {
         .unwrap();
         service.reload_domain_registry().unwrap();
 
-        let answer = service.direct_answer("check distribution").unwrap_or_default();
+        let answer = service
+            .direct_answer("check distribution")
+            .unwrap_or_default();
         assert!(
             answer.contains("TestDistro") && answer.contains("9"),
             "Expected distribution in direct answer"
