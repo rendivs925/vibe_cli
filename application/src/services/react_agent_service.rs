@@ -128,11 +128,17 @@ Rules:\n\
             if let Some(service) = self.neurosymbolic_service.as_ref() {
                 if let Some(suggestion) = service.suggest_commands_from_domains(&session.query) {
                     let mut commands = Vec::new();
+                    let reasoning = format!(
+                        "Matched domain op '{}' (id: {}, confidence {:.0}%)",
+                        suggestion.op_name,
+                        suggestion.op_id,
+                        suggestion.confidence * 100.0
+                    );
                     for command in suggestion.commands {
                         commands.push(ProposedCommand::new(
                             command,
                             format!("Domain op: {}", suggestion.op_name),
-                            suggestion.reasoning.clone(),
+                            reasoning.clone(),
                         ));
                     }
                     if !commands.is_empty() {
