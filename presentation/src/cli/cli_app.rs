@@ -45,6 +45,10 @@ pub struct Cli {
     #[arg(long)]
     pub neurosymbolic_init: bool,
 
+    /// Use neurosymbolic command generation (config-driven)
+    #[arg(long)]
+    pub neurosymbolic: bool,
+
     /// Install a domain package (URL or name)
     #[arg(long)]
     pub neurosymbolic_install: Option<String>,
@@ -140,13 +144,15 @@ impl CliApp {
             return self.handlers.handle_clear_cache();
         }
 
-        if self.handlers.has_neurosymbolic_domains() {
+        // If --neurosymbolic flag is set, use neurosymbolic mode
+        if cli.neurosymbolic {
             return self
                 .handlers
                 .handle_neurosymbolic(&args_str, cli.ai_interpret, cli.neurosymbolic_rag)
                 .await;
         }
 
+        // Default: use standard LLM query mode
         self.handlers
             .handle_query(&args_str, cli.ai_interpret, false)
             .await

@@ -43,10 +43,13 @@ sudo mv target/release/vibe_cli /usr/local/bin/vibe_cli
 # Initialize neurosymbolic domain
 vibe_cli --neurosymbolic-init
 
-# Query examples (uses neurosymbolic when domains are installed)
+# Query examples (uses standard LLM by default)
 vibe_cli "list processes"
 vibe_cli "show my gpu name"
 vibe_cli "find all .rs files larger than 1MB"
+
+# Use --neurosymbolic for config-driven command generation
+vibe_cli --neurosymbolic "list processes"
 ```
 
 ---
@@ -126,6 +129,19 @@ Removes cached commands from `~/.local/share/vibe_cli/`.
 
 The neurosymbolic system provides intelligent, config-driven command generation through JSON domain configurations.
 
+### Enable Neurosymbolic Mode
+
+By default, vibe_cli uses standard LLM query mode. Use the `--neurosymbolic` flag to enable config-driven command generation:
+
+```bash
+# Explicitly enable neurosymbolic mode
+vibe_cli --neurosymbolic "list processes"
+vibe_cli --neurosymbolic "check memory usage"
+vibe_cli --neurosymbolic "nginx is not running"
+vibe_cli --neurosymbolic "show my gpu name"
+vibe_cli --neurosymbolic "check last 20 lines journalctl"
+```
+
 ### Initialize
 
 ```bash
@@ -136,12 +152,18 @@ Sets up the domain configuration directory at `~/.config/vibe_cli/domains/`.
 
 ### Query
 
+By default, vibe_cli uses standard LLM query mode. Use `--neurosymbolic` for config-driven command generation:
+
 ```bash
+# Standard LLM query (default)
 vibe_cli "list processes"
-vibe_cli "check memory usage"
-vibe_cli "nginx is not running"
 vibe_cli "show my gpu name"
-vibe_cli "check last 20 lines journalctl"
+
+# Explicit neurosymbolic mode (config-driven)
+vibe_cli --neurosymbolic "list processes"
+vibe_cli --neurosymbolic "check memory usage"
+vibe_cli --neurosymbolic "nginx is not running"
+vibe_cli --neurosymbolic "check last 20 lines journalctl"
 ```
 
 Queries are matched against domain operations and validated before execution.
