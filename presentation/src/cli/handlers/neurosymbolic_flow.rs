@@ -1,5 +1,6 @@
 use super::CliHandlers;
 use colored::Colorize;
+use infrastructure::cache::CommandCandidate;
 use infrastructure::storage::experience_buffer::FailureType;
 use shared::confirmation::ask_confirmation;
 use shared::types::{Message, Result};
@@ -102,6 +103,54 @@ impl CliHandlers {
         let mut last_successful_command = String::new();
         let mut last_successful_query = String::new();
 
+        // Check cache first for successful commands
+        if !from_fallback {
+            if let Ok(Some(cached_commands)) = self.cache_manager.load_command_cached(query) {
+                if let Some(first_candidate) = cached_commands.first() {
+                    println!("Found cached command for: {}", query);
+                    println!("Using: {}", first_candidate.command);
+
+                    let confirm = dialoguer::Confirm::new()
+                        .with_prompt("Use cached command?")
+                        .default(true)
+                        .show_default(true)
+                        .interact()?;
+
+                    if confirm {
+                        let cmd = &first_candidate.command;
+                        let mut summary = String::new();
+                        let output = if ai_interpret {
+                            let (tx, rx) = mpsc::channel();
+                            let (ack_tx, ack_rx) = mpsc::channel();
+                            let handle = self.spawn_incremental_interpreter(query, rx, ack_tx);
+                            let sink = super::OutputSink { tx, ack: ack_rx };
+                            let result = self.run_shell_command_streaming_with_sink(cmd, Some(sink))?;
+                            summary = handle.join().unwrap_or_default();
+                            result
+                        } else {
+                            self.run_shell_command_streaming(cmd)?
+                        };
+
+                        if output.status.success() {
+                            last_successful_command = cmd.to_string();
+                            last_successful_query = query.to_string();
+                        } else {
+                            println!("{}", format!("Command failed with exit code: {:?}", output.status.code()).red());
+                            if !output.stderr.is_empty() {
+                                println!("{}", output.stderr.red());
+                            }
+                        }
+
+                        if ai_interpret {
+                            self.interpret_output_final(query, &output.full_output, &summary).await?;
+                        }
+
+                        return Ok(());
+                    }
+                }
+            }
+        }
+
         let messages = vec![Message {
             role: "user".to_string(),
             content: query.to_string(),
@@ -137,8 +186,15 @@ impl CliHandlers {
                 println!("{}", output.stderr.red());
             }
         } else {
-            last_successful_command = cmd;
+            last_successful_command = cmd.to_string();
             last_successful_query = query.to_string();
+
+            // Cache successful command
+            let candidate = CommandCandidate::new(last_successful_command.clone());
+            let _ = self.cache_manager.save_command_cached(
+                query,
+                vec![candidate],
+            );
         }
 
         if from_fallback && !last_successful_command.is_empty() {
