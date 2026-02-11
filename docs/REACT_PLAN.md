@@ -1,35 +1,63 @@
 # ReAct Agent Implementation Plan
 
-## Overview
+## Current State: --neurosymbolic Already Works
 
-Implement ReAct (Reasoning + Acting) for the agentic CLI with optional neurosymbolic enhancement.
+The `--neurosymbolic` flag **already exists** and works with the default query mode:
 
-- **Default**: Pure ReAct with LLM reasoning
-- **With --neurosymbolic**: Use domain operations if available, otherwise fall back to pure ReAct
+```bash
+vibe_cli --neurosymbolic "show my ram"       # Works today - calls handle_neurosymbolic
+vibe_cli --neurosymbolic "list processes"    # Works today
+```
+
+Current behavior (already implemented):
+- `cli_app.rs` routes `--neurosymbolic` to `handle_neurosymbolic()`
+- Uses `IntegratedNeurosymbolicService` for domain operations
+- Falls back to LLM if no matching domain operation
+
+---
+
+## What This Plan Adds
+
+This plan adds a **new `--react` flag** for iterative reasoning:
+
+```bash
+# NEW: ReAct mode with optional neurosymbolic
+vibe_cli --react "nginx is not responding, diagnose and fix"
+
+# NEW: ReAct + neurosymbolic (uses domain operations if available)
+vibe_cli --react --neurosymbolic "debug high memory usage"
+```
 
 ---
 
 ## CLI Interface
 
 ```bash
-# ReAct mode with neurosymbolic
-vibe_cli --react --neurosymbolic "nginx is not running, diagnose and fix"
+# Existing - works today
+vibe_cli --neurosymbolic "show my ram"
 
-# Chat mode with neurosymbolic
+# NEW - ReAct mode (iterative reasoning)
+vibe_cli --react "find what's using all my memory"
+
+# NEW - ReAct with neurosymbolic
+vibe_cli --react --neurosymbolic "nginx is crashing, diagnose and fix"
+
+# Chat mode (already exists)
+vibe_cli --chat
+
+# Chat with neurosymbolic
 vibe_cli --chat --neurosymbolic
-# User: nginx is crashing, help me debug
-# Bot uses domain operations for structured debugging
 
-# Agent mode with neurosymbolic
-vibe_cli --agent --neurosymbolic "check all services and restart failed ones"
+# Agent mode (already exists)
+vibe_cli --agent "check all services"
 
-# Query mode with neurosymbolic (default query)
-vibe_cli --neurosymbolic "list processes by memory usage"
+# Agent with neurosymbolic
+vibe_cli --agent --neurosymbolic "check and fix nginx"
 ```
 
 ---
 
-## Interactive Iteration
+## Interactive Iteration (New for --react)
 
 User can iterate on the prompt during a ReAct session:
 
@@ -50,7 +78,7 @@ User input: /revise "actually, check if port 443 is open too"
 
 ---
 
-## Confirmation Flow
+## Confirmation Flow (For --react)
 
 Always ask user before executing each action:
 
@@ -75,233 +103,67 @@ Options:
 
 ---
 
-## Architecture: Shared Neurosymbolic Service
+## Mode Selection Logic
 
-The key insight: **--neurosymbolic is a reusable capability, not a mode**.
+```rust
+// For --react mode:
+if --neurosymbolic is specified:
+    if domain operations available for task:
+        use domain operations
+    else:
+        fall back to pure ReAct (show warning)
+else:
+    use pure ReAct
+
+// For other modes (--chat, --agent, default query):
+// Already handled by existing code - --neurosymbolic works as before
+```
+
+---
+
+## Architecture: ReAct Uses Shared NeurosymbolicCapability
+
+The `--react` handler uses the same `NeurosymbolicCapability` as other modes:
 
 ```
 +---------------------------------------------------------------------+
 |                         CLI Handlers                                 |
 +---------------------------------------------------------------------+
 |                                                                     |
-|   handle_chat()  --->  Uses NeurosymbolicService if --neurosymbolic |
-|   handle_agent() --->  Uses NeurosymbolicService if --neurosymbolic |
-|   handle_react() --->  Uses NeurosymbolicService if --neurosymbolic |
-|   handle_query() --->  Uses NeurosymbolicService if --neurosymbolic |
+|   handle_chat()  --->  Uses NeurosymbolicService (already exists)   |
+|   handle_agent() --->  Uses NeurosymbolicService (already exists)   |
+|   handle_neurosymbolic() -> Uses NeurosymbolicService (already exists) |
+|   handle_react() --->  NEW: Uses NeurosymbolicCapability            |
+|   handle_query() --->  Uses NeurosymbolicService (already exists)   |
 |                                                                     |
 +---------------------------------------------------------------------+
             |
             | Uses shared service
             v
 +---------------------------------------------------------------------+
-|                   NeurosymbolicService                              |
+|                   NeurosymbolicCapability (NEW for ReAct)           |
 +---------------------------------------------------------------------+
 |                                                                     |
-|   - match_operation(query) -> Option<Operation>                     |
-|   - generate_commands(operation, inputs) -> Vec<String>             |
+|   - match_operation(query) -> Option<ResolvedOperation>             |
+|   - generate_commands(operation, inputs) -> Vec<GeneratedCommand>   |
 |   - apply_inference_rules(facts) -> Vec<Conclusion>                 |
-|   - find_troubleshooting_pattern(symptoms) -> Option<Pattern>       |
 |                                                                     |
 +---------------------------------------------------------------------+
             |
             | Delegates to
             v
 +---------------------------------------------------------------------+
-|                    DomainRegistry (existing)                         |
+|                    IntegratedNeurosymbolicService (existing)         |
 +---------------------------------------------------------------------+
 ```
 
 ---
 
-## Mode Selection Logic
+## Implementation: What Needs to Be Added
 
-```rust
-// If --neurosymbolic is specified:
-if domain operations available for task:
-    use domain operations
-else:
-    show warning and fall back to pure mode (whatever mode user is in)
+### 1. Domain Layer - ReAct Types
 
-// If --neurosymbolic is NOT specified:
-use pure mode (ReAct, chat, agent, or query)
-```
-
----
-
-## Global --neurosymbolic Flag
-
-**File:** `presentation/src/cli/cli_app.rs`
-
-```rust
-#[derive(Parser)]
-pub struct Cli {
-    /// Enable neurosymbolic mode (use domain operations when available)
-    #[arg(long)]
-    pub neurosymbolic: bool,
-
-    /// ReAct agent with iterative reasoning
-    #[arg(long)]
-    pub react: bool,
-
-    /// Interactive chat mode
-    #[arg(long)]
-    pub chat: bool,
-
-    /// Multi-step agent (one-shot planning)
-    #[arg(long)]
-    pub agent: bool,
-
-    /// Max ReAct iterations (default: 30)
-    #[arg(long, value_name = "N", requires = "react")]
-    pub max_iterations: Option<usize>,
-
-    /// Show full reasoning trace
-    #[arg(long, requires = "react")]
-    pub show_thoughts: bool,
-
-    /// Task description
-    #[arg(trailing_var_arg = true)]
-    pub task: Vec<String>,
-}
-```
-
-**Usage across all modes:**
-
-```bash
-# All modes can use --neurosymbolic
-vibe_cli --neurosymbolic "list processes"                    # Query mode
-vibe_cli --agent --neurosymbolic "check and fix nginx"       # Agent mode
-vibe_cli --chat --neurosymbolic                              # Chat mode
-vibe_cli --react --neurosymbolic "debug high cpu"            # ReAct mode
-```
-
----
-
-## Reusable Neurosymbolic Service
-
-**File:** `application/src/services/neurosymbolic_service.rs` (enhanced)
-
-```rust
-/// Reusable neurosymbolic capability for all CLI modes
-pub struct NeurosymbolicCapability {
-    registry: Option<DomainRegistry>,
-    command_generator: CommandGenerator,
-    inference_engine: InferenceEngine,
-}
-
-impl NeurosymbolicCapability {
-    /// Create new capability (no-op if no domains loaded)
-    pub fn new() -> Self {
-        Self {
-            registry: DomainRegistry::load().ok(),
-            command_generator: CommandGenerator::new(),
-            inference_engine: InferenceEngine::new(),
-        }
-    }
-
-    /// Check if domain operations are available
-    pub fn is_available(&self) -> bool {
-        self.registry.is_some()
-    }
-
-    /// Match query to domain operation
-    pub fn match_operation(&self, query: &str) -> Option<ResolvedOperation> {
-        self.registry.as_ref()?.match_operation(query)
-    }
-
-    /// Generate commands from operation
-    pub fn generate_commands(
-        &self,
-        op_id: &str,
-        inputs: &HashMap<String, Value>,
-    ) -> Result<Vec<GeneratedCommand>> {
-        let registry = self.registry.as_ref().context("No domain registry")?;
-        let operation = registry.get_operation(op_id)?.1;
-        Ok(registry.command_generator().generate(operation, inputs))
-    }
-
-    /// Apply inference rules to observed facts
-    pub fn apply_inference_rules(&self, facts: &[Fact]) -> Vec<Conclusion> {
-        self.registry.as_ref().map_or(Vec::new(), |r| {
-            r.get_inference_rules()
-                .iter()
-                .filter(|rule| rule.evaluate(facts))
-                .map(|rule| rule.conclusion.clone())
-                .collect()
-        })
-    }
-
-    /// Find troubleshooting pattern for symptoms
-    pub fn find_pattern(&self, symptoms: &[Symptom]) -> Option<TroubleshootingPattern> {
-        self.registry.as_ref()?.find_pattern(symptoms)
-    }
-}
-```
-
----
-
-## How Each Mode Uses Neurosymbolic
-
-### 1. Query Mode (default)
-
-```rust
-// In handle_query()
-if cli.neurosymbolic {
-    if let Some(op) = self.neuro.match_operation(query) {
-        let commands = self.neuro.generate_commands(&op.op_id, &op.inputs)?;
-        // Present commands to user, ask confirmation, execute
-    }
-}
-```
-
-### 2. Agent Mode (one-shot planning)
-
-```rust
-// In handle_agent()
-if cli.neurosymbolic {
-    // When generating plan steps, try domain operations first
-    for step in plan.steps {
-        if let Some(op) = self.neuro.match_operation(&step.description) {
-            step.commands = self.neuro.generate_commands(&op.op_id, &op.inputs)?;
-        }
-    }
-}
-```
-
-### 3. Chat Mode
-
-```rust
-// In handle_chat()
-if cli.neurosymbolic {
-    // Parse user intent, suggest domain operations
-    if let Some(op) = self.neuro.match_operation(&user_input) {
-        bot.reply(format!("I can help with that using domain operation: {}", op.op_id));
-        // Offer to execute the operation
-    }
-}
-```
-
-### 4. ReAct Mode (iterative)
-
-```rust
-// In handle_react() - NEW
-if cli.neurosymbolic {
-    // In each iteration, try domain operations before LLM
-    if let Some(op) = self.neuro.match_operation(&context.goal) {
-        return Action::DomainOperation(op);
-    }
-}
-// Fall back to LLM-generated action
-self.generate_llm_action(context).await
-```
-
----
-
-## Architecture Components
-
-### Domain Layer
-
-**File:** `domain/src/entities/react.rs`
+**New file:** `domain/src/entities/react.rs`
 
 ```rust
 pub enum ReActStepType {
@@ -360,7 +222,7 @@ impl Default for ReActConfig {
 }
 ```
 
-**File:** `domain/src/repositories/react_repository.rs`
+**New file:** `domain/src/repositories/react_repository.rs`
 
 ```rust
 pub trait ReActRepository {
@@ -370,16 +232,16 @@ pub trait ReActRepository {
 }
 ```
 
-### Application Layer
+### 2. Application Layer
 
-**File:** `application/src/services/react_agent_service.rs`
+**New file:** `application/src/services/react_agent_service.rs`
 
 ```rust
 pub struct ReActAgentService {
     ollama_client: OllamaClient,
     repository: Box<dyn ReActRepository>,
     safety_engine: SafetyEngine,
-    neuro: Option<NeurosymbolicCapability>,  // Shared capability
+    neuro: Option<NeurosymbolicCapability>,
     config: ReActConfig,
 }
 
@@ -398,7 +260,6 @@ impl ReActAgentService {
                 break;
             }
 
-            // Try neurosymbolic first if enabled
             let action = if self.config.use_neurosymbolic {
                 self.generate_action(&context, &thought).await?
             } else {
@@ -433,9 +294,45 @@ impl ReActAgentService {
 }
 ```
 
-### Presentation Layer
+### 3. Presentation Layer
 
-**File:** `presentation/src/cli/handlers/react.rs`
+**Update:** `presentation/src/cli/cli_app.rs`
+
+```rust
+#[derive(Parser)]
+pub struct Cli {
+    // ... existing flags ...
+
+    /// ReAct agent with iterative reasoning
+    #[arg(long)]
+    pub react: bool,
+
+    /// Max ReAct iterations (default: 30)
+    #[arg(long, value_name = "N", requires = "react")]
+    pub max_iterations: Option<usize>,
+
+    /// Show full reasoning trace
+    #[arg(long, requires = "react")]
+    pub show_thoughts: bool,
+
+    // ... existing flags ...
+}
+
+impl CliApp {
+    pub async fn run(&mut self, cli: Cli) -> Result<()> {
+        // ... existing handlers ...
+
+        // NEW: Handle --react flag
+        if cli.react {
+            return self.handlers.handle_react(&args_str, &cli).await;
+        }
+
+        // ... existing fallback ...
+    }
+}
+```
+
+**New file:** `presentation/src/cli/handlers/react.rs`
 
 ```rust
 impl CliHandlers {
@@ -459,65 +356,120 @@ impl CliHandlers {
             config,
         )?;
 
-        // Warning if neurosymbolic requested but not available
         if cli.neurosymbolic && !service.has_domain_operations() {
             println!("[Warning: No domain operations available, using pure ReAct]");
         }
 
-        // ReAct loop with user interaction...
-    }
-}
-```
+        let mut session = ReActSession::new(task);
 
-**File:** `presentation/src/cli/handlers/mod.rs` (enhance existing handlers)
+        loop {
+            match service.run_step(&session.context).await? {
+                ReActStepResult::Thought(thought) => {
+                    session.display_thought(&thought);
+                }
+                ReActStepResult::Action(action) => {
+                    if action.is_domain_operation() {
+                        println!("[Domain Operation: {}]", action.op_id);
+                    }
 
-```rust
-impl CliHandlers {
-    /// Enhanced query handler with neurosymbolic support
-    pub async fn handle_query(&mut self, query: &str, cli: &Cli) -> Result<()> {
-        if cli.neurosymbolic {
-            if let Some(operation) = self.neuro()?.match_operation(query) {
-                // Use domain operation
-                return self.execute_domain_operation(query, &operation).await;
+                    let decision = session.prompt_action(&action).await?;
+                    match decision {
+                        ActionDecision::Execute => {
+                            let output = self.execute_action(&action).await?;
+                            session.display_observation(&output);
+                            session.context.add_observation(&output);
+
+                            let reflection = service.generate_reflection(&session.context).await?;
+                            session.display_reflection(&reflection);
+                            session.context.add_reflection(&reflection);
+                        }
+                        ActionDecision::Skip => {
+                            session.context.add_note("User skipped this step");
+                        }
+                        ActionDecision::Revise(prompt) => {
+                            let revised = service.revise_action(&action, &prompt).await?;
+                            session.pending_action = Some(revised);
+                        }
+                        ActionDecision::ReviseGoal(new_goal) => {
+                            session.context.update_goal(&new_goal);
+                        }
+                        ActionDecision::Abort => {
+                            println!("Session aborted by user.");
+                            return Ok(());
+                        }
+                        ActionDecision::AutoAll => {
+                            // Auto-execute remaining steps
+                        }
+                    }
+                }
+                ReActStepResult::Done(result) => {
+                    session.display_result(&result);
+                    return Ok(());
+                }
+            }
+
+            if let Some(cmd) = session.check_session_command().await? {
+                match cmd {
+                    SessionCommand::ReviseGoal(new_goal) => {
+                        session.context.update_goal(&new_goal);
+                    }
+                    SessionCommand::ShowContext => {
+                        session.display_context();
+                    }
+                    SessionCommand::Retry => {
+                        session.retry_last_action();
+                    }
+                    SessionCommand::Abort => {
+                        println!("Session aborted.");
+                        return Ok(());
+                    }
+                    SessionCommand::Help => {
+                        session.display_help();
+                    }
+                }
             }
         }
-        // Fall back to standard query handling
-        self.handle_query_standard(query).await
     }
 
-    /// Enhanced agent handler with neurosymbolic support
-    pub async fn handle_agent(&mut self, task: &str, cli: &Cli) -> Result<()> {
-        if cli.neurosymbolic {
-            // When generating plan, use domain operations where possible
-            self.generate_plan_with_neurosymbolic(task).await
-        } else {
-            self.generate_plan_llm(task).await
+    async fn prompt_action(&self, action: &Action) -> Result<ActionDecision> {
+        println!("\n--- STEP {}: ACTION ---\n", action.step_number);
+        println!("Thought: {}", action.thought);
+        println!("\nProposed command:");
+        println!("  {}", action.command.yellow());
+
+        println!("\nOptions:");
+        println!("  [Y] Execute this command");
+        println!("  [n] Skip this step");
+        println!("  [r] Revise the command");
+        println!("  [g] Revise the goal");
+        println!("  [a] Execute all remaining steps automatically");
+        println!("  [x] Abort session");
+
+        loop {
+            let input = shared::utils::prompt("Execute? [Y/n/r/g/a/x]: ")?;
+            match input.trim().to_lowercase().as_str() {
+                "y" | "" => return Ok(ActionDecision::Execute),
+                "n" => return Ok(ActionDecision::Skip),
+                "r" => {
+                    let revision = shared::utils::prompt("How should the command be revised? ")?;
+                    return Ok(ActionDecision::Revise(revision));
+                }
+                "g" => {
+                    let new_goal = shared::utils::prompt("New goal: ")?;
+                    return Ok(ActionDecision::ReviseGoal(new_goal));
+                }
+                "a" => return Ok(ActionDecision::AutoAll),
+                "x" => return Ok(ActionDecision::Abort),
+                _ => println!("Invalid option. Use Y/n/r/g/a/x"),
+            }
         }
-    }
-
-    /// Enhanced chat handler with neurosymbolic support
-    pub async fn handle_chat(&mut self, cli: &Cli) -> Result<()> {
-        if cli.neurosymbolic {
-            // Enable domain operation suggestions in chat
-            self.chat_with_neurosymbolic().await
-        } else {
-            self.chat_standard().await
-        }
-    }
-
-    /// Helper to get shared neurosymbolic capability
-    fn neuro(&self) -> Result<NeurosymbolicCapability> {
-        NeurosymbolicCapability::new()
-            .ok_or_else(|| anyhow!("Failed to initialize neurosymbolic capability"))
     }
 }
 ```
 
----
+### 4. Infrastructure Layer
 
-## Storage
-
-**File:** `infrastructure/src/react_storage.rs`
+**New file:** `infrastructure/src/react_storage.rs`
 
 ```rust
 pub struct ReActStorage {
@@ -618,15 +570,13 @@ Mode: ReAct + Neurosymbolic
 
 | Phase | Task | Files |
 |-------|------|-------|
-| 1 | Create NeurosymbolicCapability | `application/src/services/neurosymbolic_capability.rs` |
-| 2 | Domain types | `domain/src/entities/react.rs`, `domain/src/repositories/react_repository.rs` |
-| 3 | ReAct agent service | `application/src/services/react_agent_service.rs` |
-| 4 | ReAct CLI handler | `presentation/src/cli/handlers/react.rs` |
-| 5 | Update CLI app | `presentation/src/cli/cli_app.rs` |
-| 6 | Update existing handlers | `presentation/src/cli/handlers/mod.rs` |
-| 7 | Storage | `infrastructure/src/react_storage.rs` |
-| 8 | Integration | Connect OllamaClient, SafetyEngine, DomainRegistry |
-| 9 | Tests | Unit + integration tests |
+| 1 | Domain types | `domain/src/entities/react.rs`, `domain/src/repositories/react_repository.rs` |
+| 2 | ReAct agent service | `application/src/services/react_agent_service.rs` |
+| 3 | ReAct CLI handler | `presentation/src/cli/handlers/react.rs` |
+| 4 | Update CLI app | `presentation/src/cli/cli_app.rs` |
+| 5 | Storage | `infrastructure/src/react_storage.rs` |
+| 6 | Integration | Connect OllamaClient, SafetyEngine, DomainRegistry |
+| 7 | Tests | Unit + integration tests |
 
 ---
 
@@ -634,11 +584,10 @@ Mode: ReAct + Neurosymbolic
 
 | Component | Role |
 |-----------|------|
-| `NeurosymbolicCapability` | Reusable service used by all modes |
+| `NeurosymbolicCapability` | Reusable service (shared with other modes) |
 | `DomainRegistry` | Match task to operations, generate commands |
-| `CommandGenerator` | Generate from templates, score alternatives |
+| `CommandGenerator` | Generate from templates |
 | `InferenceEngine` | Apply rules to observations |
-| `TroubleshootingPatterns` | Match symptoms to solutions |
 | `SafetyEngine` | Validate all actions |
 | `OllamaClient` | Generate thoughts, reflections |
 | `ReActStorage` | Persist reasoning traces |
@@ -660,7 +609,7 @@ Mode: ReAct + Neurosymbolic
 |                                                                     |
 |  2. ACTION                                                          |
 |     +------------------------------------------------------------+  |
-|     | Try NeurosymbolicCapability first if --neurosymbolic       |  |
+|     | Try NeurosymbolicCapability if --neurosymbolic             |  |
 |     | If match: use domain operation                             |  |
 |     | Else: LLM generates action                                 |  |
 |     | Validate: safety check, syntax check                       |  |
@@ -685,97 +634,21 @@ Mode: ReAct + Neurosymbolic
 
 ---
 
-# Future: Neurosymbolic Enhancement Plan
+## Existing Code Used (No Duplication)
 
-Make neurosymbolic system more reusable, DRY, and type-safe.
-
-## Current Issues
-
-1. **Plain JSON configurations** - operations.json, entities.json, inference_rules.json
-2. **Code duplication** - similar patterns across domains
-3. **No type safety** - parsing JSON at runtime, no compile-time validation
-4. **Hard to extend** - adding new operation types requires code changes
-
-## Goals
-
-1. **Type-safe domain definitions** using Rust structs with serde
-2. **Code generation** from domain definitions (optional)
-3. **Reusable operation templates** - compose operations from smaller units
-4. **Better separation** - domain logic from infrastructure
-5. **Validation at load time** - fail fast on invalid configs
-
-## Proposed Changes
-
-### 1. Typed Operation Definitions
-
-```rust
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct Operation {
-    pub op_id: String,
-    pub name: String,
-    pub description: String,
-    pub intent: String,
-    #[serde(default)]
-    pub input_schema: HashMap<String, InputField>,
-    pub generators: Vec<Generator>,
-    pub examples: Vec<OperationExample>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize, JsonSchema)]
-pub struct Generator {
-    pub name: String,
-    pub tool: String,
-    pub template: String,
-    #[serde(default)]
-    pub when: Vec<Condition>,
-    #[serde(default)]
-    pub preference_score: f32,
-}
-```
-
-### 2. Operation Traits for Reusability
-
-```rust
-pub trait Operation {
-    type Input: Validate + Default;
-    type Output: ParseOutput;
-
-    fn id(&self) -> &str;
-    fn name(&self) -> &str;
-    fn generate_commands(&self, input: &Self::Input) -> Result<Vec<GeneratedCommand>>;
-    fn parse_output(&self, raw: &str) -> Self::Output;
-}
-
-pub struct CompositeOperation {
-    operations: Vec<Box<dyn Operation<Input = (), Output = ()>>>,
-}
-```
-
-### 3. Migration Strategy
-
-```
-Phase 1: Type-safe wrappers
-- Keep JSON configs
-- Add Rust structs with full validation
-- Fail at load time on invalid configs
-
-Phase 2: Code generation (optional)
-- Generate Rust structs from JSON schemas
-- Add derive macros for common patterns
-- Allow pure Rust domain definitions
-
-Phase 3: Optional Rust-native domains
-- Allow defining domains entirely in Rust
-- Use trait bounds for type-safe operations
-- Enable compile-time validation
-```
+| Existing Component | How Used by ReAct |
+|--------------------|-------------------|
+| `IntegratedNeurosymbolicService` | Source of domain operations |
+| `DomainRegistry` | Match operations, generate commands |
+| `SafetyEngine` | Validate actions |
+| `OllamaClient` | Generate thoughts, reflections |
+| `ExperienceBuffer` | Learn from ReAct traces |
+| `CommandGenerator` | Generate commands from templates |
 
 ---
 
-## Benefits of Shared Architecture
+## Future: Neurosymbolic Enhancement
 
-1. **No duplication** - One NeurosymbolicCapability used by all modes
-2. **Consistent behavior** - Same domain operations across query/agent/chat/react
-3. **Easy extension** - Add new capabilities to one place
-4. **Maintainable** - Single source of truth for neurosymbolic logic
-5. **Testable** - Test the capability independently
+Type-safe domain definitions, operation traits, derive macros.
+
+See: [docs/NEUROSYMBOLIC_ENHANCEMENT.md](./NEUROSYMBOLIC_ENHANCEMENT.md)
