@@ -742,6 +742,24 @@ impl IntegratedNeurosymbolicService {
     fn is_service_known(&self, service: &str) -> bool {
         self.ensure_knowledge_graph_for_services();
 
+        let known_services = [
+            "nginx",
+            "apache",
+            "mysql",
+            "postgres",
+            "redis",
+            "docker",
+            "ssh",
+            "postgresql",
+            "httpd",
+            "php-fpm",
+            "celery",
+            "gunicorn",
+        ];
+        if known_services.contains(&service) {
+            return true;
+        }
+
         let Ok(graph) = KnowledgeGraph::new(&self.knowledge_graph_path) else {
             return true; // do not block if KG unavailable
         };
