@@ -13,11 +13,55 @@ impl CliHandlers {
         query: &str,
         ai_interpret: bool,
         use_rag_constraints: bool,
+        scaling_config: &ScalingConfig,
     ) -> Result<()> {
+        use application::services::test_time_scaling::ScalingMethod;
+
         self.ensure_neurosymbolic_service();
         if let Some(answer) = self.direct_answer(query) {
             println!("{}", answer);
             return Ok(());
+        }
+
+        if scaling_config.method != ScalingMethod::None {
+            if let Some(best_cmd) = self.select_best_with_scaling(query, scaling_config).await {
+                println!("Selected best command via {}: {}", 
+                    match scaling_config.method {
+                        ScalingMethod::Knockout => "knockout tournament",
+                        ScalingMethod::League => "league competition",
+                        ScalingMethod::None => "none",
+                    },
+                    best_cmd
+                );
+
+                if ask_confirmation("Run this command?", true)? {
+                    let mut summary = String::new();
+                    let output = if ai_interpret {
+                        let (tx, rx) = mpsc::channel();
+                        let (ack_tx, ack_rx) = mpsc::channel();
+                        let handle = self.spawn_incremental_interpreter(query, rx, ack_tx);
+                        let sink = super::OutputSink { tx, ack: ack_rx };
+                        let result = self.run_shell_command_streaming_with_sink(&best_cmd, Some(sink))?;
+                        summary = handle.join().unwrap_or_default();
+                        result
+                    } else {
+                        self.run_shell_command_streaming(&best_cmd)?
+                    };
+
+                    if output.status.success() {
+                        let candidate = CommandCandidate::new(best_cmd.clone());
+                        let _ = self
+                            .cache_manager
+                            .save_command_cached(query, vec![candidate]);
+                    }
+
+                    if ai_interpret {
+                        self.interpret_output_final(query, &output.full_output, &summary)
+                            .await?;
+                    }
+                }
+                return Ok(());
+            }
         }
 
         let mut attempts = 0;

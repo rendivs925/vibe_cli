@@ -1,4 +1,6 @@
 use super::CliHandlers;
+use application::services::test_time_scaling::ScalingConfig;
+use colored::Colorize;
 use crate::cli::cache::CommandCandidate;
 use crate::cli::command_review::review_candidates;
 use anyhow::anyhow;
@@ -8,16 +10,37 @@ use domain::entities::react::{
 };
 use infrastructure::react_storage::InMemoryReactStorage;
 use infrastructure::syntax_grammar_validator::SyntaxGrammarValidator;
+use shared::confirmation::ask_confirmation;
 use shared::types::Result;
 use std::collections::HashMap;
 use std::io::{self, Write};
 use std::sync::Arc;
 
 impl CliHandlers {
-    pub async fn handle_react(&mut self, query: &str, neurosymbolic: bool) -> Result<()> {
+    pub async fn handle_react(&mut self, query: &str, neurosymbolic: bool, scaling_config: &ScalingConfig) -> Result<()> {
+        use application::services::test_time_scaling::ScalingMethod;
+
         if query.trim().is_empty() {
             println!("Provide a task for --react");
             return Ok(());
+        }
+
+        if scaling_config.method != ScalingMethod::None {
+            if let Some(best_cmd) = self.select_best_with_scaling(query, scaling_config).await {
+                println!("Scaling selected command: {}", best_cmd);
+                if ask_confirmation("Run this command directly?", false)? {
+                    let status = std::process::Command::new("bash")
+                        .arg("-c")
+                        .arg(&best_cmd)
+                        .status()?;
+                    if status.success() {
+                        println!("{}", "Command completed successfully.".green());
+                    } else {
+                        println!("{} (exit status: {:?})", "Command failed.".red(), status.code());
+                    }
+                    return Ok(());
+                }
+            }
         }
 
         let storage = Arc::new(InMemoryReactStorage::new());

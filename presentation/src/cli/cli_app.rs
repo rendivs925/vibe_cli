@@ -164,12 +164,12 @@ impl CliApp {
             return self.handlers.handle_chat().await;
         }
         if cli.agent {
-            return self.handlers.handle_agent(&args_str).await;
+            return self.handlers.handle_agent(&args_str, &scaling_config).await;
         }
         if cli.react {
             return self
                 .handlers
-                .handle_react(&args_str, cli.neurosymbolic)
+                .handle_react(&args_str, cli.neurosymbolic, &scaling_config)
                 .await;
         }
         if cli.explain {
@@ -203,11 +203,11 @@ impl CliApp {
             return self.handlers.handle_clear_cache();
         }
 
-        // If --neurosymbolic flag is set, use neurosymbolic mode
+        // If --neurosymbolic flag is set, use neurosymbolic mode with scaling
         if cli.neurosymbolic {
             return self
                 .handlers
-                .handle_neurosymbolic(&args_str, cli.ai_interpret, cli.neurosymbolic_rag)
+                .handle_neurosymbolic(&args_str, cli.ai_interpret, cli.neurosymbolic_rag, &scaling_config)
                 .await;
         }
 
