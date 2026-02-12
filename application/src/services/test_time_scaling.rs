@@ -1,3 +1,4 @@
+use domain::services::command_extraction::cleanup_ai_response;
 use infrastructure::{
     config::Config,
     ollama_client::OllamaClient,
@@ -143,40 +144,13 @@ Requirements:
         );
 
         let response = self.client.generate_response(&prompt).await?;
-        let cleaned = Self::clean_command(&response);
+        let cleaned = cleanup_ai_response(&response);
         
         if cleaned.is_empty() {
             return Ok(None);
         }
 
         Ok(Some(cleaned))
-    }
-
-    fn clean_command(response: &str) -> String {
-        let trimmed = response.trim();
-        
-        if trimmed.starts_with("```") {
-            if let Some(end) = trimmed.find('\n') {
-                let remaining = &trimmed[end + 1..];
-                if let Some(end_backtick) = remaining.rfind("```") {
-                    return remaining[..end_backtick].trim().to_string();
-                }
-                return remaining.trim().to_string();
-            }
-        }
-        
-        if let Some(start) = trimmed.find('\n') {
-            let first_line = trimmed[..start].trim();
-            if first_line.starts_with("```") {
-                let rest = trimmed[start + 1..].trim();
-                if let Some(end) = rest.rfind("```") {
-                    return rest[..end].trim().to_string();
-                }
-                return rest.to_string();
-            }
-        }
-        
-        trimmed.to_string()
     }
 
     async fn run_knockout_tournament(
