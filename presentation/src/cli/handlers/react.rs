@@ -15,11 +15,15 @@ use std::io::{self, Write};
 use std::sync::Arc;
 
 impl CliHandlers {
-    pub async fn handle_react(&mut self, query: &str, neurosymbolic: bool, _scaling_config: &ScalingConfig) -> Result<()> {
+    pub async fn handle_react(&mut self, query: &str, neurosymbolic: bool, scaling_config: &ScalingConfig) -> Result<()> {
+        use application::services::test_time_scaling::ScalingMethod;
+
         if query.trim().is_empty() {
             println!("Provide a task for --react");
             return Ok(());
         }
+
+        let use_scaling = scaling_config.method != ScalingMethod::None;
 
         let storage = Arc::new(InMemoryReactStorage::new());
         let react_repo = storage.clone();
@@ -68,6 +72,17 @@ impl CliHandlers {
             if commands.is_empty() {
                 println!("\nNo commands proposed for this step.");
                 break;
+            }
+
+            if use_scaling && commands.len() > 1 {
+                if let Some(best_cmd) = self.select_best_with_scaling(&session.query, scaling_config).await {
+                    println!("[Scaling selected: {}]", best_cmd);
+                    commands = vec![ProposedCommand::new(
+                        best_cmd,
+                        "Scaling selected command".to_string(),
+                        "ScalingMethod".to_string(),
+                    )];
+                }
             }
 
             let domain_operation = detect_domain_operation(&commands);
