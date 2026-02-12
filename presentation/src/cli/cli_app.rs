@@ -9,9 +9,28 @@ pub use crate::cli::utils::{
     detect_system_info, find_project_root, floor_char_boundary, project_cache_suffix,
 };
 
+use application::services::test_time_scaling::{ScalingConfig, ScalingMethod};
 use clap::Parser;
 use infrastructure::config::Config;
 use shared::types::Result;
+
+#[derive(Clone, Copy, Debug, Default, clap::ValueEnum)]
+pub enum ScalingMethodArg {
+    #[default]
+    None,
+    Knockout,
+    League,
+}
+
+impl From<ScalingMethodArg> for ScalingMethod {
+    fn from(arg: ScalingMethodArg) -> Self {
+        match arg {
+            ScalingMethodArg::None => ScalingMethod::None,
+            ScalingMethodArg::Knockout => ScalingMethod::Knockout,
+            ScalingMethodArg::League => ScalingMethod::League,
+        }
+    }
+}
 
 #[derive(Parser)]
 #[command(name = "vibe_cli")]
@@ -93,6 +112,26 @@ pub struct Cli {
     #[arg(long)]
     pub trace: bool,
 
+    /// Test-time compute scaling method: knockout, league, or none (default)
+    #[arg(long, value_enum, default_value = "none")]
+    pub scaling_method: ScalingMethodArg,
+
+    /// Number of candidate samples for test-time compute (default: 6)
+    #[arg(long)]
+    pub samples: Option<usize>,
+
+    /// Comparisons per pair for knockout tournament (default: 3)
+    #[arg(long)]
+    pub comparisons: Option<usize>,
+
+    /// Random opponents per candidate for league (default: 5)
+    #[arg(long)]
+    pub opponents: Option<usize>,
+
+    /// Enable early stopping when confidence is high
+    #[arg(long)]
+    pub early_stop: bool,
+
     /// The query or file path to process
     #[arg(trailing_var_arg = true)]
     pub args: Vec<String>,
@@ -111,6 +150,16 @@ impl CliApp {
 
     pub async fn run(&mut self, cli: Cli) -> Result<()> {
         let args_str = cli.args.join(" ");
+        
+        let scaling_config = ScalingConfig {
+            method: cli.scaling_method.into(),
+            num_samples: cli.samples.unwrap_or(6),
+            comparisons_per_pair: cli.comparisons.unwrap_or(3),
+            opponents_per_candidate: cli.opponents.unwrap_or(5),
+            early_stopping: cli.early_stop,
+            confidence_threshold: 0.9,
+        };
+        
         if cli.chat {
             return self.handlers.handle_chat().await;
         }
@@ -162,9 +211,9 @@ impl CliApp {
                 .await;
         }
 
-        // Default: use standard LLM query mode
+        // Default: use standard LLM query mode with optional scaling
         self.handlers
-            .handle_query(&args_str, cli.ai_interpret, false)
+            .handle_query_with_scaling(&args_str, cli.ai_interpret, false, &scaling_config)
             .await
     }
 }

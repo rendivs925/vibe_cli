@@ -20,7 +20,9 @@ use super::command_extraction::query_keywords;
 use super::utils::{detect_system_info, project_cache_suffix};
 use application::services::neurosymbolic_service::NeurosymbolicService;
 use application::services::rag_service::RagService;
+use application::services::test_time_scaling::{ScalingConfig, TestTimeComputeService};
 use infrastructure::config::Config;
+use infrastructure::ollama_client::OllamaClient;
 use shared::types::Message;
 use shared::types::Result;
 use std::io::{BufRead, BufReader, Write};
@@ -35,6 +37,7 @@ pub struct CliHandlers {
     config: Config,
     rag_service: Option<RagService>,
     neurosymbolic_service: Option<NeurosymbolicService>,
+    scaling_service: Option<TestTimeComputeService>,
 }
 
 impl CliHandlers {
@@ -44,6 +47,9 @@ impl CliHandlers {
         let system_info = Self::load_or_collect_system_info(&system_info_path);
 
         let neurosymbolic_service = NeurosymbolicService::new().ok();
+        let scaling_service = OllamaClient::new()
+            .ok()
+            .map(|client| TestTimeComputeService::new(client, config.clone()));
 
         Self {
             cache_manager: CacheManager::new(cache_dir.clone(), false),
@@ -51,6 +57,7 @@ impl CliHandlers {
             config,
             rag_service: None,
             neurosymbolic_service,
+            scaling_service,
         }
     }
 
@@ -377,6 +384,19 @@ impl CliHandlers {
     fn config_dir(&self) -> PathBuf {
         let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
         PathBuf::from(home).join(".config/vibe_cli/domains")
+    }
+
+    pub async fn select_best_with_scaling(
+        &self,
+        query: &str,
+        scaling_config: &ScalingConfig,
+    ) -> Option<String> {
+        let service = self.scaling_service.as_ref()?;
+        service
+            .select_best_command(query, scaling_config)
+            .await
+            .ok()
+            .flatten()
     }
 }
 
