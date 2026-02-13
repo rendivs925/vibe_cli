@@ -13,6 +13,7 @@ use infrastructure::syntax_grammar_validator::SyntaxGrammarValidator;
 use infrastructure::tools;
 use shared::types::Result;
 use std::io::{self, Write};
+use std::process::Command;
 use std::sync::Arc;
 
 impl CliHandlers {
@@ -116,7 +117,13 @@ impl CliHandlers {
 
             match decision {
                 AllowDecision::Execute => {
-                    let output = execute_suggestion(self, &tools, &mut validator, &mut suggested)?;
+                    let output = execute_suggestion(
+                        self,
+                        &tools,
+                        &mut validator,
+                        &mut suggested,
+                        &session.query,
+                    )?;
                     print_section("OUTPUT", &output);
                     save_step(
                         &service,
@@ -324,6 +331,7 @@ fn execute_suggestion(
     tools: &application::services::tool_executor::ToolExecutor,
     validator: &mut SyntaxGrammarValidator,
     command: &mut ProposedCommand,
+    query: &str,
 ) -> Result<String> {
     let command_line = command.command.clone();
     let tokens = command_line
@@ -335,7 +343,12 @@ fn execute_suggestion(
     }
 
     let tool_name = tokens[0].clone();
-    let args = tokens[1..].iter().map(|s| s.as_str()).collect::<Vec<_>>();
+    let raw_args = tokens[1..].to_vec();
+    let (normalized_args, rewrite_note) = normalize_tool_args(&tool_name, &raw_args, query);
+    let args = normalized_args
+        .iter()
+        .map(|s| s.as_str())
+        .collect::<Vec<_>>();
 
     if tools.has_tool(&tool_name) {
         if requires_second_confirmation(tools, &tool_name)
@@ -356,7 +369,12 @@ fn execute_suggestion(
                     output.stdout.clone(),
                     output.stderr.clone(),
                 );
-                Ok(format_tool_output(&tool_name, &output))
+                let formatted = format_tool_output(&tool_name, &output);
+                if let Some(note) = rewrite_note {
+                    Ok(format!("{note}\n{formatted}"))
+                } else {
+                    Ok(formatted)
+                }
             }
             Err(err) => {
                 command.execute(1, String::new(), err.to_string());
@@ -380,6 +398,130 @@ fn execute_suggestion(
     let exit_code = output.status.code().unwrap_or(-1);
     command.execute(exit_code, output.full_output.clone(), output.stderr.clone());
     Ok(output.full_output)
+}
+
+fn normalize_tool_args(tool_name: &str, args: &[String], query: &str) -> (Vec<String>, Option<String>) {
+    let Some(path_arg_index) = tool_path_arg_index(tool_name) else {
+        return (args.to_vec(), None);
+    };
+    if args.len() <= path_arg_index {
+        return (args.to_vec(), None);
+    }
+    if !is_placeholder_path(&args[path_arg_index]) {
+        return (args.to_vec(), None);
+    }
+
+    let Some(real_path) = select_workspace_path(query) else {
+        return (args.to_vec(), None);
+    };
+
+    let mut normalized = args.to_vec();
+    let old = normalized[path_arg_index].clone();
+    normalized[path_arg_index] = real_path.clone();
+    (
+        normalized,
+        Some(format!(
+            "[Resolved placeholder path: '{old}' -> '{real_path}']"
+        )),
+    )
+}
+
+fn tool_path_arg_index(tool_name: &str) -> Option<usize> {
+    match tool_name {
+        "read" | "write" | "remove" | "update" => Some(0),
+        "sed" | "perl" => Some(2),
+        "awk" => Some(1),
+        _ => None,
+    }
+}
+
+fn is_placeholder_path(arg: &str) -> bool {
+    let value = arg.trim().to_lowercase();
+    if (value.starts_with('<') && value.ends_with('>')) || (value.starts_with('[') && value.ends_with(']')) {
+        return true;
+    }
+    matches!(
+        value.as_str(),
+        "path"
+            | "file"
+            | "filepath"
+            | "filename"
+            | "your_file"
+            | "your/path"
+            | "path/to/file"
+            | "./path/to/file"
+            | "/path/to/file"
+            | "file_path"
+    ) || value.contains("path/to/")
+        || value.contains("your_file")
+}
+
+fn select_workspace_path(query: &str) -> Option<String> {
+    let output = Command::new("rg").arg("--files").output().ok()?;
+    if !output.status.success() {
+        return None;
+    }
+
+    let files = String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .map(str::trim)
+        .filter(|line| !line.is_empty())
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    if files.is_empty() {
+        return None;
+    }
+
+    let keywords = query
+        .split(|c: char| !c.is_ascii_alphanumeric())
+        .filter(|w| w.len() >= 3)
+        .map(|w| w.to_lowercase())
+        .collect::<Vec<_>>();
+
+    let mut best: Option<(i32, String)> = None;
+    for file in &files {
+        let mut score = 0_i32;
+        let lower = file.to_lowercase();
+
+        for keyword in &keywords {
+            if lower.contains(keyword) {
+                score += 2;
+            }
+        }
+        if lower.ends_with(".rs") || lower.ends_with(".md") || lower.ends_with(".toml") {
+            score += 1;
+        }
+        if lower.contains("target/") || lower.contains(".git/") {
+            score -= 10;
+        }
+
+        if let Some((best_score, _)) = &best {
+            if score > *best_score {
+                best = Some((score, file.clone()));
+            }
+        } else {
+            best = Some((score, file.clone()));
+        }
+    }
+
+    if let Some((score, path)) = best {
+        if score > 0 {
+            return Some(path);
+        }
+    }
+
+    for preferred in [
+        "README.md",
+        "Cargo.toml",
+        "src/main.rs",
+        "presentation/src/cli/handlers/react.rs",
+    ] {
+        if files.iter().any(|f| f == preferred) {
+            return Some(preferred.to_string());
+        }
+    }
+
+    files.first().cloned()
 }
 
 fn requires_second_confirmation(
