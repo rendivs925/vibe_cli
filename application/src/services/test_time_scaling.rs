@@ -1,8 +1,5 @@
 use domain::services::command_extraction::cleanup_ai_response;
-use infrastructure::{
-    config::Config,
-    ollama_client::OllamaClient,
-};
+use infrastructure::{config::Config, ollama_client::OllamaClient};
 use shared::types::Result;
 
 #[derive(Clone, Debug)]
@@ -126,10 +123,7 @@ impl TestTimeComputeService {
         Ok(candidates)
     }
 
-    async fn generate_single_candidate(
-        &self,
-        user_query: &str,
-    ) -> Result<Option<String>> {
+    async fn generate_single_candidate(&self, user_query: &str) -> Result<Option<String>> {
         let prompt = format!(
             r#"Generate a single shell command to accomplish the following task:
 
@@ -145,7 +139,7 @@ Requirements:
 
         let response = self.client.generate_response(&prompt).await?;
         let cleaned = cleanup_ai_response(&response);
-        
+
         if cleaned.is_empty() {
             return Ok(None);
         }
@@ -176,11 +170,7 @@ Requirements:
                 );
 
                 let winner_idx = self
-                    .compare_pairs(
-                        &candidate_a,
-                        &candidate_b,
-                        config.comparisons_per_pair,
-                    )
+                    .compare_pairs(&candidate_a, &candidate_b, config.comparisons_per_pair)
                     .await;
 
                 if winner_idx == 0 {
@@ -196,7 +186,10 @@ Requirements:
         }
 
         Ok(participants.pop().map(|c| c.command).unwrap_or_else(|| {
-            candidates.first().map(|c| c.command.clone()).unwrap_or_default()
+            candidates
+                .first()
+                .map(|c| c.command.clone())
+                .unwrap_or_default()
         }))
     }
 
@@ -206,7 +199,9 @@ Requirements:
         config: &ScalingConfig,
     ) -> Result<String> {
         let mut league: Vec<CandidateCommand> = candidates.to_vec();
-        let num_opponents = config.opponents_per_candidate.min(candidates.len().saturating_sub(1));
+        let num_opponents = config
+            .opponents_per_candidate
+            .min(candidates.len().saturating_sub(1));
 
         let commands: Vec<String> = league.iter().map(|c| c.command.clone()).collect();
 
@@ -219,9 +214,7 @@ Requirements:
 
                 let opponent_cmd = &commands[opponent_idx];
 
-                let winner = self
-                    .compare_two(&candidate.command, opponent_cmd)
-                    .await;
+                let winner = self.compare_two(&candidate.command, opponent_cmd).await;
 
                 if winner == 0 {
                     candidate.win_count += 1;
@@ -237,7 +230,12 @@ Requirements:
         Ok(league
             .first()
             .map(|c| c.command.clone())
-            .unwrap_or_else(|| candidates.first().map(|c| c.command.clone()).unwrap_or_default()))
+            .unwrap_or_else(|| {
+                candidates
+                    .first()
+                    .map(|c| c.command.clone())
+                    .unwrap_or_default()
+            }))
     }
 
     async fn compare_pairs(
@@ -279,7 +277,11 @@ Respond with ONLY "A" or "B" (no explanation):"#,
             candidate_a, candidate_b
         );
 
-        let response = self.client.generate_response(&prompt).await.unwrap_or_default();
+        let response = self
+            .client
+            .generate_response(&prompt)
+            .await
+            .unwrap_or_default();
         let response_lower = response.to_lowercase().trim().to_string();
 
         if response_lower.starts_with('a') {

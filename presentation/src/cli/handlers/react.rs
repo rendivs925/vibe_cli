@@ -1,29 +1,31 @@
 use super::CliHandlers;
-use application::services::test_time_scaling::ScalingConfig;
 use crate::cli::cache::CommandCandidate;
 use crate::cli::command_review::review_candidates;
 use anyhow::anyhow;
 use application::services::react_agent_service::ReactAgentService;
+use application::services::tool_executor::ToolExecutor;
+use application::services::test_time_scaling::{ScalingConfig, ScalingMethod};
 use domain::entities::react::{
     ProposedCommand, ReactSession, ReactStatus, ReactStep, ReactStepType,
 };
 use infrastructure::react_storage::InMemoryReactStorage;
 use infrastructure::syntax_grammar_validator::SyntaxGrammarValidator;
+use infrastructure::tools;
 use shared::types::Result;
-use std::collections::HashMap;
 use std::io::{self, Write};
 use std::sync::Arc;
 
 impl CliHandlers {
-    pub async fn handle_react(&mut self, query: &str, neurosymbolic: bool, scaling_config: &ScalingConfig) -> Result<()> {
-        use application::services::test_time_scaling::ScalingMethod;
-
+    pub async fn handle_react(
+        &mut self,
+        query: &str,
+        neurosymbolic: bool,
+        scaling_config: &ScalingConfig,
+    ) -> Result<()> {
         if query.trim().is_empty() {
             println!("Provide a task for --react");
             return Ok(());
         }
-
-        let use_scaling = scaling_config.method != ScalingMethod::None;
 
         let storage = Arc::new(InMemoryReactStorage::new());
         let react_repo = storage.clone();
@@ -42,206 +44,119 @@ impl CliHandlers {
             .start_session(query.to_string(), neurosymbolic)
             .await?;
 
+        let mut validator = SyntaxGrammarValidator::new();
+        let tools = build_default_tool_executor();
+
         println!("ReAct session for: \"{}\"", session.query);
         print_react_help();
 
-        let mut validator = SyntaxGrammarValidator::new();
         let mut iteration = 0_u32;
-        let mut step_no = 1_u32;
-        let mut auto_execute_all = false;
-        let mut last_action_commands: Option<Vec<ProposedCommand>> = None;
-
         while iteration < 30 && matches!(session.status, ReactStatus::Running) {
             iteration += 1;
 
-            let thought = service.generate_reasoning(&session).await?;
-            print_step_header(step_no, "THOUGHT");
-            println!("{thought}");
-            step_no += 1;
+            let reasoning = service.generate_reasoning(&session).await?;
+            print_section("REASONING", &reasoning);
+            save_step(
+                &service,
+                &mut session,
+                ReactStepType::Thought,
+                reasoning.clone(),
+            )
+            .await?;
 
-            let mut thought_step =
-                ReactStep::new(session.id.clone(), ReactStepType::Thought, thought.clone())
-                    .with_reasoning(thought);
-            thought_step.start();
-            thought_step.complete();
-            service.save_step(&thought_step).await?;
-            session.add_step(thought_step);
-            service.save_session(&session).await?;
-
-            let mut commands = service.propose_commands("", &session).await?;
+            let mut commands = service.propose_commands(&reasoning, &session).await?;
             if commands.is_empty() {
-                println!("\nNo commands proposed for this step.");
+                println!("No command suggestion generated.");
                 break;
             }
 
-            if use_scaling && commands.len() > 1 {
-                if let Some(best_cmd) = self.select_best_with_scaling(&session.query, scaling_config).await {
+            if scaling_config.method != ScalingMethod::None && commands.len() > 1 {
+                if let Some(best_cmd) = self
+                    .select_best_with_scaling(&session.query, scaling_config)
+                    .await
+                {
                     println!("[Scaling selected: {}]", best_cmd);
                     commands = vec![ProposedCommand::new(
                         best_cmd,
                         "Scaling selected command".to_string(),
-                        "ScalingMethod".to_string(),
+                        "test-time scaling".to_string(),
                     )];
                 }
             }
 
-            let domain_operation = detect_domain_operation(&commands);
-            let action_title = match domain_operation.as_deref() {
-                Some(op) => format!("ACTION (Domain Operation: {op})"),
-                None => "ACTION".to_string(),
-            };
-            print_step_header(step_no, &action_title);
-            if let Some(op) = domain_operation.as_deref() {
-                println!(
-                    "Operation: {}{}",
-                    op,
-                    infer_operation_inputs(op, &session.query)
-                );
-            }
-            println!("Generated commands:");
-            for (idx, cmd) in commands.iter().enumerate() {
-                println!("  {}. {}", idx + 1, cmd.command);
-            }
+            let mut suggested = commands.remove(0);
+            print_section("SUGGESTED COMMAND", &suggested.command);
 
-            loop {
-                let decision = if auto_execute_all {
-                    ActionDecision::Execute
-                } else {
-                    prompt_action()?
-                };
+            let mut action_step = ReactStep::new(
+                session.id.clone(),
+                ReactStepType::Action,
+                suggested.command.clone(),
+            );
+            action_step.add_command(suggested.clone());
+            action_step.start();
+            action_step.complete();
+            service.save_step(&action_step).await?;
+            session.add_step(action_step);
+            service.save_command(&suggested).await?;
+            service.save_session(&session).await?;
 
-                match decision {
-                    ActionDecision::Execute => break,
-                    ActionDecision::Skip => {
-                        println!("\nSkipping this action.");
-                        commands.clear();
-                        break;
-                    }
-                    ActionDecision::Revise => {
-                        let revised = prompt_line("How should the command be revised? ")?;
-                        if revised.trim().is_empty() {
-                            println!("Revision cannot be empty.");
+            let decision = loop {
+                let input = prompt_line("Allow? y/n> ")?;
+                match parse_allow_input(&input)? {
+                    AllowDecision::PromptForDirection => {
+                        let extra = prompt_line("> ")?;
+                        if extra.trim().is_empty() {
                             continue;
                         }
-                        commands = vec![ProposedCommand::new(
-                            revised.clone(),
-                            "User revised command".to_string(),
-                            "Manual revision".to_string(),
-                        )];
-                        println!("Revised commands:");
-                        println!("  1. {revised}");
+                        break AllowDecision::Direction(extra);
                     }
-                    ActionDecision::ReviseGoal => {
-                        let new_goal = prompt_line("New goal: ")?;
-                        if !new_goal.trim().is_empty() {
-                            session.query = new_goal;
-                            service.save_session(&session).await?;
-                            println!("Goal updated.");
-                        }
-                    }
-                    ActionDecision::AutoAll => {
-                        auto_execute_all = true;
-                        break;
-                    }
-                    ActionDecision::Abort => {
-                        session.abort();
+                    other => break other,
+                }
+            };
+
+            match decision {
+                AllowDecision::Execute => {
+                    let output = execute_suggestion(self, &tools, &mut validator, &mut suggested)?;
+                    print_section("OUTPUT", &output);
+                    save_step(
+                        &service,
+                        &mut session,
+                        ReactStepType::Observation,
+                        summarize_output_for_observation(&output),
+                    )
+                    .await?;
+                    service.update_command(&suggested).await.ok();
+                }
+                AllowDecision::Skip => {
+                    suggested.reject();
+                    service.update_command(&suggested).await.ok();
+                    save_step(
+                        &service,
+                        &mut session,
+                        ReactStepType::Observation,
+                        "Skipped current suggestion.".to_string(),
+                    )
+                    .await?;
+                }
+                AllowDecision::Direction(text) => {
+                    suggested.reject();
+                    service.update_command(&suggested).await.ok();
+                    save_step(&service, &mut session, ReactStepType::Observation, text).await?;
+                    continue;
+                }
+                AllowDecision::SessionCommand(command) => {
+                    if handle_session_command(command, &mut session, iteration)? {
                         service.save_session(&session).await?;
-                        println!("Session aborted.");
                         return Ok(());
                     }
-                    ActionDecision::SessionCommand(command) => match command {
-                        SessionCommand::Help => {
-                            print_react_help();
-                        }
-                        SessionCommand::Context => {
-                            print_react_context(&session, iteration);
-                        }
-                        SessionCommand::Retry => {
-                            if let Some(previous) = last_action_commands.as_ref() {
-                                commands = previous.clone();
-                                println!("Retrying last action commands.");
-                            } else {
-                                println!("No previous action to retry.");
-                            }
-                        }
-                        SessionCommand::Skip => {
-                            println!("Skipping this action.");
-                            commands.clear();
-                            break;
-                        }
-                        SessionCommand::Abort => {
-                            session.abort();
-                            service.save_session(&session).await?;
-                            println!("Session aborted.");
-                            return Ok(());
-                        }
-                        SessionCommand::Revise(text) => {
-                            if !text.trim().is_empty() {
-                                session.query = text;
-                                service.save_session(&session).await?;
-                                println!("Goal updated.");
-                            }
-                        }
-                    },
-                }
-            }
-            step_no += 1;
-
-            if !commands.is_empty() {
-                let mut rejected = HashMap::new();
-                let candidates: Vec<CommandCandidate> = commands
-                    .iter()
-                    .map(|cmd| CommandCandidate::new(cmd.command.clone()))
-                    .collect();
-                let reviewed = review_candidates(&candidates, &mut validator);
-                for rejected_candidate in reviewed.rejected {
-                    rejected.insert(rejected_candidate.command, rejected_candidate.reasons);
-                }
-
-                let mut observation_lines = Vec::new();
-                for cmd in &mut commands {
-                    if let Some(reasons) = rejected.get(&cmd.command) {
-                        println!("Rejected: {} ({})", cmd.command, reasons.join(", "));
-                        cmd.reject();
-                        service.update_command(cmd).await.ok();
-                        continue;
-                    }
-
-                    cmd.approve();
-                    let output = self.run_shell_command_streaming(&cmd.command)?;
-                    let exit_code = output.status.code().unwrap_or(-1);
-                    cmd.execute(exit_code, output.full_output.clone(), output.stderr.clone());
-                    service.update_command(cmd).await.ok();
-
-                    observation_lines.push(summarize_output_for_observation(&output.full_output));
-                }
-
-                if !observation_lines.is_empty() {
-                    print_observation(&observation_lines.join("\n"));
-                    let mut observation_step = ReactStep::new(
-                        session.id.clone(),
-                        ReactStepType::Observation,
-                        observation_lines.join("\n"),
-                    );
-                    for line in observation_lines {
-                        observation_step.add_observation(line);
-                    }
-                    observation_step.start();
-                    observation_step.complete();
-                    service.save_step(&observation_step).await?;
-                    session.add_step(observation_step);
                     service.save_session(&session).await?;
+                    continue;
                 }
-            }
-
-            if !commands.is_empty() {
-                last_action_commands = Some(commands.clone());
+                AllowDecision::PromptForDirection => continue,
             }
 
             if let Some(inference) = service.generate_symbolic_inference(&session).await? {
-                print_step_header(step_no, "SYMBOLIC INFERENCE");
-                println!("{inference}");
-                step_no += 1;
+                print_section("SYMBOLIC INFERENCE", &inference);
             }
 
             if service.is_goal_achieved(&session).await.unwrap_or(false) {
@@ -270,34 +185,41 @@ impl CliHandlers {
 enum SessionCommand {
     Help,
     Context,
-    Revise(String),
-    Retry,
     Skip,
     Abort,
 }
 
 #[derive(Debug)]
-enum ActionDecision {
+enum AllowDecision {
     Execute,
     Skip,
-    Revise,
-    ReviseGoal,
-    AutoAll,
-    Abort,
+    Direction(String),
+    PromptForDirection,
     SessionCommand(SessionCommand),
 }
 
-fn print_step_header(step_no: u32, title: &str) {
-    println!("\n--- STEP {step_no}: {title} ---");
+async fn save_step(
+    service: &ReactAgentService,
+    session: &mut ReactSession,
+    step_type: ReactStepType,
+    content: String,
+) -> Result<()> {
+    let mut step = ReactStep::new(session.id.clone(), step_type, content);
+    step.start();
+    step.complete();
+    service.save_step(&step).await?;
+    session.add_step(step);
+    service.save_session(session).await
 }
 
-fn print_observation(summary: &str) {
-    println!("\n--- OBSERVATION ---");
-    println!("{summary}");
+fn print_section(title: &str, content: &str) {
+    println!("\n--- {title} ---");
+    println!("{content}");
 }
 
 fn print_goal_achieved(summary: &str, iterations: u32, neurosymbolic_enabled: bool) {
-    println!("\n--- GOAL ACHIEVED ---");
+    println!("\n--- REASONING ---");
+    println!("Goal achieved.");
     println!("{summary}");
     println!("Iterations: {iterations}");
     if neurosymbolic_enabled {
@@ -308,61 +230,184 @@ fn print_goal_achieved(summary: &str, iterations: u32, neurosymbolic_enabled: bo
 }
 
 fn print_react_help() {
-    println!("\nAvailable commands during session:");
-    println!("  /revise <new_goal>  - Update the goal mid-session");
-    println!("  /context            - Show current reasoning context");
-    println!("  /retry              - Retry last action");
-    println!("  /skip               - Skip to next step");
-    println!("  /abort              - End session");
-    println!("  /help               - Show commands");
+    println!("\nBuilt-in session commands:");
+    println!("  /help    - Show commands");
+    println!("  /context - Show recent reasoning history");
+    println!("  /skip    - Skip current suggestion");
+    println!("  /abort   - End session");
 }
 
 fn print_react_context(session: &ReactSession, iteration: u32) {
     println!("Goal: {}", session.query);
     println!("Iterations: {iteration}");
     println!("Steps: {}", session.steps.len());
+    for step in session.steps.iter().rev().take(6).rev() {
+        let label = match step.step_type {
+            ReactStepType::Thought => "REASONING",
+            ReactStepType::Action => "SUGGESTED COMMAND",
+            ReactStepType::Observation => "OUTPUT",
+        };
+        println!("- {label}: {}", step.content);
+    }
 }
 
-fn prompt_action() -> Result<ActionDecision> {
-    let input = prompt_line("Execute? [Y/n/r/g/a/x]: ")?;
+fn parse_allow_input(input: &str) -> Result<AllowDecision> {
     let trimmed = input.trim();
     if trimmed.starts_with('/') {
-        return match parse_session_command(trimmed) {
-            Ok(command) => Ok(ActionDecision::SessionCommand(command)),
-            Err(err) => {
-                println!("{err}");
-                prompt_action()
-            }
-        };
+        return Ok(AllowDecision::SessionCommand(parse_session_command(
+            trimmed,
+        )?));
     }
 
     match trimmed.to_lowercase().as_str() {
-        "" | "y" => Ok(ActionDecision::Execute),
-        "n" => Ok(ActionDecision::Skip),
-        "r" => Ok(ActionDecision::Revise),
-        "g" => Ok(ActionDecision::ReviseGoal),
-        "a" => Ok(ActionDecision::AutoAll),
-        "x" => Ok(ActionDecision::Abort),
-        _ => {
-            println!("Invalid option. Use Y/n/r/g/a/x.");
-            prompt_action()
+        "" | "y" | "yes" => Ok(AllowDecision::Execute),
+        "skip" => Ok(AllowDecision::Skip),
+        "n" | "no" => Ok(AllowDecision::PromptForDirection),
+        _ => Ok(AllowDecision::Direction(trimmed.to_string())),
+    }
+}
+
+fn build_default_tool_executor() -> ToolExecutor {
+    let mut executor = ToolExecutor::new();
+    executor.register(Arc::new(tools::exploration::read_tool::ReadTool));
+    executor.register(Arc::new(tools::exploration::grep_tool::GrepTool));
+    executor.register(Arc::new(tools::exploration::fd_tool::FdTool));
+    executor.register(Arc::new(tools::exploration::rag_tool::RagTool));
+    executor.register(Arc::new(tools::editing::sed_tool::SedTool));
+    executor.register(Arc::new(tools::editing::perl_tool::PerlTool));
+    executor.register(Arc::new(tools::editing::awk_tool::AwkTool));
+    executor.register(Arc::new(tools::editing::apply_patch_tool::ApplyPatchTool));
+    executor.register(Arc::new(tools::file_ops::write_tool::WriteTool));
+    executor.register(Arc::new(tools::file_ops::remove_tool::RemoveTool));
+    executor.register(Arc::new(tools::file_ops::update_tool::UpdateTool));
+    executor.register(Arc::new(tools::system::shell_tool::ShellTool));
+    executor.register(Arc::new(tools::system::pkg_tool::PkgTool));
+    executor.register(Arc::new(tools::system::svc_tool::SvcTool));
+    executor
+}
+
+fn parse_session_command(input: &str) -> Result<SessionCommand> {
+    match input.trim() {
+        "/help" => Ok(SessionCommand::Help),
+        "/context" => Ok(SessionCommand::Context),
+        "/skip" => Ok(SessionCommand::Skip),
+        "/abort" => Ok(SessionCommand::Abort),
+        _ => Err(anyhow!("Unknown command. Use /help")),
+    }
+}
+
+fn handle_session_command(
+    command: SessionCommand,
+    session: &mut ReactSession,
+    iteration: u32,
+) -> Result<bool> {
+    match command {
+        SessionCommand::Help => {
+            print_react_help();
+            Ok(false)
+        }
+        SessionCommand::Context => {
+            print_react_context(session, iteration);
+            Ok(false)
+        }
+        SessionCommand::Skip => Ok(false),
+        SessionCommand::Abort => {
+            session.abort();
+            println!("Session ended.");
+            Ok(true)
         }
     }
 }
 
-fn parse_session_command(input: &str) -> Result<SessionCommand> {
-    let mut parts = input.trim().splitn(2, ' ');
-    let cmd = parts.next().unwrap_or_default();
-    let arg = parts.next().unwrap_or_default().trim();
-    match cmd {
-        "/help" => Ok(SessionCommand::Help),
-        "/context" => Ok(SessionCommand::Context),
-        "/retry" => Ok(SessionCommand::Retry),
-        "/skip" => Ok(SessionCommand::Skip),
-        "/abort" => Ok(SessionCommand::Abort),
-        "/revise" => Ok(SessionCommand::Revise(arg.to_string())),
-        _ => Err(anyhow!("Unknown command. Use /help")),
+fn execute_suggestion(
+    handler: &CliHandlers,
+    tools: &application::services::tool_executor::ToolExecutor,
+    validator: &mut SyntaxGrammarValidator,
+    command: &mut ProposedCommand,
+) -> Result<String> {
+    let command_line = command.command.clone();
+    let tokens = command_line
+        .split_whitespace()
+        .map(str::to_string)
+        .collect::<Vec<_>>();
+    if tokens.is_empty() {
+        return Ok("No command provided".to_string());
     }
+
+    let tool_name = tokens[0].clone();
+    let args = tokens[1..].iter().map(|s| s.as_str()).collect::<Vec<_>>();
+
+    if tools.has_tool(&tool_name) {
+        if requires_second_confirmation(tools, &tool_name)
+            && !prompt_line("This tool can modify system state. Continue? [y/N]>")?
+                .trim()
+                .eq_ignore_ascii_case("y")
+        {
+            command.reject();
+            return Ok("Execution cancelled by user.".to_string());
+        }
+
+        command.approve();
+        let result = tools.execute(&tool_name, &args);
+        return match result {
+            Ok(output) => {
+                command.execute(
+                    output.exit_code,
+                    output.stdout.clone(),
+                    output.stderr.clone(),
+                );
+                Ok(format_tool_output(&tool_name, &output))
+            }
+            Err(err) => {
+                command.execute(1, String::new(), err.to_string());
+                Ok(format!("Tool '{}' failed: {}", tool_name, err))
+            }
+        };
+    }
+
+    let reviewed = review_candidates(&[CommandCandidate::new(command.command.clone())], validator);
+    if let Some(rejected) = reviewed.rejected.first() {
+        command.reject();
+        return Ok(format!(
+            "Rejected command: {} ({})",
+            rejected.command,
+            rejected.reasons.join(", ")
+        ));
+    }
+
+    command.approve();
+    let output = handler.run_shell_command_streaming(&command.command)?;
+    let exit_code = output.status.code().unwrap_or(-1);
+    command.execute(exit_code, output.full_output.clone(), output.stderr.clone());
+    Ok(output.full_output)
+}
+
+fn requires_second_confirmation(
+    tools: &application::services::tool_executor::ToolExecutor,
+    name: &str,
+) -> bool {
+    tools
+        .list_tools()
+        .into_iter()
+        .any(|t| t.name == name && t.requires_confirmation)
+}
+
+fn format_tool_output(name: &str, output: &domain::tools::ToolOutput) -> String {
+    let mut lines = Vec::new();
+    lines.push(format!("Tool: {name}"));
+    for (key, value) in &output.metadata {
+        lines.push(format!("[{key}: {value}]"));
+    }
+    if !output.stdout.trim().is_empty() {
+        lines.push(output.stdout.clone());
+    }
+    if !output.stderr.trim().is_empty() {
+        lines.push(format!("stderr:\n{}", output.stderr));
+    }
+    if lines.len() == 1 {
+        lines.push("(no output)".to_string());
+    }
+    lines.join("\n")
 }
 
 fn prompt_line(prompt: &str) -> Result<String> {
@@ -373,52 +418,13 @@ fn prompt_line(prompt: &str) -> Result<String> {
     Ok(input.trim_end().to_string())
 }
 
-fn detect_domain_operation(commands: &[ProposedCommand]) -> Option<String> {
-    let first = commands.first()?;
-    let prefix = "Domain op: ";
-    if first.description.starts_with(prefix) {
-        Some(first.description[prefix.len()..].trim().to_string())
-    } else {
-        None
-    }
-}
-
-fn infer_operation_inputs(operation: &str, query: &str) -> String {
-    if operation.contains("service") {
-        if let Some(service_name) = extract_service_name(query) {
-            return format!(" {{service: \"{service_name}\"}}");
-        }
-    }
-    String::new()
-}
-
-fn extract_service_name(query: &str) -> Option<String> {
-    let candidates = [
-        "nginx",
-        "apache2",
-        "httpd",
-        "mysql",
-        "postgresql",
-        "postgres",
-        "redis",
-        "docker",
-        "sshd",
-        "ssh",
-    ];
-    let lowered = query.to_lowercase();
-    candidates
-        .iter()
-        .find(|service| lowered.contains(**service))
-        .map(|s| s.to_string())
-}
-
 fn summarize_output_for_observation(output: &str) -> String {
     let mut lines = Vec::new();
     for line in output
         .lines()
         .map(str::trim)
         .filter(|line| !line.is_empty())
-        .take(4)
+        .take(6)
     {
         lines.push(line.to_string());
     }

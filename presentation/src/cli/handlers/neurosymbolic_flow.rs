@@ -25,7 +25,8 @@ impl CliHandlers {
 
         if scaling_config.method != ScalingMethod::None {
             if let Some(best_cmd) = self.select_best_with_scaling(query, scaling_config).await {
-                println!("Selected best command via {}: {}", 
+                println!(
+                    "Selected best command via {}: {}",
                     match scaling_config.method {
                         ScalingMethod::Knockout => "knockout tournament",
                         ScalingMethod::League => "league competition",
@@ -41,7 +42,8 @@ impl CliHandlers {
                         let (ack_tx, ack_rx) = mpsc::channel();
                         let handle = self.spawn_incremental_interpreter(query, rx, ack_tx);
                         let sink = super::OutputSink { tx, ack: ack_rx };
-                        let result = self.run_shell_command_streaming_with_sink(&best_cmd, Some(sink))?;
+                        let result =
+                            self.run_shell_command_streaming_with_sink(&best_cmd, Some(sink))?;
                         summary = handle.join().unwrap_or_default();
                         result
                     } else {
@@ -317,7 +319,8 @@ impl CliHandlers {
 
         if scaling_config.method != ScalingMethod::None {
             if let Some(best_cmd) = self.select_best_with_scaling(query, scaling_config).await {
-                println!("Selected best command via {}: {}", 
+                println!(
+                    "Selected best command via {}: {}",
                     match scaling_config.method {
                         ScalingMethod::Knockout => "knockout tournament",
                         ScalingMethod::League => "league competition",
@@ -333,7 +336,8 @@ impl CliHandlers {
                         let (ack_tx, ack_rx) = mpsc::channel();
                         let handle = self.spawn_incremental_interpreter(query, rx, ack_tx);
                         let sink = super::OutputSink { tx, ack: ack_rx };
-                        let result = self.run_shell_command_streaming_with_sink(&best_cmd, Some(sink))?;
+                        let result =
+                            self.run_shell_command_streaming_with_sink(&best_cmd, Some(sink))?;
                         summary = handle.join().unwrap_or_default();
                         result
                     } else {

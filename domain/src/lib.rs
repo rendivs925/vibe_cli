@@ -10,6 +10,7 @@ pub mod entities;
 pub mod repositories;
 pub mod safety;
 pub mod services;
+pub mod tools;
 pub mod value_objects;
 
 // Re-export main types for easier imports
@@ -17,6 +18,7 @@ pub use domain_config::*;
 pub use entities::*;
 pub use repositories::*;
 pub use safety::*;
+pub use tools::*;
 pub use value_objects::*;
 
 // Additional re-exports for specific types

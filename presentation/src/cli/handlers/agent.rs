@@ -1,6 +1,6 @@
 use super::CliHandlers;
-use application::services::test_time_scaling::{ScalingConfig, ScalingMethod};
 use crate::cli::command_extraction::parse_agent_plan;
+use application::services::test_time_scaling::{ScalingConfig, ScalingMethod};
 use colored::Colorize;
 use shared::confirmation::ask_confirmation;
 use shared::types::Result;

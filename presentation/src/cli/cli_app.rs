@@ -150,7 +150,7 @@ impl CliApp {
 
     pub async fn run(&mut self, cli: Cli) -> Result<()> {
         let args_str = cli.args.join(" ");
-        
+
         let scaling_config = ScalingConfig {
             method: cli.scaling_method.into(),
             num_samples: cli.samples.unwrap_or(6),
@@ -159,7 +159,7 @@ impl CliApp {
             early_stopping: cli.early_stop,
             confidence_threshold: 0.9,
         };
-        
+
         if cli.chat {
             return self.handlers.handle_chat().await;
         }
@@ -207,7 +207,12 @@ impl CliApp {
         if cli.neurosymbolic {
             return self
                 .handlers
-                .handle_neurosymbolic(&args_str, cli.ai_interpret, cli.neurosymbolic_rag, &scaling_config)
+                .handle_neurosymbolic(
+                    &args_str,
+                    cli.ai_interpret,
+                    cli.neurosymbolic_rag,
+                    &scaling_config,
+                )
                 .await;
         }
 

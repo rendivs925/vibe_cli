@@ -96,13 +96,14 @@ impl ReactAgentService {
     pub async fn generate_reasoning(&self, session: &ReactSession) -> Result<String> {
         let history = Self::format_history(session);
         let prompt = format!(
-            "You are a careful systems assistant using a ReAct loop. Produce the next THOUGHT only.\n\
+            "You are a careful systems assistant using a conversational ReAct loop. Produce the next REASONING only.\n\
 Goal: {goal}\n\
 History:\n{history}\n\
 Rules:\n\
-- Output a short thought (1-3 sentences).\n\
+- Output concise reasoning (1-4 sentences).\n\
 - Do not include commands or code blocks.\n\
-- Focus on the next diagnostic step.\n",
+- Focus on the next diagnostic step.\n\
+- If user has redirected strategy, acknowledge and adapt.\n",
             goal = session.query,
             history = if history.is_empty() { "(none)" } else { &history }
         );
@@ -146,15 +147,31 @@ Rules:\n\
 
         let history = Self::format_history(session);
         let prompt = format!(
-            "You are a cautious systems assistant. Based on the goal and reasoning, propose 1-3 bash commands.\n\
+            "You are a cautious systems assistant. Based on the goal and reasoning, propose 1-3 executable suggestions.\n\
 Respond ONLY with a JSON array of strings. No prose.\n\
 Goal: {goal}\n\
 Reasoning: {reasoning}\n\
 History:\n{history}\n\
+Available tools:\n\
+- read <path> [lines] [offset]\n\
+- grep <pattern> [path]\n\
+- fd <pattern> [directory]\n\
+- rag <query> [num_results]\n\
+- sed <pattern> <replacement> <path>\n\
+- perl <regex> <replacement> <path>\n\
+- awk <script> <path>\n\
+- apply_patch <patch_file>\n\
+- write <path> <content>\n\
+- remove <path>\n\
+- update <path> <old> <new>\n\
+- shell <command>\n\
+- pkg <install|remove|search|update|upgrade> [package]\n\
+- svc <start|stop|restart|status|enable|disable> <service>\n\
 Constraints:\n\
 - Prefer read-only diagnostics first.\n\
 - Avoid destructive commands.\n\
-- Use standard Linux tools.\n",
+- Use standard Linux tools.\n\
+- If a built-in tool is better, output it directly as the command string.\n",
             goal = session.query,
             reasoning = reasoning,
             history = if history.is_empty() { "(none)" } else { &history }
@@ -325,9 +342,9 @@ History:\n{history}\n",
         let mut lines = Vec::new();
         for step in session.steps.iter().rev().take(6).rev() {
             let label = match step.step_type {
-                ReactStepType::Thought => "Thought",
-                ReactStepType::Action => "Action",
-                ReactStepType::Observation => "Observation",
+                ReactStepType::Thought => "REASONING",
+                ReactStepType::Action => "SUGGESTED COMMAND",
+                ReactStepType::Observation => "OUTPUT",
             };
             let content = step.content.trim();
             if !content.is_empty() {

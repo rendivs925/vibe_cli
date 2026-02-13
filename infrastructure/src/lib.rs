@@ -12,3 +12,4 @@ pub mod search;
 pub mod storage;
 pub mod symbolic_storage;
 pub mod syntax_grammar_validator;
+pub mod tools;
