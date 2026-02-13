@@ -52,6 +52,7 @@ impl CliHandlers {
         print_react_help();
 
         let mut iteration = 0_u32;
+        let mut pending_command_override: Option<String> = None;
         while iteration < 30 && matches!(session.status, ReactStatus::Running) {
             iteration += 1;
 
@@ -65,7 +66,21 @@ impl CliHandlers {
             )
             .await?;
 
-            let mut commands = service.propose_commands(&reasoning, &session).await?;
+            let mut commands = if let Some(command_override) = pending_command_override.take() {
+                vec![ProposedCommand::new(
+                    command_override,
+                    "User-directed command".to_string(),
+                    "User asked to run a specific command".to_string(),
+                )]
+            } else if should_start_with_structure_discovery(&session.query, &session, iteration) {
+                vec![ProposedCommand::new(
+                    "shell pwd && ls -la && (command -v tree >/dev/null 2>&1 && tree -L 2 || find . -maxdepth 2 -type d | sort)".to_string(),
+                    "Project structure discovery".to_string(),
+                    "Need real paths first before reading files".to_string(),
+                )]
+            } else {
+                service.propose_commands(&reasoning, &session).await?
+            };
             if commands.is_empty() {
                 println!("No command suggestion generated.");
                 break;
@@ -148,6 +163,9 @@ impl CliHandlers {
                 AllowDecision::Direction(text) => {
                     suggested.reject();
                     service.update_command(&suggested).await.ok();
+                    if let Some(command_override) = extract_user_command_override(&text) {
+                        pending_command_override = Some(command_override);
+                    }
                     save_step(&service, &mut session, ReactStepType::Observation, text).await?;
                     continue;
                 }
@@ -272,6 +290,68 @@ fn parse_allow_input(input: &str) -> Result<AllowDecision> {
         "n" | "no" => Ok(AllowDecision::PromptForDirection),
         _ => Ok(AllowDecision::Direction(trimmed.to_string())),
     }
+}
+
+fn should_start_with_structure_discovery(
+    query: &str,
+    session: &ReactSession,
+    iteration: u32,
+) -> bool {
+    if iteration != 1 {
+        return false;
+    }
+    let query_lower = query.to_lowercase();
+    let is_explain_task = query_lower.contains("explain")
+        || query_lower.contains("understand")
+        || query_lower.contains("overview")
+        || query_lower.contains("this project");
+    if !is_explain_task {
+        return false;
+    }
+    !session
+        .steps
+        .iter()
+        .any(|step| matches!(step.step_type, ReactStepType::Action))
+}
+
+fn extract_user_command_override(input: &str) -> Option<String> {
+    let mut text = input.trim();
+    if text.is_empty() {
+        return None;
+    }
+
+    for prefix in ["try ", "run ", "use ", "execute "] {
+        if let Some(rest) = text.strip_prefix(prefix) {
+            text = rest.trim();
+            break;
+        }
+    }
+
+    let first = text.split_whitespace().next()?.to_lowercase();
+    let known_tools = [
+        "read",
+        "grep",
+        "fd",
+        "rag",
+        "sed",
+        "perl",
+        "awk",
+        "apply_patch",
+        "write",
+        "remove",
+        "update",
+        "shell",
+        "pkg",
+        "svc",
+    ];
+    if known_tools.contains(&first.as_str()) {
+        return Some(text.to_string());
+    }
+
+    if text.contains(' ') {
+        return Some(format!("shell {text}"));
+    }
+    None
 }
 
 fn build_default_tool_executor() -> ToolExecutor {

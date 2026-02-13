@@ -171,7 +171,11 @@ Constraints:\n\
 - Prefer read-only diagnostics first.\n\
 - Avoid destructive commands.\n\
 - Use standard Linux tools.\n\
-- If a built-in tool is better, output it directly as the command string.\n",
+- If a built-in tool is better, output it directly as the command string.\n\
+- NEVER use placeholder paths such as <path>, /path/to/..., your_file, or /tmp/example.\n\
+- Only use real paths likely to exist under current working directory.\n\
+- If path is unknown, first suggest discovery commands using shell/fd/find to locate files.\n\
+- For project explanation tasks, start by discovering structure, then read real files (README.md, Cargo.toml, src/*).\n",
             goal = session.query,
             reasoning = reasoning,
             history = if history.is_empty() { "(none)" } else { &history }
