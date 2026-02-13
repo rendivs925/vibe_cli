@@ -9,6 +9,7 @@ use infrastructure::{
 };
 use md5;
 use shared::types::Result;
+use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
 use std::path::PathBuf;
 
@@ -18,6 +19,13 @@ pub struct RagService {
     embedder: Embedder,
     client: OllamaClient,
     config: Config,
+}
+
+struct ContextSnippet {
+    id: String,
+    path: String,
+    text: String,
+    score: i32,
 }
 
 impl RagService {
@@ -103,56 +111,70 @@ impl RagService {
     }
 
     pub async fn relevant_chunks(&self, question: &str, limit: usize) -> Result<Vec<String>> {
-        let query_embedding = self.client.generate_embedding(question).await?;
-        let all_embeddings = self.storage.get_all_embeddings().await?;
-        let mut chunks =
-            SearchEngine::find_relevant_chunks(&query_embedding, &all_embeddings, limit);
-
-        if question.to_lowercase().contains("project")
-            || question.to_lowercase().contains("what is")
-        {
-            if let Ok(readme_content) = std::fs::read_to_string("README.md") {
-                chunks.insert(0, format!("FILE: README.md\n{}", readme_content));
-            }
-            let dir_overview = self.scanner.directory_overview(8, 2000);
-            if !dir_overview.is_empty() {
-                chunks.insert(0, format!("DIRECTORY TREE:\n{}", dir_overview));
-            }
-        }
-
-        Ok(chunks)
+        let snippets = self.collect_ranked_context(question, limit).await?;
+        Ok(snippets
+            .into_iter()
+            .map(|snippet| {
+                format!(
+                    "[{}] FILE: {}\n{}",
+                    snippet.id, snippet.path, snippet.text
+                )
+            })
+            .collect())
     }
 
     pub async fn query_with_feedback(&self, question: &str, feedback: &str) -> Result<String> {
-        let query_embedding = self.client.generate_embedding(question).await?;
-        let all_embeddings = self.storage.get_all_embeddings().await?;
-        let mut relevant_chunks =
-            SearchEngine::find_relevant_chunks(&query_embedding, &all_embeddings, 50);
-
-        // For project-level questions, include README and directory tree if available
-        if question.to_lowercase().contains("project")
-            || question.to_lowercase().contains("what is")
-        {
-            if let Ok(readme_content) = std::fs::read_to_string("README.md") {
-                relevant_chunks.insert(0, format!("FILE: README.md\n{}", readme_content));
-            }
-            let dir_overview = self.scanner.directory_overview(8, 2000);
-            if !dir_overview.is_empty() {
-                relevant_chunks.insert(0, format!("DIRECTORY TREE:\n{}", dir_overview));
-            }
-        }
-
-        let context = relevant_chunks.join("\n\n");
-        if context.is_empty() {
+        let snippets = self.collect_ranked_context(question, 28).await?;
+        if snippets.is_empty() {
             return Ok("No relevant code context found for this query.".to_string());
         }
+
+        let context = snippets
+            .iter()
+            .map(|snippet| {
+                format!(
+                    "[{id}] FILE: {path}\n{body}",
+                    id = snippet.id,
+                    path = snippet.path,
+                    body = snippet.text
+                )
+            })
+            .collect::<Vec<_>>()
+            .join("\n\n");
+
         let feedback_part = if feedback.is_empty() {
             String::new()
         } else {
-            format!("\n\nUser feedback for improvement: {}", feedback)
+            format!("\nUser feedback: {}", feedback)
         };
-        let prompt = format!("You are an expert software engineer. Based on the provided code context and directory structure, {}{} \n\nContext:\n{}\n\nProvide a concise summary that includes:\n- Project purpose\n- Main features\n- Technologies used\n- Architecture\n- Complete directory structure (copy exactly from the DIRECTORY TREE section in the context)\n\nBe accurate and base your answer only on the provided context. Do not invent or modify the directory structure.", question, feedback_part, context);
-        self.client.generate_response(&prompt).await
+        let system = "You are a codebase analysis assistant.\n\
+Use only the provided context snippets.\n\
+Never invent files, APIs, behavior, architecture, or versions.\n\
+If context is insufficient, explicitly say so and ask for the most useful next query.\n\
+Cite evidence snippet IDs like [S1], [S2] for every key claim.";
+
+        let prompt = format!(
+            "Question:\n{question}\n{feedback}\n\n\
+Evidence Snippets:\n{context}\n\n\
+Instructions:\n\
+1. Answer directly and accurately from evidence.\n\
+2. For each important claim, include snippet citations [Sx].\n\
+3. If a claim is uncertain, mark it as uncertain.\n\
+4. Do not claim anything not supported by snippets.\n\
+5. If asked for project overview, cover: purpose, main components, architecture, and key flows.\n\n\
+Output format:\n\
+Answer: <concise answer with citations>\n\
+Evidence:\n\
+- [Sx] <why this snippet supports answer>\n\
+Gaps:\n\
+- <missing info or 'None'>\n\
+Confidence: <High|Medium|Low>\n",
+            question = question.trim(),
+            feedback = feedback_part,
+            context = context
+        );
+
+        self.client.generate_response_with_system(&prompt, system).await
     }
 
     fn filter_files_by_patterns(&self, files: &[PathBuf]) -> Vec<PathBuf> {
@@ -420,6 +442,92 @@ impl RagService {
         }
         Ok(())
     }
+
+    async fn collect_ranked_context(
+        &self,
+        question: &str,
+        limit: usize,
+    ) -> Result<Vec<ContextSnippet>> {
+        let query_embedding = self.client.generate_embedding(question).await?;
+        let all_embeddings = self.storage.get_all_embeddings().await?;
+        let raw_limit = (limit.max(12) * 4).min(120);
+        let mut chunks = SearchEngine::find_relevant_chunks(&query_embedding, &all_embeddings, raw_limit);
+
+        if self.is_project_level_question(question) {
+            if let Ok(readme_content) = std::fs::read_to_string("README.md") {
+                chunks.insert(0, format!("FILE: README.md\n{}", readme_content));
+            }
+            let dir_overview = self.scanner.directory_overview(8, 2000);
+            if !dir_overview.is_empty() {
+                chunks.insert(0, format!("FILE: __dir_overview__\nDIRECTORY TREE:\n{}", dir_overview));
+            }
+        }
+
+        let keywords = self.extract_query_keywords(question);
+        let mut seen_content = HashSet::new();
+        let mut per_path_count: HashMap<String, usize> = HashMap::new();
+        let mut scored = Vec::new();
+
+        for (idx, chunk) in chunks.into_iter().enumerate() {
+            let normalized = chunk.trim().to_string();
+            if normalized.is_empty() || !seen_content.insert(normalized.clone()) {
+                continue;
+            }
+
+            let path = extract_path_from_chunk(&normalized).unwrap_or_else(|| "__unknown__".to_string());
+            let path_key = path.to_lowercase();
+            let count = per_path_count.entry(path_key).or_insert(0);
+            if *count >= 3 {
+                continue;
+            }
+            *count += 1;
+
+            let snippet_text = truncate_chars(&normalized, 2200);
+            let score = score_chunk(question, &keywords, &path, &snippet_text, idx);
+            scored.push(ContextSnippet {
+                id: format!("S{}", idx + 1),
+                path,
+                text: snippet_text,
+                score,
+            });
+        }
+
+        scored.sort_by(|a, b| b.score.cmp(&a.score));
+
+        let mut selected = Vec::new();
+        let mut total_chars = 0usize;
+        let max_chars = 24_000usize;
+        for snippet in scored {
+            if selected.len() >= limit {
+                break;
+            }
+            let next = snippet.text.len() + snippet.path.len() + snippet.id.len() + 16;
+            if total_chars + next > max_chars {
+                break;
+            }
+            total_chars += next;
+            selected.push(snippet);
+        }
+        Ok(selected)
+    }
+
+    fn extract_query_keywords(&self, question: &str) -> Vec<String> {
+        let tokens = question
+            .split(|c: char| !c.is_alphanumeric() && c != '_' && c != '-')
+            .filter(|token| !token.is_empty())
+            .map(|token| token.to_string())
+            .collect::<Vec<_>>();
+        self.filter_relevant_keywords(&tokens)
+    }
+
+    fn is_project_level_question(&self, question: &str) -> bool {
+        let q = question.to_lowercase();
+        q.contains("project")
+            || q.contains("what is")
+            || q.contains("overview")
+            || q.contains("architecture")
+            || q.contains("codebase")
+    }
 }
 
 fn render_progress(stage: &str, done: usize, total: usize) {
@@ -439,4 +547,63 @@ fn render_spinner(stage: &str, message: &str) {
 fn finish_progress_line(message: &str) {
     print!("\r{message}\n");
     let _ = io::stdout().flush();
+}
+
+fn extract_path_from_chunk(chunk: &str) -> Option<String> {
+    for line in chunk.lines().take(6) {
+        if let Some(path) = line.strip_prefix("FILE: ") {
+            return Some(path.trim().to_string());
+        }
+    }
+    None
+}
+
+fn truncate_chars(text: &str, max_chars: usize) -> String {
+    if text.chars().count() <= max_chars {
+        return text.to_string();
+    }
+    let mut result = String::new();
+    for ch in text.chars().take(max_chars) {
+        result.push(ch);
+    }
+    result.push_str("\n...[truncated]");
+    result
+}
+
+fn score_chunk(
+    question: &str,
+    keywords: &[String],
+    path: &str,
+    chunk: &str,
+    original_rank: usize,
+) -> i32 {
+    let q = question.to_lowercase();
+    let path_l = path.to_lowercase();
+    let chunk_l = chunk.to_lowercase();
+    let mut score = 100_i32.saturating_sub(original_rank as i32);
+
+    if chunk_l.contains("ast structure") {
+        score += 40;
+    }
+    if chunk_l.contains("directory tree") {
+        score += 24;
+    }
+    if path_l.contains("readme") {
+        score += 20;
+    }
+    if q.contains("architecture") && (chunk_l.contains("mod ") || chunk_l.contains("struct ") || chunk_l.contains("trait ")) {
+        score += 18;
+    }
+
+    let mut keyword_hits = 0_i32;
+    for keyword in keywords {
+        let key = keyword.to_lowercase();
+        if path_l.contains(&key) {
+            keyword_hits += 2;
+        }
+        if chunk_l.contains(&key) {
+            keyword_hits += 1;
+        }
+    }
+    score + keyword_hits.min(30)
 }
