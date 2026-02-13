@@ -30,6 +30,13 @@ struct ContextSnippet {
     score: i32,
 }
 
+#[derive(Debug, Clone)]
+struct ToolEvidence {
+    tag: String,
+    tool: String,
+    content: String,
+}
+
 #[derive(Debug, Deserialize)]
 struct ToolPlan {
     tools: Vec<ToolCall>,
@@ -151,7 +158,9 @@ impl RagService {
 
     pub async fn query_with_feedback(&self, question: &str, feedback: &str) -> Result<String> {
         let intent = self.analyze_intent(question);
-        let dynamic_tool_evidence = self.run_dynamic_tool_plan(question).await?;
+        let dynamic_tool_evidence = self
+            .run_dynamic_tool_plan(question, intent, 3)
+            .await?;
 
         let snippet_limit = match intent {
             RagIntent::ProjectOverview | RagIntent::Architecture => 32,
@@ -183,8 +192,7 @@ impl RagService {
                 "\nTool Evidence:\n{}",
                 dynamic_tool_evidence
                     .iter()
-                    .enumerate()
-                    .map(|(idx, item)| format!("[T{}] {}", idx + 1, item))
+                    .map(|item| format!("[{}] tool={}:\n{}", item.tag, item.tool, item.content))
                     .collect::<Vec<_>>()
                     .join("\n\n")
             )
@@ -202,6 +210,9 @@ If context is insufficient, explicitly say so and ask for the most useful next q
 Cite evidence snippet IDs like [S1], [S2] for every key claim.";
 
         let intent_instructions = match intent {
+            RagIntent::DirectoryStructure => {
+                "Intent: Directory structure explanation. Only describe filesystem structure and file organization from evidence. Do NOT infer project purpose, security domain, or business claims."
+            }
             RagIntent::ProjectOverview => "Intent: Project overview. Emphasize purpose, major components, architecture, and responsibilities.",
             RagIntent::Architecture => "Intent: Architecture analysis. Explain layers, dependencies, and core data/control flow only from evidence.",
             RagIntent::FileOrSymbolLookup => "Intent: File/symbol lookup. Focus on exact file paths, symbols, and where logic lives.",
@@ -220,7 +231,8 @@ Instructions:\n\
 2. For each important claim, include citations [Sx] and/or [Tx].\n\
 3. If a claim is uncertain, mark it as uncertain.\n\
 4. Do not claim anything not supported by snippets.\n\
-5. If asked for project overview, cover: purpose, main components, architecture, and key flows.\n\n\
+5. If intent is directory structure: answer only with directory/file organization, key directories, and notable files.\n\
+6. If asked for project overview, cover: purpose, main components, architecture, and key flows.\n\n\
 Output format:\n\
 Answer: <concise answer with citations>\n\
 Evidence:\n\
@@ -635,46 +647,101 @@ Confidence: <High|Medium|Low>\n",
         RagIntent::General
     }
 
-    async fn run_dynamic_tool_plan(&self, question: &str) -> Result<Vec<String>> {
+    async fn run_dynamic_tool_plan(
+        &self,
+        question: &str,
+        intent: RagIntent,
+        max_rounds: usize,
+    ) -> Result<Vec<ToolEvidence>> {
         let tool_catalog = self.tool_catalog();
-        let planner_system = "You are a retrieval planner. Choose the minimum useful tools.\n\
+        let planner_system = "You are a retrieval planner. Choose the minimum useful tools for the current step.\n\
 Return strict JSON only in the form:\n\
 {\"tools\":[{\"name\":\"<tool>\",\"args\":{...}}]}\n\
 No markdown or prose.";
-        let planner_prompt = format!(
-            "Question: {q}\n\nAvailable tools:\n{catalog}\n\n\
+
+        let required_tools = required_tools_for_intent(intent);
+        let mut evidence: Vec<ToolEvidence> = Vec::new();
+        let mut used_calls = HashSet::new();
+
+        for round in 0..max_rounds.max(1) {
+            let outstanding = required_tools
+                .iter()
+                .filter(|tool| !evidence_has_tool(&evidence, tool))
+                .cloned()
+                .collect::<Vec<_>>();
+
+            let planner_prompt = format!(
+                "Question: {q}\nIntent: {intent:?}\nRound: {round}\n\n\
+Available tools:\n{catalog}\n\n\
+Already collected evidence:\n{evidence}\n\n\
+Required tools (must satisfy before finishing): {required}\n\n\
 Rules:\n\
-- Choose up to 6 tools.\n\
-- Prefer semantic_chunks first for code understanding.\n\
-- Use directory_tree for structure questions.\n\
-- Use ast_summary only when a concrete file path is known.\n\
-- Use read_file only with concrete path.\n",
-            q = question.trim(),
-            catalog = tool_catalog
-        );
+- Choose up to 4 tools this round.\n\
+- Prefer cheap exploration first (directory_tree/list_files/language_inventory).\n\
+- Use read_file/preview_file/ast_summary only with concrete path.\n\
+- Avoid repeating same call with same args.\n\
+- If required tools already satisfied, you may return empty tool list.\n",
+                q = question.trim(),
+                catalog = tool_catalog,
+                evidence = summarize_evidence_short(&evidence),
+                required = if outstanding.is_empty() {
+                    "none".to_string()
+                } else {
+                    outstanding.join(", ")
+                },
+                round = round + 1
+            );
 
-        let planner_output = self
-            .client
-            .generate_response_with_system(&planner_prompt, planner_system)
-            .await
-            .unwrap_or_default();
-        let planned = parse_tool_plan(&planner_output).unwrap_or_else(|| {
-            vec![ToolCall {
-                name: "semantic_chunks".to_string(),
-                args: Value::Object(serde_json::Map::new()),
-            }]
-        });
+            let planner_output = self
+                .client
+                .generate_response_with_system(&planner_prompt, planner_system)
+                .await
+                .unwrap_or_default();
+            let mut planned = parse_tool_plan(&planner_output).unwrap_or_default();
 
-        let mut evidence = Vec::new();
-        for tool in planned.into_iter().take(6) {
-            if let Some(out) = self.execute_tool_call(question, &tool).await? {
-                evidence.push(out);
+            if planned.is_empty() {
+                if evidence.is_empty() {
+                    planned.push(ToolCall {
+                        name: "semantic_chunks".to_string(),
+                        args: Value::Object(serde_json::Map::new()),
+                    });
+                } else {
+                    break;
+                }
+            }
+
+            let mut executed_any = false;
+            for tool in planned.into_iter().take(4) {
+                let signature = format!("{}:{}", tool.name.to_lowercase(), tool.args);
+                if !used_calls.insert(signature) {
+                    continue;
+                }
+                if let Some(out) = self.execute_tool_call(question, &tool, evidence.len() + 1).await? {
+                    evidence.push(out);
+                    executed_any = true;
+                }
+            }
+
+            let all_required_met = required_tools
+                .iter()
+                .all(|tool| evidence_has_tool(&evidence, tool));
+            if all_required_met {
+                break;
+            }
+            if !executed_any {
+                break;
             }
         }
+
         Ok(evidence)
     }
 
-    async fn execute_tool_call(&self, question: &str, call: &ToolCall) -> Result<Option<String>> {
+    async fn execute_tool_call(
+        &self,
+        question: &str,
+        call: &ToolCall,
+        idx: usize,
+    ) -> Result<Option<ToolEvidence>> {
         let name = call.name.trim().to_lowercase();
         match name.as_str() {
             "semantic_chunks" => {
@@ -696,7 +763,11 @@ Rules:\n\
                     .map(|s| format!("FILE: {}\n{}", s.path, s.text))
                     .collect::<Vec<_>>()
                     .join("\n\n---\n\n");
-                Ok(Some(format!("semantic_chunks(limit={}):\n{}", limit, body)))
+                Ok(Some(ToolEvidence {
+                    tag: format!("T{}", idx),
+                    tool: "semantic_chunks".to_string(),
+                    content: format!("semantic_chunks(limit={}):\n{}", limit, body),
+                }))
             }
             "directory_tree" => {
                 let max_depth = call
@@ -717,10 +788,14 @@ Rules:\n\
                 if tree.trim().is_empty() {
                     return Ok(None);
                 }
-                Ok(Some(format!(
-                    "directory_tree(max_depth={}, max_entries={}):\n{}",
-                    max_depth, max_entries, tree
-                )))
+                Ok(Some(ToolEvidence {
+                    tag: format!("T{}", idx),
+                    tool: "directory_tree".to_string(),
+                    content: format!(
+                        "directory_tree(max_depth={}, max_entries={}):\n{}",
+                        max_depth, max_entries, tree
+                    ),
+                }))
             }
             "list_files" => {
                 let max_results = call
@@ -754,11 +829,15 @@ Rules:\n\
                 if paths.is_empty() {
                     return Ok(None);
                 }
-                Ok(Some(format!(
-                    "list_files(max_results={}):\n{}",
-                    max_results,
-                    paths.join("\n")
-                )))
+                Ok(Some(ToolEvidence {
+                    tag: format!("T{}", idx),
+                    tool: "list_files".to_string(),
+                    content: format!(
+                        "list_files(max_results={}):\n{}",
+                        max_results,
+                        paths.join("\n")
+                    ),
+                }))
             }
             "language_inventory" => {
                 let files = self.scanner.collect_files()?;
@@ -779,7 +858,11 @@ Rules:\n\
                     .map(|(ext, count)| format!("{}. {}", ext, count))
                     .collect::<Vec<_>>()
                     .join("\n");
-                Ok(Some(format!("language_inventory:\n{}", lines)))
+                Ok(Some(ToolEvidence {
+                    tag: format!("T{}", idx),
+                    tool: "language_inventory".to_string(),
+                    content: format!("language_inventory:\n{}", lines),
+                }))
             }
             "read_file" => {
                 let Some(path) = call.args.get("path").and_then(Value::as_str) else {
@@ -795,7 +878,11 @@ Rules:\n\
                 let text = std::fs::read_to_string(path).ok();
                 if let Some(content) = text {
                     let body = truncate_chars(&content, max_chars);
-                    return Ok(Some(format!("read_file(path={}):\n{}", path, body)));
+                    return Ok(Some(ToolEvidence {
+                        tag: format!("T{}", idx),
+                        tool: "read_file".to_string(),
+                        content: format!("read_file(path={}):\n{}", path, body),
+                    }));
                 }
                 Ok(None)
             }
@@ -830,20 +917,28 @@ Rules:\n\
                 if preview.trim().is_empty() {
                     return Ok(None);
                 }
-                Ok(Some(format!(
-                    "preview_file(path={}, lines={}, offset={}):\n{}",
-                    path, lines, offset, preview
-                )))
+                Ok(Some(ToolEvidence {
+                    tag: format!("T{}", idx),
+                    tool: "preview_file".to_string(),
+                    content: format!(
+                        "preview_file(path={}, lines={}, offset={}):\n{}",
+                        path, lines, offset, preview
+                    ),
+                }))
             }
             "ast_summary" => {
                 let Some(path) = call.args.get("path").and_then(Value::as_str) else {
                     return Ok(None);
                 };
                 if let Some(ast) = code_ast::summarize_file(path) {
-                    return Ok(Some(format!(
-                        "ast_summary(path={}, language={}):\n{}",
-                        path, ast.language, ast.summary
-                    )));
+                    return Ok(Some(ToolEvidence {
+                        tag: format!("T{}", idx),
+                        tool: "ast_summary".to_string(),
+                        content: format!(
+                            "ast_summary(path={}, language={}):\n{}",
+                            path, ast.language, ast.summary
+                        ),
+                    }));
                 }
                 Ok(None)
             }
@@ -863,20 +958,25 @@ Rules:\n\
                     } else {
                         symbols
                     };
-                    return Ok(Some(format!(
-                        "ast_symbols(path={}, language={}):\n{}",
-                        path, ast.language, body
-                    )));
+                    return Ok(Some(ToolEvidence {
+                        tag: format!("T{}", idx),
+                        tool: "ast_symbols".to_string(),
+                        content: format!(
+                            "ast_symbols(path={}, language={}):\n{}",
+                            path, ast.language, body
+                        ),
+                    }));
                 }
                 Ok(None)
             }
             "readme" => {
                 let text = std::fs::read_to_string("README.md").ok();
                 if let Some(content) = text {
-                    return Ok(Some(format!(
-                        "readme:\n{}",
-                        truncate_chars(&content, 9000)
-                    )));
+                    return Ok(Some(ToolEvidence {
+                        tag: format!("T{}", idx),
+                        tool: "readme".to_string(),
+                        content: format!("readme:\n{}", truncate_chars(&content, 9000)),
+                    }));
                 }
                 Ok(None)
             }
@@ -912,12 +1012,16 @@ Rules:\n\
                 if hits.is_empty() {
                     return Ok(None);
                 }
-                Ok(Some(format!(
-                    "search_content(pattern={}, max_results={}):\n{}",
-                    pattern,
-                    max_results,
-                    hits.join("\n")
-                )))
+                Ok(Some(ToolEvidence {
+                    tag: format!("T{}", idx),
+                    tool: "search_content".to_string(),
+                    content: format!(
+                        "search_content(pattern={}, max_results={}):\n{}",
+                        pattern,
+                        max_results,
+                        hits.join("\n")
+                    ),
+                }))
             }
             "grep_paths" => {
                 let Some(pattern) = call.args.get("pattern").and_then(Value::as_str) else {
@@ -943,12 +1047,16 @@ Rules:\n\
                 if results.is_empty() {
                     return Ok(None);
                 }
-                Ok(Some(format!(
-                    "grep_paths(pattern={}, max_results={}):\n{}",
-                    pattern,
-                    max_results,
-                    results.join("\n")
-                )))
+                Ok(Some(ToolEvidence {
+                    tag: format!("T{}", idx),
+                    tool: "grep_paths".to_string(),
+                    content: format!(
+                        "grep_paths(pattern={}, max_results={}):\n{}",
+                        pattern,
+                        max_results,
+                        results.join("\n")
+                    ),
+                }))
             }
             _ => Ok(None),
         }
@@ -1127,4 +1235,32 @@ fn parse_string_list_arg(value: Option<&Value>) -> Vec<String> {
             .collect();
     }
     Vec::new()
+}
+
+fn required_tools_for_intent(intent: RagIntent) -> Vec<String> {
+    match intent {
+        RagIntent::DirectoryStructure => vec!["directory_tree".to_string(), "list_files".to_string()],
+        RagIntent::ProjectOverview => vec!["readme".to_string(), "semantic_chunks".to_string()],
+        RagIntent::Architecture => vec!["semantic_chunks".to_string(), "language_inventory".to_string()],
+        RagIntent::FileOrSymbolLookup => vec!["grep_paths".to_string(), "semantic_chunks".to_string()],
+        RagIntent::HowTo => vec!["semantic_chunks".to_string()],
+        RagIntent::Troubleshooting => vec!["semantic_chunks".to_string(), "search_content".to_string()],
+        RagIntent::General => vec!["semantic_chunks".to_string()],
+    }
+}
+
+fn evidence_has_tool(evidence: &[ToolEvidence], tool: &str) -> bool {
+    evidence.iter().any(|item| item.tool == tool)
+}
+
+fn summarize_evidence_short(evidence: &[ToolEvidence]) -> String {
+    if evidence.is_empty() {
+        return "(none)".to_string();
+    }
+    evidence
+        .iter()
+        .take(10)
+        .map(|e| format!("{}: {}", e.tag, e.tool))
+        .collect::<Vec<_>>()
+        .join(", ")
 }
