@@ -8,6 +8,8 @@ use infrastructure::{
     search::SearchEngine,
 };
 use md5;
+use serde::Deserialize;
+use serde_json::Value;
 use shared::types::Result;
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
@@ -26,6 +28,29 @@ struct ContextSnippet {
     path: String,
     text: String,
     score: i32,
+}
+
+#[derive(Debug, Deserialize)]
+struct ToolPlan {
+    tools: Vec<ToolCall>,
+}
+
+#[derive(Debug, Deserialize)]
+struct ToolCall {
+    name: String,
+    #[serde(default)]
+    args: Value,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RagIntent {
+    DirectoryStructure,
+    ProjectOverview,
+    Architecture,
+    FileOrSymbolLookup,
+    HowTo,
+    Troubleshooting,
+    General,
 }
 
 impl RagService {
@@ -111,7 +136,8 @@ impl RagService {
     }
 
     pub async fn relevant_chunks(&self, question: &str, limit: usize) -> Result<Vec<String>> {
-        let snippets = self.collect_ranked_context(question, limit).await?;
+        let intent = self.analyze_intent(question);
+        let snippets = self.collect_ranked_context(question, limit, intent).await?;
         Ok(snippets
             .into_iter()
             .map(|snippet| {
@@ -124,7 +150,15 @@ impl RagService {
     }
 
     pub async fn query_with_feedback(&self, question: &str, feedback: &str) -> Result<String> {
-        let snippets = self.collect_ranked_context(question, 28).await?;
+        let intent = self.analyze_intent(question);
+        let dynamic_tool_evidence = self.run_dynamic_tool_plan(question).await?;
+
+        let snippet_limit = match intent {
+            RagIntent::ProjectOverview | RagIntent::Architecture => 32,
+            RagIntent::FileOrSymbolLookup => 22,
+            _ => 28,
+        };
+        let snippets = self.collect_ranked_context(question, snippet_limit, intent).await?;
         if snippets.is_empty() {
             return Ok("No relevant code context found for this query.".to_string());
         }
@@ -142,6 +176,20 @@ impl RagService {
             .collect::<Vec<_>>()
             .join("\n\n");
 
+        let tool_context = if dynamic_tool_evidence.is_empty() {
+            String::new()
+        } else {
+            format!(
+                "\nTool Evidence:\n{}",
+                dynamic_tool_evidence
+                    .iter()
+                    .enumerate()
+                    .map(|(idx, item)| format!("[T{}] {}", idx + 1, item))
+                    .collect::<Vec<_>>()
+                    .join("\n\n")
+            )
+        };
+
         let feedback_part = if feedback.is_empty() {
             String::new()
         } else {
@@ -153,12 +201,23 @@ Never invent files, APIs, behavior, architecture, or versions.\n\
 If context is insufficient, explicitly say so and ask for the most useful next query.\n\
 Cite evidence snippet IDs like [S1], [S2] for every key claim.";
 
+        let intent_instructions = match intent {
+            RagIntent::ProjectOverview => "Intent: Project overview. Emphasize purpose, major components, architecture, and responsibilities.",
+            RagIntent::Architecture => "Intent: Architecture analysis. Explain layers, dependencies, and core data/control flow only from evidence.",
+            RagIntent::FileOrSymbolLookup => "Intent: File/symbol lookup. Focus on exact file paths, symbols, and where logic lives.",
+            RagIntent::HowTo => "Intent: How-to guidance. Provide actionable steps tied directly to current code/config.",
+            RagIntent::Troubleshooting => "Intent: Troubleshooting. Prioritize likely failure points and verification steps from evidence.",
+            _ => "Intent: General codebase question.",
+        };
+
         let prompt = format!(
             "Question:\n{question}\n{feedback}\n\n\
+Intent:\n{intent}\n\n\
 Evidence Snippets:\n{context}\n\n\
+{tool_context}\n\
 Instructions:\n\
 1. Answer directly and accurately from evidence.\n\
-2. For each important claim, include snippet citations [Sx].\n\
+2. For each important claim, include citations [Sx] and/or [Tx].\n\
 3. If a claim is uncertain, mark it as uncertain.\n\
 4. Do not claim anything not supported by snippets.\n\
 5. If asked for project overview, cover: purpose, main components, architecture, and key flows.\n\n\
@@ -171,7 +230,9 @@ Gaps:\n\
 Confidence: <High|Medium|Low>\n",
             question = question.trim(),
             feedback = feedback_part,
-            context = context
+            intent = intent_instructions,
+            context = context,
+            tool_context = tool_context
         );
 
         self.client.generate_response_with_system(&prompt, system).await
@@ -447,13 +508,14 @@ Confidence: <High|Medium|Low>\n",
         &self,
         question: &str,
         limit: usize,
+        intent: RagIntent,
     ) -> Result<Vec<ContextSnippet>> {
         let query_embedding = self.client.generate_embedding(question).await?;
         let all_embeddings = self.storage.get_all_embeddings().await?;
         let raw_limit = (limit.max(12) * 4).min(120);
         let mut chunks = SearchEngine::find_relevant_chunks(&query_embedding, &all_embeddings, raw_limit);
 
-        if self.is_project_level_question(question) {
+        if matches!(intent, RagIntent::ProjectOverview | RagIntent::Architecture | RagIntent::DirectoryStructure) {
             if let Ok(readme_content) = std::fs::read_to_string("README.md") {
                 chunks.insert(0, format!("FILE: README.md\n{}", readme_content));
             }
@@ -483,7 +545,7 @@ Confidence: <High|Medium|Low>\n",
             *count += 1;
 
             let snippet_text = truncate_chars(&normalized, 2200);
-            let score = score_chunk(question, &keywords, &path, &snippet_text, idx);
+            let score = score_chunk(question, &keywords, &path, &snippet_text, idx, intent);
             scored.push(ContextSnippet {
                 id: format!("S{}", idx + 1),
                 path,
@@ -527,6 +589,386 @@ Confidence: <High|Medium|Low>\n",
             || q.contains("overview")
             || q.contains("architecture")
             || q.contains("codebase")
+    }
+
+    fn analyze_intent(&self, question: &str) -> RagIntent {
+        let q = question.to_lowercase();
+        if (q.contains("directory") && q.contains("structure")) || q.contains("folder structure") {
+            return RagIntent::DirectoryStructure;
+        }
+        if q.contains("architecture") || q.contains("clean architecture") || q.contains("layer") {
+            return RagIntent::Architecture;
+        }
+        if q.contains("project overview") || (self.is_project_level_question(question) && q.contains("explain")) {
+            return RagIntent::ProjectOverview;
+        }
+        if q.contains("where is")
+            || q.contains("which file")
+            || q.contains("find function")
+            || q.contains("symbol")
+            || q.contains("class ")
+            || q.contains("trait ")
+            || q.contains("struct ")
+        {
+            return RagIntent::FileOrSymbolLookup;
+        }
+        if q.contains("how to")
+            || q.contains("how do i")
+            || q.contains("steps")
+            || q.contains("configure")
+            || q.contains("setup")
+        {
+            return RagIntent::HowTo;
+        }
+        if q.contains("error")
+            || q.contains("failing")
+            || q.contains("bug")
+            || q.contains("issue")
+            || q.contains("not working")
+            || q.contains("debug")
+        {
+            return RagIntent::Troubleshooting;
+        }
+        if self.is_project_level_question(question) {
+            return RagIntent::ProjectOverview;
+        }
+        RagIntent::General
+    }
+
+    async fn run_dynamic_tool_plan(&self, question: &str) -> Result<Vec<String>> {
+        let tool_catalog = self.tool_catalog();
+        let planner_system = "You are a retrieval planner. Choose the minimum useful tools.\n\
+Return strict JSON only in the form:\n\
+{\"tools\":[{\"name\":\"<tool>\",\"args\":{...}}]}\n\
+No markdown or prose.";
+        let planner_prompt = format!(
+            "Question: {q}\n\nAvailable tools:\n{catalog}\n\n\
+Rules:\n\
+- Choose up to 6 tools.\n\
+- Prefer semantic_chunks first for code understanding.\n\
+- Use directory_tree for structure questions.\n\
+- Use ast_summary only when a concrete file path is known.\n\
+- Use read_file only with concrete path.\n",
+            q = question.trim(),
+            catalog = tool_catalog
+        );
+
+        let planner_output = self
+            .client
+            .generate_response_with_system(&planner_prompt, planner_system)
+            .await
+            .unwrap_or_default();
+        let planned = parse_tool_plan(&planner_output).unwrap_or_else(|| {
+            vec![ToolCall {
+                name: "semantic_chunks".to_string(),
+                args: Value::Object(serde_json::Map::new()),
+            }]
+        });
+
+        let mut evidence = Vec::new();
+        for tool in planned.into_iter().take(6) {
+            if let Some(out) = self.execute_tool_call(question, &tool).await? {
+                evidence.push(out);
+            }
+        }
+        Ok(evidence)
+    }
+
+    async fn execute_tool_call(&self, question: &str, call: &ToolCall) -> Result<Option<String>> {
+        let name = call.name.trim().to_lowercase();
+        match name.as_str() {
+            "semantic_chunks" => {
+                let limit = call
+                    .args
+                    .get("limit")
+                    .and_then(Value::as_u64)
+                    .map(|v| v as usize)
+                    .unwrap_or(8)
+                    .clamp(3, 20);
+                let snippets = self
+                    .collect_ranked_context(question, limit, self.analyze_intent(question))
+                    .await?;
+                if snippets.is_empty() {
+                    return Ok(None);
+                }
+                let body = snippets
+                    .iter()
+                    .map(|s| format!("FILE: {}\n{}", s.path, s.text))
+                    .collect::<Vec<_>>()
+                    .join("\n\n---\n\n");
+                Ok(Some(format!("semantic_chunks(limit={}):\n{}", limit, body)))
+            }
+            "directory_tree" => {
+                let max_depth = call
+                    .args
+                    .get("max_depth")
+                    .and_then(Value::as_u64)
+                    .map(|v| v as usize)
+                    .unwrap_or(8)
+                    .clamp(2, 12);
+                let max_entries = call
+                    .args
+                    .get("max_entries")
+                    .and_then(Value::as_u64)
+                    .map(|v| v as usize)
+                    .unwrap_or(2000)
+                    .clamp(50, 5000);
+                let tree = self.scanner.directory_overview(max_depth, max_entries);
+                if tree.trim().is_empty() {
+                    return Ok(None);
+                }
+                Ok(Some(format!(
+                    "directory_tree(max_depth={}, max_entries={}):\n{}",
+                    max_depth, max_entries, tree
+                )))
+            }
+            "list_files" => {
+                let max_results = call
+                    .args
+                    .get("max_results")
+                    .and_then(Value::as_u64)
+                    .map(|v| v as usize)
+                    .unwrap_or(200)
+                    .clamp(20, 2000);
+                let include_ext = parse_string_list_arg(call.args.get("extensions"));
+                let mut paths = self
+                    .scanner
+                    .collect_files()?
+                    .into_iter()
+                    .map(|p| p.to_string_lossy().to_string())
+                    .collect::<Vec<_>>();
+                paths.sort();
+                if !include_ext.is_empty() {
+                    let ext_set = include_ext
+                        .iter()
+                        .map(|s| s.trim_start_matches('.').to_lowercase())
+                        .collect::<HashSet<_>>();
+                    paths.retain(|p| {
+                        p.rsplit('.')
+                            .next()
+                            .map(|ext| ext_set.contains(&ext.to_lowercase()))
+                            .unwrap_or(false)
+                    });
+                }
+                paths.truncate(max_results);
+                if paths.is_empty() {
+                    return Ok(None);
+                }
+                Ok(Some(format!(
+                    "list_files(max_results={}):\n{}",
+                    max_results,
+                    paths.join("\n")
+                )))
+            }
+            "language_inventory" => {
+                let files = self.scanner.collect_files()?;
+                let mut by_ext: HashMap<String, usize> = HashMap::new();
+                for path in files {
+                    let s = path.to_string_lossy();
+                    if let Some(ext) = s.rsplit('.').next() {
+                        *by_ext.entry(ext.to_lowercase()).or_insert(0) += 1;
+                    }
+                }
+                if by_ext.is_empty() {
+                    return Ok(None);
+                }
+                let mut items = by_ext.into_iter().collect::<Vec<_>>();
+                items.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+                let lines = items
+                    .into_iter()
+                    .map(|(ext, count)| format!("{}. {}", ext, count))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                Ok(Some(format!("language_inventory:\n{}", lines)))
+            }
+            "read_file" => {
+                let Some(path) = call.args.get("path").and_then(Value::as_str) else {
+                    return Ok(None);
+                };
+                let max_chars = call
+                    .args
+                    .get("max_chars")
+                    .and_then(Value::as_u64)
+                    .map(|v| v as usize)
+                    .unwrap_or(6000)
+                    .clamp(500, 20000);
+                let text = std::fs::read_to_string(path).ok();
+                if let Some(content) = text {
+                    let body = truncate_chars(&content, max_chars);
+                    return Ok(Some(format!("read_file(path={}):\n{}", path, body)));
+                }
+                Ok(None)
+            }
+            "preview_file" => {
+                let Some(path) = call.args.get("path").and_then(Value::as_str) else {
+                    return Ok(None);
+                };
+                let lines = call
+                    .args
+                    .get("lines")
+                    .and_then(Value::as_u64)
+                    .map(|v| v as usize)
+                    .unwrap_or(120)
+                    .clamp(20, 400);
+                let offset = call
+                    .args
+                    .get("offset")
+                    .and_then(Value::as_u64)
+                    .map(|v| v as usize)
+                    .unwrap_or(0);
+                let Ok(content) = std::fs::read_to_string(path) else {
+                    return Ok(None);
+                };
+                let preview = content
+                    .lines()
+                    .skip(offset)
+                    .take(lines)
+                    .enumerate()
+                    .map(|(idx, line)| format!("{}: {}", offset + idx + 1, line))
+                    .collect::<Vec<_>>()
+                    .join("\n");
+                if preview.trim().is_empty() {
+                    return Ok(None);
+                }
+                Ok(Some(format!(
+                    "preview_file(path={}, lines={}, offset={}):\n{}",
+                    path, lines, offset, preview
+                )))
+            }
+            "ast_summary" => {
+                let Some(path) = call.args.get("path").and_then(Value::as_str) else {
+                    return Ok(None);
+                };
+                if let Some(ast) = code_ast::summarize_file(path) {
+                    return Ok(Some(format!(
+                        "ast_summary(path={}, language={}):\n{}",
+                        path, ast.language, ast.summary
+                    )));
+                }
+                Ok(None)
+            }
+            "ast_symbols" => {
+                let Some(path) = call.args.get("path").and_then(Value::as_str) else {
+                    return Ok(None);
+                };
+                if let Some(ast) = code_ast::summarize_file(path) {
+                    let symbols = ast
+                        .summary
+                        .lines()
+                        .filter(|line| line.contains("_names:"))
+                        .collect::<Vec<_>>()
+                        .join("\n");
+                    let body = if symbols.trim().is_empty() {
+                        ast.summary
+                    } else {
+                        symbols
+                    };
+                    return Ok(Some(format!(
+                        "ast_symbols(path={}, language={}):\n{}",
+                        path, ast.language, body
+                    )));
+                }
+                Ok(None)
+            }
+            "readme" => {
+                let text = std::fs::read_to_string("README.md").ok();
+                if let Some(content) = text {
+                    return Ok(Some(format!(
+                        "readme:\n{}",
+                        truncate_chars(&content, 9000)
+                    )));
+                }
+                Ok(None)
+            }
+            "search_content" => {
+                let Some(pattern) = call.args.get("pattern").and_then(Value::as_str) else {
+                    return Ok(None);
+                };
+                let max_results = call
+                    .args
+                    .get("max_results")
+                    .and_then(Value::as_u64)
+                    .map(|v| v as usize)
+                    .unwrap_or(60)
+                    .clamp(5, 300);
+                let pattern_l = pattern.to_lowercase();
+                let mut hits = Vec::new();
+                for path in self.scanner.collect_files()? {
+                    let spath = path.to_string_lossy().to_string();
+                    if let Ok(content) = std::fs::read_to_string(&spath) {
+                        for (ln, line) in content.lines().enumerate() {
+                            if line.to_lowercase().contains(&pattern_l) {
+                                hits.push(format!("{}:{}: {}", spath, ln + 1, line.trim()));
+                                if hits.len() >= max_results {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                    if hits.len() >= max_results {
+                        break;
+                    }
+                }
+                if hits.is_empty() {
+                    return Ok(None);
+                }
+                Ok(Some(format!(
+                    "search_content(pattern={}, max_results={}):\n{}",
+                    pattern,
+                    max_results,
+                    hits.join("\n")
+                )))
+            }
+            "grep_paths" => {
+                let Some(pattern) = call.args.get("pattern").and_then(Value::as_str) else {
+                    return Ok(None);
+                };
+                let max_results = call
+                    .args
+                    .get("max_results")
+                    .and_then(Value::as_u64)
+                    .map(|v| v as usize)
+                    .unwrap_or(40)
+                    .clamp(5, 200);
+                let mut results = Vec::new();
+                for path in self.scanner.collect_files()? {
+                    let s = path.to_string_lossy().to_string();
+                    if s.to_lowercase().contains(&pattern.to_lowercase()) {
+                        results.push(s);
+                    }
+                    if results.len() >= max_results {
+                        break;
+                    }
+                }
+                if results.is_empty() {
+                    return Ok(None);
+                }
+                Ok(Some(format!(
+                    "grep_paths(pattern={}, max_results={}):\n{}",
+                    pattern,
+                    max_results,
+                    results.join("\n")
+                )))
+            }
+            _ => Ok(None),
+        }
+    }
+
+    fn tool_catalog(&self) -> String {
+        [
+            "- semantic_chunks {limit?: int} -> ranked semantic snippets from vector index",
+            "- directory_tree {max_depth?: int, max_entries?: int} -> filesystem tree",
+            "- list_files {max_results?: int, extensions?: [string]} -> list files (optionally filtered by extension)",
+            "- language_inventory {} -> count files by extension/language hints",
+            "- read_file {path: string, max_chars?: int} -> file content",
+            "- preview_file {path: string, lines?: int, offset?: int} -> line-numbered preview",
+            "- ast_summary {path: string} -> AST summary for a source file",
+            "- ast_symbols {path: string} -> extracted symbol-name lists from AST summary",
+            "- readme {} -> README content",
+            "- search_content {pattern: string, max_results?: int} -> text search in file contents",
+            "- grep_paths {pattern: string, max_results?: int} -> find matching file paths",
+        ]
+        .join("\n")
     }
 }
 
@@ -576,6 +1018,7 @@ fn score_chunk(
     path: &str,
     chunk: &str,
     original_rank: usize,
+    intent: RagIntent,
 ) -> i32 {
     let q = question.to_lowercase();
     let path_l = path.to_lowercase();
@@ -594,6 +1037,12 @@ fn score_chunk(
     if q.contains("architecture") && (chunk_l.contains("mod ") || chunk_l.contains("struct ") || chunk_l.contains("trait ")) {
         score += 18;
     }
+    if intent == RagIntent::FileOrSymbolLookup && (path_l.ends_with(".rs") || path_l.ends_with(".py") || path_l.ends_with(".ts")) {
+        score += 12;
+    }
+    if intent == RagIntent::Architecture && chunk_l.contains("ast structure") {
+        score += 16;
+    }
 
     let mut keyword_hits = 0_i32;
     for keyword in keywords {
@@ -606,4 +1055,76 @@ fn score_chunk(
         }
     }
     score + keyword_hits.min(30)
+}
+
+fn parse_tool_plan(text: &str) -> Option<Vec<ToolCall>> {
+    if let Ok(plan) = serde_json::from_str::<ToolPlan>(text.trim()) {
+        return Some(plan.tools);
+    }
+
+    if let Some(json) = extract_json_object(text) {
+        if let Ok(plan) = serde_json::from_str::<ToolPlan>(json) {
+            return Some(plan.tools);
+        }
+    }
+    None
+}
+
+fn extract_json_object(text: &str) -> Option<&str> {
+    let bytes = text.as_bytes();
+    let mut depth = 0_i32;
+    let mut start = None;
+    let mut in_string = false;
+    let mut escape = false;
+
+    for (i, b) in bytes.iter().enumerate() {
+        if escape {
+            escape = false;
+            continue;
+        }
+        match *b {
+            b'\\' if in_string => escape = true,
+            b'"' => in_string = !in_string,
+            b'{' if !in_string => {
+                if depth == 0 {
+                    start = Some(i);
+                }
+                depth += 1;
+            }
+            b'}' if !in_string => {
+                depth -= 1;
+                if depth == 0 {
+                    if let Some(s) = start {
+                        return Some(&text[s..=i]);
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    None
+}
+
+fn parse_string_list_arg(value: Option<&Value>) -> Vec<String> {
+    let Some(value) = value else {
+        return Vec::new();
+    };
+    if let Some(array) = value.as_array() {
+        return array
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect();
+    }
+    if let Some(single) = value.as_str() {
+        return single
+            .split(',')
+            .map(str::trim)
+            .filter(|s| !s.is_empty())
+            .map(str::to_string)
+            .collect();
+    }
+    Vec::new()
 }
