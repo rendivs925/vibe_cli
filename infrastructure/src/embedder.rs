@@ -23,42 +23,47 @@ impl Embedder {
         &self,
         inputs: &[EmbeddingInput],
     ) -> Result<Vec<Embedding>, AppError> {
-        const BATCH_SIZE: usize = 32;
-        let mut embeddings = Vec::with_capacity(inputs.len());
-
-        for chunk in inputs.chunks(BATCH_SIZE) {
-            eprintln!("Generating embeddings for {} chunks...", chunk.len());
-            let batch_embeddings = self.generate_batch_embeddings(chunk).await?;
-            embeddings.extend(batch_embeddings);
-        }
-        Ok(embeddings)
+        self.generate_embeddings_with_progress(inputs, |_, _| {})
+            .await
     }
 
-    async fn generate_batch_embeddings(
+    pub async fn generate_embeddings_with_progress<F>(
         &self,
         inputs: &[EmbeddingInput],
-    ) -> Result<Vec<Embedding>, AppError> {
-        let futures: Vec<_> = inputs
-            .iter()
-            .map(|input| {
-                let client = &self.client;
-                async move {
-                    let vector = client.generate_embedding(&input.text).await?;
-                    Ok(Embedding::new(
-                        input.id.clone(),
-                        vector,
-                        input.text.clone(),
-                        input.path.clone(),
-                    )) as Result<Embedding, AppError>
-                }
-            })
-            .collect();
+        mut on_progress: F,
+    ) -> Result<Vec<Embedding>, AppError>
+    where
+        F: FnMut(usize, usize),
+    {
+        let total = inputs.len();
+        if total == 0 {
+            return Ok(Vec::new());
+        }
 
-        let results: Vec<Result<Embedding, AppError>> = stream::iter(futures)
-            .buffer_unordered(8)
-            .collect::<Vec<_>>()
-            .await;
+        let concurrency = std::env::var("RAG_EMBED_CONCURRENCY")
+            .ok()
+            .and_then(|v| v.parse::<usize>().ok())
+            .filter(|v| *v > 0)
+            .unwrap_or(24);
 
-        results.into_iter().collect()
+        let mut stream = stream::iter(inputs.iter().cloned().map(|input| {
+            let client = self.client.clone();
+            async move {
+                let vector = client.generate_embedding(&input.text).await?;
+                Ok(Embedding::new(input.id, vector, input.text, input.path))
+                    as Result<Embedding, AppError>
+            }
+        }))
+        .buffer_unordered(concurrency);
+
+        let mut done = 0usize;
+        let mut embeddings = Vec::with_capacity(total);
+        while let Some(result) = stream.next().await {
+            let embedding = result?;
+            done += 1;
+            on_progress(done, total);
+            embeddings.push(embedding);
+        }
+        Ok(embeddings)
     }
 }

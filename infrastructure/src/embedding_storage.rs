@@ -94,7 +94,6 @@ impl EmbeddingStorage {
             tx.commit()?;
             Ok(())
         }).await?;
-        eprintln!("Embeddings stored successfully");
         Ok(())
     }
 

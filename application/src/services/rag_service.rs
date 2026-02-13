@@ -9,6 +9,7 @@ use infrastructure::{
 };
 use md5;
 use shared::types::Result;
+use std::io::{self, Write};
 use std::path::PathBuf;
 
 pub struct RagService {
@@ -320,7 +321,6 @@ impl RagService {
     }
 
     async fn build_index_with_files(&self, files: &[PathBuf]) -> Result<()> {
-        eprintln!("Scanning {} files...", files.len());
         let mut inputs: Vec<EmbeddingInput> = Vec::new();
 
         // Add a small directory overview chunk to help the model understand layout.
@@ -347,17 +347,23 @@ impl RagService {
         }
 
         let scans = self.scanner.scan_paths(files)?;
+        let total_scans = scans.len();
+        let mut scanned = 0usize;
+        let mut changed = 0usize;
         for scan in scans {
+            scanned += 1;
+            render_progress("RAG scan", scanned, total_scans);
+
             if scan.hash.is_empty() || scan.chunks.is_empty() {
                 continue;
             }
 
-            eprintln!("Processing {}...", scan.path);
             let previous_hash: Option<String> =
                 self.storage.get_file_hash(scan.path.clone()).await?;
             if previous_hash.as_deref() == Some(scan.hash.as_str()) {
                 continue;
             }
+            changed += 1;
 
             // File changed; drop old embeddings for this path.
             self.storage
@@ -390,14 +396,47 @@ impl RagService {
 
             self.storage.upsert_file_hash(scan.path, scan.hash).await?;
         }
+        finish_progress_line(&format!(
+            "RAG scan complete: {} file(s), {} changed",
+            scanned, changed
+        ));
 
         if !inputs.is_empty() {
-            eprintln!("Generating embeddings for {} chunks...", inputs.len());
-            let embeddings = self.embedder.generate_embeddings(&inputs).await?;
-            eprintln!("Storing embeddings...");
+            let mut last_tick = 0usize;
+            let embeddings = self
+                .embedder
+                .generate_embeddings_with_progress(&inputs, |done, total| {
+                    if done == total || done.saturating_sub(last_tick) >= 16 {
+                        render_progress("RAG embed", done, total);
+                        last_tick = done;
+                    }
+                })
+                .await?;
+            finish_progress_line(&format!("RAG embed complete: {} chunk(s)", embeddings.len()));
+
+            render_spinner("RAG store", "writing embeddings...");
             self.storage.insert_embeddings(embeddings).await?;
-            eprintln!("Indexing complete - {} chunks processed", inputs.len());
+            finish_progress_line("RAG store complete");
         }
         Ok(())
     }
+}
+
+fn render_progress(stage: &str, done: usize, total: usize) {
+    if total == 0 {
+        return;
+    }
+    let pct = ((done as f64 / total as f64) * 100.0).round() as usize;
+    print!("\r{stage}: {done}/{total} ({pct}%)");
+    let _ = io::stdout().flush();
+}
+
+fn render_spinner(stage: &str, message: &str) {
+    print!("\r{stage}: {message}");
+    let _ = io::stdout().flush();
+}
+
+fn finish_progress_line(message: &str) {
+    print!("\r{message}\n");
+    let _ = io::stdout().flush();
 }
