@@ -207,9 +207,13 @@ impl ReactContext {
                 "write".to_string(),
                 "remove".to_string(),
                 "update".to_string(),
+                "replace_block".to_string(),
                 "shell".to_string(),
                 "pkg".to_string(),
                 "svc".to_string(),
+                "git".to_string(),
+                "build".to_string(),
+                "test".to_string(),
             ],
             user_preferences: HashMap::new(),
         }

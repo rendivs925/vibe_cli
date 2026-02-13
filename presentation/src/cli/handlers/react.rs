@@ -3,6 +3,7 @@ use crate::cli::cache::CommandCandidate;
 use crate::cli::command_review::review_candidates;
 use anyhow::anyhow;
 use application::services::react_agent_service::ReactAgentService;
+use application::services::rag_service::RagService;
 use application::services::tool_executor::ToolExecutor;
 use application::services::test_time_scaling::{ScalingConfig, ScalingMethod};
 use domain::entities::react::{
@@ -11,6 +12,7 @@ use domain::entities::react::{
 use infrastructure::react_storage::InMemoryReactStorage;
 use infrastructure::syntax_grammar_validator::SyntaxGrammarValidator;
 use infrastructure::tools;
+use infrastructure::ollama_client::OllamaClient;
 use shared::types::Result;
 use std::io::{self, Write};
 use std::process::Command;
@@ -71,9 +73,9 @@ impl CliHandlers {
                 )]
             } else if should_start_with_structure_discovery(&session.query, &session) {
                 vec![ProposedCommand::new(
-                    "shell pwd && ls -la && (command -v tree >/dev/null 2>&1 && tree -L 2 || find . -maxdepth 2 -type d | sort)".to_string(),
+                    build_exploration_seed_command(&session.query),
                     "Project structure discovery".to_string(),
-                    "Need real paths first before reading files".to_string(),
+                    "Prefer RAG and AST for codebase exploration".to_string(),
                 )]
             } else {
                 service.propose_commands(&reasoning, &session).await?
@@ -135,7 +137,8 @@ impl CliHandlers {
                         &mut validator,
                         &mut suggested,
                         &session.query,
-                    )?;
+                    )
+                    .await?;
                     print_section("OUTPUT", &output);
                     save_step(
                         &service,
@@ -431,8 +434,8 @@ fn handle_session_command(command: SessionCommand, session: &mut ReactSession) -
     }
 }
 
-fn execute_suggestion(
-    handler: &CliHandlers,
+async fn execute_suggestion(
+    handler: &mut CliHandlers,
     tools: &application::services::tool_executor::ToolExecutor,
     validator: &mut SyntaxGrammarValidator,
     command: &mut ProposedCommand,
@@ -451,6 +454,16 @@ fn execute_suggestion(
         .iter()
         .map(|s| s.as_str())
         .collect::<Vec<_>>();
+
+    if tool_name == "rag" {
+        let output = execute_rag_via_service(handler, &normalized_args, query).await?;
+        command.approve();
+        command.execute(0, output.clone(), String::new());
+        if let Some(note) = rewrite_note {
+            return Ok(format!("{note}\n{output}"));
+        }
+        return Ok(output);
+    }
 
     if tools.has_tool(&tool_name) {
         if requires_second_confirmation(tools, &tool_name)
@@ -502,6 +515,45 @@ fn execute_suggestion(
     Ok(output.full_output)
 }
 
+async fn execute_rag_via_service(
+    handler: &mut CliHandlers,
+    args: &[String],
+    fallback_query: &str,
+) -> Result<String> {
+    let (rag_query, limit) = if args.is_empty() {
+        (fallback_query.to_string(), None)
+    } else if args.len() > 1 {
+        match args.last().and_then(|v| v.parse::<usize>().ok()) {
+            Some(limit) => (args[..args.len() - 1].join(" "), Some(limit)),
+            None => (args.join(" "), None),
+        }
+    } else {
+        (args[0].clone(), None)
+    };
+
+    if handler.rag_service.is_none() {
+        let client = OllamaClient::new()?;
+        handler.rag_service = Some(
+            RagService::new(".", &handler.config.db_path, client, handler.config.clone()).await?,
+        );
+    }
+
+    let keywords = crate::cli::command_extraction::query_keywords(&rag_query);
+    if let Some(rag) = handler.rag_service.as_ref() {
+        rag.build_index_for_keywords(&keywords).await?;
+        if let Some(limit) = limit {
+            let chunks = rag.relevant_chunks(&rag_query, limit).await?;
+            if chunks.is_empty() {
+                return Ok("No relevant context found.".to_string());
+            }
+            return Ok(chunks.join("\n\n---\n\n"));
+        }
+        return rag.query(&rag_query).await;
+    }
+
+    Ok("RAG service unavailable.".to_string())
+}
+
 fn normalize_tool_args(tool_name: &str, args: &[String], query: &str) -> (Vec<String>, Option<String>) {
     let Some(path_arg_index) = tool_path_arg_index(tool_name) else {
         return (args.to_vec(), None);
@@ -530,11 +582,16 @@ fn normalize_tool_args(tool_name: &str, args: &[String], query: &str) -> (Vec<St
 
 fn tool_path_arg_index(tool_name: &str) -> Option<usize> {
     match tool_name {
-        "read" | "write" | "remove" | "update" | "replace_block" => Some(0),
+        "read" | "write" | "remove" | "update" | "replace_block" | "ast" => Some(0),
         "sed" | "perl" => Some(2),
         "awk" => Some(1),
         _ => None,
     }
+}
+
+fn build_exploration_seed_command(query: &str) -> String {
+    let safe_query = query.replace('"', "\\\"");
+    format!("rag \"{safe_query}\" 12")
 }
 
 fn parse_command_tokens(command_line: &str) -> Vec<String> {

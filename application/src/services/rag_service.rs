@@ -1,4 +1,5 @@
 use infrastructure::{
+    code_ast,
     config::Config,
     embedder::{Embedder, EmbeddingInput},
     embedding_storage::EmbeddingStorage,
@@ -362,6 +363,17 @@ impl RagService {
             self.storage
                 .delete_embeddings_for_path(scan.path.clone())
                 .await?;
+
+            if let Some(ast) = code_ast::summarize_file(&scan.path) {
+                inputs.push(EmbeddingInput {
+                    id: format!("{}:__ast__", scan.path),
+                    path: scan.path.clone(),
+                    text: format!(
+                        "FILE: {}\nLANGUAGE: {}\nAST STRUCTURE:\n{}",
+                        scan.path, ast.language, ast.summary
+                    ),
+                });
+            }
 
             for chunk in scan.chunks {
                 let id = format!("{}:{}", chunk.path, chunk.start_offset);

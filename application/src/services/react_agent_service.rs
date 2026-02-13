@@ -179,6 +179,7 @@ Constraints:\n\
 - NEVER use placeholder paths such as <path>, /path/to/..., your_file, or /tmp/example.\n\
 - Only use real paths likely to exist under current working directory.\n\
 - If path is unknown, first suggest discovery commands using shell/fd/find to locate files.\n\
+- For codebase exploration/explanation tasks, prefer rag first; rag is AST-aware during indexing.\n\
 - For project explanation tasks, start by discovering structure, then read real files (README.md, Cargo.toml, src/*).\n",
             goal = session.query,
             reasoning = reasoning,

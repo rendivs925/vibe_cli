@@ -1334,6 +1334,7 @@ dependencies = [
  "futures",
  "md5",
  "memmap2",
+ "quote",
  "rayon",
  "regex",
  "reqwest",
@@ -1345,6 +1346,7 @@ dependencies = [
  "sha2",
  "shared",
  "smallvec",
+ "syn",
  "tokio",
  "uuid",
 ]
