@@ -164,9 +164,13 @@ Available tools:\n\
 - write <path> <content>\n\
 - remove <path>\n\
 - update <path> <old> <new>\n\
+- replace_block <path> <old_block> <new_block>\n\
 - shell <command>\n\
 - pkg <install|remove|search|update|upgrade> [package]\n\
 - svc <start|stop|restart|status|enable|disable> <service>\n\
+- git <status|diff|add|commit|log> [args]\n\
+- build <check|build|fmt|clippy> [package]\n\
+- test [pattern]\n\
 Constraints:\n\
 - Prefer read-only diagnostics first.\n\
 - Avoid destructive commands.\n\

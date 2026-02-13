@@ -39,8 +39,7 @@ impl CliHandlers {
             None
         };
 
-        let service = ReactAgentService::new(neurosymbolic_service, react_repo, cmd_repo)?
-            .with_max_iterations(30);
+        let service = ReactAgentService::new(neurosymbolic_service, react_repo, cmd_repo)?;
         let mut session = service
             .start_session(query.to_string(), neurosymbolic)
             .await?;
@@ -51,10 +50,8 @@ impl CliHandlers {
         println!("ReAct session for: \"{}\"", session.query);
         print_react_help();
 
-        let mut iteration = 0_u32;
         let mut pending_command_override: Option<String> = None;
-        while iteration < 30 && matches!(session.status, ReactStatus::Running) {
-            iteration += 1;
+        while matches!(session.status, ReactStatus::Running) {
 
             let reasoning = service.generate_reasoning(&session).await?;
             print_section("REASONING", &reasoning);
@@ -72,7 +69,7 @@ impl CliHandlers {
                     "User-directed command".to_string(),
                     "User asked to run a specific command".to_string(),
                 )]
-            } else if should_start_with_structure_discovery(&session.query, &session, iteration) {
+            } else if should_start_with_structure_discovery(&session.query, &session) {
                 vec![ProposedCommand::new(
                     "shell pwd && ls -la && (command -v tree >/dev/null 2>&1 && tree -L 2 || find . -maxdepth 2 -type d | sort)".to_string(),
                     "Project structure discovery".to_string(),
@@ -170,7 +167,7 @@ impl CliHandlers {
                     continue;
                 }
                 AllowDecision::SessionCommand(command) => {
-                    if handle_session_command(command, &mut session, iteration)? {
+                    if handle_session_command(command, &mut session)? {
                         service.save_session(&session).await?;
                         return Ok(());
                     }
@@ -191,7 +188,7 @@ impl CliHandlers {
                     .generate_goal_summary(&session)
                     .await
                     .unwrap_or_else(|_| "Root cause: Unknown\nFix applied: Unknown".to_string());
-                print_goal_achieved(&summary, iteration, session.neurosymbolic_enabled);
+                print_goal_achieved(&summary, session.neurosymbolic_enabled);
                 return Ok(());
             }
         }
@@ -242,11 +239,10 @@ fn print_section(title: &str, content: &str) {
     println!("{content}");
 }
 
-fn print_goal_achieved(summary: &str, iterations: u32, neurosymbolic_enabled: bool) {
+fn print_goal_achieved(summary: &str, neurosymbolic_enabled: bool) {
     println!("\n--- REASONING ---");
     println!("Goal achieved.");
     println!("{summary}");
-    println!("Iterations: {iterations}");
     if neurosymbolic_enabled {
         println!("Mode: ReAct + Neurosymbolic");
     } else {
@@ -260,11 +256,16 @@ fn print_react_help() {
     println!("  /context - Show recent reasoning history");
     println!("  /skip    - Skip current suggestion");
     println!("  /abort   - End session");
+    println!("\nHigh-impact tools:");
+    println!("  rag <query> [n]               - semantic lookup");
+    println!("  git <status|diff|add|commit|log> ...");
+    println!("  build <check|build|fmt|clippy> [package]");
+    println!("  test [pattern]                - run tests");
+    println!("  replace_block <path> <old> <new>");
 }
 
-fn print_react_context(session: &ReactSession, iteration: u32) {
+fn print_react_context(session: &ReactSession) {
     println!("Goal: {}", session.query);
-    println!("Iterations: {iteration}");
     println!("Steps: {}", session.steps.len());
     for step in session.steps.iter().rev().take(6).rev() {
         let label = match step.step_type {
@@ -292,14 +293,7 @@ fn parse_allow_input(input: &str) -> Result<AllowDecision> {
     }
 }
 
-fn should_start_with_structure_discovery(
-    query: &str,
-    session: &ReactSession,
-    iteration: u32,
-) -> bool {
-    if iteration != 1 {
-        return false;
-    }
+fn should_start_with_structure_discovery(query: &str, session: &ReactSession) -> bool {
     let query_lower = query.to_lowercase();
     let is_explain_task = query_lower.contains("explain")
         || query_lower.contains("understand")
@@ -340,18 +334,49 @@ fn extract_user_command_override(input: &str) -> Option<String> {
         "write",
         "remove",
         "update",
+        "replace_block",
         "shell",
         "pkg",
         "svc",
+        "git",
+        "build",
+        "test",
     ];
     if known_tools.contains(&first.as_str()) {
         return Some(text.to_string());
     }
 
-    if text.contains(' ') {
+    if is_likely_shell_command(text) {
         return Some(format!("shell {text}"));
     }
     None
+}
+
+fn is_likely_shell_command(text: &str) -> bool {
+    let trimmed = text.trim();
+    if trimmed.is_empty() || trimmed.contains('?') {
+        return false;
+    }
+
+    let first = trimmed.split_whitespace().next().unwrap_or_default();
+    if first.is_empty() {
+        return false;
+    }
+
+    let common_shell = [
+        "ls", "pwd", "cat", "head", "tail", "grep", "find", "tree", "rg", "fd", "sed", "awk",
+        "perl", "git", "cargo", "systemctl", "service", "ps", "top", "free", "df", "du", "echo",
+        "curl", "wget",
+    ];
+    if common_shell.contains(&first) {
+        return true;
+    }
+
+    Command::new("bash")
+        .args(["-lc", &format!("command -v {} >/dev/null 2>&1", first)])
+        .status()
+        .map(|s| s.success())
+        .unwrap_or(false)
 }
 
 fn build_default_tool_executor() -> ToolExecutor {
@@ -367,9 +392,13 @@ fn build_default_tool_executor() -> ToolExecutor {
     executor.register(Arc::new(tools::file_ops::write_tool::WriteTool));
     executor.register(Arc::new(tools::file_ops::remove_tool::RemoveTool));
     executor.register(Arc::new(tools::file_ops::update_tool::UpdateTool));
+    executor.register(Arc::new(tools::file_ops::replace_block_tool::ReplaceBlockTool));
     executor.register(Arc::new(tools::system::shell_tool::ShellTool));
     executor.register(Arc::new(tools::system::pkg_tool::PkgTool));
     executor.register(Arc::new(tools::system::svc_tool::SvcTool));
+    executor.register(Arc::new(tools::system::git_tool::GitTool));
+    executor.register(Arc::new(tools::system::build_tool::BuildTool));
+    executor.register(Arc::new(tools::system::test_tool::TestTool));
     executor
 }
 
@@ -383,18 +412,14 @@ fn parse_session_command(input: &str) -> Result<SessionCommand> {
     }
 }
 
-fn handle_session_command(
-    command: SessionCommand,
-    session: &mut ReactSession,
-    iteration: u32,
-) -> Result<bool> {
+fn handle_session_command(command: SessionCommand, session: &mut ReactSession) -> Result<bool> {
     match command {
         SessionCommand::Help => {
             print_react_help();
             Ok(false)
         }
         SessionCommand::Context => {
-            print_react_context(session, iteration);
+            print_react_context(session);
             Ok(false)
         }
         SessionCommand::Skip => Ok(false),
@@ -414,10 +439,7 @@ fn execute_suggestion(
     query: &str,
 ) -> Result<String> {
     let command_line = command.command.clone();
-    let tokens = command_line
-        .split_whitespace()
-        .map(str::to_string)
-        .collect::<Vec<_>>();
+    let tokens = parse_command_tokens(&command_line);
     if tokens.is_empty() {
         return Ok("No command provided".to_string());
     }
@@ -508,10 +530,20 @@ fn normalize_tool_args(tool_name: &str, args: &[String], query: &str) -> (Vec<St
 
 fn tool_path_arg_index(tool_name: &str) -> Option<usize> {
     match tool_name {
-        "read" | "write" | "remove" | "update" => Some(0),
+        "read" | "write" | "remove" | "update" | "replace_block" => Some(0),
         "sed" | "perl" => Some(2),
         "awk" => Some(1),
         _ => None,
+    }
+}
+
+fn parse_command_tokens(command_line: &str) -> Vec<String> {
+    match shell_words::split(command_line) {
+        Ok(tokens) if !tokens.is_empty() => tokens,
+        _ => command_line
+            .split_whitespace()
+            .map(str::to_string)
+            .collect::<Vec<_>>(),
     }
 }
 

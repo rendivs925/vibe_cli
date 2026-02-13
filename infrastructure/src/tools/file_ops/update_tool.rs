@@ -38,8 +38,17 @@ impl Tool for UpdateTool {
             )));
         }
 
+        let replacements = content.matches(old).count();
         let updated = content.replace(old, new);
         fs::write(path, updated).map_err(|err| ToolError::ExecutionFailed(err.to_string()))?;
-        Ok(ToolOutput::success(format!("Updated {path}")))
+
+        let mut out = ToolOutput::success(format!(
+            "Updated {path}\nReplacements: {replacements}\n--- old\n+++ new\n- {}\n+ {}",
+            old.replace('\n', "\\n"),
+            new.replace('\n', "\\n")
+        ));
+        out.metadata
+            .insert("replacements".to_string(), replacements.to_string());
+        Ok(out)
     }
 }
