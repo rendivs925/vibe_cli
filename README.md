@@ -81,6 +81,37 @@ vibe_cli --agent "collect system health: disk, cpu, memory"
 
 Plans and executes complex multi-step tasks with safety validation at each step.
 
+### ReAct Loop (Interactive)
+
+```bash
+vibe_cli --react "nginx is slow"
+vibe_cli --react --neurosymbolic "nginx is not running"
+```
+
+Runs a conversational, iterative loop:
+
+```text
+ANALYZE → SUGGESTED → OUTPUT → repeat
+```
+
+Built-in session commands:
+- `/help` - Show commands
+- `/context` - Show recent reasoning history
+- `/facts` - Show extracted facts
+- `/hypotheses` - Show current hypotheses
+- `/compact` - Summarize older steps
+- `/reset` - Clear facts and hypotheses
+- `/skip` - Skip current suggestion
+- `/abort` - End session
+
+Safety prompts adapt to command risk:
+
+```text
+Allow? y/n>
+WARNING Will modify. Confirm? y/n>
+DANGER Will modify system. Confirm? y/n>
+```
+
 ### Explain Files
 
 ```bash
@@ -231,6 +262,12 @@ Risk Scoring → Report + Mitigations
 Execution
 ```
 
+### ReAct Validation
+
+ReAct suggestions are validated before prompting:
+- Syntax check via `bash -n`
+- Binary availability via `command -v`
+
 ### Safety Rules
 
 Hard rules block catastrophic operations:
@@ -266,6 +303,8 @@ Saved to: ~/.config/vibe_cli/domains/linux/operations.json
 ```
 
 New operations are available immediately after saving.
+
+ReAct uses an experience buffer stored in `~/.config/vibe_cli/experience.db` to avoid repeating failed commands.
 
 ---
 
