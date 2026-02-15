@@ -100,6 +100,14 @@ pub struct Cli {
     #[arg(long)]
     pub clear_cache: bool,
 
+    /// Clear the RAG answer cache only
+    #[arg(long)]
+    pub clear_rag_cache: bool,
+
+    /// Clear the RAG embeddings index for this project
+    #[arg(long)]
+    pub clear_embeddings: bool,
+
     /// Validate command syntax against man pages
     #[arg(long)]
     pub validate_syntax: bool,
@@ -201,6 +209,12 @@ impl CliApp {
         }
         if cli.clear_cache {
             return self.handlers.handle_clear_cache();
+        }
+        if cli.clear_rag_cache {
+            return self.handlers.handle_clear_rag_cache();
+        }
+        if cli.clear_embeddings {
+            return self.handlers.handle_clear_embeddings();
         }
 
         // If --neurosymbolic flag is set, use neurosymbolic mode with scaling

@@ -35,4 +35,34 @@ impl CliHandlers {
 
         Ok(())
     }
+
+    pub fn handle_clear_rag_cache(&self) -> Result<()> {
+        let cache_path = self.cache_manager.cache_path("rag");
+        if !cache_path.exists() {
+            println!("No RAG cache file found.");
+            return Ok(());
+        }
+
+        match std::fs::remove_file(&cache_path) {
+            Ok(_) => println!("Cleared: {}", cache_path.display()),
+            Err(e) => println!("Failed to clear {}: {:?}", cache_path.display(), e),
+        }
+
+        Ok(())
+    }
+
+    pub fn handle_clear_embeddings(&self) -> Result<()> {
+        let db_path = std::path::Path::new(&self.config.db_path);
+        if !db_path.exists() {
+            println!("No embeddings database found.");
+            return Ok(());
+        }
+
+        match std::fs::remove_file(db_path) {
+            Ok(_) => println!("Cleared: {}", db_path.display()),
+            Err(e) => println!("Failed to clear {}: {:?}", db_path.display(), e),
+        }
+
+        Ok(())
+    }
 }

@@ -119,6 +119,12 @@ Command execution streams with AI chunk summaries and a concise final summary.
 ```bash
 # Clear all cached commands
 vibe_cli --clear-cache
+
+# Clear only the RAG answer cache
+vibe_cli --clear-rag-cache
+
+# Clear the RAG embeddings index for this project
+vibe_cli --clear-embeddings
 ```
 
 Removes cached commands from `~/.local/share/vibe_cli/`.
@@ -282,6 +288,8 @@ Clear cache:
 
 ```bash
 vibe_cli --clear-cache
+vibe_cli --clear-rag-cache
+vibe_cli --clear-embeddings
 ```
 
 ---
