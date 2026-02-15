@@ -87,7 +87,7 @@ impl ReactSession {
         let session_id = uuid::Uuid::new_v4().to_string();
         Self {
             id: session_id.clone(),
-            query,
+            query: query.clone(),
             created_at: now,
             updated_at: now,
             status: ReactStatus::Running,
