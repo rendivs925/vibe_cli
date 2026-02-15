@@ -443,7 +443,7 @@ fn print_validation_report(report: &CommandValidationReport) {
 fn validate_command_line(
     command_line: &str,
     tools: &application::services::tool_executor::ToolExecutor,
-) -> Result<(), String> {
+) -> std::result::Result<(), String> {
     let tokens = parse_command_tokens(command_line);
     if tokens.is_empty() {
         return Err("Empty command".to_string());
@@ -461,7 +461,7 @@ fn validate_command_line(
     validate_shell_command(command_line)
 }
 
-fn validate_shell_command(command_line: &str) -> Result<(), String> {
+fn validate_shell_command(command_line: &str) -> std::result::Result<(), String> {
     let syntax = Command::new("bash")
         .args(["-n", "-c", command_line])
         .output()
