@@ -109,6 +109,27 @@ impl LearningService {
         Ok(())
     }
 
+    /// Record a command outcome based on exit code and output
+    pub fn record_command_outcome(
+        &self,
+        query: &str,
+        command: &str,
+        exit_code: Option<i32>,
+        stdout: Option<&str>,
+        stderr: Option<&str>,
+    ) -> Result<()> {
+        if exit_code == Some(0) {
+            return self.record_success(query, command, None);
+        }
+
+        let message = stderr
+            .filter(|m| !m.trim().is_empty())
+            .or(stdout)
+            .filter(|m| !m.trim().is_empty());
+
+        self.record_failure(query, command, FailureType::ExecutionFailed, message)
+    }
+
     /// Get context to inject into LLM prompt
     pub fn get_context_for_query(&self, query: &str) -> Result<Option<String>> {
         if !self.enabled {

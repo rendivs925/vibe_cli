@@ -2,6 +2,8 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+use crate::entities::{QueryIntent, SessionMemory};
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReactSession {
     pub id: String,
@@ -11,6 +13,9 @@ pub struct ReactSession {
     pub status: ReactStatus,
     pub steps: Vec<ReactStep>,
     pub context: HashMap<String, String>,
+    pub memory: SessionMemory,
+    pub intent: Option<QueryIntent>,
+    pub compacted_summary: Option<String>,
     pub neurosymbolic_enabled: bool,
 }
 
@@ -40,6 +45,8 @@ pub enum ReactStepType {
     Thought,
     Action,
     Observation,
+    Verify,
+    Complete,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -57,6 +64,7 @@ pub struct ProposedCommand {
     pub command: String,
     pub description: String,
     pub reasoning: String,
+    pub safety: CommandSafety,
     pub approved: Option<bool>,
     pub executed: bool,
     pub exit_code: Option<i32>,
@@ -76,14 +84,18 @@ pub struct ReactContext {
 impl ReactSession {
     pub fn new(query: String, neurosymbolic_enabled: bool) -> Self {
         let now = Utc::now();
+        let session_id = uuid::Uuid::new_v4().to_string();
         Self {
-            id: uuid::Uuid::new_v4().to_string(),
+            id: session_id.clone(),
             query,
             created_at: now,
             updated_at: now,
             status: ReactStatus::Running,
             steps: Vec::new(),
             context: HashMap::new(),
+            memory: SessionMemory::new(session_id, query.clone()),
+            intent: None,
+            compacted_summary: None,
             neurosymbolic_enabled,
         }
     }
@@ -109,6 +121,15 @@ impl ReactSession {
 
     pub fn fail(&mut self) {
         self.status = ReactStatus::Failed;
+        self.updated_at = Utc::now();
+    }
+
+    pub fn set_intent(&mut self, intent: QueryIntent) {
+        self.intent = Some(intent);
+    }
+
+    pub fn set_compacted_summary(&mut self, summary: String) {
+        self.compacted_summary = Some(summary);
         self.updated_at = Utc::now();
     }
 }
@@ -160,11 +181,13 @@ impl ReactStep {
 
 impl ProposedCommand {
     pub fn new(command: String, description: String, reasoning: String) -> Self {
+        let safety = classify_command(&command);
         Self {
             id: uuid::Uuid::new_v4().to_string(),
             command,
             description,
             reasoning,
+            safety,
             approved: None,
             executed: false,
             exit_code: None,
@@ -238,4 +261,96 @@ impl ReactContext {
     pub fn set_preference(&mut self, key: String, value: String) {
         self.user_preferences.insert(key, value);
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum CommandSafety {
+    ReadOnly,
+    Write,
+    Destructive,
+}
+
+pub fn classify_command(command: &str) -> CommandSafety {
+    let mut cmd = command.trim().to_ascii_lowercase();
+    if let Some(rest) = cmd.strip_prefix("shell ") {
+        cmd = rest.trim().to_string();
+    }
+    if cmd.is_empty() {
+        return CommandSafety::ReadOnly;
+    }
+
+    let destructive = [
+        "rm ",
+        "rmdir",
+        "dd ",
+        "mkfs",
+        "fdisk",
+        "parted",
+        "wipefs",
+        "sudo systemctl start",
+        "sudo systemctl stop",
+        "sudo systemctl restart",
+        "systemctl start",
+        "systemctl stop",
+        "systemctl restart",
+        "svc start",
+        "svc stop",
+        "svc restart",
+        "kill ",
+        "pkill ",
+        "killall",
+        "reboot",
+        "shutdown",
+        "halt",
+        "poweroff",
+        "git push",
+        "git force",
+        "remove ",
+        "delete ",
+    ];
+    for pattern in destructive {
+        if cmd.contains(pattern) {
+            return CommandSafety::Destructive;
+        }
+    }
+
+    let write = [
+        "sed -i",
+        "perl -i",
+        "awk -i",
+        "tee ",
+        ">",
+        ">>",
+        "mv ",
+        "cp ",
+        "mkdir",
+        "touch",
+        "chmod",
+        "chown",
+        "truncate",
+        "write ",
+        "update ",
+        "replace_block",
+        "apply_patch",
+        "pkg install",
+        "pkg remove",
+        "pkg upgrade",
+        "pkg update",
+        "git add",
+        "git commit",
+        "git checkout",
+        "git merge",
+        "git pull",
+        "svc enable",
+        "svc disable",
+        "systemctl enable",
+        "systemctl disable",
+    ];
+    for pattern in write {
+        if cmd.contains(pattern) {
+            return CommandSafety::Write;
+        }
+    }
+
+    CommandSafety::ReadOnly
 }
