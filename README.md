@@ -109,11 +109,7 @@ The ReAct system now uses **35 specialized tools** across 8 categories to intell
 
 ### Tool Modes
 
-Configure tool behavior via `ReactConfig`:
-
-- **Legacy** - Always use suggest_command (backward compatible)
-- **Mixed** - Use tool selection with fallback to suggest_command (default)
-- **Full** - Full dynamic tool system, no fallback
+The ReAct system uses **Full dynamic tool mode** by default - all 35 specialized tools are available for intelligent task handling.
 
 Built-in session commands:
 - `/help` - Show commands

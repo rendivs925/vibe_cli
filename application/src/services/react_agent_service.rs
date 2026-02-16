@@ -347,47 +347,19 @@ impl ReactAgentService {
     /// 
     /// Uses the ToolRegistry to find and execute the appropriate handler.
     /// Falls back to default behavior based on ReactConfig if needed.
-    pub async fn execute_tool(&self, tool: ReactTool, session: &ReactSession, reasoning: &str) -> Result<ToolResult> {
-        // Handle tool mode
-        match self.react_config.tool_mode {
-            ToolMode::Legacy => {
-                // Always use suggest_command in legacy mode
-                return self.execute_suggest_command_fallback(reasoning, session).await;
-            }
-            ToolMode::Mixed => {
-                // Try the requested tool, fall back to suggest_command on failure
-                if let Some(handler) = self.tool_registry.get(tool) {
-                    let context = self.context_retriever.retrieve_with_semantic_search(session).await;
-                    match handler.execute(&context, None).await {
-                        Ok(result) => return Ok(result),
-                        Err(e) => {
-                            eprintln!("[warn] Tool {:?} failed: {}, falling back to suggest_command", tool, e);
-                            return self.execute_suggest_command_fallback(reasoning, session).await;
-                        }
-                    }
-                } else {
-                    eprintln!("[warn] Tool {:?} not registered, falling back to suggest_command", tool);
-                    return self.execute_suggest_command_fallback(reasoning, session).await;
-                }
-            }
-            ToolMode::Full => {
-                // Full mode: execute tool directly, no fallback
-                if let Some(handler) = self.tool_registry.get(tool) {
-                    let context = self.context_retriever.retrieve_with_semantic_search(session).await;
-                    handler.execute(&context, None).await
-                } else {
-                    Err(anyhow!("Tool {:?} not found in registry", tool))
-                }
-            }
+    pub async fn execute_tool(&self, tool: ReactTool, session: &ReactSession, _reasoning: &str) -> Result<ToolResult> {
+        // Full mode: execute tool directly from registry
+        if let Some(handler) = self.tool_registry.get(tool) {
+            let context = self.context_retriever.retrieve_with_semantic_search(session).await;
+            handler.execute(&context, None).await
+        } else {
+            Err(anyhow!("Tool {:?} not found in registry", tool))
         }
     }
 
-    /// Fallback execution for SuggestCommand
-    async fn execute_suggest_command_fallback(&self, reasoning: &str, session: &ReactSession) -> Result<ToolResult> {
-        let commands = self.propose_commands(reasoning, session).await?;
-        let command_strings: Vec<String> = commands.iter().map(|c| c.command.clone()).collect();
-        Ok(ToolResult::new(ReactTool::SuggestCommand)
-            .with_commands(command_strings))
+    /// Get tool suggestion based on next_tool from previous result
+    pub async fn get_next_tool(&self, current_result: &ToolResult) -> Option<ReactTool> {
+        current_result.next_tool_suggestion
     }
 
     /// Index a command execution

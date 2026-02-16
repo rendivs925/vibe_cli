@@ -219,7 +219,7 @@ impl ReactConfig {
 impl Default for ReactConfig {
     fn default() -> Self {
         Self {
-            tool_mode: ToolMode::Mixed,
+            tool_mode: ToolMode::Full,
             default_tool: ReactTool::SuggestCommand,
             max_iterations: 10,
             show_tool_reasoning: true,
