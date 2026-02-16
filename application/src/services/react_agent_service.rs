@@ -2,6 +2,7 @@ use anyhow::anyhow;
 use domain::entities::react::{ProposedCommand, ReactSession, ReactStep};
 use domain::repositories::react_repository::{ReactCommandRepository, ReactRepository};
 use infrastructure::ollama_client::OllamaClient;
+use infrastructure::session_indexing_service::SessionIndexingService;
 use infrastructure::storage::KnowledgeGraph;
 use shared::types::Result;
 use std::path::PathBuf;
@@ -20,6 +21,7 @@ pub struct ReactAgentService {
     neurosymbolic_service: Option<Arc<NeurosymbolicService>>,
     react_repository: Arc<dyn ReactRepository>,
     command_repository: Arc<dyn ReactCommandRepository>,
+    indexing_service: Option<Arc<SessionIndexingService>>,
     client: OllamaClient,
     analysis_service: AnalysisService,
     context_retriever: ContextRetriever,
@@ -45,6 +47,7 @@ impl ReactAgentService {
             neurosymbolic_service,
             react_repository,
             command_repository,
+            indexing_service: None,
             client: OllamaClient::new()?,
             analysis_service: AnalysisService::new(),
             context_retriever,
@@ -56,6 +59,14 @@ impl ReactAgentService {
 
     pub fn with_max_iterations(mut self, max_iterations: u32) -> Self {
         self.max_iterations = max_iterations;
+        self
+    }
+
+    /// Enable semantic indexing for cross-session search
+    pub fn with_indexing_service(mut self, service: Arc<SessionIndexingService>) -> Self {
+        self.indexing_service = Some(service.clone());
+        // Also update context retriever to use the indexing service
+        self.context_retriever = self.context_retriever.with_indexing_service(service);
         self
     }
 
@@ -239,6 +250,53 @@ impl ReactAgentService {
             .update_session(session)
             .await
             .map_err(|e| anyhow!(e.to_string()))
+    }
+
+}
+
+impl ReactAgentService {
+    /// Index the current session for semantic search
+    pub async fn index_session(&self, session: &ReactSession) -> Result<()> {
+        if let Some(ref service) = self.indexing_service {
+            let success_rate = if session.steps.is_empty() {
+                0.0
+            } else {
+                let successful = session.steps.iter()
+                    .filter(|s| matches!(s.status, domain::entities::react::ReactStepStatus::Completed))
+                    .count();
+                successful as f32 / session.steps.len() as f32
+            };
+
+            service.index_session(
+                &session.id,
+                &session.query,
+                session.compacted_summary.as_deref(),
+                Some(session.memory.semantic_tags.clone()),
+                success_rate,
+            ).await?;
+        }
+        Ok(())
+    }
+
+    /// Index a command execution
+    pub async fn index_command_execution(
+        &self,
+        command: &ProposedCommand,
+        session_id: &str,
+    ) -> Result<()> {
+        if let Some(ref service) = self.indexing_service {
+            let command_id = format!("{}-{}", session_id, command.id);
+            let exit_code = command.exit_code.unwrap_or(-1);
+            
+            service.index_command(
+                &command_id,
+                session_id,
+                &command.command,
+                command.stdout.as_deref(),
+                exit_code,
+            ).await?;
+        }
+        Ok(())
     }
 }
 

@@ -1,4 +1,5 @@
 use domain::entities::{ReactSession, ReactStepType};
+use infrastructure::session_indexing_service::SessionIndexingService;
 use infrastructure::storage::KnowledgeGraph;
 use std::sync::Arc;
 
@@ -9,21 +10,30 @@ pub struct RetrievedContext {
     pub hypotheses: String,
     pub constraints: String,
     pub knowledge_context: String,
+    pub similar_sessions_context: Option<String>,
+    pub command_patterns_context: Option<String>,
 }
 
 pub struct ContextRetriever {
     knowledge_graph: Option<Arc<KnowledgeGraph>>,
+    indexing_service: Option<Arc<SessionIndexingService>>,
 }
 
 impl ContextRetriever {
     pub fn new() -> Self {
         Self {
             knowledge_graph: None,
+            indexing_service: None,
         }
     }
 
     pub fn with_knowledge_graph(mut self, kg: Arc<KnowledgeGraph>) -> Self {
         self.knowledge_graph = Some(kg);
+        self
+    }
+
+    pub fn with_indexing_service(mut self, service: Arc<SessionIndexingService>) -> Self {
+        self.indexing_service = Some(service);
         self
     }
 
@@ -34,6 +44,11 @@ impl ContextRetriever {
         let hypotheses = format_hypotheses(session);
         let constraints = format_constraints(session);
         let knowledge_context = self.get_knowledge_context(session);
+        
+        // Note: similar_sessions_context and command_patterns_context 
+        // are populated asynchronously via retrieve_with_semantic_search
+        let similar_sessions_context = None;
+        let command_patterns_context = None;
 
         RetrievedContext {
             session_history,
@@ -42,6 +57,101 @@ impl ContextRetriever {
             hypotheses,
             constraints,
             knowledge_context,
+            similar_sessions_context,
+            command_patterns_context,
+        }
+    }
+
+    /// Retrieve context with semantic search (async version)
+    pub async fn retrieve_with_semantic_search(
+        &self,
+        session: &ReactSession,
+    ) -> RetrievedContext {
+        let session_history = format_history(session);
+        let compacted_summary = session.compacted_summary.clone();
+        let facts = format_facts(session);
+        let hypotheses = format_hypotheses(session);
+        let constraints = format_constraints(session);
+        let knowledge_context = self.get_knowledge_context(session);
+
+        // Perform semantic search if indexing service is available
+        let (similar_sessions_context, command_patterns_context) = 
+            if let Some(ref service) = self.indexing_service {
+                let query = &session.query;
+                
+                // Search for similar sessions
+                let similar_sessions = service
+                    .get_similar_sessions_context(query, 3)
+                    .await
+                    .ok()
+                    .flatten();
+                
+                // Search for command patterns
+                let patterns = service
+                    .get_command_patterns_context(query, 3)
+                    .await
+                    .ok()
+                    .flatten();
+                
+                (similar_sessions, patterns)
+            } else {
+                (None, None)
+            };
+
+        RetrievedContext {
+            session_history,
+            compacted_summary,
+            facts,
+            hypotheses,
+            constraints,
+            knowledge_context,
+            similar_sessions_context,
+            command_patterns_context,
+        }
+    }
+
+    /// Find similar sessions based on query
+    pub async fn find_similar_sessions(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Option<Vec<(String, String, f32)>> {
+        if let Some(ref service) = self.indexing_service {
+            match service.find_similar_sessions(query, Some(limit)).await {
+                Ok(results) => {
+                    let simplified: Vec<(String, String, f32)> = results
+                        .into_iter()
+                        .map(|r| (r.session_id, r.goal, r.similarity))
+                        .collect();
+                    Some(simplified)
+                }
+                Err(_) => None,
+            }
+        } else {
+            None
+        }
+    }
+
+    /// Find similar commands based on query
+    pub async fn find_similar_commands(
+        &self,
+        query: &str,
+        limit: usize,
+        only_successful: bool,
+    ) -> Option<Vec<(String, String, f32)>> {
+        if let Some(ref service) = self.indexing_service {
+            match service.find_similar_commands(query, Some(limit), only_successful).await {
+                Ok(results) => {
+                    let simplified: Vec<(String, String, f32)> = results
+                        .into_iter()
+                        .map(|r| (r.command, r.session_id, r.similarity))
+                        .collect();
+                    Some(simplified)
+                }
+                Err(_) => None,
+            }
+        } else {
+            None
         }
     }
 

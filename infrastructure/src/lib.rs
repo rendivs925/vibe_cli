@@ -11,6 +11,8 @@ pub mod ollama_client;
 pub mod react_persistent_storage;
 pub mod react_storage;
 pub mod search;
+pub mod semantic_index;
+pub mod session_indexing_service;
 pub mod storage;
 pub mod symbolic_storage;
 pub mod syntax_grammar_validator;
