@@ -20,8 +20,11 @@ impl ReactPromptService {
 ## Current Task\n\
 {goal}\n\
 \n\
-## Session History (recent)\n\
+## Session History - MOST RECENT LAST\n\
 {history}\n\
+\n\
+## Latest Output - ALWAYS USE THIS\n\
+{latest_output}\n\
 \n\
 ## Extracted Facts\n\
 {facts}\n\
@@ -40,17 +43,43 @@ impl ReactPromptService {
 ## Avoid These Commands\n\
 {failed_commands}\n\
 \n\
+## STRICT BEHAVIORAL RULES\n\
+\n\
+### Latest Output Supremacy Rule\n\
+The MOST RECENT OUTPUT block above overrides ALL prior assumptions.\n\
+- Do NOT rely on earlier outputs if newer data exists\n\
+- Treat each tool execution as NEW evidence\n\
+- If you repeat prior analysis without the latest output, you FAIL\n\
+\n\
+### Evidence-Based Reasoning\n\
+- Every ANALYZE must explicitly reference CONCRETE details from the LATEST OUTPUT\n\
+- Do NOT produce generic fallback explanations\n\
+- Do NOT restate prior reasoning unless directly supported by new evidence\n\
+\n\
+### Progressive Problem Solving\n\
+- Each suggested action must move the investigation FORWARD\n\
+- Avoid loops and re-running broad diagnostics without narrowing scope\n\
+- Adapt strategy dynamically based on RESULTS\n\
+\n\
+### Loop Prevention\n\
+Before suggesting ANY action, you MUST check:\n\
+- Has this exact action already been executed in history?\n\
+- If YES, you MUST provide a NEW justification or choose a DIFFERENT action\n\
+- Do NOT repeat the same command without explicit justification\n\
+\n\
 ## Instructions\n\
-- Use facts to support reasoning.\n\
-- Consider user constraints.\n\
-- Avoid commands that failed before.\n\
-- Focus on the next diagnostic step.\n\
-- Do not include commands or code blocks.\n\
+- Use FACTS from the latest output to support reasoning\n\
+- Consider user constraints\n\
+- AVOID commands that failed before\n\
+- Focus on the next NARROW diagnostic step\n\
+- Do not include commands or code blocks\n\
+- Your analysis must be GROUNDED in the most recent OUTPUT\n\
 \n\
 Output format:\n\
-ANALYZE: <reasoning>\n",
+ANALYZE: <reasoning referencing latest output>",
             goal = goal,
             history = context.session_history,
+            latest_output = context.latest_output,
             facts = context.facts,
             hypotheses = context.hypotheses,
             constraints = context.constraints,
@@ -71,14 +100,29 @@ ANALYZE: <reasoning>\n",
             "You are a cautious systems assistant. Based on the goal and reasoning, propose 1-3 executable suggestions.\n\
 Respond ONLY with a JSON array of strings. No prose.\n\
 Goal: {goal}\n\
-Reasoning: {reasoning}\n\
+Reasoning (MUST be grounded in latest output): {reasoning}\n\
+\n\
+## Latest Output - USE THIS DATA\n\
+{latest_output}\n\
+\n\
 History:\n{history}\n\
 Facts:\n{facts}\n\
 Hypotheses:\n{hypotheses}\n\
 Constraints:\n{constraints}\n\
 System Context:\n{knowledge_context}\n\
 Avoid commands:\n{failed_commands}\n\
-Available tools:\n\
+\n\
+## STRICT LOOP PREVENTION RULES\n\
+Before proposing ANY command:\n\
+1. CHECK the History above - has this exact command been executed?\n\
+2. If YES: You MUST either:\n\
+   - Propose a DIFFERENT command that advances the investigation\n\
+   - OR explain WHY you are intentionally repeating it (e.g., verifying fix)\n\
+3. NEVER propose the same diagnostic command twice without new justification\n\
+4. Each command must narrow the problem scope\n\
+\n\
+Available tools:\
+\n\
 - read <path> [lines] [offset]\n\
 - grep <pattern> [path]\n\
 - fd <pattern> [directory]\n\
@@ -109,6 +153,7 @@ Constraints:\n\
 - For project explanation tasks, start by discovering structure, then read real files (README.md, Cargo.toml, src/*).\n",
             goal = goal,
             reasoning = reasoning,
+            latest_output = context.latest_output,
             history = context.session_history,
             facts = context.facts,
             hypotheses = context.hypotheses,

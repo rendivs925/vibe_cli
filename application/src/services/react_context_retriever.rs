@@ -5,6 +5,7 @@ use std::sync::Arc;
 
 pub struct RetrievedContext {
     pub session_history: String,
+    pub latest_output: String,
     pub compacted_summary: Option<String>,
     pub facts: String,
     pub hypotheses: String,
@@ -39,6 +40,7 @@ impl ContextRetriever {
 
     pub fn retrieve(&self, session: &ReactSession) -> RetrievedContext {
         let session_history = format_history(session);
+        let latest_output = extract_latest_output(session);
         let compacted_summary = session.compacted_summary.clone();
         let facts = format_facts(session);
         let hypotheses = format_hypotheses(session);
@@ -52,6 +54,7 @@ impl ContextRetriever {
 
         RetrievedContext {
             session_history,
+            latest_output,
             compacted_summary,
             facts,
             hypotheses,
@@ -68,6 +71,7 @@ impl ContextRetriever {
         session: &ReactSession,
     ) -> RetrievedContext {
         let session_history = format_history(session);
+        let latest_output = extract_latest_output(session);
         let compacted_summary = session.compacted_summary.clone();
         let facts = format_facts(session);
         let hypotheses = format_hypotheses(session);
@@ -100,6 +104,7 @@ impl ContextRetriever {
 
         RetrievedContext {
             session_history,
+            latest_output,
             compacted_summary,
             facts,
             hypotheses,
@@ -201,6 +206,33 @@ impl ContextRetriever {
             context_parts.join("\n")
         }
     }
+}
+
+fn extract_latest_output(session: &ReactSession) -> String {
+    for step in session.steps.iter().rev() {
+        if matches!(step.step_type, ReactStepType::Observation) {
+            for cmd in &step.commands {
+                if let Some(ref stdout) = cmd.stdout {
+                    if !stdout.trim().is_empty() {
+                        let truncated = if stdout.len() > 2000 {
+                            format!("{}...[truncated]", &stdout[..2000])
+                        } else {
+                            stdout.clone()
+                        };
+                        return format!(
+                            "Command: {}\nOutput:\n{}",
+                            cmd.command.trim(),
+                            truncated
+                        );
+                    }
+                }
+            }
+            if !step.content.trim().is_empty() {
+                return step.content.trim().to_string();
+            }
+        }
+    }
+    "(no output yet)".to_string()
 }
 
 fn format_history(session: &ReactSession) -> String {
