@@ -193,12 +193,11 @@ impl CliHandlers {
                 AllowDecision::Direction(text) => {
                     suggested.reject();
                     service.update_command(&suggested).await.ok();
-                    if let Some(command_override) = extract_user_command_override(&text) {
-                        pending_command_override = Some(command_override);
-                    }
+                    // User provided direction - go back to ANALYZE with their input
+                    // Do NOT generate new command suggestion - re-analyze with user input
                     service.ingest_user_input(&mut session, &text);
                     save_step(&service, &mut session, ReactStepType::Observation, text).await?;
-                    continue;
+                    continue; // Skip command generation, go back to ANALYZE
                 }
                 AllowDecision::SessionCommand(command) => {
                     match command {
