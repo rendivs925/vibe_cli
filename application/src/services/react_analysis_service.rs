@@ -1,6 +1,5 @@
-use domain::entities::{
-    Constraint, Fact, Hypothesis, Insight, QueryIntent, TaskType, ToolCategory,
-};
+use domain::entities::react_intent::{QueryIntent, TaskType, ToolCategory};
+use domain::entities::react_memory::{Constraint, Fact, Hypothesis, Insight};
 
 pub struct AnalysisService;
 

@@ -2,7 +2,9 @@ use anyhow::anyhow;
 use domain::entities::react::{ProposedCommand, ReactSession, ReactStep};
 use domain::repositories::react_repository::{ReactCommandRepository, ReactRepository};
 use infrastructure::ollama_client::OllamaClient;
+use infrastructure::storage::KnowledgeGraph;
 use shared::types::Result;
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::services::learning_service::LearningService;
@@ -32,13 +34,20 @@ impl ReactAgentService {
         react_repository: Arc<dyn ReactRepository>,
         command_repository: Arc<dyn ReactCommandRepository>,
     ) -> Result<Self> {
+        let knowledge_graph = init_knowledge_graph_arc();
+        let context_retriever = if let Some(kg) = knowledge_graph {
+            ContextRetriever::new().with_knowledge_graph(kg)
+        } else {
+            ContextRetriever::new()
+        };
+
         Ok(Self {
             neurosymbolic_service,
             react_repository,
             command_repository,
             client: OllamaClient::new()?,
             analysis_service: AnalysisService::new(),
-            context_retriever: ContextRetriever::new(),
+            context_retriever,
             prompt_service: ReactPromptService::new(),
             learning_service: LearningService::new()?,
             max_iterations: 10,
@@ -231,5 +240,14 @@ impl ReactAgentService {
             .await
             .map_err(|e| anyhow!(e.to_string()))
     }
+}
 
+fn init_knowledge_graph() -> Option<KnowledgeGraph> {
+    let home = std::env::var("HOME").ok()?;
+    let kg_path = PathBuf::from(home).join(".config/vibe_cli/knowledge_graph.db");
+    KnowledgeGraph::new(kg_path).ok()
+}
+
+fn init_knowledge_graph_arc() -> Option<Arc<KnowledgeGraph>> {
+    init_knowledge_graph().map(Arc::new)
 }

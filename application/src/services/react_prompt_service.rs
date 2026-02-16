@@ -32,6 +32,9 @@ impl ReactPromptService {
 ## Constraints\n\
 {constraints}\n\
 \n\
+## System Context\n\
+{knowledge_context}\n\
+\n\
 {learning_context}\n\
 \n\
 ## Avoid These Commands\n\
@@ -51,6 +54,7 @@ ANALYZE: <reasoning>\n",
             facts = context.facts,
             hypotheses = context.hypotheses,
             constraints = context.constraints,
+            knowledge_context = context.knowledge_context,
             learning_context = learning_context,
             failed_commands = failed_commands,
         )
@@ -72,6 +76,7 @@ History:\n{history}\n\
 Facts:\n{facts}\n\
 Hypotheses:\n{hypotheses}\n\
 Constraints:\n{constraints}\n\
+System Context:\n{knowledge_context}\n\
 Avoid commands:\n{failed_commands}\n\
 Available tools:\n\
 - read <path> [lines] [offset]\n\
@@ -108,6 +113,7 @@ Constraints:\n\
             facts = context.facts,
             hypotheses = context.hypotheses,
             constraints = context.constraints,
+            knowledge_context = context.knowledge_context,
             failed_commands = failed_commands,
         )
     }
