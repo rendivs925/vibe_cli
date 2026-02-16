@@ -310,13 +310,13 @@ impl ReactAgentService {
         Ok(())
     }
 
-    /// Select the appropriate tool for the next step (Phase 1: defaults to SuggestCommand)
+    /// Select the appropriate tool for the next step
     /// 
-    /// In Phase 1, this method:
-    /// 1. Generates a tool selection prompt
+    /// This method:
+    /// 1. Generates a tool selection prompt with all available tools
     /// 2. Calls the LLM to select a tool
     /// 3. Parses the response to extract the selected tool
-    /// 4. Falls back to SuggestCommand if parsing fails (backward compatibility)
+    /// 4. Returns error if no valid tool can be selected
     pub async fn select_tool(&self, session: &ReactSession, reasoning: &str) -> Result<ToolDecision> {
         let context = self.context_retriever.retrieve_with_semantic_search(session).await;
         let prompt = self.prompt_service.tool_selection_prompt(&session.query, reasoning, &context);
@@ -333,14 +333,8 @@ impl ReactAgentService {
             });
         }
         
-        // Phase 1 backward compatibility: default to SuggestCommand if parsing fails
-        eprintln!("[debug] Tool selection parsing failed, defaulting to SuggestCommand");
-        Ok(ToolDecision {
-            tool: ReactTool::SuggestCommand,
-            justification: "Defaulting to command suggestion for backward compatibility".to_string(),
-            context_needed: String::new(),
-            confidence: 0.5,
-        })
+        // If parsing fails, return error - don't silently fallback
+        Err(anyhow!("Failed to parse tool selection from LLM response"))
     }
 
     /// Execute a tool and return the result

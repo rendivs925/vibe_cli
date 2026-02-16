@@ -77,21 +77,51 @@ impl CliHandlers {
             )
             .await?;
 
-            // Phase 1: Tool Selection (with backward compatibility)
-            let tool_decision = service.select_tool(&session, &reasoning).await?;
-            print_section("TOOL SELECTION", &format!(
-                "TOOL: {}\nJUSTIFY: {}",
-                tool_decision.tool.name(),
-                tool_decision.justification
-            ));
-
-            // Execute the selected tool
-            let tool_result = service.execute_tool(tool_decision.tool, &session, &reasoning).await?;
+            // Dynamic Tool Selection
+            let mut tool_name = "unknown".to_string();
+            let mut tool_justification = "Tool selection failed".to_string();
             
-            // Handle tool output
-            if !tool_result.output.is_empty() {
-                print_section("TOOL OUTPUT", &tool_result.output);
-            }
+            let tool_result = match service.select_tool(&session, &reasoning).await {
+                Ok(tool_decision) => {
+                    tool_name = tool_decision.tool.name().to_string();
+                    tool_justification = tool_decision.justification.clone();
+                    
+                    print_section("TOOL SELECTION", &format!(
+                        "TOOL: {}\nJUSTIFY: {}",
+                        tool_name,
+                        tool_justification
+                    ));
+                    
+                    // Execute the selected tool
+                    match service.execute_tool(tool_decision.tool, &session, &reasoning).await {
+                        Ok(result) => {
+                            // Handle tool output
+                            if !result.output.is_empty() {
+                                print_section("TOOL OUTPUT", &result.output);
+                            }
+                            Some(result)
+                        }
+                        Err(e) => {
+                            eprintln!("[warn] Tool execution failed: {}", e);
+                            None
+                        }
+                    }
+                }
+                Err(e) => {
+                    eprintln!("[warn] Tool selection failed: {}", e);
+                    None
+                }
+            };
+
+            // If tool failed, skip to command proposal
+            let tool_result = match tool_result {
+                Some(r) => r,
+                None => {
+                    print_section("TOOL SELECTION", "Tool selection failed, proceeding to command proposal");
+                    // Return a minimal ToolResult to continue to command proposal
+                    domain::entities::react::ToolResult::new(domain::entities::react::ReactTool::SuggestCommand)
+                }
+            };
 
             // Check if we should conclude the session
             if !tool_result.should_continue {
@@ -101,7 +131,7 @@ impl CliHandlers {
                 return Ok(());
             }
 
-            // Get commands from tool result (Phase 1: always use commands from SuggestCommand)
+            // Get commands from tool result
             let mut commands = if let Some(command_override) = pending_command_override.take() {
                 vec![ProposedCommand::new(
                     command_override,
@@ -119,8 +149,8 @@ impl CliHandlers {
                 tool_result.commands.into_iter().map(|cmd| {
                     ProposedCommand::new(
                         cmd,
-                        format!("Tool proposed: {}", tool_decision.tool.name()),
-                        tool_decision.justification.clone(),
+                        format!("Tool proposed: {}", tool_name),
+                        tool_justification.clone(),
                     )
                 }).collect()
             } else {
