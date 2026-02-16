@@ -32,7 +32,8 @@ impl ReactToolHandler for ApplyFixHandler {
         let fix_plan = generate_fix_plan(context);
         
         Ok(ToolResult::new(ReactTool::ApplyFix)
-            .with_output(format!("Fix plan generated:\n{}", fix_plan)))
+            .with_output(format!("Fix plan generated:\n{}", fix_plan))
+            .with_next_tool(ReactTool::VerifyFix))
     }
     
     fn get_prompt(&self, context: &RetrievedContext) -> String {
@@ -73,7 +74,8 @@ impl ReactToolHandler for EditFileHandler {
         
         Ok(ToolResult::new(ReactTool::EditFile)
             .with_output(format!("Suggested file to edit: {}", suggested_path))
-            .with_commands(vec![command]))
+            .with_commands(vec![command])
+            .with_next_tool(ReactTool::VerifySyntax))
     }
     
     fn get_prompt(&self, context: &RetrievedContext) -> String {
@@ -114,7 +116,8 @@ impl ReactToolHandler for CreateFileHandler {
         
         Ok(ToolResult::new(ReactTool::CreateFile)
             .with_output(format!("Suggested new file: {}", suggested_path))
-            .with_commands(vec![command]))
+            .with_commands(vec![command])
+            .with_next_tool(ReactTool::VerifySyntax))
     }
     
     fn get_prompt(&self, context: &RetrievedContext) -> String {
@@ -143,7 +146,7 @@ impl ReactToolHandler for RunCommandHandler {
         false
     }
     
-    async fn execute(&self, context: &RetrievedContext, params: Option<&str>) -> Result<ToolResult> {
+    async fn execute(&self, _context: &RetrievedContext, params: Option<&str>) -> Result<ToolResult> {
         // This tool signals that a command should be run without suggestion phase
         let command = params.unwrap_or("").to_string();
         
@@ -153,7 +156,8 @@ impl ReactToolHandler for RunCommandHandler {
         } else {
             Ok(ToolResult::new(ReactTool::RunCommand)
                 .with_output(format!("Direct command execution: {}", command))
-                .with_commands(vec![command]))
+                .with_commands(vec![command])
+                .with_next_tool(ReactTool::Summarize))
         }
     }
     
@@ -195,7 +199,8 @@ impl ReactToolHandler for RetryHandler {
         
         Ok(ToolResult::new(ReactTool::Retry)
             .with_output(output)
-            .with_commands(commands))
+            .with_commands(commands)
+            .with_next_tool(ReactTool::CheckGoal))
     }
     
     fn get_prompt(&self, context: &RetrievedContext) -> String {

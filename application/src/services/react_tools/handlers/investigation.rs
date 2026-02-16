@@ -28,11 +28,12 @@ impl ReactToolHandler for SuggestCommandHandler {
         false
     }
     
-    async fn execute(&self, context: &RetrievedContext, _params: Option<&str>) -> Result<ToolResult> {
+    async fn execute(&self, _context: &RetrievedContext, _params: Option<&str>) -> Result<ToolResult> {
         // This tool doesn't execute directly - it signals that commands should be generated
         // The actual command generation happens in ReactAgentService
         Ok(ToolResult::new(ReactTool::SuggestCommand)
-            .with_output("Requesting command suggestions based on current context...".to_string()))
+            .with_output("Requesting command suggestions based on current context...".to_string())
+            .with_next_tool(ReactTool::Summarize))
     }
     
     fn get_prompt(&self, context: &RetrievedContext) -> String {
@@ -69,7 +70,8 @@ impl ReactToolHandler for SuggestReadHandler {
         
         Ok(ToolResult::new(ReactTool::SuggestRead)
             .with_output(format!("Suggested file to examine: {}", suggested_path))
-            .with_commands(vec![command]))
+            .with_commands(vec![command])
+            .with_next_tool(ReactTool::Summarize))
     }
     
     fn get_prompt(&self, context: &RetrievedContext) -> String {
@@ -105,7 +107,8 @@ impl ReactToolHandler for SuggestGrepHandler {
         
         Ok(ToolResult::new(ReactTool::SuggestGrep)
             .with_output(format!("Suggested search pattern: {}", pattern))
-            .with_commands(vec![command]))
+            .with_commands(vec![command])
+            .with_next_tool(ReactTool::ExtractErrors))
     }
     
     fn get_prompt(&self, context: &RetrievedContext) -> String {
@@ -141,7 +144,8 @@ impl ReactToolHandler for SuggestRagHandler {
         
         Ok(ToolResult::new(ReactTool::SuggestRag)
             .with_output(format!("Suggested RAG query: {}", query))
-            .with_commands(vec![command]))
+            .with_commands(vec![command])
+            .with_next_tool(ReactTool::Summarize))
     }
     
     fn get_prompt(&self, context: &RetrievedContext) -> String {
@@ -176,7 +180,8 @@ impl ReactToolHandler for SuggestDiscoveryHandler {
         
         Ok(ToolResult::new(ReactTool::SuggestDiscovery)
             .with_output(format!("Suggested {} discovery command(s)", commands.len()))
-            .with_commands(commands))
+            .with_commands(commands)
+            .with_next_tool(ReactTool::ExtractMetrics))
     }
     
     fn get_prompt(&self, context: &RetrievedContext) -> String {

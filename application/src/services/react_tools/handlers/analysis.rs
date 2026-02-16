@@ -1,6 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use domain::entities::react::{ReactTool, ToolCategory, ToolResult};
+use domain::entities::{Fact, Hypothesis};
 use std::sync::Arc;
 
 use crate::services::react_context_retriever::RetrievedContext;
@@ -32,7 +33,8 @@ impl ReactToolHandler for SummarizeHandler {
         let summary = generate_summary(context);
         
         Ok(ToolResult::new(ReactTool::Summarize)
-            .with_output(summary))
+            .with_output(summary)
+            .with_next_tool(ReactTool::ExtractErrors))
     }
     
     fn get_prompt(&self, context: &RetrievedContext) -> String {
@@ -64,6 +66,18 @@ impl ReactToolHandler for ExtractErrorsHandler {
     async fn execute(&self, context: &RetrievedContext, _params: Option<&str>) -> Result<ToolResult> {
         let errors = extract_errors(&context.latest_output);
         
+        // Create facts from extracted errors
+        let facts: Vec<Fact> = errors.iter().enumerate().map(|(i, error)| {
+            Fact {
+                key: format!("error_{}", i + 1),
+                value: error.clone(),
+                source_command: "extract_errors".to_string(),
+                source_step: context.steps,
+                verified: true,
+                embedding_id: None,
+            }
+        }).collect();
+        
         let output = if errors.is_empty() {
             "No errors found in output.".to_string()
         } else {
@@ -73,7 +87,9 @@ impl ReactToolHandler for ExtractErrorsHandler {
         };
         
         Ok(ToolResult::new(ReactTool::ExtractErrors)
-            .with_output(output))
+            .with_output(output)
+            .with_facts(facts)
+            .with_next_tool(ReactTool::ExtractWarnings))
     }
     
     fn get_prompt(&self, context: &RetrievedContext) -> String {
@@ -105,6 +121,18 @@ impl ReactToolHandler for ExtractWarningsHandler {
     async fn execute(&self, context: &RetrievedContext, _params: Option<&str>) -> Result<ToolResult> {
         let warnings = extract_warnings(&context.latest_output);
         
+        // Create facts from extracted warnings
+        let facts: Vec<Fact> = warnings.iter().enumerate().map(|(i, warning)| {
+            Fact {
+                key: format!("warning_{}", i + 1),
+                value: warning.clone(),
+                source_command: "extract_warnings".to_string(),
+                source_step: context.steps,
+                verified: true,
+                embedding_id: None,
+            }
+        }).collect();
+        
         let output = if warnings.is_empty() {
             "No warnings found in output.".to_string()
         } else {
@@ -114,7 +142,9 @@ impl ReactToolHandler for ExtractWarningsHandler {
         };
         
         Ok(ToolResult::new(ReactTool::ExtractWarnings)
-            .with_output(output))
+            .with_output(output)
+            .with_facts(facts)
+            .with_next_tool(ReactTool::ExtractMetrics))
     }
     
     fn get_prompt(&self, context: &RetrievedContext) -> String {
@@ -146,6 +176,18 @@ impl ReactToolHandler for ExtractMetricsHandler {
     async fn execute(&self, context: &RetrievedContext, _params: Option<&str>) -> Result<ToolResult> {
         let metrics = extract_metrics(&context.latest_output);
         
+        // Create facts from extracted metrics
+        let facts: Vec<Fact> = metrics.iter().map(|(key, value)| {
+            Fact {
+                key: key.clone(),
+                value: value.clone(),
+                source_command: "extract_metrics".to_string(),
+                source_step: context.steps,
+                verified: true,
+                embedding_id: None,
+            }
+        }).collect();
+        
         let output = if metrics.is_empty() {
             "No numeric metrics found in output.".to_string()
         } else {
@@ -157,7 +199,9 @@ impl ReactToolHandler for ExtractMetricsHandler {
         };
         
         Ok(ToolResult::new(ReactTool::ExtractMetrics)
-            .with_output(output))
+            .with_output(output)
+            .with_facts(facts)
+            .with_next_tool(ReactTool::PlanNext))
     }
     
     fn get_prompt(&self, context: &RetrievedContext) -> String {
@@ -189,6 +233,18 @@ impl ReactToolHandler for ExtractPatternsHandler {
     async fn execute(&self, context: &RetrievedContext, _params: Option<&str>) -> Result<ToolResult> {
         let patterns = extract_patterns(&context.latest_output);
         
+        // Create facts from detected patterns
+        let facts: Vec<Fact> = patterns.iter().enumerate().map(|(i, pattern)| {
+            Fact {
+                key: format!("pattern_{}", i + 1),
+                value: pattern.clone(),
+                source_command: "extract_patterns".to_string(),
+                source_step: context.steps,
+                verified: true,
+                embedding_id: None,
+            }
+        }).collect();
+        
         let output = if patterns.is_empty() {
             "No significant patterns detected.".to_string()
         } else {
@@ -197,7 +253,9 @@ impl ReactToolHandler for ExtractPatternsHandler {
         };
         
         Ok(ToolResult::new(ReactTool::ExtractPatterns)
-            .with_output(output))
+            .with_output(output)
+            .with_facts(facts)
+            .with_next_tool(ReactTool::Correlate))
     }
     
     fn get_prompt(&self, context: &RetrievedContext) -> String {
@@ -231,7 +289,8 @@ impl ReactToolHandler for CompareHandler {
         let comparison = generate_comparison(context);
         
         Ok(ToolResult::new(ReactTool::Compare)
-            .with_output(comparison))
+            .with_output(comparison)
+            .with_next_tool(ReactTool::CheckGoal))
     }
     
     fn get_prompt(&self, context: &RetrievedContext) -> String {
@@ -263,6 +322,16 @@ impl ReactToolHandler for CorrelateHandler {
     async fn execute(&self, context: &RetrievedContext, _params: Option<&str>) -> Result<ToolResult> {
         let correlations = find_correlations(context);
         
+        // Create hypotheses from detected correlations
+        let hypotheses: Vec<Hypothesis> = correlations.iter().enumerate().map(|(i, corr)| {
+            Hypothesis {
+                description: corr.clone(),
+                confidence: 0.7,
+                supporting_facts: vec![],
+                created_at: chrono::Utc::now(),
+            }
+        }).collect();
+        
         let output = if correlations.is_empty() {
             "No obvious correlations detected in current data.".to_string()
         } else {
@@ -270,7 +339,9 @@ impl ReactToolHandler for CorrelateHandler {
         };
         
         Ok(ToolResult::new(ReactTool::Correlate)
-            .with_output(output))
+            .with_output(output)
+            .with_hypotheses(hypotheses)
+            .with_next_tool(ReactTool::CheckGoal))
     }
     
     fn get_prompt(&self, context: &RetrievedContext) -> String {

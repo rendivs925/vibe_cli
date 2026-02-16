@@ -1,6 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use domain::entities::react::{ReactTool, ToolCategory, ToolResult};
+use domain::entities::Hypothesis;
 use std::sync::Arc;
 
 use crate::services::react_context_retriever::RetrievedContext;
@@ -32,7 +33,8 @@ impl ReactToolHandler for PlanNextHandler {
         let plan = generate_next_steps(context);
         
         Ok(ToolResult::new(ReactTool::PlanNext)
-            .with_output(format!("Proposed next steps:\n{}", plan)))
+            .with_output(format!("Proposed next steps:\n{}", plan))
+            .with_next_tool(ReactTool::SuggestCommand))
     }
     
     fn get_prompt(&self, context: &RetrievedContext) -> String {
@@ -64,8 +66,18 @@ impl ReactToolHandler for NarrowFocusHandler {
     async fn execute(&self, context: &RetrievedContext, _params: Option<&str>) -> Result<ToolResult> {
         let focus = generate_focus(context);
         
+        // Create a hypothesis from the narrowed focus
+        let hypotheses = vec![Hypothesis {
+            description: focus.clone(),
+            confidence: 0.8,
+            supporting_facts: vec![],
+            created_at: chrono::Utc::now(),
+        }];
+        
         Ok(ToolResult::new(ReactTool::NarrowFocus)
-            .with_output(format!("Narrowed focus:\n{}", focus)))
+            .with_output(format!("Narrowed focus:\n{}", focus))
+            .with_hypotheses(hypotheses)
+            .with_next_tool(ReactTool::SuggestCommand))
     }
     
     fn get_prompt(&self, context: &RetrievedContext) -> String {
@@ -98,7 +110,8 @@ impl ReactToolHandler for BranchHandler {
         let branches = generate_branches(context);
         
         Ok(ToolResult::new(ReactTool::Branch)
-            .with_output(format!("Alternative approaches:\n{}", branches)))
+            .with_output(format!("Alternative approaches:\n{}", branches))
+            .with_next_tool(ReactTool::Prioritize))
     }
     
     fn get_prompt(&self, context: &RetrievedContext) -> String {
@@ -130,8 +143,18 @@ impl ReactToolHandler for RethinkHandler {
     async fn execute(&self, context: &RetrievedContext, _params: Option<&str>) -> Result<ToolResult> {
         let approach = generate_new_approach(context);
         
+        // Create a hypothesis for the new approach
+        let hypotheses = vec![Hypothesis {
+            description: "New approach required".to_string(),
+            confidence: 0.6,
+            supporting_facts: vec![],
+            created_at: chrono::Utc::now(),
+        }];
+        
         Ok(ToolResult::new(ReactTool::Rethink)
-            .with_output(format!("New approach suggested:\n{}", approach)))
+            .with_output(format!("New approach suggested:\n{}", approach))
+            .with_hypotheses(hypotheses)
+            .with_next_tool(ReactTool::SuggestCommand))
     }
     
     fn get_prompt(&self, context: &RetrievedContext) -> String {
@@ -164,7 +187,8 @@ impl ReactToolHandler for PrioritizeHandler {
         let ranking = generate_priorities(context);
         
         Ok(ToolResult::new(ReactTool::Prioritize)
-            .with_output(format!("Prioritized actions:\n{}", ranking)))
+            .with_output(format!("Prioritized actions:\n{}", ranking))
+            .with_next_tool(ReactTool::SuggestCommand))
     }
     
     fn get_prompt(&self, context: &RetrievedContext) -> String {

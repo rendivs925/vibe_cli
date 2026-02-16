@@ -1,6 +1,7 @@
 use anyhow::Result;
 use async_trait::async_trait;
 use domain::entities::react::{ReactTool, ToolCategory, ToolResult};
+use domain::entities::Hypothesis;
 use std::sync::Arc;
 
 use crate::services::react_context_retriever::RetrievedContext;
@@ -40,8 +41,24 @@ impl ReactToolHandler for CheckGoalHandler {
             )
         };
         
+        // Create hypothesis based on goal achievement status
+        let hypotheses = vec![Hypothesis {
+            description: if achieved { "Goal achieved".to_string() } else { "Goal not yet achieved".to_string() },
+            confidence: if achieved { 0.95 } else { 0.5 },
+            supporting_facts: vec![],
+            created_at: chrono::Utc::now(),
+        }];
+        
+        let next_tool = if achieved {
+            ReactTool::ConcludeSuccess
+        } else {
+            ReactTool::PlanNext
+        };
+        
         Ok(ToolResult::new(ReactTool::CheckGoal)
-            .with_output(output))
+            .with_output(output)
+            .with_hypotheses(hypotheses)
+            .with_next_tool(next_tool))
     }
     
     fn get_prompt(&self, context: &RetrievedContext) -> String {
@@ -82,8 +99,15 @@ impl ReactToolHandler for VerifyFixHandler {
             )
         };
         
+        let next_tool = if verified {
+            ReactTool::CheckGoal
+        } else {
+            ReactTool::ApplyFix
+        };
+        
         Ok(ToolResult::new(ReactTool::VerifyFix)
-            .with_output(output))
+            .with_output(output)
+            .with_next_tool(next_tool))
     }
     
     fn get_prompt(&self, context: &RetrievedContext) -> String {
@@ -121,8 +145,15 @@ impl ReactToolHandler for VerifySyntaxHandler {
             "SYNTAX ERROR - Issues detected. Review before applying.".to_string()
         };
         
+        let next_tool = if syntax_ok {
+            ReactTool::ApplyFix
+        } else {
+            ReactTool::EditFile
+        };
+        
         Ok(ToolResult::new(ReactTool::VerifySyntax)
-            .with_output(output))
+            .with_output(output)
+            .with_next_tool(next_tool))
     }
     
     fn get_prompt(&self, context: &RetrievedContext) -> String {
@@ -155,8 +186,19 @@ impl ReactToolHandler for TestHypothesisHandler {
         let hypothesis = params.unwrap_or("");
         let result = test_hypothesis(context, hypothesis);
         
+        // Create hypothesis with updated confidence based on test result
+        let confidence = if result.contains("SUPPORTED") { 0.9 } else { 0.3 };
+        let hypotheses = vec![Hypothesis {
+            description: hypothesis.to_string(),
+            confidence,
+            supporting_facts: vec![],
+            created_at: chrono::Utc::now(),
+        }];
+        
         Ok(ToolResult::new(ReactTool::TestHypothesis)
-            .with_output(result))
+            .with_output(result)
+            .with_hypotheses(hypotheses)
+            .with_next_tool(ReactTool::CheckGoal))
     }
     
     fn get_prompt(&self, context: &RetrievedContext) -> String {

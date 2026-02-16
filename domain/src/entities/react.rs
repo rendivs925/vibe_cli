@@ -2,7 +2,7 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-use crate::entities::{QueryIntent, SessionMemory};
+use crate::entities::{Fact, Hypothesis, QueryIntent, SessionMemory};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ReactSession {
@@ -388,6 +388,9 @@ pub struct ToolResult {
     pub tool: ReactTool,
     pub output: String,
     pub commands: Vec<String>,
+    pub facts_extracted: Vec<Fact>,
+    pub hypotheses_updated: Vec<Hypothesis>,
+    pub next_tool_suggestion: Option<ReactTool>,
     pub should_continue: bool,
     pub should_ask_user: bool,
     pub user_question: Option<String>,
@@ -399,6 +402,9 @@ impl ToolResult {
             tool,
             output: String::new(),
             commands: Vec::new(),
+            facts_extracted: Vec::new(),
+            hypotheses_updated: Vec::new(),
+            next_tool_suggestion: None,
             should_continue: true,
             should_ask_user: false,
             user_question: None,
@@ -412,6 +418,21 @@ impl ToolResult {
 
     pub fn with_commands(mut self, commands: Vec<String>) -> Self {
         self.commands = commands;
+        self
+    }
+
+    pub fn with_facts(mut self, facts: Vec<Fact>) -> Self {
+        self.facts_extracted = facts;
+        self
+    }
+
+    pub fn with_hypotheses(mut self, hypotheses: Vec<Hypothesis>) -> Self {
+        self.hypotheses_updated = hypotheses;
+        self
+    }
+
+    pub fn with_next_tool(mut self, tool: ReactTool) -> Self {
+        self.next_tool_suggestion = Some(tool);
         self
     }
 

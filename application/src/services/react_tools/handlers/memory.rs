@@ -32,7 +32,8 @@ impl ReactToolHandler for ShowFactsHandler {
         let facts_display = format_facts(&context.facts);
         
         Ok(ToolResult::new(ReactTool::ShowFacts)
-            .with_output(facts_display))
+            .with_output(facts_display)
+            .with_next_tool(ReactTool::CheckGoal))
     }
     
     fn get_prompt(&self, _context: &RetrievedContext) -> String {
@@ -65,7 +66,8 @@ impl ReactToolHandler for ShowHypothesesHandler {
         let hypotheses_display = format_hypotheses(&context.hypotheses);
         
         Ok(ToolResult::new(ReactTool::ShowHypotheses)
-            .with_output(hypotheses_display))
+            .with_output(hypotheses_display)
+            .with_next_tool(ReactTool::TestHypothesis))
     }
     
     fn get_prompt(&self, _context: &RetrievedContext) -> String {
@@ -96,7 +98,8 @@ impl ReactToolHandler for ShowHistoryHandler {
     
     async fn execute(&self, context: &RetrievedContext, _params: Option<&str>) -> Result<ToolResult> {
         Ok(ToolResult::new(ReactTool::ShowHistory)
-            .with_output(format!("Session History:\n\n{}", context.session_history)))
+            .with_output(format!("Session History:\n\n{}", context.session_history))
+            .with_next_tool(ReactTool::PlanNext))
     }
     
     fn get_prompt(&self, _context: &RetrievedContext) -> String {
@@ -129,7 +132,8 @@ impl ReactToolHandler for ShowContextHandler {
         let full_context = format_full_context(context);
         
         Ok(ToolResult::new(ReactTool::ShowContext)
-            .with_output(full_context))
+            .with_output(full_context)
+            .with_next_tool(ReactTool::CheckGoal))
     }
     
     fn get_prompt(&self, _context: &RetrievedContext) -> String {
@@ -161,7 +165,8 @@ impl ReactToolHandler for ShowPlanHandler {
     async fn execute(&self, _context: &RetrievedContext, _params: Option<&str>) -> Result<ToolResult> {
         // This would show the current plan if one exists
         Ok(ToolResult::new(ReactTool::ShowPlan)
-            .with_output("Current plan: Investigation in progress. Use plan_next to generate a plan.".to_string()))
+            .with_output("Current plan: Investigation in progress. Use plan_next to generate a plan.".to_string())
+            .with_next_tool(ReactTool::SuggestCommand))
     }
     
     fn get_prompt(&self, _context: &RetrievedContext) -> String {
@@ -194,7 +199,8 @@ impl ReactToolHandler for CompactSessionHandler {
         let compacted = compact_history(context);
         
         Ok(ToolResult::new(ReactTool::CompactSession)
-            .with_output(format!("Session compacted:\n\n{}", compacted)))
+            .with_output(format!("Session compacted:\n\n{}", compacted))
+            .with_next_tool(ReactTool::CheckGoal))
     }
     
     fn get_prompt(&self, context: &RetrievedContext) -> String {
