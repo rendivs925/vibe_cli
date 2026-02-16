@@ -77,6 +77,31 @@ impl CliHandlers {
             )
             .await?;
 
+            // Phase 1: Tool Selection (with backward compatibility)
+            let tool_decision = service.select_tool(&session, &reasoning).await?;
+            print_section("TOOL SELECTION", &format!(
+                "TOOL: {}\nJUSTIFY: {}",
+                tool_decision.tool.name(),
+                tool_decision.justification
+            ));
+
+            // Execute the selected tool
+            let tool_result = service.execute_tool(tool_decision.tool, &session, &reasoning).await?;
+            
+            // Handle tool output
+            if !tool_result.output.is_empty() {
+                print_section("TOOL OUTPUT", &tool_result.output);
+            }
+
+            // Check if we should conclude the session
+            if !tool_result.should_continue {
+                session.complete();
+                service.save_session(&session).await?;
+                print_section("CONCLUSION", &tool_result.output);
+                return Ok(());
+            }
+
+            // Get commands from tool result (Phase 1: always use commands from SuggestCommand)
             let mut commands = if let Some(command_override) = pending_command_override.take() {
                 vec![ProposedCommand::new(
                     command_override,
@@ -89,6 +114,15 @@ impl CliHandlers {
                     "Project structure discovery".to_string(),
                     "Prefer RAG and AST for codebase exploration".to_string(),
                 )]
+            } else if !tool_result.commands.is_empty() {
+                // Use commands from tool result
+                tool_result.commands.into_iter().map(|cmd| {
+                    ProposedCommand::new(
+                        cmd,
+                        format!("Tool proposed: {}", tool_decision.tool.name()),
+                        tool_decision.justification.clone(),
+                    )
+                }).collect()
             } else {
                 service.propose_commands(&reasoning, &session).await?
             };

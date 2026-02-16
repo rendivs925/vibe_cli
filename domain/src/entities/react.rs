@@ -81,6 +81,354 @@ pub struct ReactContext {
     pub user_preferences: HashMap<String, String>,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ReactTool {
+    // Category A: Investigation Tools (Gathering Data)
+    SuggestCommand,
+    SuggestRead,
+    SuggestGrep,
+    SuggestRag,
+    SuggestDiscovery,
+
+    // Category B: Analysis Tools (Understanding Data)
+    Summarize,
+    ExtractErrors,
+    ExtractWarnings,
+    ExtractMetrics,
+    ExtractPatterns,
+    Compare,
+    Correlate,
+
+    // Category C: Planning Tools (Strategy)
+    PlanNext,
+    NarrowFocus,
+    Branch,
+    Rethink,
+    Prioritize,
+
+    // Category D: Action Tools (Making Changes)
+    ApplyFix,
+    EditFile,
+    CreateFile,
+    RunCommand,
+    Retry,
+
+    // Category E: Verification Tools (Checking)
+    CheckGoal,
+    VerifyFix,
+    VerifySyntax,
+    TestHypothesis,
+
+    // Category F: Memory Tools (Context)
+    ShowFacts,
+    ShowHypotheses,
+    ShowHistory,
+    ShowContext,
+    ShowPlan,
+    CompactSession,
+
+    // Category G: Resolution Tools (Ending)
+    ConcludeSuccess,
+    ConcludeFail,
+    Escalate,
+    Defer,
+
+    // Category H: Interaction Tools (User)
+    AskClarification,
+    AskConfirmation,
+    Explain,
+    SuggestAlternatives,
+}
+
+impl ReactTool {
+    pub fn name(&self) -> &'static str {
+        match self {
+            ReactTool::SuggestCommand => "suggest_command",
+            ReactTool::SuggestRead => "suggest_read",
+            ReactTool::SuggestGrep => "suggest_grep",
+            ReactTool::SuggestRag => "suggest_rag",
+            ReactTool::SuggestDiscovery => "suggest_discovery",
+            ReactTool::Summarize => "summarize",
+            ReactTool::ExtractErrors => "extract_errors",
+            ReactTool::ExtractWarnings => "extract_warnings",
+            ReactTool::ExtractMetrics => "extract_metrics",
+            ReactTool::ExtractPatterns => "extract_patterns",
+            ReactTool::Compare => "compare",
+            ReactTool::Correlate => "correlate",
+            ReactTool::PlanNext => "plan_next",
+            ReactTool::NarrowFocus => "narrow_focus",
+            ReactTool::Branch => "branch",
+            ReactTool::Rethink => "rethink",
+            ReactTool::Prioritize => "prioritize",
+            ReactTool::ApplyFix => "apply_fix",
+            ReactTool::EditFile => "edit_file",
+            ReactTool::CreateFile => "create_file",
+            ReactTool::RunCommand => "run_command",
+            ReactTool::Retry => "retry",
+            ReactTool::CheckGoal => "check_goal",
+            ReactTool::VerifyFix => "verify_fix",
+            ReactTool::VerifySyntax => "verify_syntax",
+            ReactTool::TestHypothesis => "test_hypothesis",
+            ReactTool::ShowFacts => "show_facts",
+            ReactTool::ShowHypotheses => "show_hypotheses",
+            ReactTool::ShowHistory => "show_history",
+            ReactTool::ShowContext => "show_context",
+            ReactTool::ShowPlan => "show_plan",
+            ReactTool::CompactSession => "compact_session",
+            ReactTool::ConcludeSuccess => "conclude_success",
+            ReactTool::ConcludeFail => "conclude_fail",
+            ReactTool::Escalate => "escalate",
+            ReactTool::Defer => "defer",
+            ReactTool::AskClarification => "ask_clarification",
+            ReactTool::AskConfirmation => "ask_confirmation",
+            ReactTool::Explain => "explain",
+            ReactTool::SuggestAlternatives => "suggest_alternatives",
+        }
+    }
+
+    pub fn description(&self) -> &'static str {
+        match self {
+            ReactTool::SuggestCommand => "Propose diagnostic command to run",
+            ReactTool::SuggestRead => "Propose file to read",
+            ReactTool::SuggestGrep => "Propose search pattern",
+            ReactTool::SuggestRag => "Propose RAG query for code context",
+            ReactTool::SuggestDiscovery => "Propose system discovery command",
+            ReactTool::Summarize => "Summarize output in 3-5 sentences",
+            ReactTool::ExtractErrors => "Extract error messages from output",
+            ReactTool::ExtractWarnings => "Extract warnings from output",
+            ReactTool::ExtractMetrics => "Extract numeric metrics from output",
+            ReactTool::ExtractPatterns => "Find patterns in data",
+            ReactTool::Compare => "Compare two outputs or states",
+            ReactTool::Correlate => "Find relationships in data",
+            ReactTool::PlanNext => "Propose 2-3 next steps",
+            ReactTool::NarrowFocus => "Narrow investigation scope",
+            ReactTool::Branch => "Explore alternative approaches",
+            ReactTool::Rethink => "Take completely new approach",
+            ReactTool::Prioritize => "Rank options",
+            ReactTool::ApplyFix => "Apply a fix or change",
+            ReactTool::EditFile => "Edit an existing file",
+            ReactTool::CreateFile => "Create a new file",
+            ReactTool::RunCommand => "Run a command directly",
+            ReactTool::Retry => "Retry failed operation",
+            ReactTool::CheckGoal => "Verify if original goal achieved",
+            ReactTool::VerifyFix => "Verify if fix was applied correctly",
+            ReactTool::VerifySyntax => "Check syntax before applying",
+            ReactTool::TestHypothesis => "Test a hypothesis",
+            ReactTool::ShowFacts => "Show extracted facts",
+            ReactTool::ShowHypotheses => "Show current hypotheses",
+            ReactTool::ShowHistory => "Show session history",
+            ReactTool::ShowContext => "Show all context",
+            ReactTool::ShowPlan => "Show current plan",
+            ReactTool::CompactSession => "Compact session history",
+            ReactTool::ConcludeSuccess => "Problem solved - end session",
+            ReactTool::ConcludeFail => "Cannot solve - end session",
+            ReactTool::Escalate => "Need human assistance",
+            ReactTool::Defer => "Defer task for later",
+            ReactTool::AskClarification => "Need user clarification",
+            ReactTool::AskConfirmation => "Need user confirmation",
+            ReactTool::Explain => "Explain reasoning to user",
+            ReactTool::SuggestAlternatives => "Offer options to user",
+        }
+    }
+
+    pub fn category(&self) -> ToolCategory {
+        match self {
+            ReactTool::SuggestCommand
+            | ReactTool::SuggestRead
+            | ReactTool::SuggestGrep
+            | ReactTool::SuggestRag
+            | ReactTool::SuggestDiscovery => ToolCategory::Investigation,
+            ReactTool::Summarize
+            | ReactTool::ExtractErrors
+            | ReactTool::ExtractWarnings
+            | ReactTool::ExtractMetrics
+            | ReactTool::ExtractPatterns
+            | ReactTool::Compare
+            | ReactTool::Correlate => ToolCategory::Analysis,
+            ReactTool::PlanNext
+            | ReactTool::NarrowFocus
+            | ReactTool::Branch
+            | ReactTool::Rethink
+            | ReactTool::Prioritize => ToolCategory::Planning,
+            ReactTool::ApplyFix
+            | ReactTool::EditFile
+            | ReactTool::CreateFile
+            | ReactTool::RunCommand
+            | ReactTool::Retry => ToolCategory::Action,
+            ReactTool::CheckGoal
+            | ReactTool::VerifyFix
+            | ReactTool::VerifySyntax
+            | ReactTool::TestHypothesis => ToolCategory::Verification,
+            ReactTool::ShowFacts
+            | ReactTool::ShowHypotheses
+            | ReactTool::ShowHistory
+            | ReactTool::ShowContext
+            | ReactTool::ShowPlan
+            | ReactTool::CompactSession => ToolCategory::Memory,
+            ReactTool::ConcludeSuccess
+            | ReactTool::ConcludeFail
+            | ReactTool::Escalate
+            | ReactTool::Defer => ToolCategory::Resolution,
+            ReactTool::AskClarification
+            | ReactTool::AskConfirmation
+            | ReactTool::Explain
+            | ReactTool::SuggestAlternatives => ToolCategory::Interaction,
+        }
+    }
+}
+
+impl std::str::FromStr for ReactTool {
+    type Err = String;
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s {
+            "suggest_command" => Ok(ReactTool::SuggestCommand),
+            "suggest_read" => Ok(ReactTool::SuggestRead),
+            "suggest_grep" => Ok(ReactTool::SuggestGrep),
+            "suggest_rag" => Ok(ReactTool::SuggestRag),
+            "suggest_discovery" => Ok(ReactTool::SuggestDiscovery),
+            "summarize" => Ok(ReactTool::Summarize),
+            "extract_errors" => Ok(ReactTool::ExtractErrors),
+            "extract_warnings" => Ok(ReactTool::ExtractWarnings),
+            "extract_metrics" => Ok(ReactTool::ExtractMetrics),
+            "extract_patterns" => Ok(ReactTool::ExtractPatterns),
+            "compare" => Ok(ReactTool::Compare),
+            "correlate" => Ok(ReactTool::Correlate),
+            "plan_next" => Ok(ReactTool::PlanNext),
+            "narrow_focus" => Ok(ReactTool::NarrowFocus),
+            "branch" => Ok(ReactTool::Branch),
+            "rethink" => Ok(ReactTool::Rethink),
+            "prioritize" => Ok(ReactTool::Prioritize),
+            "apply_fix" => Ok(ReactTool::ApplyFix),
+            "edit_file" => Ok(ReactTool::EditFile),
+            "create_file" => Ok(ReactTool::CreateFile),
+            "run_command" => Ok(ReactTool::RunCommand),
+            "retry" => Ok(ReactTool::Retry),
+            "check_goal" => Ok(ReactTool::CheckGoal),
+            "verify_fix" => Ok(ReactTool::VerifyFix),
+            "verify_syntax" => Ok(ReactTool::VerifySyntax),
+            "test_hypothesis" => Ok(ReactTool::TestHypothesis),
+            "show_facts" => Ok(ReactTool::ShowFacts),
+            "show_hypotheses" => Ok(ReactTool::ShowHypotheses),
+            "show_history" => Ok(ReactTool::ShowHistory),
+            "show_context" => Ok(ReactTool::ShowContext),
+            "show_plan" => Ok(ReactTool::ShowPlan),
+            "compact_session" => Ok(ReactTool::CompactSession),
+            "conclude_success" => Ok(ReactTool::ConcludeSuccess),
+            "conclude_fail" => Ok(ReactTool::ConcludeFail),
+            "escalate" => Ok(ReactTool::Escalate),
+            "defer" => Ok(ReactTool::Defer),
+            "ask_clarification" => Ok(ReactTool::AskClarification),
+            "ask_confirmation" => Ok(ReactTool::AskConfirmation),
+            "explain" => Ok(ReactTool::Explain),
+            "suggest_alternatives" => Ok(ReactTool::SuggestAlternatives),
+            _ => Err(format!("Unknown tool: {}", s)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum ToolCategory {
+    Investigation,
+    Analysis,
+    Planning,
+    Action,
+    Verification,
+    Memory,
+    Resolution,
+    Interaction,
+}
+
+impl ToolCategory {
+    pub fn name(&self) -> &'static str {
+        match self {
+            ToolCategory::Investigation => "Investigation",
+            ToolCategory::Analysis => "Analysis",
+            ToolCategory::Planning => "Planning",
+            ToolCategory::Action => "Action",
+            ToolCategory::Verification => "Verification",
+            ToolCategory::Memory => "Memory",
+            ToolCategory::Resolution => "Resolution",
+            ToolCategory::Interaction => "Interaction",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolDecision {
+    pub tool: ReactTool,
+    pub justification: String,
+    pub context_needed: String,
+    pub confidence: f32,
+}
+
+impl ToolDecision {
+    pub fn new(tool: ReactTool, justification: String) -> Self {
+        Self {
+            tool,
+            justification,
+            context_needed: String::new(),
+            confidence: 1.0,
+        }
+    }
+
+    pub fn with_context(mut self, context: String) -> Self {
+        self.context_needed = context;
+        self
+    }
+
+    pub fn with_confidence(mut self, confidence: f32) -> Self {
+        self.confidence = confidence.clamp(0.0, 1.0);
+        self
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ToolResult {
+    pub tool: ReactTool,
+    pub output: String,
+    pub commands: Vec<String>,
+    pub should_continue: bool,
+    pub should_ask_user: bool,
+    pub user_question: Option<String>,
+}
+
+impl ToolResult {
+    pub fn new(tool: ReactTool) -> Self {
+        Self {
+            tool,
+            output: String::new(),
+            commands: Vec::new(),
+            should_continue: true,
+            should_ask_user: false,
+            user_question: None,
+        }
+    }
+
+    pub fn with_output(mut self, output: String) -> Self {
+        self.output = output;
+        self
+    }
+
+    pub fn with_commands(mut self, commands: Vec<String>) -> Self {
+        self.commands = commands;
+        self
+    }
+
+    pub fn conclude(self) -> Self {
+        Self {
+            should_continue: false,
+            ..self
+        }
+    }
+
+    pub fn ask_user(mut self, question: String) -> Self {
+        self.should_ask_user = true;
+        self.user_question = Some(question);
+        self
+    }
+}
+
 impl ReactSession {
     pub fn new(query: String, neurosymbolic_enabled: bool) -> Self {
         let now = Utc::now();

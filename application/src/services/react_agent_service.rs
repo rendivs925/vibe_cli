@@ -1,5 +1,5 @@
 use anyhow::anyhow;
-use domain::entities::react::{ProposedCommand, ReactSession, ReactStep};
+use domain::entities::react::{ProposedCommand, ReactSession, ReactStep, ReactTool, ToolDecision, ToolResult};
 use domain::repositories::react_repository::{ReactCommandRepository, ReactRepository};
 use infrastructure::ollama_client::OllamaClient;
 use infrastructure::session_indexing_service::SessionIndexingService;
@@ -276,6 +276,82 @@ impl ReactAgentService {
             ).await?;
         }
         Ok(())
+    }
+
+    /// Select the appropriate tool for the next step (Phase 1: defaults to SuggestCommand)
+    /// 
+    /// In Phase 1, this method:
+    /// 1. Generates a tool selection prompt
+    /// 2. Calls the LLM to select a tool
+    /// 3. Parses the response to extract the selected tool
+    /// 4. Falls back to SuggestCommand if parsing fails (backward compatibility)
+    pub async fn select_tool(&self, session: &ReactSession, reasoning: &str) -> Result<ToolDecision> {
+        let context = self.context_retriever.retrieve_with_semantic_search(session).await;
+        let prompt = self.prompt_service.tool_selection_prompt(&session.query, reasoning, &context);
+        
+        let response = self.client.generate_response(&prompt).await?;
+        
+        // Parse the tool selection response
+        if let Some((tool, justification, context_needed)) = self.prompt_service.parse_tool_selection(&response) {
+            return Ok(ToolDecision {
+                tool,
+                justification,
+                context_needed,
+                confidence: 1.0,
+            });
+        }
+        
+        // Phase 1 backward compatibility: default to SuggestCommand if parsing fails
+        eprintln!("[debug] Tool selection parsing failed, defaulting to SuggestCommand");
+        Ok(ToolDecision {
+            tool: ReactTool::SuggestCommand,
+            justification: "Defaulting to command suggestion for backward compatibility".to_string(),
+            context_needed: String::new(),
+            confidence: 0.5,
+        })
+    }
+
+    /// Execute a tool and return the result (Phase 1: only SuggestCommand is fully implemented)
+    pub async fn execute_tool(&self, tool: ReactTool, session: &ReactSession, reasoning: &str) -> Result<ToolResult> {
+        match tool {
+            ReactTool::SuggestCommand => {
+                let commands = self.propose_commands(reasoning, session).await?;
+                let command_strings: Vec<String> = commands.iter().map(|c| c.command.clone()).collect();
+                Ok(ToolResult::new(tool)
+                    .with_commands(command_strings))
+            }
+            ReactTool::CheckGoal => {
+                let achieved = self.is_goal_achieved(session).await.unwrap_or(false);
+                let output = if achieved {
+                    "YES - Goal appears to be achieved".to_string()
+                } else {
+                    "NO - Goal not yet achieved".to_string()
+                };
+                Ok(ToolResult::new(tool).with_output(output))
+            }
+            ReactTool::ConcludeSuccess => {
+                let summary = self.generate_goal_summary(session).await.unwrap_or_else(|_| {
+                    "Root cause: Unknown\nFix applied: Unknown".to_string()
+                });
+                Ok(ToolResult::new(tool)
+                    .with_output(summary)
+                    .conclude())
+            }
+            ReactTool::ConcludeFail => {
+                Ok(ToolResult::new(tool)
+                    .with_output("Session ended without resolution".to_string())
+                    .conclude())
+            }
+            _ => {
+                // Phase 1: All other tools fall back to SuggestCommand
+                eprintln!("[debug] Tool {:?} not yet implemented, falling back to SuggestCommand", tool);
+                let commands = self.propose_commands(reasoning, session).await?;
+                let command_strings: Vec<String> = commands.iter().map(|c| c.command.clone()).collect();
+                Ok(ToolResult::new(ReactTool::SuggestCommand)
+                    .with_commands(command_strings)
+                    .with_output(format!("Tool {:?} not yet implemented, falling back to command suggestion", tool)))
+            }
+        }
     }
 
     /// Index a command execution

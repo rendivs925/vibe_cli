@@ -1,10 +1,114 @@
 use crate::services::react_context_retriever::RetrievedContext;
+use domain::entities::react::ReactTool;
 
 pub struct ReactPromptService;
 
 impl ReactPromptService {
     pub fn new() -> Self {
         Self
+    }
+
+    pub fn tool_selection_prompt(
+        &self,
+        goal: &str,
+        reasoning: &str,
+        context: &RetrievedContext,
+    ) -> String {
+        format!(
+            "You are a systems debugging assistant using a ReAct loop with dynamic tool selection.\n\
+\n\
+## Current Task\n\
+{goal}\n\
+\n\
+## Previous Analysis\n\
+{reasoning}\n\
+\n\
+## Context\n\
+{latest_output}\n\
+\n\
+## Session History\n\
+{history}\n\
+\n\
+## TOOL SELECTION\n\
+\n\
+Based on your analysis, choose ONE tool from this list:\n\
+\n\
+### Investigation (need data)\n\
+- suggest_command: Propose diagnostic command to run\n\
+- suggest_read: Propose file to read\n\
+- suggest_grep: Propose search pattern\n\
+- suggest_rag: Propose RAG query for code context\n\
+- suggest_discovery: Propose system discovery command\n\
+\n\
+### Analysis (understand data)\n\
+- summarize: Summarize output in 3-5 sentences\n\
+- extract_errors: Extract error messages from output\n\
+- extract_warnings: Extract warnings from output\n\
+- extract_metrics: Extract numeric metrics from output\n\
+- compare: Compare two outputs or states\n\
+\n\
+### Planning (strategy)\n\
+- plan_next: Propose 2-3 next steps\n\
+- narrow_focus: Narrow investigation scope\n\
+- branch: Explore alternative approaches\n\
+- rethink: Take completely new approach\n\
+\n\
+### Action (make changes)\n\
+- apply_fix: Apply a fix or change\n\
+- edit_file: Edit an existing file\n\
+- create_file: Create a new file\n\
+\n\
+### Verification (check)\n\
+- check_goal: Verify if original goal achieved\n\
+- verify_fix: Verify if fix was applied correctly\n\
+\n\
+### Memory (context)\n\
+- show_facts: Show extracted facts\n\
+- show_hypotheses: Show current hypotheses\n\
+- show_history: Show session history\n\
+\n\
+### Resolution (end)\n\
+- conclude_success: Problem solved\n\
+- conclude_fail: Cannot solve, escalate needed\n\
+\n\
+### Interaction (user)\n\
+- ask_clarification: Need user clarification\n\
+- explain: Explain reasoning to user\n\
+\n\
+---\n\
+\n\
+Respond in this exact format:\n\
+TOOL: <tool_name>\n\
+JUSTIFY: <why this tool is the right choice>\n\
+CONTEXT: <what data you're using>\n\n",
+            goal = goal,
+            reasoning = reasoning,
+            latest_output = context.latest_output,
+            history = context.session_history,
+        )
+    }
+
+    pub fn parse_tool_selection(&self, response: &str) -> Option<(ReactTool, String, String)> {
+        let mut tool_name = None;
+        let mut justification = String::new();
+        let mut context_needed = String::new();
+
+        for line in response.lines() {
+            let line = line.trim();
+            if let Some(rest) = line.strip_prefix("TOOL:") {
+                tool_name = Some(rest.trim().to_string());
+            } else if let Some(rest) = line.strip_prefix("JUSTIFY:") {
+                justification = rest.trim().to_string();
+            } else if let Some(rest) = line.strip_prefix("CONTEXT:") {
+                context_needed = rest.trim().to_string();
+            }
+        }
+
+        tool_name.and_then(|name| {
+            name.parse::<ReactTool>()
+                .ok()
+                .map(|tool| (tool, justification, context_needed))
+        })
     }
 
     pub fn reasoning_prompt(
