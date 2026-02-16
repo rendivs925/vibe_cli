@@ -151,6 +151,8 @@ impl CliHandlers {
 
             match decision {
                 AllowDecision::Execute => {
+                    // Show which command is executing for transparency
+                    println!("\n▶ Executing: {}", suggested.command);
                     let output = execute_suggestion(
                         self,
                         &tools,
