@@ -14,6 +14,7 @@ use crate::services::react_command_parser::parse_command_list;
 use crate::services::react_context_retriever::ContextRetriever;
 use crate::services::react_prompt_service::ReactPromptService;
 use crate::services::neurosymbolic_service::NeurosymbolicService;
+use crate::services::react_tools::{ReactConfig, ToolMode, ToolRegistry};
 
 mod workflow;
 
@@ -27,6 +28,8 @@ pub struct ReactAgentService {
     context_retriever: ContextRetriever,
     prompt_service: ReactPromptService,
     learning_service: LearningService,
+    tool_registry: ToolRegistry,
+    react_config: ReactConfig,
     max_iterations: u32,
 }
 
@@ -53,6 +56,8 @@ impl ReactAgentService {
             context_retriever,
             prompt_service: ReactPromptService::new(),
             learning_service: LearningService::new()?,
+            tool_registry: ToolRegistry::with_default_handlers(),
+            react_config: ReactConfig::default(),
             max_iterations: 10,
         })
     }
@@ -60,6 +65,33 @@ impl ReactAgentService {
     pub fn with_max_iterations(mut self, max_iterations: u32) -> Self {
         self.max_iterations = max_iterations;
         self
+    }
+
+    /// Configure the ReAct tool system
+    pub fn with_config(mut self, config: ReactConfig) -> Self {
+        self.react_config = config;
+        self
+    }
+
+    /// Set the tool mode
+    pub fn with_tool_mode(mut self, mode: ToolMode) -> Self {
+        self.react_config.tool_mode = mode;
+        self
+    }
+
+    /// Get a reference to the tool registry
+    pub fn tool_registry(&self) -> &ToolRegistry {
+        &self.tool_registry
+    }
+
+    /// Get a mutable reference to the tool registry
+    pub fn tool_registry_mut(&mut self) -> &mut ToolRegistry {
+        &mut self.tool_registry
+    }
+
+    /// Get the current configuration
+    pub fn config(&self) -> &ReactConfig {
+        &self.react_config
     }
 
     /// Enable semantic indexing for cross-session search
@@ -311,47 +343,51 @@ impl ReactAgentService {
         })
     }
 
-    /// Execute a tool and return the result (Phase 1: only SuggestCommand is fully implemented)
+    /// Execute a tool and return the result
+    /// 
+    /// Uses the ToolRegistry to find and execute the appropriate handler.
+    /// Falls back to default behavior based on ReactConfig if needed.
     pub async fn execute_tool(&self, tool: ReactTool, session: &ReactSession, reasoning: &str) -> Result<ToolResult> {
-        match tool {
-            ReactTool::SuggestCommand => {
-                let commands = self.propose_commands(reasoning, session).await?;
-                let command_strings: Vec<String> = commands.iter().map(|c| c.command.clone()).collect();
-                Ok(ToolResult::new(tool)
-                    .with_commands(command_strings))
+        // Handle tool mode
+        match self.react_config.tool_mode {
+            ToolMode::Legacy => {
+                // Always use suggest_command in legacy mode
+                return self.execute_suggest_command_fallback(reasoning, session).await;
             }
-            ReactTool::CheckGoal => {
-                let achieved = self.is_goal_achieved(session).await.unwrap_or(false);
-                let output = if achieved {
-                    "YES - Goal appears to be achieved".to_string()
+            ToolMode::Mixed => {
+                // Try the requested tool, fall back to suggest_command on failure
+                if let Some(handler) = self.tool_registry.get(tool) {
+                    let context = self.context_retriever.retrieve_with_semantic_search(session).await;
+                    match handler.execute(&context, None).await {
+                        Ok(result) => return Ok(result),
+                        Err(e) => {
+                            eprintln!("[warn] Tool {:?} failed: {}, falling back to suggest_command", tool, e);
+                            return self.execute_suggest_command_fallback(reasoning, session).await;
+                        }
+                    }
                 } else {
-                    "NO - Goal not yet achieved".to_string()
-                };
-                Ok(ToolResult::new(tool).with_output(output))
+                    eprintln!("[warn] Tool {:?} not registered, falling back to suggest_command", tool);
+                    return self.execute_suggest_command_fallback(reasoning, session).await;
+                }
             }
-            ReactTool::ConcludeSuccess => {
-                let summary = self.generate_goal_summary(session).await.unwrap_or_else(|_| {
-                    "Root cause: Unknown\nFix applied: Unknown".to_string()
-                });
-                Ok(ToolResult::new(tool)
-                    .with_output(summary)
-                    .conclude())
-            }
-            ReactTool::ConcludeFail => {
-                Ok(ToolResult::new(tool)
-                    .with_output("Session ended without resolution".to_string())
-                    .conclude())
-            }
-            _ => {
-                // Phase 1: All other tools fall back to SuggestCommand
-                eprintln!("[debug] Tool {:?} not yet implemented, falling back to SuggestCommand", tool);
-                let commands = self.propose_commands(reasoning, session).await?;
-                let command_strings: Vec<String> = commands.iter().map(|c| c.command.clone()).collect();
-                Ok(ToolResult::new(ReactTool::SuggestCommand)
-                    .with_commands(command_strings)
-                    .with_output(format!("Tool {:?} not yet implemented, falling back to command suggestion", tool)))
+            ToolMode::Full => {
+                // Full mode: execute tool directly, no fallback
+                if let Some(handler) = self.tool_registry.get(tool) {
+                    let context = self.context_retriever.retrieve_with_semantic_search(session).await;
+                    handler.execute(&context, None).await
+                } else {
+                    Err(anyhow!("Tool {:?} not found in registry", tool))
+                }
             }
         }
+    }
+
+    /// Fallback execution for SuggestCommand
+    async fn execute_suggest_command_fallback(&self, reasoning: &str, session: &ReactSession) -> Result<ToolResult> {
+        let commands = self.propose_commands(reasoning, session).await?;
+        let command_strings: Vec<String> = commands.iter().map(|c| c.command.clone()).collect();
+        Ok(ToolResult::new(ReactTool::SuggestCommand)
+            .with_commands(command_strings))
     }
 
     /// Index a command execution

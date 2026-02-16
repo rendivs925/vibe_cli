@@ -4,6 +4,8 @@ use infrastructure::storage::KnowledgeGraph;
 use std::sync::Arc;
 
 pub struct RetrievedContext {
+    pub goal: String,
+    pub steps: usize,
     pub session_history: String,
     pub latest_output: String,
     pub compacted_summary: Option<String>,
@@ -53,6 +55,8 @@ impl ContextRetriever {
         let command_patterns_context = None;
 
         RetrievedContext {
+            goal: session.query.clone(),
+            steps: session.steps.len(),
             session_history,
             latest_output,
             compacted_summary,
@@ -103,6 +107,8 @@ impl ContextRetriever {
             };
 
         RetrievedContext {
+            goal: session.query.clone(),
+            steps: session.steps.len(),
             session_history,
             latest_output,
             compacted_summary,
