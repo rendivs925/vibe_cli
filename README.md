@@ -88,11 +88,32 @@ vibe_cli --react "nginx is slow"
 vibe_cli --react --neurosymbolic "nginx is not running"
 ```
 
-Runs a conversational, iterative loop:
+Runs a conversational, iterative loop with **dynamic tool selection**:
 
 ```text
-ANALYZE → SUGGESTED → OUTPUT → repeat
+ANALYZE → TOOL SELECTION → TOOL EXECUTION → OUTPUT → repeat
 ```
+
+The ReAct system now uses **35 specialized tools** across 8 categories to intelligently handle different task types:
+
+| Category | Tools |
+|----------|-------|
+| **Investigation** | suggest_command, suggest_read, suggest_grep, suggest_rag, suggest_discovery |
+| **Analysis** | summarize, extract_errors, extract_warnings, extract_metrics, extract_patterns, compare, correlate |
+| **Planning** | plan_next, narrow_focus, branch, rethink, prioritize |
+| **Action** | apply_fix, edit_file, create_file, run_command, retry |
+| **Verification** | check_goal, verify_fix, verify_syntax, test_hypothesis |
+| **Memory** | show_facts, show_hypotheses, show_history, show_context, show_plan, compact_session |
+| **Resolution** | conclude_success, conclude_fail, escalate, defer |
+| **Interaction** | ask_clarification, ask_confirmation, explain, suggest_alternatives |
+
+### Tool Modes
+
+Configure tool behavior via `ReactConfig`:
+
+- **Legacy** - Always use suggest_command (backward compatible)
+- **Mixed** - Use tool selection with fallback to suggest_command (default)
+- **Full** - Full dynamic tool system, no fallback
 
 Built-in session commands:
 - `/help` - Show commands
@@ -374,20 +395,32 @@ ls -la ~/.local/share/vibe_cli/
 ```
 vibe_cli/
 ├── domain/                    # Core business logic
-│   ├── entities/             # Business entities
+│   ├── entities/             # Business entities (ReactTool, ToolResult, etc.)
 │   ├── value_objects/        # Value objects
 │   ├── services/             # Domain services
 │   └── domain_config/        # Neurosymbolic system
 ├── application/              # Use cases
 │   └── services/            # Application services
+│       ├── react_tools/     # Dynamic Tool System
+│       │   ├── registry.rs      # ToolRegistry, ReactToolHandler
+│       │   ├── handlers/         # 35 tool implementations
+│       │   └── prompts/          # Tool-specific prompts
+│       └── ...
 ├── infrastructure/          # External implementations
 │   ├── ai/                  # Ollama client
 │   ├── storage/             # SQLite storage
-│   └── cache/               # Cache management
+│   └── tools/               # CLI tools (read, grep, sed, etc.)
 ├── presentation/            # CLI interface
 │   └── cli/                 # Command handlers
 └── shared/                  # Common utilities
 ```
+
+### ReAct Tool System Components
+
+- **ToolRegistry**: Central registry for all 35 ReAct tools
+- **ReactToolHandler**: Async trait for tool execution
+- **ReactConfig**: Configuration with ToolMode (Legacy/Mixed/Full)
+- **ToolResult**: Enriched results with facts, hypotheses, and next tool suggestions
 
 ---
 
