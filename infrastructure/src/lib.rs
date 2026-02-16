@@ -18,3 +18,4 @@ pub mod symbolic_storage;
 pub mod syntax_grammar_validator;
 pub mod tools;
 pub mod user_preference_store;
+pub mod user_pattern_tracker;

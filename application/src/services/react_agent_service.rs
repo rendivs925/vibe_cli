@@ -85,7 +85,7 @@ impl ReactAgentService {
     }
 
     pub async fn generate_reasoning(&self, session: &ReactSession) -> Result<String> {
-        let context = self.context_retriever.retrieve(session);
+        let context = self.context_retriever.retrieve_with_semantic_search(session).await;
         let learning_context = self
             .learning_service
             .format_learning_context(&session.query)
@@ -153,7 +153,7 @@ impl ReactAgentService {
             }
         }
 
-        let context = self.context_retriever.retrieve(session);
+        let context = self.context_retriever.retrieve_with_semantic_search(session).await;
         let failed = self
             .learning_service
             .get_failed_commands(&session.query, 5)

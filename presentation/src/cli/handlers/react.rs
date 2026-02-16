@@ -10,6 +10,7 @@ use domain::entities::react::{
     CommandSafety, ProposedCommand, ReactSession, ReactStatus, ReactStep, ReactStepType,
 };
 use infrastructure::react_storage::InMemoryReactStorage;
+use infrastructure::session_indexing_service::SessionIndexingService;
 use infrastructure::syntax_grammar_validator::SyntaxGrammarValidator;
 use infrastructure::tools;
 use infrastructure::ollama_client::OllamaClient;
@@ -42,6 +43,16 @@ impl CliHandlers {
         };
 
         let service = ReactAgentService::new(neurosymbolic_service, react_repo, cmd_repo)?;
+        
+        // Enable semantic indexing for cross-session learning
+        let service = match SessionIndexingService::new().await {
+            Ok(indexing) => service.with_indexing_service(Arc::new(indexing)),
+            Err(e) => {
+                eprintln!("[warn] Failed to initialize semantic indexing: {}", e);
+                service
+            }
+        };
+        
         let mut session = service
             .start_session(query.to_string(), neurosymbolic)
             .await?;
@@ -165,6 +176,8 @@ impl CliHandlers {
                     .await?;
                     service.update_command(&suggested).await.ok();
                     service.record_command_outcome(&session.query, &suggested);
+                    // Index command for cross-session learning
+                    let _ = service.index_command_execution(&suggested, &session.id).await;
                 }
                 AllowDecision::Skip => {
                     suggested.reject();
@@ -219,6 +232,8 @@ impl CliHandlers {
             if service.is_goal_achieved(&session).await.unwrap_or(false) {
                 session.complete();
                 service.save_session(&session).await?;
+                // Index session for cross-session semantic search
+                let _ = service.index_session(&session).await;
                 let summary = service
                     .generate_goal_summary(&session)
                     .await
@@ -231,6 +246,8 @@ impl CliHandlers {
         if matches!(session.status, ReactStatus::Running) {
             session.fail();
             service.save_session(&session).await?;
+            // Index failed session too for learning
+            let _ = service.index_session(&session).await;
             println!("\nSession ended without a confirmed resolution.");
         }
 
