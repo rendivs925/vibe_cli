@@ -1,6 +1,5 @@
 use async_trait::async_trait;
 use rusqlite::{params, Connection, OptionalExtension};
-use std::path::PathBuf;
 use std::sync::Mutex;
 
 use domain::entities::react::{ProposedCommand, ReactSession, ReactStatus, ReactStep};

@@ -136,7 +136,7 @@ impl UserPreferenceStore {
 
     fn update_preference_from_feedback(
         &self,
-        query: &str,
+        _query: &str,
         command: &str,
         feedback_type: &str,
     ) -> Result<(), Box<dyn std::error::Error>> {

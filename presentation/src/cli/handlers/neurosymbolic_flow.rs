@@ -173,8 +173,6 @@ impl CliHandlers {
                         };
 
                         if output.status.success() {
-                            last_successful_command = cmd.to_string();
-                            last_successful_query = query.to_string();
                         } else {
                             println!(
                                 "{}",

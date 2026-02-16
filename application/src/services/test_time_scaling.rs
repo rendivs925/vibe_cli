@@ -157,7 +157,7 @@ Requirements:
         while participants.len() > 1 {
             let mut next_round = Vec::new();
 
-            let mut i = 0;
+            let i = 0;
             while i < participants.len() {
                 if i + 1 >= participants.len() {
                     next_round.push(participants.remove(i));
