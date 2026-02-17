@@ -29,10 +29,9 @@ impl ReactToolHandler for SuggestCommandHandler {
     }
     
     async fn execute(&self, _context: &RetrievedContext, _params: Option<&str>) -> Result<ToolResult> {
-        // This tool doesn't execute directly - it signals that commands should be generated
-        // The actual command generation happens in ReactAgentService
+        // suggest_command returns empty output - the reasoning/analysis already shows intent
+        // commands will be proposed separately
         Ok(ToolResult::new(ReactTool::SuggestCommand)
-            .with_output("Requesting command suggestions based on current context...".to_string())
             .with_next_tool(ReactTool::Summarize))
     }
     
@@ -63,13 +62,11 @@ impl ReactToolHandler for SuggestReadHandler {
     }
     
     async fn execute(&self, context: &RetrievedContext, _params: Option<&str>) -> Result<ToolResult> {
-        // This tool suggests a file path to read
         // Returns the file path as a command
         let suggested_path = infer_file_to_read(context);
         let command = format!("read {}", suggested_path);
         
         Ok(ToolResult::new(ReactTool::SuggestRead)
-            .with_output(format!("Suggested file to examine: {}", suggested_path))
             .with_commands(vec![command])
             .with_next_tool(ReactTool::Summarize))
     }
@@ -101,12 +98,10 @@ impl ReactToolHandler for SuggestGrepHandler {
     }
     
     async fn execute(&self, context: &RetrievedContext, _params: Option<&str>) -> Result<ToolResult> {
-        // Suggests a grep pattern to search
         let pattern = infer_grep_pattern(context);
         let command = format!("grep '{}'", pattern);
         
         Ok(ToolResult::new(ReactTool::SuggestGrep)
-            .with_output(format!("Suggested search pattern: {}", pattern))
             .with_commands(vec![command])
             .with_next_tool(ReactTool::ExtractErrors))
     }
@@ -138,12 +133,10 @@ impl ReactToolHandler for SuggestRagHandler {
     }
     
     async fn execute(&self, context: &RetrievedContext, _params: Option<&str>) -> Result<ToolResult> {
-        // Suggests a RAG query for codebase exploration
         let query = infer_rag_query(context);
         let command = format!("rag \"{}\" 10", query);
         
         Ok(ToolResult::new(ReactTool::SuggestRag)
-            .with_output(format!("Suggested RAG query: {}", query))
             .with_commands(vec![command])
             .with_next_tool(ReactTool::Summarize))
     }
@@ -175,11 +168,9 @@ impl ReactToolHandler for SuggestDiscoveryHandler {
     }
     
     async fn execute(&self, context: &RetrievedContext, _params: Option<&str>) -> Result<ToolResult> {
-        // Suggests system discovery commands
         let commands = infer_discovery_commands(context);
         
         Ok(ToolResult::new(ReactTool::SuggestDiscovery)
-            .with_output(format!("Suggested {} discovery command(s)", commands.len()))
             .with_commands(commands)
             .with_next_tool(ReactTool::ExtractMetrics))
     }

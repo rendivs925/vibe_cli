@@ -32,7 +32,7 @@ impl ReactToolHandler for ApplyFixHandler {
         let fix_plan = generate_fix_plan(context);
         
         Ok(ToolResult::new(ReactTool::ApplyFix)
-            .with_output(format!("Fix plan generated:\n{}", fix_plan))
+            .with_output(fix_plan)
             .with_next_tool(ReactTool::VerifyFix))
     }
     
@@ -73,7 +73,6 @@ impl ReactToolHandler for EditFileHandler {
         let command = format!("update {} <old> <new>", suggested_path);
         
         Ok(ToolResult::new(ReactTool::EditFile)
-            .with_output(format!("Suggested file to edit: {}", suggested_path))
             .with_commands(vec![command])
             .with_next_tool(ReactTool::VerifySyntax))
     }
@@ -115,7 +114,6 @@ impl ReactToolHandler for CreateFileHandler {
         let command = format!("write {} <content>", suggested_path);
         
         Ok(ToolResult::new(ReactTool::CreateFile)
-            .with_output(format!("Suggested new file: {}", suggested_path))
             .with_commands(vec![command])
             .with_next_tool(ReactTool::VerifySyntax))
     }
@@ -147,15 +145,12 @@ impl ReactToolHandler for RunCommandHandler {
     }
     
     async fn execute(&self, _context: &RetrievedContext, params: Option<&str>) -> Result<ToolResult> {
-        // This tool signals that a command should be run without suggestion phase
         let command = params.unwrap_or("").to_string();
         
         if command.is_empty() {
-            Ok(ToolResult::new(ReactTool::RunCommand)
-                .with_output("No command specified. Use suggest_command to propose commands.".to_string()))
+            Ok(ToolResult::new(ReactTool::RunCommand))
         } else {
             Ok(ToolResult::new(ReactTool::RunCommand)
-                .with_output(format!("Direct command execution: {}", command))
                 .with_commands(vec![command])
                 .with_next_tool(ReactTool::Summarize))
         }
@@ -188,17 +183,15 @@ impl ReactToolHandler for RetryHandler {
     }
     
     async fn execute(&self, context: &RetrievedContext, _params: Option<&str>) -> Result<ToolResult> {
-        // Find the last failed command from history
         let last_failed = find_last_failed_command(context);
         
-        let (output, commands) = if let Some(cmd) = last_failed {
-            (format!("Retrying last failed command: {}", cmd), vec![cmd])
+        let commands = if let Some(cmd) = last_failed {
+            vec![cmd]
         } else {
-            ("No failed command found to retry.".to_string(), vec![])
+            vec![]
         };
         
         Ok(ToolResult::new(ReactTool::Retry)
-            .with_output(output)
             .with_commands(commands)
             .with_next_tool(ReactTool::CheckGoal))
     }

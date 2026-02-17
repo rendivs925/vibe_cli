@@ -85,15 +85,10 @@ impl CliHandlers {
                     tool_name = tool_decision.tool.name().to_string();
                     tool_justification = tool_decision.justification.clone();
                     
-                    print_section("TOOL SELECTION", &format!(
-                        "Using: {}",
-                        tool_name
-                    ));
-                    
                     // Execute the selected tool
                     match service.execute_tool(tool_decision.tool, &session, &reasoning).await {
                         Ok(result) => {
-                            // Handle tool output inline
+                            // Show tool output directly (dynamic response)
                             if !result.output.is_empty() {
                                 println!("{}", result.output);
                             }
