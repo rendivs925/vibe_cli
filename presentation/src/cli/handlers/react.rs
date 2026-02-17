@@ -60,8 +60,7 @@ impl CliHandlers {
         let mut validator = SyntaxGrammarValidator::new();
         let tools = build_default_tool_executor();
 
-        println!("ReAct session for: \"{}\"", session.query);
-        print_react_help();
+        println!("\n→ {}", session.query);
 
         let mut pending_command_override: Option<String> = None;
         while matches!(session.status, ReactStatus::Running) {
@@ -87,17 +86,16 @@ impl CliHandlers {
                     tool_justification = tool_decision.justification.clone();
                     
                     print_section("TOOL SELECTION", &format!(
-                        "TOOL: {}\nJUSTIFY: {}",
-                        tool_name,
-                        tool_justification
+                        "Using: {}",
+                        tool_name
                     ));
                     
                     // Execute the selected tool
                     match service.execute_tool(tool_decision.tool, &session, &reasoning).await {
                         Ok(result) => {
-                            // Handle tool output
+                            // Handle tool output inline
                             if !result.output.is_empty() {
-                                print_section("TOOL OUTPUT", &result.output);
+                                println!("{}", result.output);
                             }
                             Some(result)
                         }
@@ -117,19 +115,10 @@ impl CliHandlers {
             let tool_result = match tool_result {
                 Some(r) => r,
                 None => {
-                    print_section("TOOL SELECTION", "Tool selection failed, proceeding to command proposal");
                     // Return a minimal ToolResult to continue to command proposal
                     domain::entities::react::ToolResult::new(domain::entities::react::ReactTool::SuggestCommand)
                 }
             };
-
-            // Check if we should conclude the session
-            if !tool_result.should_continue {
-                session.complete();
-                service.save_session(&session).await?;
-                print_section("CONCLUSION", &tool_result.output);
-                return Ok(());
-            }
 
             // Get commands from tool result
             let mut commands = if let Some(command_override) = pending_command_override.take() {
@@ -180,10 +169,10 @@ impl CliHandlers {
             let mut suggested = if let Some(valid) = validation.valid.into_iter().next() {
                 valid
             } else {
-                println!("No valid commands remain after validation.");
+                println!("No valid commands found.");
                 break;
             };
-            print_section("SUGGESTED", &suggested.command);
+            println!("\n→ {}", suggested.command);
 
             let mut action_step = ReactStep::new(
                 session.id.clone(),
@@ -215,8 +204,6 @@ impl CliHandlers {
 
             match decision {
                 AllowDecision::Execute => {
-                    // Show which command is executing for transparency
-                    println!("\n▶ Executing: {}", suggested.command);
                     let output = execute_suggestion(
                         self,
                         &tools,
@@ -225,7 +212,7 @@ impl CliHandlers {
                         &session.query,
                     )
                     .await?;
-                    print_section("OUTPUT", &output);
+                    println!("{output}");
                     let step_index = session.steps.len();
                     service.ingest_observation(
                         &mut session,
@@ -290,32 +277,16 @@ impl CliHandlers {
                 AllowDecision::PromptForDirection => continue,
             }
 
-            if let Some(inference) = service.generate_symbolic_inference(&session).await? {
-                print_section("SYMBOLIC INFERENCE", &inference);
-            }
-
-            if service.is_goal_achieved(&session).await.unwrap_or(false) {
-                session.complete();
-                service.save_session(&session).await?;
-                // Index session for cross-session semantic search
-                let _ = service.index_session(&session).await;
-                let summary = service
-                    .generate_goal_summary(&session)
-                    .await
-                    .unwrap_or_else(|_| "Root cause: Unknown\nFix applied: Unknown".to_string());
-                print_goal_achieved(&summary, session.neurosymbolic_enabled);
-                return Ok(());
-            }
+            // Loop continues until user exits with /abort or Ctrl+C
         }
 
+        // User exited the loop
         if matches!(session.status, ReactStatus::Running) {
             session.fail();
             service.save_session(&session).await?;
-            // Index failed session too for learning
-            let _ = service.index_session(&session).await;
-            println!("\nSession ended without a confirmed resolution.");
         }
 
+        println!("\n→ Session ended.");
         Ok(())
     }
 }
@@ -355,38 +326,8 @@ async fn save_step(
     service.save_session(session).await
 }
 
-fn print_section(title: &str, content: &str) {
-    println!("\n--- {title} ---");
+fn print_section(_title: &str, content: &str) {
     println!("{content}");
-}
-
-fn print_goal_achieved(summary: &str, neurosymbolic_enabled: bool) {
-    println!("\n--- COMPLETE ---");
-    println!("Goal achieved.");
-    println!("{summary}");
-    if neurosymbolic_enabled {
-        println!("Mode: ReAct + Neurosymbolic");
-    } else {
-        println!("Mode: ReAct");
-    }
-}
-
-fn print_react_help() {
-    println!("\nBuilt-in session commands:");
-    println!("  /help    - Show commands");
-    println!("  /context - Show recent reasoning history");
-    println!("  /facts   - Show extracted facts");
-    println!("  /hypotheses - Show current hypotheses");
-    println!("  /compact - Summarize older steps");
-    println!("  /reset   - Clear facts and hypotheses");
-    println!("  /skip    - Skip current suggestion");
-    println!("  /abort   - End session");
-    println!("\nHigh-impact tools:");
-    println!("  rag <query> [n]               - semantic lookup");
-    println!("  git <status|diff|add|commit|log> ...");
-    println!("  build <check|build|fmt|clippy> [package]");
-    println!("  test [pattern]                - run tests");
-    println!("  replace_block <path> <old> <new>");
 }
 
 fn print_react_context(session: &ReactSession) {
@@ -469,9 +410,9 @@ fn parse_allow_input(input: &str, safety: CommandSafety) -> Result<AllowDecision
 
 fn safety_prompt(safety: &CommandSafety) -> &'static str {
     match safety {
-        CommandSafety::ReadOnly => "Allow? y/n> ",
-        CommandSafety::Write => "WARNING Will modify. Confirm? y/n> ",
-        CommandSafety::Destructive => "DANGER Will modify system. Confirm? y/n> ",
+        CommandSafety::ReadOnly => "Run? [y/n] ",
+        CommandSafety::Write => "This modifies files. Run? [y/n] ",
+        CommandSafety::Destructive => "⚠️ System change. Sure? [y/n] ",
     }
 }
 
@@ -779,7 +720,7 @@ fn parse_session_command(input: &str) -> Result<SessionCommand> {
 fn handle_session_command(command: SessionCommand, session: &mut ReactSession) -> Result<bool> {
     match command {
         SessionCommand::Help => {
-            print_react_help();
+            println!("Commands: /abort (end session), /context, /facts, /hypotheses");
             Ok(false)
         }
         SessionCommand::Context => {
