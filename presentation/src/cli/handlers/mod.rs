@@ -25,6 +25,7 @@ use infrastructure::config::Config;
 use infrastructure::ollama_client::OllamaClient;
 use shared::types::Message;
 use shared::types::Result;
+use std::env;
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
 use std::process::{Command, ExitStatus, Stdio};
@@ -171,8 +172,9 @@ impl CliHandlers {
     ) -> Result<CommandOutput> {
         let adjusted = Self::apply_streaming_fixes(cmd);
         let wrapped = Self::wrap_streaming_command(&adjusted);
-        let mut child = Command::new("bash")
-            .arg("-c")
+        let shell = Self::resolve_shell_program();
+        let mut child = Command::new(&shell)
+            .arg("-lc")
             .arg(wrapped)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -358,6 +360,36 @@ impl CliHandlers {
             }
         }
         false
+    }
+
+    fn resolve_shell_program() -> String {
+        if let Ok(shell) = env::var("VIBE_CLI_SHELL") {
+            if Self::is_shell_path(&shell) {
+                return shell;
+            }
+        }
+
+        if let Ok(shell) = env::var("SHELL") {
+            if Self::is_shell_path(&shell) {
+                return shell;
+            }
+        }
+
+        if Self::has_in_path("zsh") {
+            return "zsh".to_string();
+        }
+
+        "bash".to_string()
+    }
+
+    fn is_shell_path(shell: &str) -> bool {
+        if shell.trim().is_empty() {
+            return false;
+        }
+        if shell.contains('/') {
+            return std::path::Path::new(shell).exists();
+        }
+        Self::has_in_path(shell)
     }
 
     /// Properly escape a string for safe use in shell commands.

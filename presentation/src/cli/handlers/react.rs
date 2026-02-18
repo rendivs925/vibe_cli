@@ -24,6 +24,7 @@ use std::io::{self, Write};
 use std::process::Command;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 mod planning;
 
@@ -101,7 +102,7 @@ impl CliHandlers {
 
         loop {
             interrupted.store(false, Ordering::SeqCst);
-            let input = match prompt_line("> ", &interrupted)? {
+            let input = match prompt_line_shell(&interrupted)? {
                 Some(value) => value,
                 None => {
                     println!();
@@ -1716,6 +1717,54 @@ fn prompt_next_goal(interrupted: &AtomicBool) -> Result<Option<String>> {
     } else {
         Ok(Some(trimmed.to_string()))
     }
+}
+
+fn prompt_line_shell(interrupted: &AtomicBool) -> Result<Option<String>> {
+    if command_exists("zsh") {
+        match prompt_line_zsh(interrupted) {
+            Ok(Some(line)) => return Ok(Some(line)),
+            Ok(None) => return Ok(None),
+            Err(err) => {
+                eprintln!("[warn] zsh prompt failed: {err}");
+            }
+        }
+    }
+    prompt_line("> ", interrupted)
+}
+
+fn prompt_line_zsh(interrupted: &AtomicBool) -> Result<Option<String>> {
+    if interrupted.load(Ordering::SeqCst) {
+        return Ok(None);
+    }
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let temp_path = std::env::temp_dir()
+        .join(format!("vibe_cli_react_{}_{}.txt", std::process::id(), nanos));
+    let path_str = temp_path.to_string_lossy();
+    let quoted_path = sh_single_quote(&path_str);
+    let script = format!(
+        "line=; vared -p \"$PROMPT\" line; print -r -- \"$line\" > {}",
+        quoted_path
+    );
+
+    let status = Command::new("zsh").arg("-ic").arg(script).status()?;
+    if !status.success() {
+        if status.code() == Some(130) {
+            interrupted.store(true, Ordering::SeqCst);
+        }
+        let _ = std::fs::remove_file(&temp_path);
+        return Ok(None);
+    }
+
+    let input = std::fs::read_to_string(&temp_path).unwrap_or_default();
+    let _ = std::fs::remove_file(&temp_path);
+    Ok(Some(input.trim_end().to_string()))
+}
+
+fn sh_single_quote(value: &str) -> String {
+    format!("'{}'", value.replace('\'', "'\\''"))
 }
 
 fn summarize_output_for_observation(output: &str) -> String {
