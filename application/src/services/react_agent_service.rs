@@ -156,7 +156,6 @@ impl ReactAgentService {
             &context,
             &learning_context,
             &failed_commands,
-            self.react_config.max_iterations,
         );
 
         let response = self.client.generate_response(&prompt).await?;
@@ -205,7 +204,6 @@ impl ReactAgentService {
             &failed_commands,
             depth,
             previous_reasoning,
-            self.react_config.max_iterations,
         );
 
         let response = self.client.generate_response(&prompt).await?;
@@ -413,7 +411,6 @@ impl ReactAgentService {
             session,
             reasoning,
             &context,
-            self.react_config.max_iterations,
         );
         
         let response = self.client.generate_response(&prompt).await?;

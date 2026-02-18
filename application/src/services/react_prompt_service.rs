@@ -15,14 +15,12 @@ impl ReactPromptService {
         session: &ReactSession,
         reasoning: &str,
         context: &RetrievedContext,
-        max_iterations: u32,
     ) -> String {
         let base = self.build_context_engineering_prompt(
             session,
             context,
             "",
             "",
-            max_iterations,
             None,
         );
         format!(
@@ -159,14 +157,12 @@ CONTEXT: <what data you're using>\n\n",
         context: &RetrievedContext,
         learning_context: &str,
         failed_commands: &str,
-        max_iterations: u32,
     ) -> String {
         let base = self.build_context_engineering_prompt(
             session,
             context,
             learning_context,
             failed_commands,
-            max_iterations,
             None,
         );
         format!(
@@ -183,7 +179,6 @@ CONTEXT: <what data you're using>\n\n",
         failed_commands: &str,
         depth: u8,
         previous_reasoning: Option<&str>,
-        max_iterations: u32,
     ) -> String {
         let depth_instruction = match depth {
             1 => "This is Step 1 of reasoning. Focus on INITIAL UNDERSTANDING of the user's query. What is the user asking for? What is the context?",
@@ -196,7 +191,6 @@ CONTEXT: <what data you're using>\n\n",
             context,
             learning_context,
             failed_commands,
-            max_iterations,
             Some(depth_instruction),
         );
 
@@ -217,13 +211,11 @@ CONTEXT: <what data you're using>\n\n",
         context: &RetrievedContext,
         learning_context: &str,
         failed_commands: &str,
-        max_iterations: u32,
         depth_instruction: Option<&str>,
     ) -> String {
         let task_type = task_type_label(session);
         let mut engineer = ContextEngineer::new(&session.query)
             .with_session_id(&session.id)
-            .with_iteration((context.steps as u32).max(1), max_iterations)
             .with_task_type(&task_type);
 
         let guardrails = OperationalGuardrails::default().with_delta_only(should_delta_only(&session.query));
@@ -253,12 +245,7 @@ CONTEXT: <what data you're using>\n\n",
             engineer.add_knowledge_base(patterns);
         }
 
-        let mut prompt = engineer.render(
-            &session.query,
-            (context.steps as u32).saturating_add(1),
-            max_iterations.max(1),
-            &task_type,
-        );
+        let mut prompt = engineer.render(&session.query, &task_type);
 
         if let Some(depth) = depth_instruction {
             prompt.push_str("### ## REASONING_DEPTH\n");

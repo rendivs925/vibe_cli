@@ -1,6 +1,5 @@
 use crate::services::context_vault::ContextVault;
 use crate::services::operational_guardrails::OperationalGuardrails;
-use crate::services::task_orchestration::TaskOrchestration;
 use domain::entities::context_document::ContextDocumentType;
 use domain::entities::session_summary::SessionSummary;
 use domain::entities::react_memory::{Fact, Hypothesis, Constraint};
@@ -22,11 +21,6 @@ impl ContextEngineer {
 
     pub fn with_session_id(mut self, session_id: &str) -> Self {
         self.session_summary = self.session_summary.with_session_id(session_id);
-        self
-    }
-
-    pub fn with_iteration(mut self, current: u32, max: u32) -> Self {
-        self.session_summary = self.session_summary.with_iteration(current, max);
         self
     }
 
@@ -150,14 +144,12 @@ impl ContextEngineer {
         )
     }
 
-    pub fn render(&self, task: &str, step: u32, total_steps: u32, task_type: &str) -> String {
-        let orchestration = TaskOrchestration::new(task, step, total_steps).with_type(task_type);
+    pub fn render(&self, _task: &str, _task_type: &str) -> String {
         let mut output = String::new();
         output.push_str("# [[ GLOBAL_INTERFACE ]]\n\n");
         output.push_str(&self.session_summary.to_markdown());
         output.push_str(&self.context_vault.render());
         output.push_str(&self.guardrails.to_markdown());
-        output.push_str(&orchestration.to_markdown());
         output
     }
 }

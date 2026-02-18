@@ -70,8 +70,6 @@ impl CliHandlers {
         println!("\n→ {}", session.query);
 
         let mut pending_command_override: Option<String> = None;
-        let reasoning_depth = 3;
-        let mut accumulated_reasoning = String::new();
 
         while matches!(session.status, ReactStatus::Running) {
             if interrupted.load(Ordering::SeqCst) {
@@ -81,31 +79,16 @@ impl CliHandlers {
                 return Ok(());
             }
 
-            // Multi-step reasoning (3 steps by default)
-            for step in 1..=reasoning_depth {
-                let reasoning = service
-                    .generate_reasoning_with_depth(&session, step, if step > 1 { Some(&accumulated_reasoning) } else { None })
-                    .await?;
-                
-                if step == 1 {
-                    accumulated_reasoning = reasoning.clone();
-                } else {
-                    accumulated_reasoning = format!("{}\n\n---\n\n{}", accumulated_reasoning, reasoning);
-                }
-                
-                service.ingest_reasoning(&mut session, &reasoning);
-                print_section(format!("ANALYZE #{}", step).as_str(), &reasoning);
-                save_step(
-                    &service,
-                    &mut session,
-                    ReactStepType::Thought,
-                    reasoning.clone(),
-                )
-                .await?;
-            }
-
-            // Use accumulated reasoning for tool selection and command proposal
-            let reasoning = accumulated_reasoning.clone();
+            let reasoning = service.generate_reasoning(&session).await?;
+            service.ingest_reasoning(&mut session, &reasoning);
+            print_section("ANALYZE", &reasoning);
+            save_step(
+                &service,
+                &mut session,
+                ReactStepType::Thought,
+                reasoning.clone(),
+            )
+            .await?;
 
             // Dynamic Tool Selection
             let mut tool_name = "unknown".to_string();

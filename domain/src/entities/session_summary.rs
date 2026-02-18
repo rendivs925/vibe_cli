@@ -73,13 +73,11 @@ impl SessionSummary {
 
     pub fn to_markdown(&self) -> String {
         format!(
-            "### ## SESSION_SUMMARY\n- **Project**: {}\n- **Environment**: {:?}\n- **Temporal_Anchor**: {}\n- **Session ID**: {}\n- **Progress**: {}/{}\n\n---\n\n",
+            "### ## SESSION_SUMMARY\n- **Project**: {}\n- **Environment**: {:?}\n- **Temporal_Anchor**: {}\n- **Session ID**: {}\n\n---\n\n",
             self.project,
             self.environment,
             self.temporal_anchor.format("%Y-%m-%d %H:%M:%S UTC"),
-            self.session_id,
-            self.iteration,
-            self.max_iterations
+            self.session_id
         )
     }
 }
