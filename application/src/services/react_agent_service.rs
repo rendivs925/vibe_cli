@@ -131,19 +131,31 @@ impl ReactAgentService {
     }
 
     pub async fn generate_reasoning(&self, session: &ReactSession) -> Result<String> {
-        let context = self.context_retriever.retrieve_with_semantic_search(session).await;
-        let learning_context = self
-            .learning_service
-            .format_learning_context(&session.query)
-            .unwrap_or_default();
-        let failed = self
-            .learning_service
-            .get_failed_commands(&session.query, 5)
-            .unwrap_or_default();
-        let failed_commands = if failed.is_empty() {
-            "None".to_string()
+        let use_external = use_external_context(session);
+        let context = if use_external {
+            self.context_retriever.retrieve_with_semantic_search(session).await
         } else {
-            failed.join("; ")
+            self.context_retriever.retrieve(session)
+        };
+        let learning_context = if use_external {
+            self.learning_service
+                .format_learning_context(&session.query)
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
+        let failed_commands = if use_external {
+            let failed = self
+                .learning_service
+                .get_failed_commands(&session.query, 5)
+                .unwrap_or_default();
+            if failed.is_empty() {
+                "None".to_string()
+            } else {
+                failed.join("; ")
+            }
+        } else {
+            "None".to_string()
         };
 
         let learning_context = if learning_context.trim().is_empty() {
@@ -176,19 +188,31 @@ impl ReactAgentService {
         depth: u8,
         previous_reasoning: Option<&str>,
     ) -> Result<String> {
-        let context = self.context_retriever.retrieve_with_semantic_search(session).await;
-        let learning_context = self
-            .learning_service
-            .format_learning_context(&session.query)
-            .unwrap_or_default();
-        let failed = self
-            .learning_service
-            .get_failed_commands(&session.query, 5)
-            .unwrap_or_default();
-        let failed_commands = if failed.is_empty() {
-            "None".to_string()
+        let use_external = use_external_context(session);
+        let context = if use_external {
+            self.context_retriever.retrieve_with_semantic_search(session).await
         } else {
-            failed.join("; ")
+            self.context_retriever.retrieve(session)
+        };
+        let learning_context = if use_external {
+            self.learning_service
+                .format_learning_context(&session.query)
+                .unwrap_or_default()
+        } else {
+            String::new()
+        };
+        let failed_commands = if use_external {
+            let failed = self
+                .learning_service
+                .get_failed_commands(&session.query, 5)
+                .unwrap_or_default();
+            if failed.is_empty() {
+                "None".to_string()
+            } else {
+                failed.join("; ")
+            }
+        } else {
+            "None".to_string()
         };
 
         let learning_context = if learning_context.trim().is_empty() {
@@ -265,15 +289,24 @@ impl ReactAgentService {
             }
         }
 
-        let context = self.context_retriever.retrieve_with_semantic_search(session).await;
-        let failed = self
-            .learning_service
-            .get_failed_commands(&session.query, 5)
-            .unwrap_or_default();
-        let failed_commands = if failed.is_empty() {
-            "None".to_string()
+        let use_external = use_external_context(session);
+        let context = if use_external {
+            self.context_retriever.retrieve_with_semantic_search(session).await
         } else {
-            failed.join("; ")
+            self.context_retriever.retrieve(session)
+        };
+        let failed_commands = if use_external {
+            let failed = self
+                .learning_service
+                .get_failed_commands(&session.query, 5)
+                .unwrap_or_default();
+            if failed.is_empty() {
+                "None".to_string()
+            } else {
+                failed.join("; ")
+            }
+        } else {
+            "None".to_string()
         };
         let prompt = self.prompt_service.command_prompt(
             &session.query,
@@ -482,4 +515,12 @@ fn init_knowledge_graph() -> Option<KnowledgeGraph> {
 
 fn init_knowledge_graph_arc() -> Option<Arc<KnowledgeGraph>> {
     init_knowledge_graph().map(Arc::new)
+}
+
+fn use_external_context(session: &ReactSession) -> bool {
+    session
+        .context
+        .get("context_scope")
+        .map(|value| value != "goal_only")
+        .unwrap_or(true)
 }

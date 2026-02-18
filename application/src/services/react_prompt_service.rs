@@ -235,17 +235,20 @@ CONTEXT: <what data you're using>\n\n",
         let avoid_commands = normalize_failed_commands(failed_commands);
         engineer.add_constraints(&context.constraints_list, avoid_commands.as_deref());
 
-        if !learning_context.trim().is_empty() {
-            engineer.add_learning_context(learning_context);
-        }
-        if !context.knowledge_context.trim().is_empty() {
-            engineer.add_knowledge_base(&context.knowledge_context);
-        }
-        if let Some(similar) = &context.similar_sessions_context {
-            engineer.add_knowledge_base(similar);
-        }
-        if let Some(patterns) = &context.command_patterns_context {
-            engineer.add_knowledge_base(patterns);
+        let use_external = should_use_external_context(session);
+        if use_external {
+            if !learning_context.trim().is_empty() {
+                engineer.add_learning_context(learning_context);
+            }
+            if !context.knowledge_context.trim().is_empty() {
+                engineer.add_knowledge_base(&context.knowledge_context);
+            }
+            if let Some(similar) = &context.similar_sessions_context {
+                engineer.add_knowledge_base(similar);
+            }
+            if let Some(patterns) = &context.command_patterns_context {
+                engineer.add_knowledge_base(patterns);
+            }
         }
 
         let mut prompt = engineer.render(&session.query, &task_type);
@@ -254,6 +257,10 @@ CONTEXT: <what data you're using>\n\n",
         prompt.push_str("\n\n");
         prompt.push_str("### ## REQUEST_PRIORITY\n");
         prompt.push_str("Always prioritize CURRENT_GOAL over unrelated prior context.\n\n");
+        prompt.push_str("### ## RESPONSE_RULES\n");
+        prompt.push_str("- Do not echo CONTEXT_VAULT or knowledge base sections.\n");
+        prompt.push_str("- Do not invent or guess [REF-XX] citations.\n");
+        prompt.push_str("- If CONTEXT_VAULT is empty or irrelevant, say so briefly and proceed with the goal.\n\n");
 
         if let Some(depth) = depth_instruction {
             prompt.push_str("### ## REASONING_DEPTH\n");
@@ -464,6 +471,14 @@ fn should_delta_only(query: &str) -> bool {
     ["edit", "update", "refactor", "implement", "fix", "patch"]
         .iter()
         .any(|kw| lower.contains(kw))
+}
+
+fn should_use_external_context(session: &ReactSession) -> bool {
+    session
+        .context
+        .get("context_scope")
+        .map(|value| value != "goal_only")
+        .unwrap_or(true)
 }
 
 fn normalize_failed_commands(failed: &str) -> Option<String> {

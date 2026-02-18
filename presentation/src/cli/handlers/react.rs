@@ -27,6 +27,42 @@ use std::sync::atomic::{AtomicBool, Ordering};
 
 mod planning;
 
+#[derive(Clone, Copy)]
+struct ReactRunOptions {
+    allow_next_prompt: bool,
+    show_reasoning: bool,
+    context_scope: &'static str,
+}
+
+impl ReactRunOptions {
+    fn single_query() -> Self {
+        Self {
+            allow_next_prompt: true,
+            show_reasoning: true,
+            context_scope: "goal_only",
+        }
+    }
+
+    fn interactive() -> Self {
+        Self {
+            allow_next_prompt: false,
+            show_reasoning: false,
+            context_scope: "goal_only",
+        }
+    }
+}
+
+struct ReactSeedOutput {
+    command: Option<String>,
+    output: String,
+}
+
+#[derive(Default, Clone)]
+struct ReactSessionCarry {
+    last_output: Option<String>,
+    last_command: Option<String>,
+}
+
 impl CliHandlers {
     pub async fn handle_react(
         &mut self,
@@ -35,10 +71,91 @@ impl CliHandlers {
         scaling_config: &ScalingConfig,
     ) -> Result<()> {
         if query.trim().is_empty() {
-            println!("Provide a task for --react");
-            return Ok(());
+            return self.handle_react_shell(neurosymbolic, scaling_config).await;
         }
 
+        let interrupted = Arc::new(AtomicBool::new(false));
+        install_ctrlc_handler(interrupted.clone())?;
+        let _ = self
+            .run_react_session(
+                query,
+                neurosymbolic,
+                scaling_config,
+                ReactRunOptions::single_query(),
+                None,
+                interrupted,
+            )
+            .await?;
+        Ok(())
+    }
+
+    async fn handle_react_shell(
+        &mut self,
+        neurosymbolic: bool,
+        scaling_config: &ScalingConfig,
+    ) -> Result<()> {
+        let interrupted = Arc::new(AtomicBool::new(false));
+        install_ctrlc_handler(interrupted.clone())?;
+        println!("ReAct shell. Type /help for commands.");
+        let mut carry = ReactSessionCarry::default();
+
+        loop {
+            interrupted.store(false, Ordering::SeqCst);
+            let input = match prompt_line("> ", &interrupted)? {
+                Some(value) => value,
+                None => {
+                    println!();
+                    break;
+                }
+            };
+            let trimmed = input.trim();
+            if trimmed.is_empty() {
+                continue;
+            }
+            match trimmed {
+                "/exit" | "/quit" => break,
+                "/help" => {
+                    println!("Commands: /help, /exit, /quit");
+                    continue;
+                }
+                _ => {}
+            }
+
+            let follow_up = is_follow_up_request(trimmed) && carry.last_output.is_some();
+            let seed = if follow_up {
+                Some(ReactSeedOutput {
+                    command: carry.last_command.clone(),
+                    output: carry.last_output.clone().unwrap_or_default(),
+                })
+            } else {
+                None
+            };
+
+            interrupted.store(false, Ordering::SeqCst);
+            carry = self
+                .run_react_session(
+                    trimmed,
+                    neurosymbolic,
+                    scaling_config,
+                    ReactRunOptions::interactive(),
+                    seed,
+                    interrupted.clone(),
+                )
+                .await?;
+        }
+
+        Ok(())
+    }
+
+    async fn run_react_session(
+        &mut self,
+        query: &str,
+        neurosymbolic: bool,
+        scaling_config: &ScalingConfig,
+        options: ReactRunOptions,
+        seed: Option<ReactSeedOutput>,
+        interrupted: Arc<AtomicBool>,
+    ) -> Result<ReactSessionCarry> {
         let (react_repo, cmd_repo) = init_react_storage();
         let react_repo_for_cli = react_repo.clone();
         let neurosymbolic_service = if neurosymbolic {
@@ -63,29 +180,52 @@ impl CliHandlers {
         let mut session = service
             .start_session(query.to_string(), neurosymbolic)
             .await?;
+        session
+            .context
+            .insert("context_scope".to_string(), options.context_scope.to_string());
+
+        if let Some(seed_output) = seed {
+            let content = if let Some(cmd) = seed_output.command.as_ref() {
+                format!("Command: {}\nOutput:\n{}", cmd.trim(), seed_output.output)
+            } else {
+                format!("Output:\n{}", seed_output.output)
+            };
+            let step_index = session.steps.len();
+            save_step(
+                &service,
+                &mut session,
+                ReactStepType::Observation,
+                content,
+            )
+            .await?;
+            if let Some(cmd) = seed_output.command.as_ref() {
+                service.ingest_observation(&mut session, cmd, &seed_output.output, step_index);
+            }
+        }
 
         let mut validator = SyntaxGrammarValidator::new();
         let tools = build_default_tool_executor();
-        let interrupted = Arc::new(AtomicBool::new(false));
-        install_ctrlc_handler(interrupted.clone())?;
 
         println!("\n→ {}", session.query);
 
         let mut pending_command_override: Option<String> = None;
-        let requested_primary = extract_user_command_override(&session.query)
+        let mut requested_primary = extract_user_command_override(&session.query)
             .and_then(|cmd| primary_command_binary(&cmd));
+        let mut carry = ReactSessionCarry::default();
 
         while matches!(session.status, ReactStatus::Running) {
             if interrupted.load(Ordering::SeqCst) {
                 session.abort();
                 service.save_session(&session).await?;
                 println!("\n[Session auto-saved]");
-                return Ok(());
+                return Ok(carry);
             }
 
             let reasoning = service.generate_reasoning(&session).await?;
             service.ingest_reasoning(&mut session, &reasoning);
-            print_section("ANALYZE", &reasoning);
+            if options.show_reasoning {
+                print_section("ANALYZE", &reasoning);
+            }
             save_step(
                 &service,
                 &mut session,
@@ -135,7 +275,7 @@ impl CliHandlers {
                             session.abort();
                             service.save_session(&session).await?;
                             println!("\n[Session auto-saved]");
-                            return Ok(());
+                            return Ok(carry);
                         }
                     };
                     if input.trim().is_empty() {
@@ -160,7 +300,7 @@ impl CliHandlers {
                         session.abort();
                         service.save_session(&session).await?;
                         println!("\n[Session auto-saved]");
-                        return Ok(());
+                        return Ok(carry);
                     }
                 };
                 if input.trim().is_empty() {
@@ -238,6 +378,12 @@ impl CliHandlers {
             } else {
                 service.propose_commands(&reasoning, &session).await?
             };
+            for command in &mut commands {
+                let adjusted = adjust_command_for_query(&command.command, &session.query);
+                if adjusted != command.command {
+                    command.command = adjusted;
+                }
+            }
             if commands.is_empty() {
                 println!("No command suggestion generated.");
                 break;
@@ -288,7 +434,7 @@ impl CliHandlers {
                         session.abort();
                         service.save_session(&session).await?;
                         println!("\n[Session auto-saved]");
-                        return Ok(());
+                        return Ok(carry);
                     }
                 };
                 match parse_allow_input(&input, suggested.safety)? {
@@ -299,7 +445,7 @@ impl CliHandlers {
                                 session.abort();
                                 service.save_session(&session).await?;
                                 println!("\n[Session auto-saved]");
-                                return Ok(());
+                                return Ok(carry);
                             }
                         };
                         if extra.trim().is_empty() {
@@ -322,6 +468,8 @@ impl CliHandlers {
                     )
                     .await?;
                     println!("{output}");
+                    carry.last_output = Some(output.clone());
+                    carry.last_command = Some(suggested.command.clone());
                     let step_index = session.steps.len();
                     service.ingest_observation(
                         &mut session,
@@ -376,16 +524,54 @@ impl CliHandlers {
                         }
 
                         if achieved {
-                            let next = prompt_next_goal(&interrupted)?;
-                            session.complete();
-                            service.save_session(&session).await?;
-                            if let Some(next_query) = next {
-                                session = service.start_session(next_query, neurosymbolic).await?;
-                                pending_command_override = None;
-                                println!("\n→ {}", session.query);
-                                continue;
+                            if options.allow_next_prompt {
+                                let next = prompt_next_goal(&interrupted)?;
+                                session.complete();
+                                service.save_session(&session).await?;
+                                if let Some(next_query) = next {
+                                    let follow_up =
+                                        is_follow_up_request(&next_query) && carry.last_output.is_some();
+                                    session = service.start_session(next_query, neurosymbolic).await?;
+                                    session
+                                        .context
+                                        .insert("context_scope".to_string(), options.context_scope.to_string());
+                                    requested_primary = extract_user_command_override(&session.query)
+                                        .and_then(|cmd| primary_command_binary(&cmd));
+                                    if follow_up {
+                                        if let Some(output) = carry.last_output.as_ref() {
+                                            let seed = if let Some(cmd) = carry.last_command.as_ref() {
+                                                format!("Command: {}\nOutput:\n{}", cmd.trim(), output)
+                                            } else {
+                                                format!("Output:\n{}", output)
+                                            };
+                                            let step_index = session.steps.len();
+                                            save_step(
+                                                &service,
+                                                &mut session,
+                                                ReactStepType::Observation,
+                                                seed,
+                                            )
+                                            .await?;
+                                            if let Some(cmd) = carry.last_command.as_ref() {
+                                                service.ingest_observation(
+                                                    &mut session,
+                                                    cmd,
+                                                    output,
+                                                    step_index,
+                                                );
+                                            }
+                                        }
+                                    }
+                                    pending_command_override = None;
+                                    println!("\n→ {}", session.query);
+                                    continue;
+                                } else {
+                                    println!("\n→ Session ended.");
+                                    break;
+                                }
                             } else {
-                                println!("\n→ Session ended.");
+                                session.complete();
+                                service.save_session(&session).await?;
                                 break;
                             }
                         }
@@ -526,7 +712,7 @@ impl CliHandlers {
                         _ => {
                             if handle_session_command(command, &mut session)? {
                                 service.save_session(&session).await?;
-                                return Ok(());
+                                return Ok(carry);
                             }
                         }
                     }
@@ -546,7 +732,7 @@ impl CliHandlers {
         }
 
         println!("\n→ Session ended.");
-        Ok(())
+        Ok(carry)
     }
 }
 
@@ -974,6 +1160,50 @@ fn is_likely_shell_command(text: &str) -> bool {
         .status()
         .map(|s| s.success())
         .unwrap_or(false)
+}
+
+fn adjust_command_for_query(command: &str, query: &str) -> String {
+    let lower_query = query.to_lowercase();
+    if !(lower_query.contains("no pager") || lower_query.contains("no-pager")) {
+        return command.to_string();
+    }
+    let mut tokens = parse_command_tokens(command);
+    if tokens.is_empty() {
+        return command.to_string();
+    }
+    let offset = if tokens.get(0).map(|t| t.as_str()) == Some("shell") { 1 } else { 0 };
+    if tokens.len() <= offset {
+        return command.to_string();
+    }
+    if tokens[offset] != "journalctl" {
+        return command.to_string();
+    }
+    if tokens.iter().any(|t| t == "--no-pager") {
+        return command.to_string();
+    }
+    tokens.push("--no-pager".to_string());
+    tokens.join(" ")
+}
+
+fn is_follow_up_request(input: &str) -> bool {
+    let lower = input.trim().to_lowercase();
+    if lower.is_empty() {
+        return false;
+    }
+    let follow_starts = [
+        "how", "why", "what about", "explain", "details", "fix", "resolve", "next",
+    ];
+    if follow_starts.iter().any(|p| lower.starts_with(p)) {
+        return true;
+    }
+    let pronouns = ["it", "that", "this", "they", "those", "these", "there"];
+    if lower
+        .split_whitespace()
+        .any(|word| pronouns.contains(&word))
+    {
+        return true;
+    }
+    lower.split_whitespace().count() <= 3
 }
 
 fn build_default_tool_executor() -> ToolExecutor {
