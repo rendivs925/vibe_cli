@@ -31,6 +31,7 @@ use std::process::Command;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
+use std::env;
 
 mod planning;
 
@@ -73,12 +74,14 @@ struct ReactSessionCarry {
 struct ZshRepl {
     line_reader: BufReader<std::fs::File>,
     ack_writer: std::fs::File,
+    prompt_writer: std::fs::File,
     needs_ack: bool,
     _stdin_handle: std::thread::JoinHandle<()>,
     _stdout_handle: std::thread::JoinHandle<()>,
     _child: Box<dyn portable_pty::Child + Send>,
     out_fifo: PathBuf,
     ack_fifo: PathBuf,
+    prompt_fifo: PathBuf,
 }
 
 impl ZshRepl {
@@ -100,26 +103,44 @@ impl ZshRepl {
             .join(format!("vibe_cli_react_out_{}_{}.fifo", std::process::id(), nanos));
         let ack_fifo = std::env::temp_dir()
             .join(format!("vibe_cli_react_ack_{}_{}.fifo", std::process::id(), nanos));
+        let prompt_fifo = std::env::temp_dir()
+            .join(format!("vibe_cli_react_prompt_{}_{}.fifo", std::process::id(), nanos));
         create_fifo(&out_fifo)?;
         create_fifo(&ack_fifo)?;
+        create_fifo(&prompt_fifo)?;
 
         let out_path = out_fifo.to_string_lossy();
         let ack_path = ack_fifo.to_string_lossy();
+        let prompt_path = prompt_fifo.to_string_lossy();
         let script = format!(
             "line=; while true; do \
-             if typeset -f precmd >/dev/null; then precmd; fi; \
-             prompt=$(print -P -- \"$PROMPT\"); \
+             read -r prompt_msg < {prompt} || exit; \
+             if [[ -n \"$prompt_msg\" ]]; then print -r -- \"$prompt_msg\"; fi; \
+             bindkey -e; \
+             bindkey '^[[A' up-line-or-history; \
+             bindkey '^[[B' down-line-or-history; \
+             bindkey '^[[C' forward-char; \
+             bindkey '^[[D' backward-char; \
+             bindkey '^H' backward-delete-char; \
+             bindkey '^?' backward-delete-char; \
+             PROMPT='> '; RPROMPT=''; prompt='> '; \
              vared -p \"$prompt\" line || exit; \
              print -r -- \"$line\" > {out}; \
              read -r _ < {ack} || exit; \
              done",
             out = sh_single_quote(&out_path),
-            ack = sh_single_quote(&ack_path)
+            ack = sh_single_quote(&ack_path),
+            prompt = sh_single_quote(&prompt_path)
         );
 
         let mut cmd = CommandBuilder::new("zsh");
         cmd.arg("-ilc");
         cmd.arg(script);
+        if let Ok(term) = env::var("TERM") {
+            cmd.env("TERM", term);
+        } else {
+            cmd.env("TERM", "xterm-256color");
+        }
         let child = pair.slave.spawn_command(cmd)?;
         drop(pair.slave);
 
@@ -157,25 +178,37 @@ impl ZshRepl {
 
         let out_file = OpenOptions::new().read(true).write(true).open(&out_fifo)?;
         let ack_file = OpenOptions::new().read(true).write(true).open(&ack_fifo)?;
+        let prompt_file = OpenOptions::new().read(true).write(true).open(&prompt_fifo)?;
 
         Ok(Self {
             line_reader: BufReader::new(out_file),
             ack_writer: ack_file,
+            prompt_writer: prompt_file,
             needs_ack: false,
             _stdin_handle: stdin_handle,
             _stdout_handle: stdout_handle,
             _child: child,
             out_fifo,
             ack_fifo,
+            prompt_fifo,
         })
     }
 
     fn read_line(&mut self) -> Result<Option<String>> {
+        self.read_line_with_prompt(None)
+    }
+
+    fn read_line_with_prompt(&mut self, prompt_msg: Option<&str>) -> Result<Option<String>> {
         if self.needs_ack {
             let _ = self.ack_writer.write_all(b"\n");
             let _ = self.ack_writer.flush();
             self.needs_ack = false;
         }
+
+        let msg = prompt_msg.unwrap_or("");
+        let _ = self.prompt_writer.write_all(msg.as_bytes());
+        let _ = self.prompt_writer.write_all(b"\n");
+        let _ = self.prompt_writer.flush();
 
         let mut line = String::new();
         let bytes = self.line_reader.read_line(&mut line)?;
@@ -192,6 +225,22 @@ impl Drop for ZshRepl {
         let _ = self._child.kill();
         let _ = std::fs::remove_file(&self.out_fifo);
         let _ = std::fs::remove_file(&self.ack_fifo);
+        let _ = std::fs::remove_file(&self.prompt_fifo);
+    }
+}
+
+struct TerminalRawGuard;
+
+impl TerminalRawGuard {
+    fn enable() -> Result<Self> {
+        enable_raw_mode()?;
+        Ok(Self)
+    }
+}
+
+impl Drop for TerminalRawGuard {
+    fn drop(&mut self) {
+        let _ = disable_raw_mode();
     }
 }
 
@@ -230,7 +279,7 @@ impl CliHandlers {
     ) -> Result<()> {
         let interrupted = Arc::new(AtomicBool::new(false));
         install_ctrlc_handler(interrupted.clone())?;
-        println!("ReAct shell. Type /help for commands.");
+        let _raw_guard = TerminalRawGuard::enable()?;
         let mut carry = ReactSessionCarry::default();
         let mut repl = match ZshRepl::new() {
             Ok(repl) => Some(repl),
@@ -357,7 +406,7 @@ impl CliHandlers {
         let mut carry = ReactSessionCarry::default();
 
         while matches!(session.status, ReactStatus::Running) {
-            if interrupted.load(Ordering::SeqCst) {
+            if repl.is_none() && interrupted.load(Ordering::SeqCst) {
                 session.abort();
                 service.save_session(&session).await?;
                 println!("\n[Session auto-saved]");
@@ -874,7 +923,9 @@ impl CliHandlers {
             service.save_session(&session).await?;
         }
 
-        println!("\n→ Session ended.");
+        if options.allow_next_prompt {
+            println!("\n→ Session ended.");
+        }
         Ok(carry)
     }
 }
@@ -1874,10 +1925,12 @@ fn read_user_line(
     repl: &mut Option<ZshRepl>,
 ) -> Result<Option<String>> {
     if let Some(repl) = repl.as_mut() {
-        if !prompt.trim().is_empty() {
-            println!("{}", prompt.trim_end());
-        }
-        return repl.read_line();
+        let message = if prompt.trim().is_empty() {
+            None
+        } else {
+            Some(prompt.trim_end())
+        };
+        return repl.read_line_with_prompt(message);
     }
     prompt_line(prompt, interrupted)
 }
