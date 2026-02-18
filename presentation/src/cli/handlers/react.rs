@@ -376,7 +376,6 @@ impl CliHandlers {
                                 loaded.steps = steps;
                                 loaded.status = ReactStatus::Running;
                                 session = loaded;
-                                accumulated_reasoning.clear();
                                 pending_command_override = None;
                                 println!("Resumed session {}", session.id);
                             } else {
