@@ -16,13 +16,7 @@ impl ReactPromptService {
         reasoning: &str,
         context: &RetrievedContext,
     ) -> String {
-        let base = self.build_context_engineering_prompt(
-            session,
-            context,
-            "",
-            "",
-            None,
-        );
+        let base = self.build_context_engineering_prompt(session, context, "", "", None);
         format!(
             "{base}\n\
 ### ## TOOL_SELECTION\n\
@@ -127,18 +121,15 @@ CONTEXT: <what data you're using>\n\n",
             let line = line.trim();
             let lower = line.to_ascii_lowercase();
             if lower.starts_with("tool") {
-                if let Some(rest) = line.splitn(2, |c| c == ':' || c == '-' || c == '=').nth(1)
-                {
+                if let Some(rest) = line.splitn(2, |c| c == ':' || c == '-' || c == '=').nth(1) {
                     tool_name = Some(rest.trim().to_string());
                 }
             } else if lower.starts_with("justify") {
-                if let Some(rest) = line.splitn(2, |c| c == ':' || c == '-' || c == '=').nth(1)
-                {
+                if let Some(rest) = line.splitn(2, |c| c == ':' || c == '-' || c == '=').nth(1) {
                     justification = rest.trim().to_string();
                 }
             } else if lower.starts_with("context") {
-                if let Some(rest) = line.splitn(2, |c| c == ':' || c == '-' || c == '=').nth(1)
-                {
+                if let Some(rest) = line.splitn(2, |c| c == ':' || c == '-' || c == '=').nth(1) {
                     context_needed = rest.trim().to_string();
                 }
             }
@@ -221,7 +212,8 @@ CONTEXT: <what data you're using>\n\n",
             .with_session_id(&session.id)
             .with_task_type(&task_type);
 
-        let guardrails = OperationalGuardrails::default().with_delta_only(should_delta_only(&session.query));
+        let guardrails =
+            OperationalGuardrails::default().with_delta_only(should_delta_only(&session.query));
         engineer = engineer.with_guardrails(guardrails);
 
         engineer.add_session_history(&context.session_history);
@@ -298,8 +290,7 @@ Only summarize what is shown in Command Output. If Facts/Hypotheses conflict wit
 Mention key items from the output that answer the user’s goal.\n\
 If the output is empty or unclear, ask ONE short follow-up question to proceed.\n\
 Otherwise, do not ask questions.\n\
-Do NOT use rigid sections like \"Summary:\", \"Errors:\", \"Warnings:\" - just write naturally.\n\
-Keep it concise.\n\
+Be as detailed as needed to cover what matters in the output, without filler.\n\
 \n\
 Provide your analysis:",
             goal = goal,

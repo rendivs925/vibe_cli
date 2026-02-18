@@ -2054,7 +2054,7 @@ fn summarize_output_for_observation(output: &str) -> String {
 fn normalize_summary(text: &str) -> String {
     let mut cleaned = Vec::new();
     for line in text.lines() {
-        let trimmed = line.trim();
+        let trimmed = line.trim_matches(|c: char| c.is_whitespace() || c == '\u{00A0}');
         if trimmed.is_empty() {
             continue;
         }
