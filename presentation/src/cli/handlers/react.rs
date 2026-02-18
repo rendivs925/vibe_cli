@@ -6,8 +6,10 @@ use application::services::react_agent_service::ReactAgentService;
 use application::services::rag_service::RagService;
 use application::services::tool_executor::ToolExecutor;
 use application::services::test_time_scaling::{ScalingConfig, ScalingMethod};
+use crossterm::event::{read, Event, KeyCode, KeyModifiers};
+use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use domain::entities::react::{
-    CommandSafety, ProposedCommand, ReactSession, ReactStatus, ReactStep, ReactStepType,
+    CommandSafety, ProposedCommand, ReactSession, ReactStatus, ReactStep, ReactStepType, ReactTool,
 };
 use domain::repositories::react_repository::{ReactCommandRepository, ReactRepository};
 use infrastructure::react_storage::InMemoryReactStorage;
@@ -70,6 +72,8 @@ impl CliHandlers {
         println!("\n→ {}", session.query);
 
         let mut pending_command_override: Option<String> = None;
+        let requested_primary = extract_user_command_override(&session.query)
+            .and_then(|cmd| primary_command_binary(&cmd));
 
         while matches!(session.status, ReactStatus::Running) {
             if interrupted.load(Ordering::SeqCst) {
@@ -120,14 +124,94 @@ impl CliHandlers {
                 }
             };
 
-            // If tool failed, skip to command proposal
+            // If tool failed, collect user direction instead of falling back to command generation
             let tool_result = match tool_result {
                 Some(r) => r,
                 None => {
-                    // Return a minimal ToolResult to continue to command proposal
-                    domain::entities::react::ToolResult::new(domain::entities::react::ReactTool::SuggestCommand)
+                    eprintln!("[warn] No tool result available. Provide direction or /abort.");
+                    let input = match prompt_line("> ", &interrupted)? {
+                        Some(value) => value,
+                        None => {
+                            session.abort();
+                            service.save_session(&session).await?;
+                            println!("\n[Session auto-saved]");
+                            return Ok(());
+                        }
+                    };
+                    if input.trim().is_empty() {
+                        continue;
+                    }
+                    service.ingest_user_input(&mut session, &input);
+                    save_step(
+                        &service,
+                        &mut session,
+                        ReactStepType::Observation,
+                        input,
+                    )
+                    .await?;
+                    continue;
                 }
             };
+
+            if tool_result.should_ask_user {
+                let input = match prompt_line("> ", &interrupted)? {
+                    Some(value) => value,
+                    None => {
+                        session.abort();
+                        service.save_session(&session).await?;
+                        println!("\n[Session auto-saved]");
+                        return Ok(());
+                    }
+                };
+                if input.trim().is_empty() {
+                    continue;
+                }
+                service.ingest_user_input(&mut session, &input);
+                save_step(
+                    &service,
+                    &mut session,
+                    ReactStepType::Observation,
+                    input,
+                )
+                .await?;
+                continue;
+            }
+
+            if !tool_result.should_continue {
+                if !tool_result.output.trim().is_empty() {
+                    let summary = summarize_output_for_observation(&tool_result.output);
+                    let step_index = session.steps.len();
+                    service.ingest_observation(
+                        &mut session,
+                        tool_result.tool.name(),
+                        &tool_result.output,
+                        step_index,
+                    );
+                    save_step(&service, &mut session, ReactStepType::Observation, summary).await?;
+                }
+                match tool_result.tool {
+                    ReactTool::ConcludeFail | ReactTool::Escalate | ReactTool::Defer => {
+                        session.fail();
+                    }
+                    _ => session.complete(),
+                }
+                service.save_session(&session).await?;
+                break;
+            }
+
+            if tool_result.commands.is_empty() && !tool_result.output.trim().is_empty() {
+                let summary = summarize_output_for_observation(&tool_result.output);
+                let step_index = session.steps.len();
+                service.ingest_observation(
+                    &mut session,
+                    tool_result.tool.name(),
+                    &tool_result.output,
+                    step_index,
+                );
+                save_step(&service, &mut session, ReactStepType::Observation, summary).await?;
+                service.save_session(&session).await?;
+                continue;
+            }
 
             // Get commands from tool result
             let mut commands = if let Some(command_override) = pending_command_override.take() {
@@ -198,10 +282,26 @@ impl CliHandlers {
 
             let decision = loop {
                 let prompt = safety_prompt(&suggested.safety);
-                let input = prompt_line(prompt)?;
+                let input = match prompt_line(prompt, &interrupted)? {
+                    Some(value) => value,
+                    None => {
+                        session.abort();
+                        service.save_session(&session).await?;
+                        println!("\n[Session auto-saved]");
+                        return Ok(());
+                    }
+                };
                 match parse_allow_input(&input, suggested.safety)? {
                     AllowDecision::PromptForDirection => {
-                        let extra = prompt_line("> ")?;
+                        let extra = match prompt_line("> ", &interrupted)? {
+                            Some(value) => value,
+                            None => {
+                                session.abort();
+                                service.save_session(&session).await?;
+                                println!("\n[Session auto-saved]");
+                                return Ok(());
+                            }
+                        };
                         if extra.trim().is_empty() {
                             continue;
                         }
@@ -250,6 +350,20 @@ impl CliHandlers {
                         }
                         Err(e) => {
                             eprintln!("[warn] Analysis failed: {}", e);
+                        }
+                    }
+
+                    if let Some(requested) = requested_primary.as_ref() {
+                        if suggested.exit_code == Some(0)
+                            && primary_command_binary(&suggested.command)
+                                .as_ref()
+                                .map(|cmd| cmd == requested)
+                                .unwrap_or(false)
+                        {
+                            session.complete();
+                            service.save_session(&session).await?;
+                            println!("\n→ Session ended.");
+                            break;
                         }
                     }
                 }
@@ -1155,6 +1269,25 @@ fn parse_command_tokens(command_line: &str) -> Vec<String> {
     }
 }
 
+fn primary_command_binary(command_line: &str) -> Option<String> {
+    let tokens = parse_command_tokens(command_line);
+    if tokens.is_empty() {
+        return None;
+    }
+    let mut idx = 0usize;
+    if tokens.get(0).map(|t| t.as_str()) == Some("shell") {
+        idx = 1;
+    }
+    while let Some(token) = tokens.get(idx) {
+        if is_env_assignment(token) || is_redirection_token(token) {
+            idx += 1;
+            continue;
+        }
+        return Some(token.trim_matches(&['\'', '"'][..]).to_string());
+    }
+    None
+}
+
 fn is_placeholder_path(arg: &str) -> bool {
     let value = arg.trim().to_lowercase();
     if (value.starts_with('<') && value.ends_with('>')) || (value.starts_with('[') && value.ends_with(']')) {
@@ -1262,12 +1395,60 @@ fn format_tool_output(name: &str, output: &domain::tools::ToolOutput) -> String 
     lines.join("\n")
 }
 
-fn prompt_line(prompt: &str) -> Result<String> {
+fn prompt_line(prompt: &str, interrupted: &AtomicBool) -> Result<Option<String>> {
+    if interrupted.load(Ordering::SeqCst) {
+        return Ok(None);
+    }
+
+    // Ensure we're in a good terminal state and then switch to raw mode for key handling.
+    let _ = disable_raw_mode();
+    enable_raw_mode()?;
+    struct RawModeGuard;
+    impl Drop for RawModeGuard {
+        fn drop(&mut self) {
+            let _ = disable_raw_mode();
+        }
+    }
+    let _guard = RawModeGuard;
+
     print!("{prompt}");
     io::stdout().flush()?;
+
     let mut input = String::new();
-    io::stdin().read_line(&mut input)?;
-    Ok(input.trim_end().to_string())
+    loop {
+        match read()? {
+            Event::Key(key) => match key.code {
+                KeyCode::Enter => {
+                    println!();
+                    return Ok(Some(input));
+                }
+                KeyCode::Char('c') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                    interrupted.store(true, Ordering::SeqCst);
+                    println!();
+                    return Ok(None);
+                }
+                KeyCode::Backspace => {
+                    if !input.is_empty() {
+                        input.pop();
+                        print!("\u{8} \u{8}");
+                        io::stdout().flush()?;
+                    }
+                }
+                KeyCode::Char(ch) => {
+                    input.push(ch);
+                    print!("{ch}");
+                    io::stdout().flush()?;
+                }
+                KeyCode::Tab => {
+                    input.push('\t');
+                    print!("\t");
+                    io::stdout().flush()?;
+                }
+                _ => {}
+            },
+            _ => {}
+        }
+    }
 }
 
 fn summarize_output_for_observation(output: &str) -> String {

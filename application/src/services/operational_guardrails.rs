@@ -40,12 +40,12 @@ impl OperationalGuardrails {
         let mut rules = Vec::new();
         if self.groundedness {
             rules.push(
-                "**Groundedness**: Base all answers strictly on the CONTEXT_VAULT. Do NOT hallucinate."
+                "**Context-First**: Prefer CONTEXT_VAULT when it is relevant. If the vault is empty or unrelated, answer using the user goal and standard system knowledge. Do NOT refuse solely due to missing context."
                     .to_string(),
             );
         }
         if self.traceability {
-            rules.push("**Traceability**: Cite sources using [REF-XX] notation for every claim.".to_string());
+            rules.push("**Traceability**: Cite [REF-XX] when you reference CONTEXT_VAULT content.".to_string());
         }
         if self.recency_priority {
             let ref_id = self
@@ -53,7 +53,7 @@ impl OperationalGuardrails {
                 .as_deref()
                 .unwrap_or("REF-02");
             rules.push(format!(
-                "**Recency Priority**: Most recent [{}] (latest_output) overrides all prior references.",
+                "**Recency Priority**: If latest_output [{}] is meaningful, it overrides older references. If it says \"(no output yet)\", treat it as empty.",
                 ref_id
             ));
         }

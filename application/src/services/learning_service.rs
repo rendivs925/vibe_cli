@@ -174,7 +174,7 @@ impl LearningService {
     pub fn format_learning_context(&self, query: &str) -> Result<String> {
         match self.get_context_for_query(query)? {
             Some(context) => Ok(format!(
-                "=== LEARNING CONTEXT (Do Not Repeat Past Mistakes) ===\n{}\n=== END LEARNING CONTEXT ===\n",
+                "=== LEARNING CONTEXT (Advisory) ===\n{}\nGuidance: Use this to avoid repeated failures, but do not ignore explicit user requests.\n=== END LEARNING CONTEXT ===\n",
                 context
             )),
             None => Ok(String::new()),

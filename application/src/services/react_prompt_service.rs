@@ -166,7 +166,7 @@ CONTEXT: <what data you're using>\n\n",
             None,
         );
         format!(
-            "{base}\nANALYZE: <reasoning with citations using [REF-XX]>\n",
+            "{base}\nANALYZE: <reasoning; include [REF-XX] citations only when referencing CONTEXT_VAULT>\n",
             base = base
         )
     }
@@ -202,7 +202,10 @@ CONTEXT: <what data you're using>\n\n",
             }
         }
 
-        format!("{base}\nANALYZE: <reasoning with citations using [REF-XX]>\n", base = base)
+        format!(
+            "{base}\nANALYZE: <reasoning; include [REF-XX] citations only when referencing CONTEXT_VAULT>\n",
+            base = base
+        )
     }
 
     fn build_context_engineering_prompt(
@@ -246,6 +249,11 @@ CONTEXT: <what data you're using>\n\n",
         }
 
         let mut prompt = engineer.render(&session.query, &task_type);
+        prompt.push_str("### ## CURRENT_GOAL\n");
+        prompt.push_str(&session.query);
+        prompt.push_str("\n\n");
+        prompt.push_str("### ## REQUEST_PRIORITY\n");
+        prompt.push_str("Always prioritize CURRENT_GOAL over unrelated prior context.\n\n");
 
         if let Some(depth) = depth_instruction {
             prompt.push_str("### ## REASONING_DEPTH\n");
@@ -263,7 +271,10 @@ CONTEXT: <what data you're using>\n\n",
         hypotheses: &str,
     ) -> String {
         format!(
-            "You are a helpful assistant. Analyze the command output and provide USEFUL INFORMATION to the user.\n\
+            "You are a strict analyst. Use ONLY the Command Output as ground truth.\n\
+If a detail is not explicitly in the output, do not mention or infer it.\n\
+Do not speculate, do not add extra tools/commands, and do not reference prior attempts.\n\
+If the output is empty or unclear, say so plainly.\n\
 \n\
 ## Original User Query\n\
 {goal}\n\
@@ -276,12 +287,11 @@ Facts: {facts}\n\
 Hypotheses: {hypotheses}\n\
 \n\
 ## Instructions\n\
-Analyze the command output and provide useful, actionable information to the user.\n\
-- Explain what the output means in plain language\n\
-- Point out any issues, errors, or anomalies you notice\n\
-- Suggest what the user should do next if relevant\n\
-- Do NOT use rigid sections like \"Summary:\", \"Errors:\", \"Warnings:\" - just write naturally\n\
-- Keep it concise but informative\n\
+Only summarize what is shown in Command Output. If Facts/Hypotheses conflict with output, ignore them.\n\
+Mention key items from the output that answer the user’s goal.\n\
+Only suggest next steps if the output explicitly indicates an error or missing info.\n\
+Do NOT use rigid sections like \"Summary:\", \"Errors:\", \"Warnings:\" - just write naturally.\n\
+Keep it concise.\n\
 \n\
 Provide your analysis:",
             goal = goal,
@@ -302,9 +312,9 @@ Provide your analysis:",
             "You are a cautious systems assistant. Based on the goal and reasoning, propose 1-3 executable suggestions.\n\
 Preferred response is a JSON array of command strings, but brief prose is OK. We will extract commands automatically.\n\
 Goal: {goal}\n\
-Reasoning (MUST be grounded in latest output): {reasoning}\n\
+Reasoning (use latest output if relevant; otherwise rely on the goal): {reasoning}\n\
 \n\
-## Latest Output - USE THIS DATA\n\
+## Latest Output (if any)\n\
 {latest_output}\n\
 \n\
 History:\n{history}\n\
@@ -347,6 +357,7 @@ Constraints:\n\
 - Prefer read-only diagnostics first.\n\
 - Avoid destructive commands.\n\
 - Use standard Linux tools.\n\
+- If the user explicitly asked for a specific command or parameters, propose that exact command first.\n\
 - If a built-in tool is better, output it directly as the command string.\n\
 - NEVER use placeholder paths such as <path>, /path/to/..., your_file, or /tmp/example.\n\
 - Only use real paths likely to exist under current working directory.\n\
