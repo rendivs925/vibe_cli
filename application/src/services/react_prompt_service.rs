@@ -296,7 +296,8 @@ Hypotheses: {hypotheses}\n\
 ## Instructions\n\
 Only summarize what is shown in Command Output. If Facts/Hypotheses conflict with output, ignore them.\n\
 Mention key items from the output that answer the user’s goal.\n\
-Only suggest next steps if the output explicitly indicates an error or missing info.\n\
+If the output is empty or unclear, ask ONE short follow-up question to proceed.\n\
+Otherwise, do not ask questions.\n\
 Do NOT use rigid sections like \"Summary:\", \"Errors:\", \"Warnings:\" - just write naturally.\n\
 Keep it concise.\n\
 \n\

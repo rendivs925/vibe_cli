@@ -245,10 +245,6 @@ impl ReactAgentService {
     pub async fn analyze_output(&self, session: &ReactSession) -> Result<String> {
         let context = self.context_retriever.retrieve_with_semantic_search(session).await;
         
-        if context.latest_output.trim().is_empty() {
-            return Ok("No output to analyze.".to_string());
-        }
-
         let prompt = self.prompt_service.analysis_prompt(
             &session.query,
             &context.latest_output,

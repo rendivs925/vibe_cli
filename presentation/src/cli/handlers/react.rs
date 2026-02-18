@@ -40,6 +40,11 @@ struct ReactRunOptions {
     allow_next_prompt: bool,
     show_reasoning: bool,
     context_scope: &'static str,
+    show_query: bool,
+    show_validation: bool,
+    show_command: bool,
+    auto_run_readonly: bool,
+    summary_only: bool,
 }
 
 impl ReactRunOptions {
@@ -47,7 +52,12 @@ impl ReactRunOptions {
         Self {
             allow_next_prompt: true,
             show_reasoning: true,
-            context_scope: "goal_only",
+            context_scope: "default",
+            show_query: true,
+            show_validation: true,
+            show_command: true,
+            auto_run_readonly: false,
+            summary_only: false,
         }
     }
 
@@ -55,7 +65,12 @@ impl ReactRunOptions {
         Self {
             allow_next_prompt: false,
             show_reasoning: false,
-            context_scope: "goal_only",
+            context_scope: "default",
+            show_query: false,
+            show_validation: false,
+            show_command: false,
+            auto_run_readonly: true,
+            summary_only: true,
         }
     }
 }
@@ -113,18 +128,20 @@ impl ZshRepl {
         let ack_path = ack_fifo.to_string_lossy();
         let prompt_path = prompt_fifo.to_string_lossy();
         let script = format!(
-            "line=; while true; do \
+            "PROMPT=''; RPROMPT=''; \
+             line=; while true; do \
              read -r prompt_msg < {prompt} || exit; \
-             if [[ -n \"$prompt_msg\" ]]; then print -r -- \"$prompt_msg\"; fi; \
-             bindkey -e; \
-             bindkey '^[[A' up-line-or-history; \
-             bindkey '^[[B' down-line-or-history; \
-             bindkey '^[[C' forward-char; \
-             bindkey '^[[D' backward-char; \
-             bindkey '^H' backward-delete-char; \
-             bindkey '^?' backward-delete-char; \
-             PROMPT='> '; RPROMPT=''; prompt='> '; \
+             saved_rprompt=$RPROMPT; \
+             if [[ -n \"$prompt_msg\" ]]; then \
+                RPROMPT=''; \
+                prompt=\"$prompt_msg\"; \
+             else \
+                RPROMPT=''; \
+                prompt='> '; \
+             fi; \
              vared -p \"$prompt\" line || exit; \
+             RPROMPT=$saved_rprompt; \
+             print -s -- \"$line\"; \
              print -r -- \"$line\" > {out}; \
              read -r _ < {ack} || exit; \
              done",
@@ -398,7 +415,9 @@ impl CliHandlers {
         let mut validator = SyntaxGrammarValidator::new();
         let tools = build_default_tool_executor();
 
-        println!("\n→ {}", session.query);
+        if options.show_query {
+            println!("→ {}", session.query);
+        }
 
         let mut pending_command_override: Option<String> = None;
         let mut requested_primary = extract_user_command_override(&session.query)
@@ -438,8 +457,7 @@ impl CliHandlers {
                     // Execute the selected tool
                     match service.execute_tool(tool_decision.tool, &session, &reasoning).await {
                         Ok(result) => {
-                            // Show tool output directly (dynamic response)
-                            if !result.output.is_empty() {
+                            if !options.summary_only && !result.output.is_empty() {
                                 println!("{}", result.output);
                             }
                             Some(result)
@@ -520,6 +538,13 @@ impl CliHandlers {
                         step_index,
                     );
                     save_step(&service, &mut session, ReactStepType::Observation, summary).await?;
+                    if options.summary_only {
+                        if let Ok(analysis) = service.analyze_output(&session).await {
+                            if !analysis.is_empty() {
+                                println!("{analysis}");
+                            }
+                        }
+                    }
                 }
                 match tool_result.tool {
                     ReactTool::ConcludeFail | ReactTool::Escalate | ReactTool::Defer => {
@@ -541,6 +566,16 @@ impl CliHandlers {
                     step_index,
                 );
                 save_step(&service, &mut session, ReactStepType::Observation, summary).await?;
+                if options.summary_only {
+                    if let Ok(analysis) = service.analyze_output(&session).await {
+                        if !analysis.is_empty() {
+                            println!("{analysis}");
+                        }
+                    }
+                    session.complete();
+                    service.save_session(&session).await?;
+                    break;
+                }
                 service.save_session(&session).await?;
                 continue;
             }
@@ -596,14 +631,16 @@ impl CliHandlers {
             }
 
             let validation = validate_command_candidates(commands, &tools);
-            print_validation_report(&validation);
+            print_validation_report(&validation, options.show_validation);
             let mut suggested = if let Some(valid) = validation.valid.into_iter().next() {
                 valid
             } else {
                 println!("No valid commands found.");
                 break;
             };
-            println!("\n→ {}", suggested.command);
+            if options.show_command || (!options.auto_run_readonly || !matches!(suggested.safety, CommandSafety::ReadOnly)) {
+                println!("→ {}", suggested.command);
+            }
 
             let mut action_step = ReactStep::new(
                 session.id.clone(),
@@ -618,34 +655,38 @@ impl CliHandlers {
             service.save_command(&suggested).await?;
             service.save_session(&session).await?;
 
-            let decision = loop {
-                let prompt = safety_prompt(&suggested.safety);
-                let input = match read_user_line(prompt, &interrupted, repl)? {
-                    Some(value) => value,
-                    None => {
-                        session.abort();
-                        service.save_session(&session).await?;
-                        println!("\n[Session auto-saved]");
-                        return Ok(carry);
-                    }
-                };
-                match parse_allow_input(&input, suggested.safety)? {
-                    AllowDecision::PromptForDirection => {
-                        let extra = match read_user_line("> ", &interrupted, repl)? {
-                            Some(value) => value,
-                            None => {
-                                session.abort();
-                                service.save_session(&session).await?;
-                                println!("\n[Session auto-saved]");
-                                return Ok(carry);
-                            }
-                        };
-                        if extra.trim().is_empty() {
-                            continue;
+            let decision = if options.auto_run_readonly && matches!(suggested.safety, CommandSafety::ReadOnly) {
+                AllowDecision::Execute
+            } else {
+                loop {
+                    let prompt = safety_prompt(&suggested.safety);
+                    let input = match read_user_line(prompt, &interrupted, repl)? {
+                        Some(value) => value,
+                        None => {
+                            session.abort();
+                            service.save_session(&session).await?;
+                            println!("\n[Session auto-saved]");
+                            return Ok(carry);
                         }
-                        break AllowDecision::Direction(extra);
+                    };
+                    match parse_allow_input(&input, suggested.safety)? {
+                        AllowDecision::PromptForDirection => {
+                            let extra = match read_user_line("> ", &interrupted, repl)? {
+                                Some(value) => value,
+                                None => {
+                                    session.abort();
+                                    service.save_session(&session).await?;
+                                    println!("\n[Session auto-saved]");
+                                    return Ok(carry);
+                                }
+                            };
+                            if extra.trim().is_empty() {
+                                continue;
+                            }
+                            break AllowDecision::Direction(extra);
+                        }
+                        other => break other,
                     }
-                    other => break other,
                 }
             };
 
@@ -659,7 +700,6 @@ impl CliHandlers {
                         &session.query,
                     )
                     .await?;
-                    println!("{output}");
                     carry.last_output = Some(output.clone());
                     carry.last_command = Some(suggested.command.clone());
                     let step_index = session.steps.len();
@@ -681,16 +721,30 @@ impl CliHandlers {
                     // Index command for cross-session learning
                     let _ = service.index_command_execution(&suggested, &session.id).await;
 
+                    if !options.summary_only && !output.trim().is_empty() {
+                        println!("{output}");
+                    }
+
                     // Run post-command analysis
                     match service.analyze_output(&session).await {
                         Ok(analysis) => {
                             if !analysis.is_empty() {
-                                print_section("ANALYSIS", &analysis);
+                                if options.summary_only {
+                                    println!("{analysis}");
+                                } else {
+                                    print_section("ANALYSIS", &analysis);
+                                }
                             }
                         }
                         Err(e) => {
                             eprintln!("[warn] Analysis failed: {}", e);
                         }
+                    }
+
+                    if options.summary_only {
+                        session.complete();
+                        service.save_session(&session).await?;
+                        break;
                     }
 
                     if suggested.exit_code == Some(0) && !output.trim().is_empty() {
@@ -755,7 +809,7 @@ impl CliHandlers {
                                         }
                                     }
                                     pending_command_override = None;
-                                    println!("\n→ {}", session.query);
+                                    println!("→ {}", session.query);
                                     continue;
                                 } else {
                                     println!("\n→ Session ended.");
@@ -1105,7 +1159,13 @@ fn validate_command_candidates(
     CommandValidationReport { valid, invalid }
 }
 
-fn print_validation_report(report: &CommandValidationReport) {
+fn print_validation_report(report: &CommandValidationReport, show: bool) {
+    if !show {
+        if report.valid.is_empty() && !report.invalid.is_empty() {
+            println!("No valid commands found: {}", report.invalid[0].reason);
+        }
+        return;
+    }
     let total = report.valid.len() + report.invalid.len();
     if total == 0 {
         return;
@@ -1928,7 +1988,7 @@ fn read_user_line(
         let message = if prompt.trim().is_empty() {
             None
         } else {
-            Some(prompt.trim_end())
+            Some(prompt)
         };
         return repl.read_line_with_prompt(message);
     }
