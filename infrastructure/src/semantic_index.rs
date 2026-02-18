@@ -586,7 +586,7 @@ impl SemanticIndex {
             combined.insert(result.session_id.clone(), result);
         }
 
-        for mut result in vector_results {
+        for result in vector_results {
             if let Some(existing) = combined.get_mut(&result.session_id) {
                 // Boost score if found in both
                 existing.similarity = (existing.similarity + result.similarity) / 2.0 + 0.1;

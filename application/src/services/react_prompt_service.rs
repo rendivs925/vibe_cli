@@ -1,5 +1,7 @@
+use crate::services::context_engineer::ContextEngineer;
+use crate::services::operational_guardrails::OperationalGuardrails;
 use crate::services::react_context_retriever::RetrievedContext;
-use domain::entities::react::ReactTool;
+use domain::entities::react::{ReactSession, ReactTool};
 
 pub struct ReactPromptService;
 
@@ -10,26 +12,24 @@ impl ReactPromptService {
 
     pub fn tool_selection_prompt(
         &self,
-        goal: &str,
+        session: &ReactSession,
         reasoning: &str,
         context: &RetrievedContext,
+        max_iterations: u32,
     ) -> String {
+        let base = self.build_context_engineering_prompt(
+            session,
+            context,
+            "",
+            "",
+            max_iterations,
+            None,
+        );
         format!(
-            "You are a systems debugging assistant using a ReAct loop with dynamic tool selection.\n\
-\n\
-## Current Task\n\
-{goal}\n\
-\n\
-## Previous Analysis\n\
+            "{base}\n\
+### ## TOOL_SELECTION\n\
+Previous analysis:\n\
 {reasoning}\n\
-\n\
-## Context\n\
-{latest_output}\n\
-\n\
-## Session History\n\
-{history}\n\
-\n\
-## TOOL SELECTION\n\
 \n\
 Based on your analysis, choose ONE tool from this list:\n\
 \n\
@@ -39,52 +39,84 @@ Based on your analysis, choose ONE tool from this list:\n\
 - suggest_grep: Propose search pattern\n\
 - suggest_rag: Propose RAG query for code context\n\
 - suggest_discovery: Propose system discovery command\n\
+- web_search: Search the web via SearXNG\n\
+- web_fetch: Fetch content from a URL\n\
+- read_pdf: Extract text from a PDF\n\
+- read_docx: Extract text from a DOCX\n\
+- read_xlsx: Read data from an XLSX/CSV\n\
+- semantic_search: Semantic search across past sessions\n\
+- grep_context: Grep with surrounding context\n\
 \n\
 ### Analysis (understand data)\n\
 - summarize: Summarize output in 3-5 sentences\n\
 - extract_errors: Extract error messages from output\n\
 - extract_warnings: Extract warnings from output\n\
 - extract_metrics: Extract numeric metrics from output\n\
+- extract_patterns: Find patterns in output\n\
 - compare: Compare two outputs or states\n\
+- correlate: Find relationships in data\n\
+- web_summarize: Summarize a web page\n\
+- web_extract: Extract structured data from a web page\n\
+- extract_tables: Extract tables from documents\n\
+- doc_qa: Q&A over document content\n\
+- find_patterns: Find learned patterns from memory\n\
+- code_diff: Analyze git diff\n\
+- code_explain: Explain code structure\n\
 \n\
 ### Planning (strategy)\n\
 - plan_next: Propose 2-3 next steps\n\
 - narrow_focus: Narrow investigation scope\n\
 - branch: Explore alternative approaches\n\
 - rethink: Take completely new approach\n\
+- prioritize: Rank options\n\
 \n\
 ### Action (make changes)\n\
 - apply_fix: Apply a fix or change\n\
 - edit_file: Edit an existing file\n\
 - create_file: Create a new file\n\
+- run_command: Run a command directly\n\
+- retry: Retry failed operation\n\
+- code_execute: Execute code with confirmation\n\
 \n\
 ### Verification (check)\n\
 - check_goal: Verify if original goal achieved\n\
 - verify_fix: Verify if fix was applied correctly\n\
+- verify_syntax: Check syntax before applying\n\
+- test_hypothesis: Test a hypothesis\n\
+- code_test: Run tests\n\
+- code_lint: Run linters\n\
 \n\
 ### Memory (context)\n\
 - show_facts: Show extracted facts\n\
 - show_hypotheses: Show current hypotheses\n\
 - show_history: Show session history\n\
+- show_context: Show all context\n\
+- show_plan: Show current plan\n\
+- compact_session: Compact session history\n\
+- remember: Store a fact in lifelong memory\n\
+- recall: Retrieve from memory\n\
+- consolidate: Summarize to long-term memory\n\
+- search_memory: Search lifelong memory\n\
+- learn_patterns: Extract reusable patterns\n\
 \n\
 ### Resolution (end)\n\
 - conclude_success: Problem solved\n\
-- conclude_fail: Cannot solve, escalate needed\n\
+- conclude_fail: Cannot solve - end session\n\
+- escalate: Need human assistance\n\
+- defer: Defer task for later\n\
 \n\
 ### Interaction (user)\n\
 - ask_clarification: Need user clarification\n\
+- ask_confirmation: Need user confirmation\n\
 - explain: Explain reasoning to user\n\
-\n\
----\n\
+- suggest_alternatives: Offer options to user\n\
 \n\
 Respond in this exact format:\n\
 TOOL: <tool_name>\n\
 JUSTIFY: <why this tool is the right choice>\n\
 CONTEXT: <what data you're using>\n\n",
-            goal = goal,
-            reasoning = reasoning,
-            latest_output = context.latest_output,
-            history = context.session_history,
+            base = base,
+            reasoning = reasoning
         )
     }
 
@@ -113,94 +145,35 @@ CONTEXT: <what data you're using>\n\n",
 
     pub fn reasoning_prompt(
         &self,
-        goal: &str,
+        session: &ReactSession,
         context: &RetrievedContext,
         learning_context: &str,
         failed_commands: &str,
+        max_iterations: u32,
     ) -> String {
+        let base = self.build_context_engineering_prompt(
+            session,
+            context,
+            learning_context,
+            failed_commands,
+            max_iterations,
+            None,
+        );
         format!(
-            "You are a systems debugging assistant using a conversational ReAct loop.\n\
-\n\
-## Current Task\n\
-{goal}\n\
-\n\
-## Session History - MOST RECENT LAST\n\
-{history}\n\
-\n\
-## Latest Output - ALWAYS USE THIS\n\
-{latest_output}\n\
-\n\
-## Extracted Facts\n\
-{facts}\n\
-\n\
-## Current Hypotheses\n\
-{hypotheses}\n\
-\n\
-## Constraints\n\
-{constraints}\n\
-\n\
-## System Context\n\
-{knowledge_context}\n\
-\n\
-{learning_context}\n\
-\n\
-## Avoid These Commands\n\
-{failed_commands}\n\
-\n\
-## STRICT BEHAVIORAL RULES\n\
-\n\
-### Latest Output Supremacy Rule\n\
-The MOST RECENT OUTPUT block above overrides ALL prior assumptions.\n\
-- Do NOT rely on earlier outputs if newer data exists\n\
-- Treat each tool execution as NEW evidence\n\
-- If you repeat prior analysis without the latest output, you FAIL\n\
-\n\
-### Evidence-Based Reasoning\n\
-- Every ANALYZE must explicitly reference CONCRETE details from the LATEST OUTPUT\n\
-- Do NOT produce generic fallback explanations\n\
-- Do NOT restate prior reasoning unless directly supported by new evidence\n\
-\n\
-### Progressive Problem Solving\n\
-- Each suggested action must move the investigation FORWARD\n\
-- Avoid loops and re-running broad diagnostics without narrowing scope\n\
-- Adapt strategy dynamically based on RESULTS\n\
-\n\
-### Loop Prevention\n\
-Before suggesting ANY action, you MUST check:\n\
-- Has this exact action already been executed in history?\n\
-- If YES, you MUST provide a NEW justification or choose a DIFFERENT action\n\
-- Do NOT repeat the same command without explicit justification\n\
-\n\
-## Instructions\n\
-- Use FACTS from the latest output to support reasoning\n\
-- Consider user constraints\n\
-- AVOID commands that failed before\n\
-- Focus on the next NARROW diagnostic step\n\
-- Do not include commands or code blocks\n\
-- Your analysis must be GROUNDED in the most recent OUTPUT\n\
-\n\
-Output format:\n\
-ANALYZE: <reasoning referencing latest output>",
-            goal = goal,
-            history = context.session_history,
-            latest_output = context.latest_output,
-            facts = context.facts,
-            hypotheses = context.hypotheses,
-            constraints = context.constraints,
-            knowledge_context = context.knowledge_context,
-            learning_context = learning_context,
-            failed_commands = failed_commands,
+            "{base}\nANALYZE: <reasoning with citations using [REF-XX]>\n",
+            base = base
         )
     }
 
     pub fn reasoning_prompt_with_depth(
         &self,
-        goal: &str,
+        session: &ReactSession,
         context: &RetrievedContext,
         learning_context: &str,
         failed_commands: &str,
         depth: u8,
         previous_reasoning: Option<&str>,
+        max_iterations: u32,
     ) -> String {
         let depth_instruction = match depth {
             1 => "This is Step 1 of reasoning. Focus on INITIAL UNDERSTANDING of the user's query. What is the user asking for? What is the context?",
@@ -208,94 +181,83 @@ ANALYZE: <reasoning referencing latest output>",
             _ => "This is Step 3 (final) reasoning. VERIFY your understanding and prepare the final command. Confirm all requirements from the query are met.",
         };
 
-        let previous = if let Some(prev) = previous_reasoning {
-            format!("## Previous Reasoning\n{}\n", prev)
-        } else {
-            String::new()
-        };
+        let mut base = self.build_context_engineering_prompt(
+            session,
+            context,
+            learning_context,
+            failed_commands,
+            max_iterations,
+            Some(depth_instruction),
+        );
 
-        format!(
-            "You are a systems debugging assistant using a conversational ReAct loop.\n\
-\n\
-## Current Task\n\
-{goal}\n\
-\n\
-{previous}\
-## Session History - MOST RECENT LAST\n\
-{history}\n\
-\n\
-## Latest Output - ALWAYS USE THIS\n\
-{latest_output}\n\
-\n\
-## Extracted Facts\n\
-{facts}\n\
-\n\
-## Current Hypotheses\n\
-{hypotheses}\n\
-\n\
-## Constraints\n\
-{constraints}\n\
-\n\
-## System Context\n\
-{knowledge_context}\n\
-\n\
-{learning_context}\n\
-\n\
-## Avoid These Commands\n\
-{failed_commands}\n\
-\n\
-## STRICT BEHAVIORAL RULES\n\
-\n\
-### Reasoning Depth - Step {depth}\n\
-{depth_instruction}\n\
-\n\
-### Latest Output Supremacy Rule\n\
-The MOST RECENT OUTPUT block above overrides ALL prior assumptions.\n\
-- Do NOT rely on earlier outputs if newer data exists\n\
-- Treat each tool execution as NEW evidence\n\
-- If you repeat prior analysis without the latest output, you FAIL\n\
-\n\
-### Evidence-Based Reasoning\n\
-- Every ANALYZE must explicitly reference CONCRETE details from the LATEST OUTPUT\n\
-- Do NOT produce generic fallback explanations\n\
-- Do NOT restate prior reasoning unless directly supported by new evidence\n\
-\n\
-### Progressive Problem Solving\n\
-- Each suggested action must move the investigation FORWARD\n\
-- Avoid loops and re-running broad diagnostics without narrowing scope\n\
-- Adapt strategy dynamically based on RESULTS\n\
-\n\
-### Loop Prevention\n\
-Before suggesting ANY action, you MUST check:\n\
-- Has this exact action already been executed in history?\n\
-- If YES, you MUST provide a NEW justification or choose a DIFFERENT action\n\
-- Do NOT repeat the same command without explicit justification\n\
-\n\
-## Instructions\n\
-- Use FACTS from the latest output to support reasoning\n\
-- Consider user constraints\n\
-- AVOID commands that failed before\n\
-- Focus on the next NARROW diagnostic step\n\
-- Do not include commands or code blocks\n\
-- Your analysis must be GROUNDED in the most recent OUTPUT\n\
-- At Step 3, provide a clear command if appropriate\n\
-\n\
-Output format:\n\
-ANALYZE: <reasoning referencing latest output>",
-            goal = goal,
-            history = context.session_history,
-            latest_output = context.latest_output,
-            facts = context.facts,
-            hypotheses = context.hypotheses,
-            constraints = context.constraints,
-            knowledge_context = context.knowledge_context,
-            learning_context = learning_context,
-            failed_commands = failed_commands,
-            depth = depth,
-            depth_instruction = depth_instruction,
-        )
+        if let Some(prev) = previous_reasoning {
+            if !prev.trim().is_empty() {
+                base.push_str("\n### ## PREVIOUS_REASONING\n");
+                base.push_str(prev);
+                base.push_str("\n");
+            }
+        }
+
+        format!("{base}\nANALYZE: <reasoning with citations using [REF-XX]>\n", base = base)
     }
 
+    fn build_context_engineering_prompt(
+        &self,
+        session: &ReactSession,
+        context: &RetrievedContext,
+        learning_context: &str,
+        failed_commands: &str,
+        max_iterations: u32,
+        depth_instruction: Option<&str>,
+    ) -> String {
+        let task_type = task_type_label(session);
+        let mut engineer = ContextEngineer::new(&session.query)
+            .with_session_id(&session.id)
+            .with_iteration((context.steps as u32).max(1), max_iterations)
+            .with_task_type(&task_type);
+
+        let guardrails = OperationalGuardrails::default().with_delta_only(should_delta_only(&session.query));
+        engineer = engineer.with_guardrails(guardrails);
+
+        engineer.add_session_history(&context.session_history);
+        engineer.add_latest_output(
+            &context.latest_output,
+            context.latest_output_source.as_deref(),
+        );
+        engineer.add_facts(&context.facts_list);
+        engineer.add_hypotheses(&context.hypotheses_list);
+
+        let avoid_commands = normalize_failed_commands(failed_commands);
+        engineer.add_constraints(&context.constraints_list, avoid_commands.as_deref());
+
+        if !learning_context.trim().is_empty() {
+            engineer.add_learning_context(learning_context);
+        }
+        if !context.knowledge_context.trim().is_empty() {
+            engineer.add_knowledge_base(&context.knowledge_context);
+        }
+        if let Some(similar) = &context.similar_sessions_context {
+            engineer.add_knowledge_base(similar);
+        }
+        if let Some(patterns) = &context.command_patterns_context {
+            engineer.add_knowledge_base(patterns);
+        }
+
+        let mut prompt = engineer.render(
+            &session.query,
+            (context.steps as u32).saturating_add(1),
+            max_iterations.max(1),
+            &task_type,
+        );
+
+        if let Some(depth) = depth_instruction {
+            prompt.push_str("### ## REASONING_DEPTH\n");
+            prompt.push_str(depth);
+            prompt.push_str("\n\n");
+        }
+
+        prompt
+    }
     pub fn analysis_prompt(
         &self,
         goal: &str,
@@ -453,5 +415,29 @@ No bullet points. No extra headers.\n\
 History:\n{history}\n",
             history = history
         )
+    }
+}
+
+fn task_type_label(session: &ReactSession) -> String {
+    session
+        .intent
+        .as_ref()
+        .map(|intent| format!("{:?}", intent.task_type))
+        .unwrap_or_else(|| "Analyze".to_string())
+}
+
+fn should_delta_only(query: &str) -> bool {
+    let lower = query.to_lowercase();
+    ["edit", "update", "refactor", "implement", "fix", "patch"]
+        .iter()
+        .any(|kw| lower.contains(kw))
+}
+
+fn normalize_failed_commands(failed: &str) -> Option<String> {
+    let trimmed = failed.trim();
+    if trimmed.is_empty() || trimmed.eq_ignore_ascii_case("none") {
+        None
+    } else {
+        Some(format!("avoid_commands: {}", trimmed))
     }
 }

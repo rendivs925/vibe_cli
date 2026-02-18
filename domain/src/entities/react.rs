@@ -89,6 +89,13 @@ pub enum ReactTool {
     SuggestGrep,
     SuggestRag,
     SuggestDiscovery,
+    WebSearch,
+    WebFetch,
+    ReadPdf,
+    ReadDocx,
+    ReadXlsx,
+    SemanticSearch,
+    GrepContext,
 
     // Category B: Analysis Tools (Understanding Data)
     Summarize,
@@ -98,6 +105,13 @@ pub enum ReactTool {
     ExtractPatterns,
     Compare,
     Correlate,
+    WebSummarize,
+    WebExtract,
+    ExtractTables,
+    DocQa,
+    FindPatterns,
+    CodeDiff,
+    CodeExplain,
 
     // Category C: Planning Tools (Strategy)
     PlanNext,
@@ -112,12 +126,15 @@ pub enum ReactTool {
     CreateFile,
     RunCommand,
     Retry,
+    CodeExecute,
 
     // Category E: Verification Tools (Checking)
     CheckGoal,
     VerifyFix,
     VerifySyntax,
     TestHypothesis,
+    CodeTest,
+    CodeLint,
 
     // Category F: Memory Tools (Context)
     ShowFacts,
@@ -126,6 +143,11 @@ pub enum ReactTool {
     ShowContext,
     ShowPlan,
     CompactSession,
+    Remember,
+    Recall,
+    Consolidate,
+    SearchMemory,
+    LearnPatterns,
 
     // Category G: Resolution Tools (Ending)
     ConcludeSuccess,
@@ -148,6 +170,13 @@ impl ReactTool {
             ReactTool::SuggestGrep => "suggest_grep",
             ReactTool::SuggestRag => "suggest_rag",
             ReactTool::SuggestDiscovery => "suggest_discovery",
+            ReactTool::WebSearch => "web_search",
+            ReactTool::WebFetch => "web_fetch",
+            ReactTool::ReadPdf => "read_pdf",
+            ReactTool::ReadDocx => "read_docx",
+            ReactTool::ReadXlsx => "read_xlsx",
+            ReactTool::SemanticSearch => "semantic_search",
+            ReactTool::GrepContext => "grep_context",
             ReactTool::Summarize => "summarize",
             ReactTool::ExtractErrors => "extract_errors",
             ReactTool::ExtractWarnings => "extract_warnings",
@@ -155,6 +184,13 @@ impl ReactTool {
             ReactTool::ExtractPatterns => "extract_patterns",
             ReactTool::Compare => "compare",
             ReactTool::Correlate => "correlate",
+            ReactTool::WebSummarize => "web_summarize",
+            ReactTool::WebExtract => "web_extract",
+            ReactTool::ExtractTables => "extract_tables",
+            ReactTool::DocQa => "doc_qa",
+            ReactTool::FindPatterns => "find_patterns",
+            ReactTool::CodeDiff => "code_diff",
+            ReactTool::CodeExplain => "code_explain",
             ReactTool::PlanNext => "plan_next",
             ReactTool::NarrowFocus => "narrow_focus",
             ReactTool::Branch => "branch",
@@ -165,16 +201,24 @@ impl ReactTool {
             ReactTool::CreateFile => "create_file",
             ReactTool::RunCommand => "run_command",
             ReactTool::Retry => "retry",
+            ReactTool::CodeExecute => "code_execute",
             ReactTool::CheckGoal => "check_goal",
             ReactTool::VerifyFix => "verify_fix",
             ReactTool::VerifySyntax => "verify_syntax",
             ReactTool::TestHypothesis => "test_hypothesis",
+            ReactTool::CodeTest => "code_test",
+            ReactTool::CodeLint => "code_lint",
             ReactTool::ShowFacts => "show_facts",
             ReactTool::ShowHypotheses => "show_hypotheses",
             ReactTool::ShowHistory => "show_history",
             ReactTool::ShowContext => "show_context",
             ReactTool::ShowPlan => "show_plan",
             ReactTool::CompactSession => "compact_session",
+            ReactTool::Remember => "remember",
+            ReactTool::Recall => "recall",
+            ReactTool::Consolidate => "consolidate",
+            ReactTool::SearchMemory => "search_memory",
+            ReactTool::LearnPatterns => "learn_patterns",
             ReactTool::ConcludeSuccess => "conclude_success",
             ReactTool::ConcludeFail => "conclude_fail",
             ReactTool::Escalate => "escalate",
@@ -193,6 +237,13 @@ impl ReactTool {
             ReactTool::SuggestGrep => "Propose search pattern",
             ReactTool::SuggestRag => "Propose RAG query for code context",
             ReactTool::SuggestDiscovery => "Propose system discovery command",
+            ReactTool::WebSearch => "Search the web via SearXNG",
+            ReactTool::WebFetch => "Fetch content from a URL",
+            ReactTool::ReadPdf => "Extract text from a PDF document",
+            ReactTool::ReadDocx => "Extract text from a DOCX document",
+            ReactTool::ReadXlsx => "Read data from XLSX or CSV",
+            ReactTool::SemanticSearch => "Semantic search across past sessions",
+            ReactTool::GrepContext => "Grep with surrounding context",
             ReactTool::Summarize => "Summarize output in 3-5 sentences",
             ReactTool::ExtractErrors => "Extract error messages from output",
             ReactTool::ExtractWarnings => "Extract warnings from output",
@@ -200,6 +251,13 @@ impl ReactTool {
             ReactTool::ExtractPatterns => "Find patterns in data",
             ReactTool::Compare => "Compare two outputs or states",
             ReactTool::Correlate => "Find relationships in data",
+            ReactTool::WebSummarize => "Summarize a web page",
+            ReactTool::WebExtract => "Extract structured data from a web page",
+            ReactTool::ExtractTables => "Extract tables from documents",
+            ReactTool::DocQa => "Answer questions over document content",
+            ReactTool::FindPatterns => "Find learned patterns from memory",
+            ReactTool::CodeDiff => "Analyze git diff",
+            ReactTool::CodeExplain => "Explain code structure",
             ReactTool::PlanNext => "Propose 2-3 next steps",
             ReactTool::NarrowFocus => "Narrow investigation scope",
             ReactTool::Branch => "Explore alternative approaches",
@@ -210,16 +268,24 @@ impl ReactTool {
             ReactTool::CreateFile => "Create a new file",
             ReactTool::RunCommand => "Run a command directly",
             ReactTool::Retry => "Retry failed operation",
+            ReactTool::CodeExecute => "Execute code with confirmation",
             ReactTool::CheckGoal => "Verify if original goal achieved",
             ReactTool::VerifyFix => "Verify if fix was applied correctly",
             ReactTool::VerifySyntax => "Check syntax before applying",
             ReactTool::TestHypothesis => "Test a hypothesis",
+            ReactTool::CodeTest => "Run tests",
+            ReactTool::CodeLint => "Run linters",
             ReactTool::ShowFacts => "Show extracted facts",
             ReactTool::ShowHypotheses => "Show current hypotheses",
             ReactTool::ShowHistory => "Show session history",
             ReactTool::ShowContext => "Show all context",
             ReactTool::ShowPlan => "Show current plan",
             ReactTool::CompactSession => "Compact session history",
+            ReactTool::Remember => "Store a fact in lifelong memory",
+            ReactTool::Recall => "Retrieve from memory",
+            ReactTool::Consolidate => "Summarize to long-term memory",
+            ReactTool::SearchMemory => "Search lifelong memory",
+            ReactTool::LearnPatterns => "Extract reusable patterns",
             ReactTool::ConcludeSuccess => "Problem solved - end session",
             ReactTool::ConcludeFail => "Cannot solve - end session",
             ReactTool::Escalate => "Need human assistance",
@@ -237,14 +303,28 @@ impl ReactTool {
             | ReactTool::SuggestRead
             | ReactTool::SuggestGrep
             | ReactTool::SuggestRag
-            | ReactTool::SuggestDiscovery => ToolCategory::Investigation,
+            | ReactTool::SuggestDiscovery
+            | ReactTool::WebSearch
+            | ReactTool::WebFetch
+            | ReactTool::ReadPdf
+            | ReactTool::ReadDocx
+            | ReactTool::ReadXlsx
+            | ReactTool::SemanticSearch
+            | ReactTool::GrepContext => ToolCategory::Investigation,
             ReactTool::Summarize
             | ReactTool::ExtractErrors
             | ReactTool::ExtractWarnings
             | ReactTool::ExtractMetrics
             | ReactTool::ExtractPatterns
             | ReactTool::Compare
-            | ReactTool::Correlate => ToolCategory::Analysis,
+            | ReactTool::Correlate
+            | ReactTool::WebSummarize
+            | ReactTool::WebExtract
+            | ReactTool::ExtractTables
+            | ReactTool::DocQa
+            | ReactTool::FindPatterns
+            | ReactTool::CodeDiff
+            | ReactTool::CodeExplain => ToolCategory::Analysis,
             ReactTool::PlanNext
             | ReactTool::NarrowFocus
             | ReactTool::Branch
@@ -254,17 +334,25 @@ impl ReactTool {
             | ReactTool::EditFile
             | ReactTool::CreateFile
             | ReactTool::RunCommand
-            | ReactTool::Retry => ToolCategory::Action,
+            | ReactTool::Retry
+            | ReactTool::CodeExecute => ToolCategory::Action,
             ReactTool::CheckGoal
             | ReactTool::VerifyFix
             | ReactTool::VerifySyntax
-            | ReactTool::TestHypothesis => ToolCategory::Verification,
+            | ReactTool::TestHypothesis
+            | ReactTool::CodeTest
+            | ReactTool::CodeLint => ToolCategory::Verification,
             ReactTool::ShowFacts
             | ReactTool::ShowHypotheses
             | ReactTool::ShowHistory
             | ReactTool::ShowContext
             | ReactTool::ShowPlan
-            | ReactTool::CompactSession => ToolCategory::Memory,
+            | ReactTool::CompactSession
+            | ReactTool::Remember
+            | ReactTool::Recall
+            | ReactTool::Consolidate
+            | ReactTool::SearchMemory
+            | ReactTool::LearnPatterns => ToolCategory::Memory,
             ReactTool::ConcludeSuccess
             | ReactTool::ConcludeFail
             | ReactTool::Escalate
@@ -287,6 +375,13 @@ impl std::str::FromStr for ReactTool {
             "suggest_grep" => Ok(ReactTool::SuggestGrep),
             "suggest_rag" => Ok(ReactTool::SuggestRag),
             "suggest_discovery" => Ok(ReactTool::SuggestDiscovery),
+            "web_search" => Ok(ReactTool::WebSearch),
+            "web_fetch" => Ok(ReactTool::WebFetch),
+            "read_pdf" => Ok(ReactTool::ReadPdf),
+            "read_docx" => Ok(ReactTool::ReadDocx),
+            "read_xlsx" => Ok(ReactTool::ReadXlsx),
+            "semantic_search" => Ok(ReactTool::SemanticSearch),
+            "grep_context" => Ok(ReactTool::GrepContext),
             "summarize" => Ok(ReactTool::Summarize),
             "extract_errors" => Ok(ReactTool::ExtractErrors),
             "extract_warnings" => Ok(ReactTool::ExtractWarnings),
@@ -294,6 +389,13 @@ impl std::str::FromStr for ReactTool {
             "extract_patterns" => Ok(ReactTool::ExtractPatterns),
             "compare" => Ok(ReactTool::Compare),
             "correlate" => Ok(ReactTool::Correlate),
+            "web_summarize" => Ok(ReactTool::WebSummarize),
+            "web_extract" => Ok(ReactTool::WebExtract),
+            "extract_tables" => Ok(ReactTool::ExtractTables),
+            "doc_qa" => Ok(ReactTool::DocQa),
+            "find_patterns" => Ok(ReactTool::FindPatterns),
+            "code_diff" => Ok(ReactTool::CodeDiff),
+            "code_explain" => Ok(ReactTool::CodeExplain),
             "plan_next" => Ok(ReactTool::PlanNext),
             "narrow_focus" => Ok(ReactTool::NarrowFocus),
             "branch" => Ok(ReactTool::Branch),
@@ -304,16 +406,24 @@ impl std::str::FromStr for ReactTool {
             "create_file" => Ok(ReactTool::CreateFile),
             "run_command" => Ok(ReactTool::RunCommand),
             "retry" => Ok(ReactTool::Retry),
+            "code_execute" => Ok(ReactTool::CodeExecute),
             "check_goal" => Ok(ReactTool::CheckGoal),
             "verify_fix" => Ok(ReactTool::VerifyFix),
             "verify_syntax" => Ok(ReactTool::VerifySyntax),
             "test_hypothesis" => Ok(ReactTool::TestHypothesis),
+            "code_test" => Ok(ReactTool::CodeTest),
+            "code_lint" => Ok(ReactTool::CodeLint),
             "show_facts" => Ok(ReactTool::ShowFacts),
             "show_hypotheses" => Ok(ReactTool::ShowHypotheses),
             "show_history" => Ok(ReactTool::ShowHistory),
             "show_context" => Ok(ReactTool::ShowContext),
             "show_plan" => Ok(ReactTool::ShowPlan),
             "compact_session" => Ok(ReactTool::CompactSession),
+            "remember" => Ok(ReactTool::Remember),
+            "recall" => Ok(ReactTool::Recall),
+            "consolidate" => Ok(ReactTool::Consolidate),
+            "search_memory" => Ok(ReactTool::SearchMemory),
+            "learn_patterns" => Ok(ReactTool::LearnPatterns),
             "conclude_success" => Ok(ReactTool::ConcludeSuccess),
             "conclude_fail" => Ok(ReactTool::ConcludeFail),
             "escalate" => Ok(ReactTool::Escalate),
@@ -592,6 +702,28 @@ impl ReactContext {
                 "grep".to_string(),
                 "fd".to_string(),
                 "rag".to_string(),
+                "web_search".to_string(),
+                "web_fetch".to_string(),
+                "web_summarize".to_string(),
+                "web_extract".to_string(),
+                "read_pdf".to_string(),
+                "read_docx".to_string(),
+                "read_xlsx".to_string(),
+                "extract_tables".to_string(),
+                "doc_qa".to_string(),
+                "semantic_search".to_string(),
+                "grep_context".to_string(),
+                "search_memory".to_string(),
+                "find_patterns".to_string(),
+                "remember".to_string(),
+                "recall".to_string(),
+                "consolidate".to_string(),
+                "learn_patterns".to_string(),
+                "code_execute".to_string(),
+                "code_test".to_string(),
+                "code_lint".to_string(),
+                "code_diff".to_string(),
+                "code_explain".to_string(),
                 "sed".to_string(),
                 "perl".to_string(),
                 "awk".to_string(),

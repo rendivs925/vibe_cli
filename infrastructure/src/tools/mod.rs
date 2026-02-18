@@ -3,3 +3,7 @@ pub mod editing;
 pub mod exploration;
 pub mod file_ops;
 pub mod system;
+pub mod web;
+pub mod documents;
+pub mod search;
+pub mod memory;

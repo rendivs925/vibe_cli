@@ -7,6 +7,7 @@ pub mod embedding_storage;
 pub mod execution_storage;
 pub mod file_scanner;
 pub mod manpage_crawler;
+pub mod memory;
 pub mod ollama_client;
 pub mod react_persistent_storage;
 pub mod react_storage;

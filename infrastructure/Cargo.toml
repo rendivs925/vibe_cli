@@ -28,6 +28,11 @@ rmp-serde = "1.1"
 serde_cbor = "0.11"
 uuid = { version = "1.6", features = ["v4"] }
 flate2 = "1.0"
+scraper.workspace = true
+pdf-extract.workspace = true
+docx-rs.workspace = true
+calamine.workspace = true
+ctrlc.workspace = true
 syn = { version = "2", features = ["full"] }
 quote = "1"
 tree-sitter = "0.25"

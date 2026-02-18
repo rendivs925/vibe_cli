@@ -17,6 +17,11 @@ use crate::services::neurosymbolic_service::NeurosymbolicService;
 use crate::services::react_tools::{ReactConfig, ToolMode, ToolRegistry};
 
 mod workflow;
+mod classifier;
+pub mod planner;
+
+use classifier::TaskClassifier;
+use planner::{DynamicPlanner, PlanStep};
 
 pub struct ReactAgentService {
     neurosymbolic_service: Option<Arc<NeurosymbolicService>>,
@@ -31,6 +36,8 @@ pub struct ReactAgentService {
     tool_registry: ToolRegistry,
     react_config: ReactConfig,
     max_iterations: u32,
+    task_classifier: TaskClassifier,
+    dynamic_planner: DynamicPlanner,
 }
 
 impl ReactAgentService {
@@ -59,6 +66,8 @@ impl ReactAgentService {
             tool_registry: ToolRegistry::with_default_handlers(),
             react_config: ReactConfig::default(),
             max_iterations: 10,
+            task_classifier: TaskClassifier::new(),
+            dynamic_planner: DynamicPlanner::new(),
         })
     }
 
@@ -92,6 +101,11 @@ impl ReactAgentService {
     /// Get the current configuration
     pub fn config(&self) -> &ReactConfig {
         &self.react_config
+    }
+
+    pub fn generate_plan(&self, query: &str) -> Vec<PlanStep> {
+        let class = self.task_classifier.classify(query);
+        self.dynamic_planner.plan(class, query)
     }
 
     /// Enable semantic indexing for cross-session search
@@ -138,10 +152,11 @@ impl ReactAgentService {
             learning_context
         };
         let prompt = self.prompt_service.reasoning_prompt(
-            &session.query,
+            session,
             &context,
             &learning_context,
             &failed_commands,
+            self.react_config.max_iterations,
         );
 
         let response = self.client.generate_response(&prompt).await?;
@@ -184,12 +199,13 @@ impl ReactAgentService {
         };
 
         let prompt = self.prompt_service.reasoning_prompt_with_depth(
-            &session.query,
+            session,
             &context,
             &learning_context,
             &failed_commands,
             depth,
             previous_reasoning,
+            self.react_config.max_iterations,
         );
 
         let response = self.client.generate_response(&prompt).await?;
@@ -385,7 +401,12 @@ impl ReactAgentService {
     /// 4. Returns error if no valid tool can be selected
     pub async fn select_tool(&self, session: &ReactSession, reasoning: &str) -> Result<ToolDecision> {
         let context = self.context_retriever.retrieve_with_semantic_search(session).await;
-        let prompt = self.prompt_service.tool_selection_prompt(&session.query, reasoning, &context);
+        let prompt = self.prompt_service.tool_selection_prompt(
+            session,
+            reasoning,
+            &context,
+            self.react_config.max_iterations,
+        );
         
         let response = self.client.generate_response(&prompt).await?;
         

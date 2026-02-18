@@ -9,7 +9,10 @@ use application::services::test_time_scaling::{ScalingConfig, ScalingMethod};
 use domain::entities::react::{
     CommandSafety, ProposedCommand, ReactSession, ReactStatus, ReactStep, ReactStepType,
 };
+use domain::repositories::react_repository::{ReactCommandRepository, ReactRepository};
 use infrastructure::react_storage::InMemoryReactStorage;
+use infrastructure::react_persistent_storage::SqliteReactStorage;
+use infrastructure::memory::{default_memory_path, lifelong::LifelongMemoryStore};
 use infrastructure::session_indexing_service::SessionIndexingService;
 use infrastructure::syntax_grammar_validator::SyntaxGrammarValidator;
 use infrastructure::tools;
@@ -18,6 +21,9 @@ use shared::types::Result;
 use std::io::{self, Write};
 use std::process::Command;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+mod planning;
 
 impl CliHandlers {
     pub async fn handle_react(
@@ -31,9 +37,8 @@ impl CliHandlers {
             return Ok(());
         }
 
-        let storage = Arc::new(InMemoryReactStorage::new());
-        let react_repo = storage.clone();
-        let cmd_repo = storage.clone();
+        let (react_repo, cmd_repo) = init_react_storage();
+        let react_repo_for_cli = react_repo.clone();
         let neurosymbolic_service = if neurosymbolic {
             Some(Arc::new(
                 application::services::neurosymbolic_service::NeurosymbolicService::new()?,
@@ -59,6 +64,8 @@ impl CliHandlers {
 
         let mut validator = SyntaxGrammarValidator::new();
         let tools = build_default_tool_executor();
+        let interrupted = Arc::new(AtomicBool::new(false));
+        install_ctrlc_handler(interrupted.clone())?;
 
         println!("\n→ {}", session.query);
 
@@ -67,6 +74,12 @@ impl CliHandlers {
         let mut accumulated_reasoning = String::new();
 
         while matches!(session.status, ReactStatus::Running) {
+            if interrupted.load(Ordering::SeqCst) {
+                session.abort();
+                service.save_session(&session).await?;
+                println!("\n[Session auto-saved]");
+                return Ok(());
+            }
 
             // Multi-step reasoning (3 steps by default)
             for step in 1..=reasoning_depth {
@@ -289,6 +302,107 @@ impl CliHandlers {
                             service.reset_memory(&mut session);
                             println!("Cleared facts and hypotheses.");
                         }
+                        SessionCommand::Plan => {
+                            let plan = service.generate_plan(&session.query);
+                            let formatted = planning::format_plan(&plan);
+                            println!("{formatted}");
+                        }
+                        SessionCommand::Memory(query) => {
+                            if query.trim().is_empty() {
+                                println!("Usage: /memory <query>");
+                            } else {
+                                let store = LifelongMemoryStore::new(default_memory_path())
+                                    .map_err(|e| anyhow!(e.to_string()))?;
+                                let results = store.search(&query, 5)
+                                    .map_err(|e| anyhow!(e.to_string()))?;
+                                if results.is_empty() {
+                                    println!("No memory matches.");
+                                } else {
+                                    for entry in results {
+                                        println!("{}: {}", entry.id, entry.content);
+                                    }
+                                }
+                            }
+                        }
+                        SessionCommand::Remember(text) => {
+                            if text.trim().is_empty() {
+                                println!("Usage: /remember <fact>");
+                            } else {
+                                let store = LifelongMemoryStore::new(default_memory_path())
+                                    .map_err(|e| anyhow!(e.to_string()))?;
+                                let id = store.remember(&text)
+                                    .map_err(|e| anyhow!(e.to_string()))?;
+                                println!("Stored memory id {id}");
+                            }
+                        }
+                        SessionCommand::Forget(text) => {
+                            if text.trim().is_empty() {
+                                println!("Usage: /forget <text or id>");
+                            } else {
+                                let store = LifelongMemoryStore::new(default_memory_path())
+                                    .map_err(|e| anyhow!(e.to_string()))?;
+                                let count = store.forget(&text)
+                                    .map_err(|e| anyhow!(e.to_string()))?;
+                                println!("Removed {count} entries");
+                            }
+                        }
+                        SessionCommand::Autonomy(mode) => {
+                            if mode.trim().is_empty() {
+                                println!("Usage: /autonomy <manual|guided|auto>");
+                            } else {
+                                session.context.insert("autonomy".to_string(), mode.clone());
+                                println!("Autonomy set to {mode}");
+                            }
+                        }
+                        SessionCommand::Save => {
+                            service.save_session(&session).await?;
+                            println!("Session saved.");
+                        }
+                        SessionCommand::Sessions => {
+                            let sessions = react_repo_for_cli
+                                .get_recent_sessions(10)
+                                .await
+                                .map_err(|e| anyhow!(e.to_string()))?;
+                            if sessions.is_empty() {
+                                println!("No saved sessions.");
+                            } else {
+                                for s in sessions {
+                                    println!("{} | {:?} | {}", s.id, s.status, s.query);
+                                }
+                            }
+                        }
+                        SessionCommand::Resume(id) => {
+                            let target = if let Some(id) = id { id } else {
+                                let sessions = react_repo_for_cli
+                                    .get_recent_sessions(1)
+                                    .await
+                                    .map_err(|e| anyhow!(e.to_string()))?;
+                                sessions.first().map(|s| s.id.clone()).unwrap_or_default()
+                            };
+                            if target.is_empty() {
+                                println!("No session to resume.");
+                            } else if let Some(mut loaded) = react_repo_for_cli
+                                .get_session(&target)
+                                .await
+                                .map_err(|e| anyhow!(e.to_string()))?
+                            {
+                                let steps = react_repo_for_cli
+                                    .get_steps(&loaded.id)
+                                    .await
+                                    .map_err(|e| anyhow!(e.to_string()))?;
+                                loaded.steps = steps;
+                                loaded.status = ReactStatus::Running;
+                                session = loaded;
+                                accumulated_reasoning.clear();
+                                pending_command_override = None;
+                                println!("Resumed session {}", session.id);
+                            } else {
+                                println!("Session not found: {target}");
+                            }
+                        }
+                        SessionCommand::Stats => {
+                            print_session_stats(&session);
+                        }
                         _ => {
                             if handle_session_command(command, &mut session)? {
                                 service.save_session(&session).await?;
@@ -322,6 +436,15 @@ enum SessionCommand {
     Context,
     Facts,
     Hypotheses,
+    Plan,
+    Memory(String),
+    Remember(String),
+    Forget(String),
+    Autonomy(String),
+    Save,
+    Resume(Option<String>),
+    Sessions,
+    Stats,
     Compact,
     Reset,
     Skip,
@@ -412,6 +535,17 @@ fn print_react_hypotheses(session: &ReactSession) {
             hypothesis.confidence * 100.0
         );
     }
+}
+
+fn print_session_stats(session: &ReactSession) {
+    println!("Session ID: {}", session.id);
+    println!("Status: {:?}", session.status);
+    println!("Steps: {}", session.steps.len());
+    println!("Facts: {}", session.memory.facts.len());
+    println!("Hypotheses: {}", session.memory.hypotheses.len());
+    println!("Constraints: {}", session.memory.constraints.len());
+    println!("Created: {}", session.created_at);
+    println!("Updated: {}", session.updated_at);
 }
 
 fn parse_allow_input(input: &str, safety: CommandSafety) -> Result<AllowDecision> {
@@ -653,6 +787,23 @@ fn extract_user_command_override(input: &str) -> Option<String> {
         "grep",
         "fd",
         "rag",
+        "web_search",
+        "web_fetch",
+        "web_summarize",
+        "web_extract",
+        "read_pdf",
+        "read_docx",
+        "read_xlsx",
+        "extract_tables",
+        "doc_qa",
+        "semantic_search",
+        "grep_context",
+        "search_memory",
+        "find_patterns",
+        "remember",
+        "recall",
+        "consolidate",
+        "learn_patterns",
         "sed",
         "perl",
         "awk",
@@ -711,6 +862,23 @@ fn build_default_tool_executor() -> ToolExecutor {
     executor.register(Arc::new(tools::exploration::grep_tool::GrepTool));
     executor.register(Arc::new(tools::exploration::fd_tool::FdTool));
     executor.register(Arc::new(tools::exploration::rag_tool::RagTool));
+    executor.register(Arc::new(tools::web::search::WebSearchTool));
+    executor.register(Arc::new(tools::web::fetch::WebFetchTool));
+    executor.register(Arc::new(tools::web::summarize::WebSummarizeTool));
+    executor.register(Arc::new(tools::web::extract::WebExtractTool));
+    executor.register(Arc::new(tools::documents::pdf::ReadPdfTool));
+    executor.register(Arc::new(tools::documents::docx::ReadDocxTool));
+    executor.register(Arc::new(tools::documents::xlsx::ReadXlsxTool));
+    executor.register(Arc::new(tools::documents::tables::ExtractTablesTool));
+    executor.register(Arc::new(tools::documents::qa::DocQaTool));
+    executor.register(Arc::new(tools::search::semantic_search::SemanticSearchTool));
+    executor.register(Arc::new(tools::search::grep_context::GrepContextTool));
+    executor.register(Arc::new(tools::search::find_patterns::FindPatternsTool));
+    executor.register(Arc::new(tools::memory::remember::RememberTool));
+    executor.register(Arc::new(tools::memory::recall::RecallTool));
+    executor.register(Arc::new(tools::memory::consolidate::ConsolidateTool));
+    executor.register(Arc::new(tools::memory::search_memory::SearchMemoryTool));
+    executor.register(Arc::new(tools::memory::learn_patterns::LearnPatternsTool));
     executor.register(Arc::new(tools::editing::sed_tool::SedTool));
     executor.register(Arc::new(tools::editing::perl_tool::PerlTool));
     executor.register(Arc::new(tools::editing::awk_tool::AwkTool));
@@ -728,12 +896,66 @@ fn build_default_tool_executor() -> ToolExecutor {
     executor
 }
 
+fn init_react_storage() -> (Arc<dyn ReactRepository>, Arc<dyn ReactCommandRepository>) {
+    let db_path = default_memory_path();
+    if let Some(parent) = db_path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let db_path_str = db_path.to_string_lossy().to_string();
+    match SqliteReactStorage::new(&db_path_str) {
+        Ok(storage) => {
+            let storage = Arc::new(storage);
+            (
+                storage.clone() as Arc<dyn ReactRepository>,
+                storage as Arc<dyn ReactCommandRepository>,
+            )
+        }
+        Err(err) => {
+            eprintln!("[warn] Failed to open persistent storage: {err}. Falling back to in-memory.");
+            let storage = Arc::new(InMemoryReactStorage::new());
+            (
+                storage.clone() as Arc<dyn ReactRepository>,
+                storage as Arc<dyn ReactCommandRepository>,
+            )
+        }
+    }
+}
+
+fn install_ctrlc_handler(flag: Arc<AtomicBool>) -> Result<()> {
+    if let Err(err) = ctrlc::set_handler(move || {
+        flag.store(true, Ordering::SeqCst);
+    }) {
+        eprintln!("[warn] Ctrl+C handler not installed: {}", err);
+    }
+    Ok(())
+}
+
 fn parse_session_command(input: &str) -> Result<SessionCommand> {
-    match input.trim() {
+    let trimmed = input.trim();
+    let mut parts = trimmed.splitn(2, ' ');
+    let command = parts.next().unwrap_or("");
+    let rest = parts.next().unwrap_or("").trim();
+
+    match command {
         "/help" => Ok(SessionCommand::Help),
         "/context" => Ok(SessionCommand::Context),
         "/facts" => Ok(SessionCommand::Facts),
         "/hypotheses" => Ok(SessionCommand::Hypotheses),
+        "/plan" => Ok(SessionCommand::Plan),
+        "/memory" => Ok(SessionCommand::Memory(rest.to_string())),
+        "/remember" => Ok(SessionCommand::Remember(rest.to_string())),
+        "/forget" => Ok(SessionCommand::Forget(rest.to_string())),
+        "/autonomy" => Ok(SessionCommand::Autonomy(rest.to_string())),
+        "/save" => Ok(SessionCommand::Save),
+        "/resume" => {
+            if rest.is_empty() {
+                Ok(SessionCommand::Resume(None))
+            } else {
+                Ok(SessionCommand::Resume(Some(rest.to_string())))
+            }
+        }
+        "/sessions" => Ok(SessionCommand::Sessions),
+        "/stats" => Ok(SessionCommand::Stats),
         "/compact" => Ok(SessionCommand::Compact),
         "/reset" => Ok(SessionCommand::Reset),
         "/skip" => Ok(SessionCommand::Skip),
@@ -745,7 +967,7 @@ fn parse_session_command(input: &str) -> Result<SessionCommand> {
 fn handle_session_command(command: SessionCommand, session: &mut ReactSession) -> Result<bool> {
     match command {
         SessionCommand::Help => {
-            println!("Commands: /abort (end session), /context, /facts, /hypotheses");
+            println!("Commands: /help, /context, /facts, /hypotheses, /plan, /memory <query>, /remember <fact>, /forget <text>, /autonomy <mode>, /save, /resume [id], /sessions, /stats, /compact, /reset, /skip, /abort");
             Ok(false)
         }
         SessionCommand::Context => {
@@ -760,9 +982,18 @@ fn handle_session_command(command: SessionCommand, session: &mut ReactSession) -
             print_react_hypotheses(session);
             Ok(false)
         }
-        SessionCommand::Compact => Ok(false),
-        SessionCommand::Reset => Ok(false),
-        SessionCommand::Skip => Ok(false),
+        SessionCommand::Plan
+        | SessionCommand::Memory(_)
+        | SessionCommand::Remember(_)
+        | SessionCommand::Forget(_)
+        | SessionCommand::Autonomy(_)
+        | SessionCommand::Save
+        | SessionCommand::Resume(_)
+        | SessionCommand::Sessions
+        | SessionCommand::Stats
+        | SessionCommand::Compact
+        | SessionCommand::Reset
+        | SessionCommand::Skip => Ok(false),
         SessionCommand::Abort => {
             session.abort();
             println!("Session ended.");
@@ -910,7 +1141,17 @@ fn normalize_tool_args(tool_name: &str, args: &[String], query: &str) -> (Vec<St
 
 fn tool_path_arg_index(tool_name: &str) -> Option<usize> {
     match tool_name {
-        "read" | "write" | "remove" | "update" | "replace_block" | "ast" => Some(0),
+        "read"
+        | "read_pdf"
+        | "read_docx"
+        | "read_xlsx"
+        | "extract_tables"
+        | "doc_qa"
+        | "write"
+        | "remove"
+        | "update"
+        | "replace_block"
+        | "ast" => Some(0),
         "sed" | "perl" => Some(2),
         "awk" => Some(1),
         _ => None,

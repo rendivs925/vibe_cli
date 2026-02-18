@@ -138,6 +138,31 @@ impl ToolRegistry {
         for (tool, handler) in handlers::build_interaction_handlers() {
             registry.register(tool, handler);
         }
+
+        // Register code tools
+        for (tool, handler) in handlers::build_code_handlers() {
+            registry.register(tool, handler);
+        }
+
+        // Register web tools
+        for (tool, handler) in handlers::build_web_handlers() {
+            registry.register(tool, handler);
+        }
+
+        // Register document tools
+        for (tool, handler) in handlers::build_document_handlers() {
+            registry.register(tool, handler);
+        }
+
+        // Register search tools
+        for (tool, handler) in handlers::build_search_handlers() {
+            registry.register(tool, handler);
+        }
+
+        // Register extended memory tools
+        for (tool, handler) in handlers::build_memory_extended_handlers() {
+            registry.register(tool, handler);
+        }
         
         registry
     }

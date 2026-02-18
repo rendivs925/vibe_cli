@@ -11,7 +11,7 @@ pub struct SqliteReactStorage {
 }
 
 impl SqliteReactStorage {
-    pub fn new(db_path: &str) -> Result<Self, Box<dyn Error>> {
+    pub fn new(db_path: &str) -> Result<Self, Box<dyn Error + Send + Sync>> {
         let conn = Connection::open(db_path)?;
         let storage = Self {
             conn: Mutex::new(conn),
@@ -20,7 +20,7 @@ impl SqliteReactStorage {
         Ok(storage)
     }
 
-    fn init_tables(&self) -> Result<(), Box<dyn Error>> {
+    fn init_tables(&self) -> Result<(), Box<dyn Error + Send + Sync>> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         
         conn.execute(
@@ -31,6 +31,7 @@ impl SqliteReactStorage {
                 created_at TEXT NOT NULL,
                 updated_at TEXT NOT NULL,
                 context_json TEXT,
+                memory_json TEXT,
                 compacted_summary TEXT,
                 neurosymbolic_enabled INTEGER NOT NULL DEFAULT 0
             )",
@@ -68,17 +69,28 @@ impl SqliteReactStorage {
             [],
         )?;
 
+        // Ensure new columns exist for older databases
+        if let Err(err) = conn.execute(
+            "ALTER TABLE react_sessions ADD COLUMN memory_json TEXT",
+            [],
+        ) {
+            if !err.to_string().contains("duplicate column") {
+                // Ignore if column already exists
+            }
+        }
+
         Ok(())
     }
 
-    fn do_save_session(&self, session: &ReactSession) -> Result<(), Box<dyn Error>> {
+    fn do_save_session(&self, session: &ReactSession) -> Result<(), Box<dyn Error + Send + Sync>> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let context_json = serde_json::to_string(&session.context).unwrap_or_default();
+        let memory_json = serde_json::to_string(&session.memory).unwrap_or_default();
         
         conn.execute(
             "INSERT OR REPLACE INTO react_sessions 
-             (id, query, status, created_at, updated_at, context_json, compacted_summary, neurosymbolic_enabled)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+             (id, query, status, created_at, updated_at, context_json, memory_json, compacted_summary, neurosymbolic_enabled)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
             params![
                 session.id,
                 session.query,
@@ -86,6 +98,7 @@ impl SqliteReactStorage {
                 session.created_at.to_rfc3339(),
                 session.updated_at.to_rfc3339(),
                 context_json,
+                memory_json,
                 session.compacted_summary,
                 session.neurosymbolic_enabled as i32,
             ],
@@ -93,10 +106,10 @@ impl SqliteReactStorage {
         Ok(())
     }
 
-    fn do_get_session(&self, session_id: &str) -> Result<Option<ReactSession>, Box<dyn Error>> {
+    fn do_get_session(&self, session_id: &str) -> Result<Option<ReactSession>, Box<dyn Error + Send + Sync>> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let mut stmt = conn.prepare(
-            "SELECT id, query, status, created_at, updated_at, context_json, compacted_summary, neurosymbolic_enabled
+            "SELECT id, query, status, created_at, updated_at, context_json, memory_json, compacted_summary, neurosymbolic_enabled
              FROM react_sessions WHERE id = ?1"
         )?;
 
@@ -110,7 +123,8 @@ impl SqliteReactStorage {
                     row.get::<_, String>(4)?,
                     row.get::<_, String>(5)?,
                     row.get::<_, Option<String>>(6)?,
-                    row.get::<_, i32>(7)?,
+                    row.get::<_, Option<String>>(7)?,
+                    row.get::<_, i32>(8)?,
                 ))
             })
             .optional()?;
@@ -118,9 +132,13 @@ impl SqliteReactStorage {
         drop(stmt);
         drop(conn);
 
-        if let Some((id, query, status, created_at, updated_at, context_json, compacted_summary, neurosymbolic_enabled)) = session {
+        if let Some((id, query, status, created_at, updated_at, context_json, memory_json, compacted_summary, neurosymbolic_enabled)) = session {
             let context: std::collections::HashMap<String, String> = 
                 serde_json::from_str(&context_json).unwrap_or_default();
+            let memory = memory_json
+                .as_deref()
+                .and_then(|json| serde_json::from_str(json).ok())
+                .unwrap_or_default();
             
             let status = match status.as_str() {
                 "Running" => ReactStatus::Running,
@@ -145,7 +163,7 @@ impl SqliteReactStorage {
                 status,
                 steps: Vec::new(),
                 context,
-                memory: domain::entities::react_memory::SessionMemory::default(),
+                memory,
                 intent: None,
                 compacted_summary,
                 neurosymbolic_enabled: neurosymbolic_enabled != 0,
@@ -155,7 +173,7 @@ impl SqliteReactStorage {
         }
     }
 
-    fn do_delete_session(&self, session_id: &str) -> Result<(), Box<dyn Error>> {
+    fn do_delete_session(&self, session_id: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         conn.execute("DELETE FROM session_embeddings WHERE session_id = ?1", [session_id])?;
         conn.execute("DELETE FROM react_steps WHERE session_id = ?1", [session_id])?;
@@ -163,7 +181,7 @@ impl SqliteReactStorage {
         Ok(())
     }
 
-    fn do_save_step(&self, step: &ReactStep) -> Result<(), Box<dyn Error>> {
+    fn do_save_step(&self, step: &ReactStep) -> Result<(), Box<dyn Error + Send + Sync>> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let observations_json = serde_json::to_string(&step.observations).unwrap_or_default();
         let commands_json = serde_json::to_string(&step.commands).unwrap_or_default();
@@ -187,7 +205,7 @@ impl SqliteReactStorage {
         Ok(())
     }
 
-    fn do_get_steps(&self, session_id: &str) -> Result<Vec<ReactStep>, Box<dyn Error>> {
+    fn do_get_steps(&self, session_id: &str) -> Result<Vec<ReactStep>, Box<dyn Error + Send + Sync>> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let mut stmt = conn.prepare(
             "SELECT id, session_id, step_type, content, created_at, status, reasoning, observations_json, commands_json
@@ -256,7 +274,7 @@ impl SqliteReactStorage {
         Ok(result)
     }
 
-    fn do_get_recent_sessions(&self, limit: usize) -> Result<Vec<ReactSession>, Box<dyn Error>> {
+    fn do_get_recent_sessions(&self, limit: usize) -> Result<Vec<ReactSession>, Box<dyn Error + Send + Sync>> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let mut stmt = conn.prepare(
             "SELECT id FROM react_sessions ORDER BY updated_at DESC LIMIT ?1"
@@ -279,7 +297,7 @@ impl SqliteReactStorage {
         Ok(sessions)
     }
 
-    fn do_get_sessions_by_status(&self, status: &str) -> Result<Vec<ReactSession>, Box<dyn Error>> {
+    fn do_get_sessions_by_status(&self, status: &str) -> Result<Vec<ReactSession>, Box<dyn Error + Send + Sync>> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let mut stmt = conn.prepare(
             "SELECT id FROM react_sessions WHERE status = ?1"
@@ -305,64 +323,64 @@ impl SqliteReactStorage {
 
 #[async_trait]
 impl ReactRepository for SqliteReactStorage {
-    async fn save_session(&self, session: &ReactSession) -> Result<(), Box<dyn Error>> {
+    async fn save_session(&self, session: &ReactSession) -> Result<(), Box<dyn Error + Send + Sync>> {
         self.do_save_session(session)
     }
 
-    async fn get_session(&self, session_id: &str) -> Result<Option<ReactSession>, Box<dyn Error>> {
+    async fn get_session(&self, session_id: &str) -> Result<Option<ReactSession>, Box<dyn Error + Send + Sync>> {
         self.do_get_session(session_id)
     }
 
-    async fn update_session(&self, session: &ReactSession) -> Result<(), Box<dyn Error>> {
+    async fn update_session(&self, session: &ReactSession) -> Result<(), Box<dyn Error + Send + Sync>> {
         self.do_save_session(session)
     }
 
-    async fn delete_session(&self, session_id: &str) -> Result<(), Box<dyn Error>> {
+    async fn delete_session(&self, session_id: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
         self.do_delete_session(session_id)
     }
 
-    async fn save_step(&self, step: &ReactStep) -> Result<(), Box<dyn Error>> {
+    async fn save_step(&self, step: &ReactStep) -> Result<(), Box<dyn Error + Send + Sync>> {
         self.do_save_step(step)
     }
 
-    async fn get_steps(&self, session_id: &str) -> Result<Vec<ReactStep>, Box<dyn Error>> {
+    async fn get_steps(&self, session_id: &str) -> Result<Vec<ReactStep>, Box<dyn Error + Send + Sync>> {
         self.do_get_steps(session_id)
     }
 
-    async fn update_step(&self, step: &ReactStep) -> Result<(), Box<dyn Error>> {
+    async fn update_step(&self, step: &ReactStep) -> Result<(), Box<dyn Error + Send + Sync>> {
         self.do_save_step(step)
     }
 
-    async fn get_recent_sessions(&self, limit: usize) -> Result<Vec<ReactSession>, Box<dyn Error>> {
+    async fn get_recent_sessions(&self, limit: usize) -> Result<Vec<ReactSession>, Box<dyn Error + Send + Sync>> {
         self.do_get_recent_sessions(limit)
     }
 
-    async fn get_sessions_by_status(&self, status: &str) -> Result<Vec<ReactSession>, Box<dyn Error>> {
+    async fn get_sessions_by_status(&self, status: &str) -> Result<Vec<ReactSession>, Box<dyn Error + Send + Sync>> {
         self.do_get_sessions_by_status(status)
     }
 }
 
 #[async_trait]
 impl ReactCommandRepository for SqliteReactStorage {
-    async fn save_command(&self, _command: &ProposedCommand) -> Result<(), Box<dyn Error>> {
+    async fn save_command(&self, _command: &ProposedCommand) -> Result<(), Box<dyn Error + Send + Sync>> {
         Ok(())
     }
 
-    async fn update_command(&self, _command: &ProposedCommand) -> Result<(), Box<dyn Error>> {
+    async fn update_command(&self, _command: &ProposedCommand) -> Result<(), Box<dyn Error + Send + Sync>> {
         Ok(())
     }
 
-    async fn get_commands_by_step(&self, _step_id: &str) -> Result<Vec<ProposedCommand>, Box<dyn Error>> {
+    async fn get_commands_by_step(&self, _step_id: &str) -> Result<Vec<ProposedCommand>, Box<dyn Error + Send + Sync>> {
         Ok(Vec::new())
     }
 
-    async fn get_pending_commands(&self, _step_id: &str) -> Result<Vec<ProposedCommand>, Box<dyn Error>> {
+    async fn get_pending_commands(&self, _step_id: &str) -> Result<Vec<ProposedCommand>, Box<dyn Error + Send + Sync>> {
         Ok(Vec::new())
     }
 }
 
 impl SqliteReactStorage {
-    pub async fn save_session_embedding(&self, session_id: &str, embedding: &[f32]) -> Result<(), Box<dyn Error>> {
+    pub async fn save_session_embedding(&self, session_id: &str, embedding: &[f32]) -> Result<(), Box<dyn Error + Send + Sync>> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let vector_bytes = bincode::serialize(embedding).map_err(|e| e.to_string())?;
         
@@ -377,7 +395,7 @@ impl SqliteReactStorage {
         Ok(())
     }
 
-    pub async fn get_session_embedding(&self, session_id: &str) -> Result<Option<Vec<f32>>, Box<dyn Error>> {
+    pub async fn get_session_embedding(&self, session_id: &str) -> Result<Option<Vec<f32>>, Box<dyn Error + Send + Sync>> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let mut stmt = conn.prepare("SELECT embedding FROM session_embeddings WHERE session_id = ?1")?;
         
@@ -396,7 +414,7 @@ impl SqliteReactStorage {
         }
     }
 
-    pub async fn get_all_embeddings(&self) -> Result<Vec<(String, Vec<f32>)>, Box<dyn Error>> {
+    pub async fn get_all_embeddings(&self) -> Result<Vec<(String, Vec<f32>)>, Box<dyn Error + Send + Sync>> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let mut stmt = conn.prepare("SELECT session_id, embedding FROM session_embeddings")?;
         

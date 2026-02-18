@@ -1,4 +1,5 @@
 use domain::entities::{ReactSession, ReactStepType};
+use domain::entities::react_memory::{Fact, Hypothesis, Constraint};
 use infrastructure::session_indexing_service::SessionIndexingService;
 use infrastructure::storage::KnowledgeGraph;
 use std::sync::Arc;
@@ -8,10 +9,14 @@ pub struct RetrievedContext {
     pub steps: usize,
     pub session_history: String,
     pub latest_output: String,
+    pub latest_output_source: Option<String>,
     pub compacted_summary: Option<String>,
     pub facts: String,
+    pub facts_list: Vec<Fact>,
     pub hypotheses: String,
+    pub hypotheses_list: Vec<Hypothesis>,
     pub constraints: String,
+    pub constraints_list: Vec<Constraint>,
     pub knowledge_context: String,
     pub similar_sessions_context: Option<String>,
     pub command_patterns_context: Option<String>,
@@ -42,7 +47,8 @@ impl ContextRetriever {
 
     pub fn retrieve(&self, session: &ReactSession) -> RetrievedContext {
         let session_history = format_history(session);
-        let latest_output = extract_latest_output(session);
+        let latest = extract_latest_output(session);
+        let latest_output = latest.content;
         let compacted_summary = session.compacted_summary.clone();
         let facts = format_facts(session);
         let hypotheses = format_hypotheses(session);
@@ -59,10 +65,14 @@ impl ContextRetriever {
             steps: session.steps.len(),
             session_history,
             latest_output,
+            latest_output_source: latest.source_command,
             compacted_summary,
             facts,
+            facts_list: session.memory.facts.clone(),
             hypotheses,
+            hypotheses_list: session.memory.hypotheses.clone(),
             constraints,
+            constraints_list: session.memory.constraints.clone(),
             knowledge_context,
             similar_sessions_context,
             command_patterns_context,
@@ -75,7 +85,8 @@ impl ContextRetriever {
         session: &ReactSession,
     ) -> RetrievedContext {
         let session_history = format_history(session);
-        let latest_output = extract_latest_output(session);
+        let latest = extract_latest_output(session);
+        let latest_output = latest.content;
         let compacted_summary = session.compacted_summary.clone();
         let facts = format_facts(session);
         let hypotheses = format_hypotheses(session);
@@ -111,10 +122,14 @@ impl ContextRetriever {
             steps: session.steps.len(),
             session_history,
             latest_output,
+            latest_output_source: latest.source_command,
             compacted_summary,
             facts,
+            facts_list: session.memory.facts.clone(),
             hypotheses,
+            hypotheses_list: session.memory.hypotheses.clone(),
             constraints,
+            constraints_list: session.memory.constraints.clone(),
             knowledge_context,
             similar_sessions_context,
             command_patterns_context,
@@ -214,7 +229,12 @@ impl ContextRetriever {
     }
 }
 
-fn extract_latest_output(session: &ReactSession) -> String {
+struct LatestOutput {
+    content: String,
+    source_command: Option<String>,
+}
+
+fn extract_latest_output(session: &ReactSession) -> LatestOutput {
     for step in session.steps.iter().rev() {
         if matches!(step.step_type, ReactStepType::Observation) {
             for cmd in &step.commands {
@@ -225,20 +245,29 @@ fn extract_latest_output(session: &ReactSession) -> String {
                         } else {
                             stdout.clone()
                         };
-                        return format!(
-                            "Command: {}\nOutput:\n{}",
-                            cmd.command.trim(),
-                            truncated
-                        );
+                        return LatestOutput {
+                            content: format!(
+                                "Command: {}\nOutput:\n{}",
+                                cmd.command.trim(),
+                                truncated
+                            ),
+                            source_command: Some(cmd.command.trim().to_string()),
+                        };
                     }
                 }
             }
             if !step.content.trim().is_empty() {
-                return step.content.trim().to_string();
+                return LatestOutput {
+                    content: step.content.trim().to_string(),
+                    source_command: None,
+                };
             }
         }
     }
-    "(no output yet)".to_string()
+    LatestOutput {
+        content: "(no output yet)".to_string(),
+        source_command: None,
+    }
 }
 
 fn format_history(session: &ReactSession) -> String {

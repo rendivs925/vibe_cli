@@ -53,7 +53,7 @@ impl InMemoryReactStorage {
 
 #[async_trait]
 impl ReactRepository for InMemoryReactStorage {
-    async fn save_session(&self, session: &ReactSession) -> Result<(), Box<dyn Error>> {
+    async fn save_session(&self, session: &ReactSession) -> Result<(), Box<dyn Error + Send + Sync>> {
         let mut sessions = self
             .sessions
             .lock()
@@ -62,7 +62,7 @@ impl ReactRepository for InMemoryReactStorage {
         Ok(())
     }
 
-    async fn get_session(&self, session_id: &str) -> Result<Option<ReactSession>, Box<dyn Error>> {
+    async fn get_session(&self, session_id: &str) -> Result<Option<ReactSession>, Box<dyn Error + Send + Sync>> {
         let sessions = self
             .sessions
             .lock()
@@ -70,7 +70,7 @@ impl ReactRepository for InMemoryReactStorage {
         Ok(sessions.get(session_id).cloned())
     }
 
-    async fn update_session(&self, session: &ReactSession) -> Result<(), Box<dyn Error>> {
+    async fn update_session(&self, session: &ReactSession) -> Result<(), Box<dyn Error + Send + Sync>> {
         let mut sessions = self
             .sessions
             .lock()
@@ -79,7 +79,7 @@ impl ReactRepository for InMemoryReactStorage {
         Ok(())
     }
 
-    async fn delete_session(&self, session_id: &str) -> Result<(), Box<dyn Error>> {
+    async fn delete_session(&self, session_id: &str) -> Result<(), Box<dyn Error + Send + Sync>> {
         let mut sessions = self
             .sessions
             .lock()
@@ -88,7 +88,7 @@ impl ReactRepository for InMemoryReactStorage {
         Ok(())
     }
 
-    async fn save_step(&self, step: &ReactStep) -> Result<(), Box<dyn Error>> {
+    async fn save_step(&self, step: &ReactStep) -> Result<(), Box<dyn Error + Send + Sync>> {
         let mut steps_by_session = self
             .steps_by_session
             .lock()
@@ -106,7 +106,7 @@ impl ReactRepository for InMemoryReactStorage {
         Ok(())
     }
 
-    async fn get_steps(&self, session_id: &str) -> Result<Vec<ReactStep>, Box<dyn Error>> {
+    async fn get_steps(&self, session_id: &str) -> Result<Vec<ReactStep>, Box<dyn Error + Send + Sync>> {
         let steps_by_session = self
             .steps_by_session
             .lock()
@@ -117,11 +117,11 @@ impl ReactRepository for InMemoryReactStorage {
             .unwrap_or_default())
     }
 
-    async fn update_step(&self, step: &ReactStep) -> Result<(), Box<dyn Error>> {
+    async fn update_step(&self, step: &ReactStep) -> Result<(), Box<dyn Error + Send + Sync>> {
         self.save_step(step).await
     }
 
-    async fn get_recent_sessions(&self, limit: usize) -> Result<Vec<ReactSession>, Box<dyn Error>> {
+    async fn get_recent_sessions(&self, limit: usize) -> Result<Vec<ReactSession>, Box<dyn Error + Send + Sync>> {
         let sessions = self
             .sessions
             .lock()
@@ -135,7 +135,7 @@ impl ReactRepository for InMemoryReactStorage {
     async fn get_sessions_by_status(
         &self,
         status: &str,
-    ) -> Result<Vec<ReactSession>, Box<dyn Error>> {
+    ) -> Result<Vec<ReactSession>, Box<dyn Error + Send + Sync>> {
         let sessions = self
             .sessions
             .lock()
@@ -150,7 +150,7 @@ impl ReactRepository for InMemoryReactStorage {
 
 #[async_trait]
 impl ReactCommandRepository for InMemoryReactStorage {
-    async fn save_command(&self, command: &ProposedCommand) -> Result<(), Box<dyn Error>> {
+    async fn save_command(&self, command: &ProposedCommand) -> Result<(), Box<dyn Error + Send + Sync>> {
         let mut commands_by_id = self
             .commands_by_id
             .lock()
@@ -159,14 +159,14 @@ impl ReactCommandRepository for InMemoryReactStorage {
         Ok(())
     }
 
-    async fn update_command(&self, command: &ProposedCommand) -> Result<(), Box<dyn Error>> {
+    async fn update_command(&self, command: &ProposedCommand) -> Result<(), Box<dyn Error + Send + Sync>> {
         self.save_command(command).await
     }
 
     async fn get_commands_by_step(
         &self,
         step_id: &str,
-    ) -> Result<Vec<ProposedCommand>, Box<dyn Error>> {
+    ) -> Result<Vec<ProposedCommand>, Box<dyn Error + Send + Sync>> {
         let commands_by_step = self
             .commands_by_step
             .lock()
@@ -177,7 +177,7 @@ impl ReactCommandRepository for InMemoryReactStorage {
     async fn get_pending_commands(
         &self,
         step_id: &str,
-    ) -> Result<Vec<ProposedCommand>, Box<dyn Error>> {
+    ) -> Result<Vec<ProposedCommand>, Box<dyn Error + Send + Sync>> {
         let commands_by_step = self
             .commands_by_step
             .lock()

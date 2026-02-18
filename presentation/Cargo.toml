@@ -24,3 +24,4 @@ tokio-util = "0.7.18"
 futures-util = "0.3.31"
 regex = "1.10"
 shell-words = "1.1"
+ctrlc.workspace = true
