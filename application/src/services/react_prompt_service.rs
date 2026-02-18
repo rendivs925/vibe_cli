@@ -193,6 +193,151 @@ ANALYZE: <reasoning referencing latest output>",
         )
     }
 
+    pub fn reasoning_prompt_with_depth(
+        &self,
+        goal: &str,
+        context: &RetrievedContext,
+        learning_context: &str,
+        failed_commands: &str,
+        depth: u8,
+        previous_reasoning: Option<&str>,
+    ) -> String {
+        let depth_instruction = match depth {
+            1 => "This is Step 1 of reasoning. Focus on INITIAL UNDERSTANDING of the user's query. What is the user asking for? What is the context?",
+            2 => "This is Step 2 of reasoning. REFINE your understanding based on initial analysis. What specific information do you need? What constraints apply?",
+            _ => "This is Step 3 (final) reasoning. VERIFY your understanding and prepare the final command. Confirm all requirements from the query are met.",
+        };
+
+        let previous = if let Some(prev) = previous_reasoning {
+            format!("## Previous Reasoning\n{}\n", prev)
+        } else {
+            String::new()
+        };
+
+        format!(
+            "You are a systems debugging assistant using a conversational ReAct loop.\n\
+\n\
+## Current Task\n\
+{goal}\n\
+\n\
+{previous}\
+## Session History - MOST RECENT LAST\n\
+{history}\n\
+\n\
+## Latest Output - ALWAYS USE THIS\n\
+{latest_output}\n\
+\n\
+## Extracted Facts\n\
+{facts}\n\
+\n\
+## Current Hypotheses\n\
+{hypotheses}\n\
+\n\
+## Constraints\n\
+{constraints}\n\
+\n\
+## System Context\n\
+{knowledge_context}\n\
+\n\
+{learning_context}\n\
+\n\
+## Avoid These Commands\n\
+{failed_commands}\n\
+\n\
+## STRICT BEHAVIORAL RULES\n\
+\n\
+### Reasoning Depth - Step {depth}\n\
+{depth_instruction}\n\
+\n\
+### Latest Output Supremacy Rule\n\
+The MOST RECENT OUTPUT block above overrides ALL prior assumptions.\n\
+- Do NOT rely on earlier outputs if newer data exists\n\
+- Treat each tool execution as NEW evidence\n\
+- If you repeat prior analysis without the latest output, you FAIL\n\
+\n\
+### Evidence-Based Reasoning\n\
+- Every ANALYZE must explicitly reference CONCRETE details from the LATEST OUTPUT\n\
+- Do NOT produce generic fallback explanations\n\
+- Do NOT restate prior reasoning unless directly supported by new evidence\n\
+\n\
+### Progressive Problem Solving\n\
+- Each suggested action must move the investigation FORWARD\n\
+- Avoid loops and re-running broad diagnostics without narrowing scope\n\
+- Adapt strategy dynamically based on RESULTS\n\
+\n\
+### Loop Prevention\n\
+Before suggesting ANY action, you MUST check:\n\
+- Has this exact action already been executed in history?\n\
+- If YES, you MUST provide a NEW justification or choose a DIFFERENT action\n\
+- Do NOT repeat the same command without explicit justification\n\
+\n\
+## Instructions\n\
+- Use FACTS from the latest output to support reasoning\n\
+- Consider user constraints\n\
+- AVOID commands that failed before\n\
+- Focus on the next NARROW diagnostic step\n\
+- Do not include commands or code blocks\n\
+- Your analysis must be GROUNDED in the most recent OUTPUT\n\
+- At Step 3, provide a clear command if appropriate\n\
+\n\
+Output format:\n\
+ANALYZE: <reasoning referencing latest output>",
+            goal = goal,
+            history = context.session_history,
+            latest_output = context.latest_output,
+            facts = context.facts,
+            hypotheses = context.hypotheses,
+            constraints = context.constraints,
+            knowledge_context = context.knowledge_context,
+            learning_context = learning_context,
+            failed_commands = failed_commands,
+            depth = depth,
+            depth_instruction = depth_instruction,
+        )
+    }
+
+    pub fn analysis_prompt(
+        &self,
+        goal: &str,
+        output: &str,
+        facts: &str,
+        hypotheses: &str,
+    ) -> String {
+        format!(
+            "You are a helpful assistant. Analyze the command output and provide USEFUL INFORMATION to the user.\n\
+\n\
+## Original User Query\n\
+{goal}\n\
+\n\
+## Command Output\n\
+{output}\n\
+\n\
+## Extracted Facts\n\
+{facts}\n\
+\n\
+## Current Hypotheses\n\
+{hypotheses}\n\
+\n\
+## Instructions\n\
+Analyze the output and provide:\n\
+1. A brief SUMMARY (2-4 sentences) of what the output shows\n\
+2. Any ERRORS found - explain what they mean\n\
+3. Any WARNINGS - explain their implications\n\
+4. Any NOTABLE PATTERNS or anomalies\n\
+5. RECOMMENDATIONS if there are issues\n\
+6. What the user should DO next (if anything)\n\
+\n\
+Be concise but informative. Focus on what matters to the user.\n\
+\n\
+Output format:\n\
+ANALYSIS: <your analysis>",
+            goal = goal,
+            output = output,
+            facts = facts,
+            hypotheses = hypotheses,
+        )
+    }
+
     pub fn command_prompt(
         &self,
         goal: &str,

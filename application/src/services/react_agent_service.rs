@@ -156,6 +156,72 @@ impl ReactAgentService {
         Ok(thought)
     }
 
+    pub async fn generate_reasoning_with_depth(
+        &self,
+        session: &ReactSession,
+        depth: u8,
+        previous_reasoning: Option<&str>,
+    ) -> Result<String> {
+        let context = self.context_retriever.retrieve_with_semantic_search(session).await;
+        let learning_context = self
+            .learning_service
+            .format_learning_context(&session.query)
+            .unwrap_or_default();
+        let failed = self
+            .learning_service
+            .get_failed_commands(&session.query, 5)
+            .unwrap_or_default();
+        let failed_commands = if failed.is_empty() {
+            "None".to_string()
+        } else {
+            failed.join("; ")
+        };
+
+        let learning_context = if learning_context.trim().is_empty() {
+            String::new()
+        } else {
+            learning_context
+        };
+
+        let prompt = self.prompt_service.reasoning_prompt_with_depth(
+            &session.query,
+            &context,
+            &learning_context,
+            &failed_commands,
+            depth,
+            previous_reasoning,
+        );
+
+        let response = self.client.generate_response(&prompt).await?;
+        let thought = response
+            .trim()
+            .trim_start_matches("ANALYZE:")
+            .trim()
+            .to_string();
+        if thought.is_empty() {
+            return Err(anyhow!("empty reasoning response"));
+        }
+        Ok(thought)
+    }
+
+    pub async fn analyze_output(&self, session: &ReactSession) -> Result<String> {
+        let context = self.context_retriever.retrieve_with_semantic_search(session).await;
+        
+        if context.latest_output.trim().is_empty() {
+            return Ok("No output to analyze.".to_string());
+        }
+
+        let prompt = self.prompt_service.analysis_prompt(
+            &session.query,
+            &context.latest_output,
+            &context.facts,
+            &context.hypotheses,
+        );
+
+        let response = self.client.generate_response(&prompt).await?;
+        Ok(response.trim().to_string())
+    }
+
     pub async fn propose_commands(
         &self,
         reasoning: &str,
