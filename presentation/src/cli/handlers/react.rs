@@ -19,8 +19,14 @@ use infrastructure::session_indexing_service::SessionIndexingService;
 use infrastructure::syntax_grammar_validator::SyntaxGrammarValidator;
 use infrastructure::tools;
 use infrastructure::ollama_client::OllamaClient;
+use portable_pty::{CommandBuilder, NativePtySystem, PtySize};
 use shared::types::Result;
+use std::ffi::CString;
+use std::fs::OpenOptions;
 use std::io::{self, Write};
+use std::io::{BufRead, BufReader, Read};
+use std::os::unix::ffi::OsStrExt;
+use std::path::PathBuf;
 use std::process::Command;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -33,7 +39,6 @@ struct ReactRunOptions {
     allow_next_prompt: bool,
     show_reasoning: bool,
     context_scope: &'static str,
-    use_shell_prompt: bool,
 }
 
 impl ReactRunOptions {
@@ -42,7 +47,6 @@ impl ReactRunOptions {
             allow_next_prompt: true,
             show_reasoning: true,
             context_scope: "goal_only",
-            use_shell_prompt: false,
         }
     }
 
@@ -51,7 +55,6 @@ impl ReactRunOptions {
             allow_next_prompt: false,
             show_reasoning: false,
             context_scope: "goal_only",
-            use_shell_prompt: true,
         }
     }
 }
@@ -67,6 +70,131 @@ struct ReactSessionCarry {
     last_command: Option<String>,
 }
 
+struct ZshRepl {
+    line_reader: BufReader<std::fs::File>,
+    ack_writer: std::fs::File,
+    needs_ack: bool,
+    _stdin_handle: std::thread::JoinHandle<()>,
+    _stdout_handle: std::thread::JoinHandle<()>,
+    _child: Box<dyn portable_pty::Child + Send>,
+    out_fifo: PathBuf,
+    ack_fifo: PathBuf,
+}
+
+impl ZshRepl {
+    fn new() -> Result<Self> {
+        let pty_system = NativePtySystem::default();
+        let (cols, rows) = crossterm::terminal::size().unwrap_or((120, 30));
+        let pair = pty_system.openpty(PtySize {
+            rows,
+            cols,
+            pixel_width: 0,
+            pixel_height: 0,
+        })?;
+
+        let nanos = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_nanos();
+        let out_fifo = std::env::temp_dir()
+            .join(format!("vibe_cli_react_out_{}_{}.fifo", std::process::id(), nanos));
+        let ack_fifo = std::env::temp_dir()
+            .join(format!("vibe_cli_react_ack_{}_{}.fifo", std::process::id(), nanos));
+        create_fifo(&out_fifo)?;
+        create_fifo(&ack_fifo)?;
+
+        let out_path = out_fifo.to_string_lossy();
+        let ack_path = ack_fifo.to_string_lossy();
+        let script = format!(
+            "line=; while true; do \
+             if typeset -f precmd >/dev/null; then precmd; fi; \
+             prompt=$(print -P -- \"$PROMPT\"); \
+             vared -p \"$prompt\" line || exit; \
+             print -r -- \"$line\" > {out}; \
+             read -r _ < {ack} || exit; \
+             done",
+            out = sh_single_quote(&out_path),
+            ack = sh_single_quote(&ack_path)
+        );
+
+        let mut cmd = CommandBuilder::new("zsh");
+        cmd.arg("-ilc");
+        cmd.arg(script);
+        let child = pair.slave.spawn_command(cmd)?;
+        drop(pair.slave);
+
+        let mut master = pair.master;
+        let mut writer = master.take_writer()?;
+        let mut reader = master.try_clone_reader()?;
+
+        let stdin_handle = std::thread::spawn(move || {
+            let mut stdin = std::io::stdin();
+            let mut buf = [0u8; 1024];
+            loop {
+                match stdin.read(&mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        let _ = writer.write_all(&buf[..n]);
+                        let _ = writer.flush();
+                    }
+                }
+            }
+        });
+
+        let stdout_handle = std::thread::spawn(move || {
+            let mut stdout = std::io::stdout();
+            let mut buf = [0u8; 1024];
+            loop {
+                match reader.read(&mut buf) {
+                    Ok(0) | Err(_) => break,
+                    Ok(n) => {
+                        let _ = stdout.write_all(&buf[..n]);
+                        let _ = stdout.flush();
+                    }
+                }
+            }
+        });
+
+        let out_file = OpenOptions::new().read(true).write(true).open(&out_fifo)?;
+        let ack_file = OpenOptions::new().read(true).write(true).open(&ack_fifo)?;
+
+        Ok(Self {
+            line_reader: BufReader::new(out_file),
+            ack_writer: ack_file,
+            needs_ack: false,
+            _stdin_handle: stdin_handle,
+            _stdout_handle: stdout_handle,
+            _child: child,
+            out_fifo,
+            ack_fifo,
+        })
+    }
+
+    fn read_line(&mut self) -> Result<Option<String>> {
+        if self.needs_ack {
+            let _ = self.ack_writer.write_all(b"\n");
+            let _ = self.ack_writer.flush();
+            self.needs_ack = false;
+        }
+
+        let mut line = String::new();
+        let bytes = self.line_reader.read_line(&mut line)?;
+        if bytes == 0 {
+            return Ok(None);
+        }
+        self.needs_ack = true;
+        Ok(Some(line.trim_end().to_string()))
+    }
+}
+
+impl Drop for ZshRepl {
+    fn drop(&mut self) {
+        let _ = self._child.kill();
+        let _ = std::fs::remove_file(&self.out_fifo);
+        let _ = std::fs::remove_file(&self.ack_fifo);
+    }
+}
+
 impl CliHandlers {
     pub async fn handle_react(
         &mut self,
@@ -80,6 +208,7 @@ impl CliHandlers {
 
         let interrupted = Arc::new(AtomicBool::new(false));
         install_ctrlc_handler(interrupted.clone())?;
+        let mut repl: Option<ZshRepl> = None;
         let _ = self
             .run_react_session(
                 query,
@@ -87,6 +216,7 @@ impl CliHandlers {
                 scaling_config,
                 ReactRunOptions::single_query(),
                 None,
+                &mut repl,
                 interrupted,
             )
             .await?;
@@ -102,10 +232,17 @@ impl CliHandlers {
         install_ctrlc_handler(interrupted.clone())?;
         println!("ReAct shell. Type /help for commands.");
         let mut carry = ReactSessionCarry::default();
+        let mut repl = match ZshRepl::new() {
+            Ok(repl) => Some(repl),
+            Err(err) => {
+                eprintln!("[warn] Failed to start zsh repl: {err}");
+                None
+            }
+        };
 
         loop {
             interrupted.store(false, Ordering::SeqCst);
-            let input = match prompt_line_shell(&interrupted)? {
+            let input = match read_shell_line(&mut repl, &interrupted)? {
                 Some(value) => value,
                 None => {
                     println!();
@@ -143,6 +280,7 @@ impl CliHandlers {
                     scaling_config,
                     ReactRunOptions::interactive(),
                     seed,
+                    &mut repl,
                     interrupted.clone(),
                 )
                 .await?;
@@ -158,6 +296,7 @@ impl CliHandlers {
         scaling_config: &ScalingConfig,
         options: ReactRunOptions,
         seed: Option<ReactSeedOutput>,
+        repl: &mut Option<ZshRepl>,
         interrupted: Arc<AtomicBool>,
     ) -> Result<ReactSessionCarry> {
         let (react_repo, cmd_repo) = init_react_storage();
@@ -273,7 +412,7 @@ impl CliHandlers {
                 Some(r) => r,
                 None => {
                     eprintln!("[warn] No tool result available. Provide direction or /abort.");
-                    let input = match prompt_line_mode("> ", &interrupted, options.use_shell_prompt)? {
+                    let input = match read_user_line("> ", &interrupted, repl)? {
                         Some(value) => value,
                         None => {
                             session.abort();
@@ -298,7 +437,7 @@ impl CliHandlers {
             };
 
             if tool_result.should_ask_user {
-                let input = match prompt_line_mode("> ", &interrupted, options.use_shell_prompt)? {
+                let input = match read_user_line("> ", &interrupted, repl)? {
                     Some(value) => value,
                     None => {
                         session.abort();
@@ -432,7 +571,7 @@ impl CliHandlers {
 
             let decision = loop {
                 let prompt = safety_prompt(&suggested.safety);
-                let input = match prompt_line_mode(prompt, &interrupted, options.use_shell_prompt)? {
+                let input = match read_user_line(prompt, &interrupted, repl)? {
                     Some(value) => value,
                     None => {
                         session.abort();
@@ -443,7 +582,7 @@ impl CliHandlers {
                 };
                 match parse_allow_input(&input, suggested.safety)? {
                     AllowDecision::PromptForDirection => {
-                        let extra = match prompt_line_mode("> ", &interrupted, options.use_shell_prompt)? {
+                        let extra = match read_user_line("> ", &interrupted, repl)? {
                             Some(value) => value,
                             None => {
                                 session.abort();
@@ -1709,18 +1848,6 @@ fn prompt_line(prompt: &str, interrupted: &AtomicBool) -> Result<Option<String>>
     }
 }
 
-fn prompt_line_mode(
-    prompt: &str,
-    interrupted: &AtomicBool,
-    use_shell_prompt: bool,
-) -> Result<Option<String>> {
-    if use_shell_prompt {
-        prompt_line_shell_with_prompt(prompt, interrupted)
-    } else {
-        prompt_line(prompt, interrupted)
-    }
-}
-
 fn prompt_next_goal(interrupted: &AtomicBool) -> Result<Option<String>> {
     let input = match prompt_line("Next request (empty to end): ", interrupted)? {
         Some(value) => value,
@@ -1734,104 +1861,44 @@ fn prompt_next_goal(interrupted: &AtomicBool) -> Result<Option<String>> {
     }
 }
 
-fn prompt_line_shell(interrupted: &AtomicBool) -> Result<Option<String>> {
-    if command_exists("zsh") {
-        match prompt_line_zsh(interrupted) {
-            Ok(Some(line)) => return Ok(Some(line)),
-            Ok(None) => return Ok(None),
-            Err(err) => {
-                eprintln!("[warn] zsh prompt failed: {err}");
-            }
-        }
+fn read_shell_line(repl: &mut Option<ZshRepl>, interrupted: &AtomicBool) -> Result<Option<String>> {
+    if let Some(repl) = repl.as_mut() {
+        return repl.read_line();
     }
     prompt_line("> ", interrupted)
 }
 
-fn prompt_line_shell_with_prompt(
+fn read_user_line(
     prompt: &str,
     interrupted: &AtomicBool,
+    repl: &mut Option<ZshRepl>,
 ) -> Result<Option<String>> {
-    if command_exists("zsh") {
-        match prompt_line_zsh_with_prompt(prompt, interrupted) {
-            Ok(Some(line)) => return Ok(Some(line)),
-            Ok(None) => return Ok(None),
-            Err(err) => {
-                eprintln!("[warn] zsh prompt failed: {err}");
-            }
+    if let Some(repl) = repl.as_mut() {
+        if !prompt.trim().is_empty() {
+            println!("{}", prompt.trim_end());
         }
+        return repl.read_line();
     }
     prompt_line(prompt, interrupted)
 }
 
-fn prompt_line_zsh(interrupted: &AtomicBool) -> Result<Option<String>> {
-    if interrupted.load(Ordering::SeqCst) {
-        return Ok(None);
-    }
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let temp_path = std::env::temp_dir()
-        .join(format!("vibe_cli_react_{}_{}.txt", std::process::id(), nanos));
-    let path_str = temp_path.to_string_lossy();
-    let quoted_path = sh_single_quote(&path_str);
-    let script = format!(
-        "line=; if typeset -f precmd >/dev/null; then precmd; fi; prompt=$(print -P -- \"$PROMPT\"); vared -p \"$prompt\" line; print -r -- \"$line\" > {}",
-        quoted_path
-    );
-
-    let status = Command::new("zsh").arg("-ilc").arg(script).status()?;
-    if !status.success() {
-        if status.code() == Some(130) {
-            interrupted.store(true, Ordering::SeqCst);
-        }
-        let _ = std::fs::remove_file(&temp_path);
-        return Ok(None);
-    }
-
-    let input = std::fs::read_to_string(&temp_path).unwrap_or_default();
-    let _ = std::fs::remove_file(&temp_path);
-    Ok(Some(input.trim_end().to_string()))
-}
-
-fn prompt_line_zsh_with_prompt(
-    prompt: &str,
-    interrupted: &AtomicBool,
-) -> Result<Option<String>> {
-    if interrupted.load(Ordering::SeqCst) {
-        return Ok(None);
-    }
-    let nanos = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    let temp_path = std::env::temp_dir()
-        .join(format!("vibe_cli_react_{}_{}.txt", std::process::id(), nanos));
-    let path_str = temp_path.to_string_lossy();
-    let quoted_path = sh_single_quote(&path_str);
-    let prompt_quoted = sh_single_quote(prompt);
-    let script = format!(
-        "line=; if typeset -f precmd >/dev/null; then precmd; fi; prompt=$(print -P -- {}); vared -p \"$prompt\" line; print -r -- \"$line\" > {}",
-        prompt_quoted,
-        quoted_path
-    );
-
-    let status = Command::new("zsh").arg("-ilc").arg(script).status()?;
-    if !status.success() {
-        if status.code() == Some(130) {
-            interrupted.store(true, Ordering::SeqCst);
-        }
-        let _ = std::fs::remove_file(&temp_path);
-        return Ok(None);
-    }
-
-    let input = std::fs::read_to_string(&temp_path).unwrap_or_default();
-    let _ = std::fs::remove_file(&temp_path);
-    Ok(Some(input.trim_end().to_string()))
-}
-
 fn sh_single_quote(value: &str) -> String {
     format!("'{}'", value.replace('\'', "'\\''"))
+}
+
+fn create_fifo(path: &PathBuf) -> Result<()> {
+    let c_path = CString::new(path.as_os_str().as_bytes())
+        .map_err(|e| anyhow!(e.to_string()))?;
+    let res = unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) };
+    if res == 0 {
+        return Ok(());
+    }
+    let err = io::Error::last_os_error();
+    if err.kind() == io::ErrorKind::AlreadyExists {
+        Ok(())
+    } else {
+        Err(anyhow!(err.to_string()))
+    }
 }
 
 fn summarize_output_for_observation(output: &str) -> String {
