@@ -265,6 +265,30 @@ fn has_shell_signal(s: &str) -> bool {
 fn normalize_command(mut s: &str) -> String {
     s = s.trim();
 
+    if let Some(start) = s.find('`') {
+        if let Some(end_rel) = s[start + 1..].find('`') {
+            let inner = &s[start + 1..start + 1 + end_rel];
+            if !inner.trim().is_empty() {
+                s = inner.trim();
+            }
+        }
+    }
+
+    if let Some((before, after)) = s.split_once(':') {
+        let before_lower = before.to_ascii_lowercase();
+        if before_lower.contains("execute")
+            || before_lower.contains("run")
+            || before_lower.contains("command")
+            || before_lower.contains("next action")
+            || before_lower.contains("final command")
+        {
+            let candidate = after.trim();
+            if !candidate.is_empty() {
+                s = candidate;
+            }
+        }
+    }
+
     for p in ["$ ", "# ", "> "] {
         if let Some(rest) = s.strip_prefix(p) {
             s = rest.trim_start();

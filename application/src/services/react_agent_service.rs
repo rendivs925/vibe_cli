@@ -420,8 +420,12 @@ impl ReactAgentService {
             });
         }
         
-        // If parsing fails, return error - don't silently fallback
-        Err(anyhow!("Failed to parse tool selection from LLM response"))
+        Ok(ToolDecision {
+            tool: ReactTool::SuggestCommand,
+            justification: "Fallback tool selection (unable to parse response)".to_string(),
+            context_needed: "None".to_string(),
+            confidence: 0.0,
+        })
     }
 
     /// Execute a tool and return the result

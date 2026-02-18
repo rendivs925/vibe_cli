@@ -111,6 +111,7 @@ Based on your analysis, choose ONE tool from this list:\n\
 - explain: Explain reasoning to user\n\
 - suggest_alternatives: Offer options to user\n\
 \n\
+IMPORTANT: Respond with EXACTLY these three lines and nothing else. If unsure, use suggest_command.\n\
 Respond in this exact format:\n\
 TOOL: <tool_name>\n\
 JUSTIFY: <why this tool is the right choice>\n\
@@ -127,20 +128,30 @@ CONTEXT: <what data you're using>\n\n",
 
         for line in response.lines() {
             let line = line.trim();
-            if let Some(rest) = line.strip_prefix("TOOL:") {
-                tool_name = Some(rest.trim().to_string());
-            } else if let Some(rest) = line.strip_prefix("JUSTIFY:") {
-                justification = rest.trim().to_string();
-            } else if let Some(rest) = line.strip_prefix("CONTEXT:") {
-                context_needed = rest.trim().to_string();
+            let lower = line.to_ascii_lowercase();
+            if lower.starts_with("tool") {
+                if let Some(rest) = line.splitn(2, |c| c == ':' || c == '-' || c == '=').nth(1)
+                {
+                    tool_name = Some(rest.trim().to_string());
+                }
+            } else if lower.starts_with("justify") {
+                if let Some(rest) = line.splitn(2, |c| c == ':' || c == '-' || c == '=').nth(1)
+                {
+                    justification = rest.trim().to_string();
+                }
+            } else if lower.starts_with("context") {
+                if let Some(rest) = line.splitn(2, |c| c == ':' || c == '-' || c == '=').nth(1)
+                {
+                    context_needed = rest.trim().to_string();
+                }
             }
         }
 
-        tool_name.and_then(|name| {
-            name.parse::<ReactTool>()
-                .ok()
-                .map(|tool| (tool, justification, context_needed))
-        })
+        let parsed = tool_name
+            .and_then(|name| name.parse::<ReactTool>().ok())
+            .or_else(|| infer_tool_from_response(response));
+
+        parsed.map(|tool| (tool, justification, context_needed))
     }
 
     pub fn reasoning_prompt(
@@ -416,6 +427,17 @@ History:\n{history}\n",
             history = history
         )
     }
+}
+
+fn infer_tool_from_response(response: &str) -> Option<ReactTool> {
+    let lower = response.to_ascii_lowercase();
+    for tool in ReactTool::available_tools() {
+        let name = tool.name();
+        if lower.contains(name) || lower.contains(&name.replace('_', " ")) {
+            return Some(*tool);
+        }
+    }
+    None
 }
 
 fn task_type_label(session: &ReactSession) -> String {
