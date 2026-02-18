@@ -312,29 +312,23 @@ ANALYZE: <reasoning referencing latest output>",
 ## Command Output\n\
 {output}\n\
 \n\
-## Extracted Facts\n\
-{facts}\n\
-\n\
-## Current Hypotheses\n\
-{hypotheses}\n\
+## Context (if available)\n\
+Facts: {facts}\n\
+Hypotheses: {hypotheses}\n\
 \n\
 ## Instructions\n\
-Analyze the output and provide:\n\
-1. A brief SUMMARY (2-4 sentences) of what the output shows\n\
-2. Any ERRORS found - explain what they mean\n\
-3. Any WARNINGS - explain their implications\n\
-4. Any NOTABLE PATTERNS or anomalies\n\
-5. RECOMMENDATIONS if there are issues\n\
-6. What the user should DO next (if anything)\n\
+Analyze the command output and provide useful, actionable information to the user.\n\
+- Explain what the output means in plain language\n\
+- Point out any issues, errors, or anomalies you notice\n\
+- Suggest what the user should do next if relevant\n\
+- Do NOT use rigid sections like \"Summary:\", \"Errors:\", \"Warnings:\" - just write naturally\n\
+- Keep it concise but informative\n\
 \n\
-Be concise but informative. Focus on what matters to the user.\n\
-\n\
-Output format:\n\
-ANALYSIS: <your analysis>",
+Provide your analysis:",
             goal = goal,
             output = output,
-            facts = facts,
-            hypotheses = hypotheses,
+            facts = if facts.is_empty() { "None" } else { facts },
+            hypotheses = if hypotheses.is_empty() { "None" } else { hypotheses },
         )
     }
 
