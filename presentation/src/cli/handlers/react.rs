@@ -129,7 +129,7 @@ impl ZshRepl {
         let prompt_path = prompt_fifo.to_string_lossy();
         let script = format!(
             "PROMPT=''; RPROMPT=''; \
-             line=; while true; do \
+             while true; do \
              read -r prompt_msg < {prompt} || exit; \
              saved_rprompt=$RPROMPT; \
              if [[ -n \"$prompt_msg\" ]]; then \
@@ -139,6 +139,7 @@ impl ZshRepl {
                 RPROMPT=''; \
                 prompt='> '; \
              fi; \
+             line=''; \
              vared -p \"$prompt\" line || exit; \
              RPROMPT=$saved_rprompt; \
              print -s -- \"$line\"; \
@@ -540,8 +541,10 @@ impl CliHandlers {
                     save_step(&service, &mut session, ReactStepType::Observation, summary).await?;
                     if options.summary_only {
                         if let Ok(analysis) = service.analyze_output(&session).await {
-                            if !analysis.is_empty() {
-                                println!("{analysis}");
+                            let cleaned = normalize_summary(&analysis);
+                            if !cleaned.is_empty() {
+                                println!();
+                                println!("{cleaned}");
                             }
                         }
                     }
@@ -568,8 +571,10 @@ impl CliHandlers {
                 save_step(&service, &mut session, ReactStepType::Observation, summary).await?;
                 if options.summary_only {
                     if let Ok(analysis) = service.analyze_output(&session).await {
-                        if !analysis.is_empty() {
-                            println!("{analysis}");
+                        let cleaned = normalize_summary(&analysis);
+                        if !cleaned.is_empty() {
+                            println!();
+                            println!("{cleaned}");
                         }
                     }
                     session.complete();
@@ -728,11 +733,13 @@ impl CliHandlers {
                     // Run post-command analysis
                     match service.analyze_output(&session).await {
                         Ok(analysis) => {
-                            if !analysis.is_empty() {
+                            let cleaned = normalize_summary(&analysis);
+                            if !cleaned.is_empty() {
                                 if options.summary_only {
-                                    println!("{analysis}");
+                                    println!();
+                                    println!("{cleaned}");
                                 } else {
-                                    print_section("ANALYSIS", &analysis);
+                                    print_section("ANALYSIS", &cleaned);
                                 }
                             }
                         }
@@ -2030,4 +2037,16 @@ fn summarize_output_for_observation(output: &str) -> String {
     } else {
         lines.join("\n")
     }
+}
+
+fn normalize_summary(text: &str) -> String {
+    let mut cleaned = Vec::new();
+    for line in text.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+        cleaned.push(trimmed);
+    }
+    cleaned.join("\n")
 }
