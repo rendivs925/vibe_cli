@@ -19,7 +19,7 @@ use infrastructure::session_indexing_service::SessionIndexingService;
 use infrastructure::syntax_grammar_validator::SyntaxGrammarValidator;
 use infrastructure::tools;
 use infrastructure::ollama_client::OllamaClient;
-use portable_pty::{CommandBuilder, NativePtySystem, PtySize};
+use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
 use shared::types::Result;
 use std::ffi::CString;
 use std::fs::OpenOptions;
