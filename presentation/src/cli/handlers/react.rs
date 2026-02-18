@@ -27,7 +27,7 @@ use std::io::{self, Write};
 use std::io::{BufRead, BufReader, Read};
 use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -543,11 +543,11 @@ impl CliHandlers {
                         if let Ok(analysis) = service.analyze_output(&session).await {
                             let cleaned = normalize_summary(&analysis);
                             if !cleaned.is_empty() {
-                                println!();
+                                ensure_fresh_line();
                                 println!("{cleaned}");
                             }
-                        }
                     }
+                }
                 }
                 match tool_result.tool {
                     ReactTool::ConcludeFail | ReactTool::Escalate | ReactTool::Defer => {
@@ -573,7 +573,7 @@ impl CliHandlers {
                     if let Ok(analysis) = service.analyze_output(&session).await {
                         let cleaned = normalize_summary(&analysis);
                         if !cleaned.is_empty() {
-                            println!();
+                            ensure_fresh_line();
                             println!("{cleaned}");
                         }
                     }
@@ -640,7 +640,9 @@ impl CliHandlers {
             let mut suggested = if let Some(valid) = validation.valid.into_iter().next() {
                 valid
             } else {
-                println!("No valid commands found.");
+                if options.show_validation {
+                    println!("No valid commands found.");
+                }
                 break;
             };
             if options.show_command || (!options.auto_run_readonly || !matches!(suggested.safety, CommandSafety::ReadOnly)) {
@@ -703,6 +705,7 @@ impl CliHandlers {
                         &mut validator,
                         &mut suggested,
                         &session.query,
+                        !options.summary_only,
                     )
                     .await?;
                     carry.last_output = Some(output.clone());
@@ -726,7 +729,11 @@ impl CliHandlers {
                     // Index command for cross-session learning
                     let _ = service.index_command_execution(&suggested, &session.id).await;
 
-                    if !options.summary_only && !output.trim().is_empty() {
+                    if options.summary_only {
+                        if !output.trim().is_empty() {
+                            print_output_with_bat(&output);
+                        }
+                    } else if !output.trim().is_empty() {
                         println!("{output}");
                     }
 
@@ -736,7 +743,7 @@ impl CliHandlers {
                             let cleaned = normalize_summary(&analysis);
                             if !cleaned.is_empty() {
                                 if options.summary_only {
-                                    println!();
+                                    ensure_fresh_line();
                                     println!("{cleaned}");
                                 } else {
                                     print_section("ANALYSIS", &cleaned);
@@ -1619,6 +1626,7 @@ async fn execute_suggestion(
     validator: &mut SyntaxGrammarValidator,
     command: &mut ProposedCommand,
     query: &str,
+    emit_output: bool,
 ) -> Result<String> {
     let command_line = command.command.clone();
     let tokens = parse_command_tokens(&command_line);
@@ -1679,7 +1687,11 @@ async fn execute_suggestion(
     }
 
     command.approve();
-    let output = handler.run_shell_command_streaming(&command.command)?;
+    let output = if emit_output {
+        handler.run_shell_command_streaming(&command.command)?
+    } else {
+        handler.run_shell_command_capture(&command.command)?
+    };
     let exit_code = output.status.code().unwrap_or(-1);
     command.execute(exit_code, output.full_output.clone(), output.stderr.clone());
     Ok(output.full_output)
@@ -2049,4 +2061,35 @@ fn normalize_summary(text: &str) -> String {
         cleaned.push(trimmed);
     }
     cleaned.join("\n")
+}
+
+fn print_output_with_bat(output: &str) {
+    if output.trim().is_empty() {
+        return;
+    }
+    ensure_fresh_line();
+    if !command_exists("bat") {
+        println!("{output}");
+        return;
+    }
+    let mut child = match Command::new("bat")
+        .args(["-p", "--paging=never", "--color=always"])
+        .stdin(Stdio::piped())
+        .spawn()
+    {
+        Ok(child) => child,
+        Err(_) => {
+            println!("{output}");
+            return;
+        }
+    };
+    if let Some(mut stdin) = child.stdin.take() {
+        let _ = stdin.write_all(output.as_bytes());
+    }
+    let _ = child.wait();
+}
+
+fn ensure_fresh_line() {
+    print!("\r\n");
+    let _ = io::stdout().flush();
 }
