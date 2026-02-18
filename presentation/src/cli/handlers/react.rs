@@ -353,17 +353,41 @@ impl CliHandlers {
                         }
                     }
 
-                    if let Some(requested) = requested_primary.as_ref() {
-                        if suggested.exit_code == Some(0)
-                            && primary_command_binary(&suggested.command)
+                    if suggested.exit_code == Some(0) && !output.trim().is_empty() {
+                        let mut achieved = false;
+                        if let Some(requested) = requested_primary.as_ref() {
+                            if primary_command_binary(&suggested.command)
                                 .as_ref()
                                 .map(|cmd| cmd == requested)
                                 .unwrap_or(false)
-                        {
+                            {
+                                achieved = true;
+                            }
+                        }
+
+                        if !achieved {
+                            match service.is_goal_achieved(&session).await {
+                                Ok(true) => achieved = true,
+                                Ok(false) => {}
+                                Err(e) => {
+                                    eprintln!("[warn] Goal check failed: {}", e);
+                                }
+                            }
+                        }
+
+                        if achieved {
+                            let next = prompt_next_goal(&interrupted)?;
                             session.complete();
                             service.save_session(&session).await?;
-                            println!("\n→ Session ended.");
-                            break;
+                            if let Some(next_query) = next {
+                                session = service.start_session(next_query, neurosymbolic).await?;
+                                pending_command_override = None;
+                                println!("\n→ {}", session.query);
+                                continue;
+                            } else {
+                                println!("\n→ Session ended.");
+                                break;
+                            }
                         }
                     }
                 }
@@ -1448,6 +1472,19 @@ fn prompt_line(prompt: &str, interrupted: &AtomicBool) -> Result<Option<String>>
             },
             _ => {}
         }
+    }
+}
+
+fn prompt_next_goal(interrupted: &AtomicBool) -> Result<Option<String>> {
+    let input = match prompt_line("Next request (empty to end): ", interrupted)? {
+        Some(value) => value,
+        None => return Ok(None),
+    };
+    let trimmed = input.trim();
+    if trimmed.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(trimmed.to_string()))
     }
 }
 
