@@ -173,8 +173,9 @@ impl CliHandlers {
         let adjusted = Self::apply_streaming_fixes(cmd);
         let wrapped = Self::wrap_streaming_command(&adjusted);
         let shell = Self::resolve_shell_program();
+        let arg = if Self::is_zsh_shell(&shell) { "-ilc" } else { "-lc" };
         let mut child = Command::new(&shell)
-            .arg("-lc")
+            .arg(arg)
             .arg(wrapped)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
@@ -390,6 +391,11 @@ impl CliHandlers {
             return std::path::Path::new(shell).exists();
         }
         Self::has_in_path(shell)
+    }
+
+    fn is_zsh_shell(shell: &str) -> bool {
+        let name = shell.rsplit('/').next().unwrap_or(shell);
+        name == "zsh"
     }
 
     /// Properly escape a string for safe use in shell commands.

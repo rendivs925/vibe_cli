@@ -33,6 +33,7 @@ struct ReactRunOptions {
     allow_next_prompt: bool,
     show_reasoning: bool,
     context_scope: &'static str,
+    use_shell_prompt: bool,
 }
 
 impl ReactRunOptions {
@@ -41,6 +42,7 @@ impl ReactRunOptions {
             allow_next_prompt: true,
             show_reasoning: true,
             context_scope: "goal_only",
+            use_shell_prompt: false,
         }
     }
 
@@ -49,6 +51,7 @@ impl ReactRunOptions {
             allow_next_prompt: false,
             show_reasoning: false,
             context_scope: "goal_only",
+            use_shell_prompt: true,
         }
     }
 }
@@ -270,7 +273,7 @@ impl CliHandlers {
                 Some(r) => r,
                 None => {
                     eprintln!("[warn] No tool result available. Provide direction or /abort.");
-                    let input = match prompt_line("> ", &interrupted)? {
+                    let input = match prompt_line_mode("> ", &interrupted, options.use_shell_prompt)? {
                         Some(value) => value,
                         None => {
                             session.abort();
@@ -295,7 +298,7 @@ impl CliHandlers {
             };
 
             if tool_result.should_ask_user {
-                let input = match prompt_line("> ", &interrupted)? {
+                let input = match prompt_line_mode("> ", &interrupted, options.use_shell_prompt)? {
                     Some(value) => value,
                     None => {
                         session.abort();
@@ -429,7 +432,7 @@ impl CliHandlers {
 
             let decision = loop {
                 let prompt = safety_prompt(&suggested.safety);
-                let input = match prompt_line(prompt, &interrupted)? {
+                let input = match prompt_line_mode(prompt, &interrupted, options.use_shell_prompt)? {
                     Some(value) => value,
                     None => {
                         session.abort();
@@ -440,7 +443,7 @@ impl CliHandlers {
                 };
                 match parse_allow_input(&input, suggested.safety)? {
                     AllowDecision::PromptForDirection => {
-                        let extra = match prompt_line("> ", &interrupted)? {
+                        let extra = match prompt_line_mode("> ", &interrupted, options.use_shell_prompt)? {
                             Some(value) => value,
                             None => {
                                 session.abort();
@@ -1706,6 +1709,18 @@ fn prompt_line(prompt: &str, interrupted: &AtomicBool) -> Result<Option<String>>
     }
 }
 
+fn prompt_line_mode(
+    prompt: &str,
+    interrupted: &AtomicBool,
+    use_shell_prompt: bool,
+) -> Result<Option<String>> {
+    if use_shell_prompt {
+        prompt_line_shell_with_prompt(prompt, interrupted)
+    } else {
+        prompt_line(prompt, interrupted)
+    }
+}
+
 fn prompt_next_goal(interrupted: &AtomicBool) -> Result<Option<String>> {
     let input = match prompt_line("Next request (empty to end): ", interrupted)? {
         Some(value) => value,
@@ -1732,6 +1747,22 @@ fn prompt_line_shell(interrupted: &AtomicBool) -> Result<Option<String>> {
     prompt_line("> ", interrupted)
 }
 
+fn prompt_line_shell_with_prompt(
+    prompt: &str,
+    interrupted: &AtomicBool,
+) -> Result<Option<String>> {
+    if command_exists("zsh") {
+        match prompt_line_zsh_with_prompt(prompt, interrupted) {
+            Ok(Some(line)) => return Ok(Some(line)),
+            Ok(None) => return Ok(None),
+            Err(err) => {
+                eprintln!("[warn] zsh prompt failed: {err}");
+            }
+        }
+    }
+    prompt_line(prompt, interrupted)
+}
+
 fn prompt_line_zsh(interrupted: &AtomicBool) -> Result<Option<String>> {
     if interrupted.load(Ordering::SeqCst) {
         return Ok(None);
@@ -1746,6 +1777,42 @@ fn prompt_line_zsh(interrupted: &AtomicBool) -> Result<Option<String>> {
     let quoted_path = sh_single_quote(&path_str);
     let script = format!(
         "line=; if typeset -f precmd >/dev/null; then precmd; fi; prompt=$(print -P -- \"$PROMPT\"); vared -p \"$prompt\" line; print -r -- \"$line\" > {}",
+        quoted_path
+    );
+
+    let status = Command::new("zsh").arg("-ilc").arg(script).status()?;
+    if !status.success() {
+        if status.code() == Some(130) {
+            interrupted.store(true, Ordering::SeqCst);
+        }
+        let _ = std::fs::remove_file(&temp_path);
+        return Ok(None);
+    }
+
+    let input = std::fs::read_to_string(&temp_path).unwrap_or_default();
+    let _ = std::fs::remove_file(&temp_path);
+    Ok(Some(input.trim_end().to_string()))
+}
+
+fn prompt_line_zsh_with_prompt(
+    prompt: &str,
+    interrupted: &AtomicBool,
+) -> Result<Option<String>> {
+    if interrupted.load(Ordering::SeqCst) {
+        return Ok(None);
+    }
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let temp_path = std::env::temp_dir()
+        .join(format!("vibe_cli_react_{}_{}.txt", std::process::id(), nanos));
+    let path_str = temp_path.to_string_lossy();
+    let quoted_path = sh_single_quote(&path_str);
+    let prompt_quoted = sh_single_quote(prompt);
+    let script = format!(
+        "line=; if typeset -f precmd >/dev/null; then precmd; fi; prompt=$(print -P -- {}); vared -p \"$prompt\" line; print -r -- \"$line\" > {}",
+        prompt_quoted,
         quoted_path
     );
 

@@ -33,7 +33,8 @@ pub fn run_bash(command: &str) -> Result<ToolOutput, ToolError> {
 
 pub fn run_shell(command: &str) -> Result<ToolOutput, ToolError> {
     let shell = resolve_shell_program();
-    run_process(&shell, &["-lc", command])
+    let args = if is_zsh_shell(&shell) { ["-ilc", command] } else { ["-lc", command] };
+    run_process(&shell, &args)
 }
 
 pub fn ensure_args_at_least(args: &[&str], min: usize, usage: &str) -> Result<(), ToolError> {
@@ -63,6 +64,11 @@ fn resolve_shell_program() -> String {
     }
 
     "bash".to_string()
+}
+
+fn is_zsh_shell(shell: &str) -> bool {
+    let name = shell.rsplit('/').next().unwrap_or(shell);
+    name == "zsh"
 }
 
 fn is_executable(path: &str) -> bool {
