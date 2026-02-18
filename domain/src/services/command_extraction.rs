@@ -57,6 +57,9 @@ pub fn extract_candidate_commands(raw: &str, user_query: &str) -> Vec<String> {
                 push_candidate(&mut found, Source::ExplicitPrefix, rest, &q_keywords);
             }
         }
+        if let Some(rest) = strip_command_label(l) {
+            push_candidate(&mut found, Source::ExplicitPrefix, rest, &q_keywords);
+        }
     }
 
     // 2) Code fences
@@ -115,6 +118,11 @@ pub fn extract_candidate_commands(raw: &str, user_query: &str) -> Vec<String> {
         if t.contains('|') || t.contains("&&") || t.contains("||") {
             push_candidate(&mut found, Source::OperatorLine, t, &q_keywords);
         }
+
+        // 6) Action sentence lines (e.g., "Execute the top command.")
+        if looks_like_action_sentence(t) {
+            push_candidate(&mut found, Source::ActionSentence, t, &q_keywords);
+        }
     }
 
     found.sort_by(|(sa, a), (sb, b)| sa.cmp(sb).then_with(|| a.cmp(b)));
@@ -167,6 +175,7 @@ enum Source {
     InlineBackticks = 3,
     PromptLine = 4,
     OperatorLine = 5,
+    ActionSentence = 6,
 }
 
 const BAD_PREFIXES: &[&str] = &[
@@ -264,17 +273,19 @@ fn has_shell_signal(s: &str) -> bool {
 
 fn normalize_command(mut s: &str) -> String {
     s = s.trim();
+    let mut owned: Option<String> = None;
+    let mut s_view: &str = s;
 
     if let Some(start) = s.find('`') {
         if let Some(end_rel) = s[start + 1..].find('`') {
             let inner = &s[start + 1..start + 1 + end_rel];
             if !inner.trim().is_empty() {
-                s = inner.trim();
+                s_view = inner.trim();
             }
         }
     }
 
-    if let Some((before, after)) = s.split_once(':') {
+    if let Some((before, after)) = s_view.split_once(':') {
         let before_lower = before.to_ascii_lowercase();
         if before_lower.contains("execute")
             || before_lower.contains("run")
@@ -284,8 +295,35 @@ fn normalize_command(mut s: &str) -> String {
         {
             let candidate = after.trim();
             if !candidate.is_empty() {
-                s = candidate;
+                s_view = candidate;
             }
+        }
+    }
+
+    let lower = s_view.to_ascii_lowercase();
+    if lower.starts_with("execute ")
+        || lower.starts_with("run ")
+        || lower.starts_with("use ")
+        || lower.starts_with("try ")
+    {
+        let mut rest = s_view.splitn(2, ' ').nth(1).unwrap_or("").trim().to_string();
+        if rest.to_ascii_lowercase().starts_with("the ") {
+            rest = rest[4..].trim().to_string();
+        }
+        rest = rest
+            .trim_matches('"')
+            .trim_matches('\'')
+            .trim_matches('`')
+            .trim_end_matches('.')
+            .to_string();
+        let lower_rest = rest.to_ascii_lowercase();
+        if lower_rest.ends_with(" command") {
+            let len = rest.len().saturating_sub(" command".len());
+            rest = rest[..len].trim_end().to_string();
+        }
+        if !rest.is_empty() {
+            owned = Some(rest);
+            s_view = owned.as_deref().unwrap_or(s_view);
         }
     }
 
@@ -306,7 +344,8 @@ fn normalize_command(mut s: &str) -> String {
         }
     }
 
-    s.trim()
+    s_view
+        .trim()
         .trim_matches('`')
         .trim_matches('"')
         .trim_matches('\'')
@@ -316,6 +355,55 @@ fn normalize_command(mut s: &str) -> String {
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ")
+}
+
+fn looks_like_action_sentence(line: &str) -> bool {
+    let lower = line.to_ascii_lowercase();
+    let starts = lower.starts_with("execute ")
+        || lower.starts_with("run ")
+        || lower.starts_with("use ")
+        || lower.starts_with("try ");
+    if !starts {
+        return false;
+    }
+    lower.contains(" command") || line.contains('`') || line.contains('"')
+}
+
+fn strip_command_label(line: &str) -> Option<&str> {
+    let trimmed = line.trim();
+    let lower = trimmed.to_ascii_lowercase();
+    let prefixes = [
+        "final command",
+        "command",
+        "cmd",
+        "next action",
+        "execute",
+        "run",
+    ];
+    let sep_pos = trimmed.find(':').or_else(|| trimmed.find('-')).or_else(|| trimmed.find('='));
+    let Some(pos) = sep_pos else { return None; };
+    let (left, right) = trimmed.split_at(pos);
+    let cleaned_left = left
+        .trim()
+        .trim_matches('*')
+        .trim_matches('_')
+        .trim();
+    if prefixes
+        .iter()
+        .any(|p| cleaned_left.eq_ignore_ascii_case(p))
+    {
+        let candidate = right[1..].trim();
+        if !candidate.is_empty() {
+            return Some(candidate);
+        }
+    }
+    if prefixes.iter().any(|p| lower.starts_with(p)) && lower.contains(':') {
+        let candidate = trimmed.splitn(2, ':').nth(1).unwrap_or("").trim();
+        if !candidate.is_empty() {
+            return Some(candidate);
+        }
+    }
+    None
 }
 
 fn looks_like_command(s: &str) -> bool {

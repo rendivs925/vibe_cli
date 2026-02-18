@@ -111,8 +111,7 @@ Based on your analysis, choose ONE tool from this list:\n\
 - explain: Explain reasoning to user\n\
 - suggest_alternatives: Offer options to user\n\
 \n\
-IMPORTANT: Respond with EXACTLY these three lines and nothing else. If unsure, use suggest_command.\n\
-Respond in this exact format:\n\
+Preferred format (keep concise):\n\
 TOOL: <tool_name>\n\
 JUSTIFY: <why this tool is the right choice>\n\
 CONTEXT: <what data you're using>\n\n",
@@ -314,7 +313,7 @@ Provide your analysis:",
     ) -> String {
         format!(
             "You are a cautious systems assistant. Based on the goal and reasoning, propose 1-3 executable suggestions.\n\
-Respond ONLY with a JSON array of strings. No prose.\n\
+Preferred response is a JSON array of command strings, but brief prose is OK. We will extract commands automatically.\n\
 Goal: {goal}\n\
 Reasoning (MUST be grounded in latest output): {reasoning}\n\
 \n\
@@ -376,6 +375,20 @@ Constraints:\n\
             constraints = context.constraints,
             knowledge_context = context.knowledge_context,
             failed_commands = failed_commands,
+        )
+    }
+
+    pub fn command_extraction_prompt(&self, goal: &str, raw: &str) -> String {
+        format!(
+            "Extract 1-3 executable shell commands from the text below.\n\
+Return ONLY a JSON array of strings. No prose.\n\
+- If the text says things like \"execute the top command\", return \"top\".\n\
+- If commands are inside backticks or quotes, extract those.\n\
+- Do not include placeholders like <path> or /path/to/...\n\
+Goal: {goal}\n\
+Text:\n{raw}\n",
+            goal = goal,
+            raw = raw
         )
     }
 

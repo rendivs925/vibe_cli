@@ -285,7 +285,15 @@ impl ReactAgentService {
         );
 
         let response = self.client.generate_response(&prompt).await?;
-        let parsed = parse_command_list(&response);
+        let mut parsed = parse_command_list(&response);
+        if parsed.is_empty() {
+            let extract_prompt = self
+                .prompt_service
+                .command_extraction_prompt(&session.query, &response);
+            if let Ok(extracted) = self.client.generate_response(&extract_prompt).await {
+                parsed = parse_command_list(&extracted);
+            }
+        }
         let mut commands = Vec::new();
         for command in parsed {
             if command.trim().is_empty() {
