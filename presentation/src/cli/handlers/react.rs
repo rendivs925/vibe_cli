@@ -1745,11 +1745,11 @@ fn prompt_line_zsh(interrupted: &AtomicBool) -> Result<Option<String>> {
     let path_str = temp_path.to_string_lossy();
     let quoted_path = sh_single_quote(&path_str);
     let script = format!(
-        "line=; vared -p \"$PROMPT\" line; print -r -- \"$line\" > {}",
+        "line=; if typeset -f precmd >/dev/null; then precmd; fi; prompt=$(print -P -- \"$PROMPT\"); vared -p \"$prompt\" line; print -r -- \"$line\" > {}",
         quoted_path
     );
 
-    let status = Command::new("zsh").arg("-ic").arg(script).status()?;
+    let status = Command::new("zsh").arg("-ilc").arg(script).status()?;
     if !status.success() {
         if status.code() == Some(130) {
             interrupted.store(true, Ordering::SeqCst);
