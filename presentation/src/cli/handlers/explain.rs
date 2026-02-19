@@ -1,9 +1,14 @@
 use super::CliHandlers;
+use application::services::test_time_scaling::ScalingMethod;
 use anyhow::anyhow;
 use shared::types::Result;
 
 impl CliHandlers {
-    pub async fn handle_explain(&self, file: &str) -> Result<()> {
+    pub async fn handle_explain(
+        &self,
+        file: &str,
+        scaling_config: &application::services::test_time_scaling::ScalingConfig,
+    ) -> Result<()> {
         let content = match self.load_explain_content(file) {
             Ok(Some(content)) => content,
             Ok(None) => {
@@ -16,18 +21,42 @@ impl CliHandlers {
             }
         };
 
-        let prompt = format!("Explain this content in detail:\n\n{}", content);
+        let prompt_template = format!("Explain this content in detail:\n\n{}", content);
 
-        if let Some(cached_response) = self.cache_manager.load_explain_cached(&prompt)? {
+        if let Some(cached_response) = self.cache_manager.load_explain_cached(&prompt_template)? {
             println!("{}", cached_response);
             return Ok(());
         }
 
+        if scaling_config.method != ScalingMethod::None {
+            eprintln!(
+                "Generating {} explanations via {}...",
+                scaling_config.num_samples,
+                match scaling_config.method {
+                    ScalingMethod::Knockout => "knockout tournament",
+                    ScalingMethod::League => "league competition",
+                    ScalingMethod::None => "none",
+                }
+            );
+
+            let best_response = self
+                .select_best_response_with_scaling(&prompt_template, scaling_config)
+                .await;
+
+            if let Some(response) = best_response {
+                self.cache_manager
+                    .save_explain_cached(&prompt_template, &response)?;
+                println!("{}", response);
+                return Ok(());
+            }
+        }
+
         eprintln!("Analyzing file content...");
         let client = infrastructure::ollama_client::OllamaClient::new()?;
-        let response = client.generate_response(&prompt).await?;
+        let response = client.generate_response(&prompt_template).await?;
 
-        self.cache_manager.save_explain_cached(&prompt, &response)?;
+        self.cache_manager
+            .save_explain_cached(&prompt_template, &response)?;
 
         println!("{}", response);
         Ok(())

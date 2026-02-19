@@ -58,6 +58,32 @@ impl CandidateCommand {
     }
 }
 
+#[derive(Clone, Debug)]
+pub struct CandidateResponse {
+    pub response: String,
+    pub win_count: usize,
+    pub loss_count: usize,
+    pub total_comparisons: usize,
+}
+
+impl CandidateResponse {
+    pub fn new(response: String) -> Self {
+        Self {
+            response,
+            win_count: 0,
+            loss_count: 0,
+            total_comparisons: 0,
+        }
+    }
+
+    pub fn win_rate(&self) -> f64 {
+        if self.total_comparisons == 0 {
+            return 0.5;
+        }
+        self.win_count as f64 / self.total_comparisons as f64
+    }
+}
+
 #[allow(dead_code)]
 pub struct TestTimeComputeService {
     client: OllamaClient,
@@ -275,6 +301,226 @@ Consider:
 
 Respond with ONLY "A" or "B" (no explanation):"#,
             candidate_a, candidate_b
+        );
+
+        let response = self
+            .client
+            .generate_response(&prompt)
+            .await
+            .unwrap_or_default();
+        let response_lower = response.to_lowercase().trim().to_string();
+
+        if response_lower.starts_with('a') {
+            0
+        } else {
+            1
+        }
+    }
+
+    pub async fn select_best_response(
+        &self,
+        prompt_template: &str,
+        scaling_config: &ScalingConfig,
+    ) -> Result<Option<String>> {
+        if scaling_config.method == ScalingMethod::None {
+            return Ok(None);
+        }
+
+        let candidates = self
+            .generate_response_candidates(prompt_template, scaling_config.num_samples)
+            .await?;
+
+        if candidates.is_empty() {
+            return Ok(None);
+        }
+
+        if candidates.len() == 1 {
+            return Ok(Some(candidates[0].response.clone()));
+        }
+
+        let selected = match scaling_config.method {
+            ScalingMethod::Knockout => {
+                self.run_response_knockout(&candidates, scaling_config)
+                    .await?
+            }
+            ScalingMethod::League => {
+                self.run_response_league(&candidates, scaling_config)
+                    .await?
+            }
+            ScalingMethod::None => candidates[0].response.clone(),
+        };
+
+        Ok(Some(selected))
+    }
+
+    async fn generate_response_candidates(
+        &self,
+        prompt: &str,
+        num_samples: usize,
+    ) -> Result<Vec<CandidateResponse>> {
+        let mut candidates = Vec::new();
+
+        for _ in 0..num_samples {
+            if let Some(response) = self.generate_single_response(prompt).await? {
+                if !response.trim().is_empty() {
+                    candidates.push(CandidateResponse::new(response));
+                }
+            }
+        }
+
+        Ok(candidates)
+    }
+
+    async fn generate_single_response(&self, prompt: &str) -> Result<Option<String>> {
+        let response = self.client.generate_response(prompt).await?;
+
+        if response.trim().is_empty() {
+            return Ok(None);
+        }
+
+        Ok(Some(response))
+    }
+
+    async fn run_response_knockout(
+        &self,
+        candidates: &[CandidateResponse],
+        config: &ScalingConfig,
+    ) -> Result<String> {
+        let mut participants: Vec<CandidateResponse> = candidates.to_vec();
+
+        while participants.len() > 1 {
+            let mut next_round = Vec::new();
+            let mut i = 0;
+
+            while i < participants.len() {
+                if i + 1 >= participants.len() {
+                    next_round.push(participants.remove(i));
+                    break;
+                }
+
+                let (candidate_a, candidate_b) = (
+                    participants[i].response.clone(),
+                    participants[i + 1].response.clone(),
+                );
+
+                let winner_idx = self
+                    .compare_response_pairs(&candidate_a, &candidate_b, config.comparisons_per_pair)
+                    .await;
+
+                if winner_idx == 0 {
+                    next_round.push(participants.remove(i));
+                    participants.remove(i);
+                } else {
+                    participants.remove(i);
+                    next_round.push(participants.remove(i));
+                }
+            }
+
+            participants = next_round;
+        }
+
+        Ok(participants
+            .pop()
+            .map(|c| c.response)
+            .unwrap_or_else(|| {
+                candidates
+                    .first()
+                    .map(|c| c.response.clone())
+                    .unwrap_or_default()
+            }))
+    }
+
+    async fn run_response_league(
+        &self,
+        candidates: &[CandidateResponse],
+        config: &ScalingConfig,
+    ) -> Result<String> {
+        let mut league: Vec<CandidateResponse> = candidates.to_vec();
+        let num_opponents = config
+            .opponents_per_candidate
+            .min(candidates.len().saturating_sub(1));
+
+        let responses: Vec<String> = league.iter().map(|c| c.response.clone()).collect();
+
+        for (idx, candidate) in league.iter_mut().enumerate() {
+            for _ in 0..num_opponents {
+                let opponent_idx = rand_index(responses.len());
+                if opponent_idx == idx {
+                    continue;
+                }
+
+                let opponent_response = &responses[opponent_idx];
+
+                let winner = self
+                    .compare_two_responses(&candidate.response, opponent_response)
+                    .await;
+
+                if winner == 0 {
+                    candidate.win_count += 1;
+                } else {
+                    candidate.loss_count += 1;
+                }
+                candidate.total_comparisons += 1;
+            }
+        }
+
+        league.sort_by(|a, b| {
+            b.win_rate()
+                .partial_cmp(&a.win_rate())
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        Ok(league
+            .first()
+            .map(|c| c.response.clone())
+            .unwrap_or_else(|| {
+                candidates
+                    .first()
+                    .map(|c| c.response.clone())
+                    .unwrap_or_default()
+            }))
+    }
+
+    async fn compare_response_pairs(
+        &self,
+        response_a: &str,
+        response_b: &str,
+        num_comparisons: usize,
+    ) -> usize {
+        let mut wins_for_a = 0;
+
+        for _ in 0..num_comparisons {
+            let winner = self.compare_two_responses(response_a, response_b).await;
+            if winner == 0 {
+                wins_for_a += 1;
+            }
+        }
+
+        if wins_for_a > (num_comparisons / 2) {
+            0
+        } else {
+            1
+        }
+    }
+
+    async fn compare_two_responses(&self, response_a: &str, response_b: &str) -> usize {
+        let prompt = format!(
+            r#"Compare these two explanations and determine which one is better.
+
+Explanation A:
+{}
+
+Explanation B:
+{}
+
+Consider:
+1. Clarity - is it easy to understand?
+2. Completeness - does it cover all important aspects?
+3. Accuracy - is the information correct?
+4. Usefulness - is it helpful for understanding the topic?
+
+Respond with ONLY "A" or "B" (no explanation):"#,
+            response_a, response_b
         );
 
         let response = self

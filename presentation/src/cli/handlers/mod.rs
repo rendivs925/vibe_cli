@@ -456,6 +456,19 @@ impl CliHandlers {
             .ok()
             .flatten()
     }
+
+    pub async fn select_best_response_with_scaling(
+        &self,
+        prompt: &str,
+        scaling_config: &ScalingConfig,
+    ) -> Option<String> {
+        let service = self.scaling_service.as_ref()?;
+        service
+            .select_best_response(prompt, scaling_config)
+            .await
+            .ok()
+            .flatten()
+    }
 }
 
 struct CommandOutput {

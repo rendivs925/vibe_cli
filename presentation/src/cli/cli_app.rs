@@ -181,10 +181,16 @@ impl CliApp {
                 .await;
         }
         if cli.explain {
-            return self.handlers.handle_explain(&args_str).await;
+            return self
+                .handlers
+                .handle_explain(&args_str, &scaling_config)
+                .await;
         }
         if cli.rag {
-            return self.handlers.handle_rag(&args_str).await;
+            return self
+                .handlers
+                .handle_rag(&args_str, &scaling_config)
+                .await;
         }
         if cli.context {
             return self.handlers.handle_context(&args_str).await;
