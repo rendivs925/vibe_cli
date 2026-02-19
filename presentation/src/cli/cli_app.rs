@@ -120,8 +120,8 @@ pub struct Cli {
     #[arg(long)]
     pub trace: bool,
 
-    /// Test-time compute scaling method: knockout, league, or none (default)
-    #[arg(long, value_enum, default_value = "none")]
+    /// Test-time compute scaling method: knockout, league, or none (default: knockout)
+    #[arg(long, value_enum, default_value = "knockout")]
     pub scaling_method: ScalingMethodArg,
 
     /// Number of candidate samples for test-time compute (default: 6)
@@ -138,7 +138,7 @@ pub struct Cli {
 
     /// Enable early stopping when confidence is high
     #[arg(long)]
-    pub early_stop: bool,
+    pub early_stop: Option<bool>,
 
     /// The query or file path to process
     #[arg(trailing_var_arg = true)]
@@ -164,8 +164,8 @@ impl CliApp {
             num_samples: cli.samples.unwrap_or(6),
             comparisons_per_pair: cli.comparisons.unwrap_or(3),
             opponents_per_candidate: cli.opponents.unwrap_or(5),
-            early_stopping: cli.early_stop,
-            confidence_threshold: 0.9,
+            early_stopping: cli.early_stop.unwrap_or(true),
+            confidence_threshold: 0.85,
         };
 
         if cli.chat {

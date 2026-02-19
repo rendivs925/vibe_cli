@@ -699,15 +699,30 @@ impl CliHandlers {
 
             match decision {
                 AllowDecision::Execute => {
-                    let output = execute_suggestion(
-                        self,
-                        &tools,
-                        &mut validator,
-                        &mut suggested,
-                        &session.query,
-                        !options.summary_only,
-                    )
-                    .await?;
+                    let output = if repl.is_some() {
+                        let _ = disable_raw_mode();
+                        let result = execute_suggestion(
+                            self,
+                            &tools,
+                            &mut validator,
+                            &mut suggested,
+                            &session.query,
+                            !options.summary_only,
+                        )
+                        .await;
+                        let _ = enable_raw_mode();
+                        result?
+                    } else {
+                        execute_suggestion(
+                            self,
+                            &tools,
+                            &mut validator,
+                            &mut suggested,
+                            &session.query,
+                            !options.summary_only,
+                        )
+                        .await?
+                    };
                     carry.last_output = Some(output.clone());
                     carry.last_command = Some(suggested.command.clone());
                     let step_index = session.steps.len();

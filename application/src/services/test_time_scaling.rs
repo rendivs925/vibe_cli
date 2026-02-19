@@ -15,12 +15,12 @@ pub struct ScalingConfig {
 impl Default for ScalingConfig {
     fn default() -> Self {
         Self {
-            method: ScalingMethod::None,
+            method: ScalingMethod::Knockout,
             num_samples: 6,
             comparisons_per_pair: 3,
             opponents_per_candidate: 5,
-            early_stopping: false,
-            confidence_threshold: 0.9,
+            early_stopping: true,
+            confidence_threshold: 0.85,
         }
     }
 }
