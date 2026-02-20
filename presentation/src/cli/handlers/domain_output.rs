@@ -48,6 +48,16 @@ Full output:\n{}\n",
         rx: mpsc::Receiver<super::OutputLine>,
         ack: mpsc::Sender<()>,
     ) -> thread::JoinHandle<String> {
+        self.spawn_incremental_interpreter_with_policy(query, rx, ack, ChunkSummaryPolicy::silent())
+    }
+
+    pub(crate) fn spawn_incremental_interpreter_with_policy(
+        &self,
+        query: &str,
+        rx: mpsc::Receiver<super::OutputLine>,
+        ack: mpsc::Sender<()>,
+        policy: ChunkSummaryPolicy,
+    ) -> thread::JoinHandle<String> {
         let query = query.to_string();
         thread::spawn(move || {
             let client = match infrastructure::ollama_client::OllamaClient::new() {
@@ -61,6 +71,7 @@ Full output:\n{}\n",
 
             let mut buffer = String::new();
             let mut summary = String::new();
+            let mut buffer_lines: usize = 0;
 
             let flush = |chunk: &str, summary: &str| -> Option<String> {
                 if chunk.trim().is_empty() {
@@ -94,6 +105,7 @@ New output:\n{}\n",
                         if !trimmed.is_empty() {
                             buffer.push_str(trimmed);
                             buffer.push('\n');
+                            buffer_lines += 1;
                         }
                     }
                     super::OutputLine::Stderr(text) => {
@@ -102,27 +114,49 @@ New output:\n{}\n",
                             buffer.push_str("STDERR: ");
                             buffer.push_str(trimmed);
                             buffer.push('\n');
+                            buffer_lines += 1;
                         }
                     }
                     super::OutputLine::ChunkEnd => {
-                        if let Some(update) = flush(&buffer, &summary) {
-                            let mut formatted = Self::format_ai_response(&update);
-                            if formatted.trim().is_empty() {
-                                formatted = "No summary available.".to_string();
+                        let should_summarize =
+                            policy.emit && (buffer_lines >= policy.min_lines
+                                || buffer.len() >= policy.min_chars);
+                        if should_summarize {
+                            if let Some(update) = flush(&buffer, &summary) {
+                                let mut formatted = Self::format_ai_response(&update);
+                                if formatted.trim().is_empty() {
+                                    formatted = "No summary available.".to_string();
+                                }
+                                println!(
+                                    "\n{}\n{}",
+                                    "=== AI Chunk Summary ===".green().bold(),
+                                    formatted.trim()
+                                );
+                                summary = formatted;
                             }
-                            summary = formatted;
                         }
                         buffer.clear();
+                        buffer_lines = 0;
                         let _ = ack.send(());
                     }
                 }
             }
 
             if !buffer.trim().is_empty() {
-                if let Some(update) = flush(&buffer, &summary) {
-                    let mut formatted = Self::format_ai_response(&update);
-                    if formatted.trim().is_empty() {
-                        formatted = "No summary available.".to_string();
+                let should_summarize =
+                    policy.emit && (buffer_lines >= policy.min_lines || buffer.len() >= policy.min_chars);
+                if should_summarize {
+                    if let Some(update) = flush(&buffer, &summary) {
+                        let mut formatted = Self::format_ai_response(&update);
+                        if formatted.trim().is_empty() {
+                            formatted = "No summary available.".to_string();
+                        }
+                        println!(
+                            "\n{}\n{}",
+                            "=== AI Chunk Summary ===".green().bold(),
+                            formatted.trim()
+                        );
+                        summary = formatted;
                     }
                 }
             }
@@ -158,5 +192,30 @@ New output:\n{}\n",
             .filter(|l| !l.is_empty())
             .collect::<Vec<_>>()
             .join("\n")
+    }
+}
+
+#[derive(Clone, Copy)]
+pub(crate) struct ChunkSummaryPolicy {
+    pub min_lines: usize,
+    pub min_chars: usize,
+    pub emit: bool,
+}
+
+impl ChunkSummaryPolicy {
+    pub(crate) fn silent() -> Self {
+        Self {
+            min_lines: usize::MAX,
+            min_chars: usize::MAX,
+            emit: false,
+        }
+    }
+
+    pub(crate) fn long_output_default() -> Self {
+        Self {
+            min_lines: 20,
+            min_chars: 1200,
+            emit: true,
+        }
     }
 }

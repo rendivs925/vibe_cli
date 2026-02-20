@@ -80,6 +80,12 @@ struct ReactSeedOutput {
     output: String,
 }
 
+struct ExecutionResult {
+    output: String,
+    summary: Option<String>,
+    output_printed: bool,
+}
+
 #[derive(Default, Clone)]
 struct ReactSessionCarry {
     last_output: Option<String>,
@@ -559,15 +565,17 @@ impl CliHandlers {
 
             match decision {
                 AllowDecision::Execute => {
-                    let output = execute_suggestion(
+                    let execution = execute_suggestion(
                         self,
                         &tools,
                         &mut validator,
                         &mut suggested,
                         &session.query,
-                        !options.summary_only,
+                        !options.summary_only || options.auto_summary,
+                        options.auto_summary,
                     )
                     .await?;
+                    let output = execution.output.clone();
                     carry.last_output = Some(output.clone());
                     carry.last_command = Some(suggested.command.clone());
                     let step_index = session.steps.len();
@@ -591,16 +599,16 @@ impl CliHandlers {
                         .index_command_execution(&suggested, &session.id)
                         .await;
 
-                    if options.summary_only {
-                        if !output.trim().is_empty() {
-                            print_with_pager(&output);
-                        }
-                    } else if !output.trim().is_empty() {
+                    if !execution.output_printed && !output.trim().is_empty() {
                         print_with_pager(&output);
                     }
 
                     if options.auto_summary && !output.trim().is_empty() {
-                        let previous = session.compacted_summary.as_deref().unwrap_or("");
+                        let previous = execution
+                            .summary
+                            .as_deref()
+                            .or(session.compacted_summary.as_deref())
+                            .unwrap_or("");
                         let _ = self
                             .interpret_output_final(&session.query, &output, previous)
                             .await;
@@ -1534,7 +1542,8 @@ async fn execute_suggestion(
     command: &mut ProposedCommand,
     query: &str,
     emit_output: bool,
-) -> Result<String> {
+    auto_summary: bool,
+) -> Result<ExecutionResult> {
     let command_line = command.command.clone();
     let tokens = parse_command_tokens(&command_line);
     if tokens.is_empty() {
@@ -1554,9 +1563,17 @@ async fn execute_suggestion(
         command.approve();
         command.execute(0, output.clone(), String::new());
         if let Some(note) = rewrite_note {
-            return Ok(format!("{note}\n{output}"));
+            return Ok(ExecutionResult {
+                output: format!("{note}\n{output}"),
+                summary: None,
+                output_printed: false,
+            });
         }
-        return Ok(output);
+        return Ok(ExecutionResult {
+            output,
+            summary: None,
+            output_printed: false,
+        });
     }
 
     if tools.has_tool(&tool_name) {
@@ -1571,14 +1588,26 @@ async fn execute_suggestion(
                 );
                 let formatted = format_tool_output(&tool_name, &output);
                 if let Some(note) = rewrite_note {
-                    Ok(format!("{note}\n{formatted}"))
+                    Ok(ExecutionResult {
+                        output: format!("{note}\n{formatted}"),
+                        summary: None,
+                        output_printed: false,
+                    })
                 } else {
-                    Ok(formatted)
+                    Ok(ExecutionResult {
+                        output: formatted,
+                        summary: None,
+                        output_printed: false,
+                    })
                 }
             }
             Err(err) => {
                 command.execute(1, String::new(), err.to_string());
-                Ok(format!("Tool '{}' failed: {}", tool_name, err))
+                Ok(ExecutionResult {
+                    output: format!("Tool '{}' failed: {}", tool_name, err),
+                    summary: None,
+                    output_printed: false,
+                })
             }
         };
     }
@@ -1586,22 +1615,45 @@ async fn execute_suggestion(
     let reviewed = review_candidates(&[CommandCandidate::new(command.command.clone())], validator);
     if let Some(rejected) = reviewed.rejected.first() {
         command.reject();
-        return Ok(format!(
-            "Rejected command: {} ({})",
-            rejected.command,
-            rejected.reasons.join(", ")
-        ));
+        return Ok(ExecutionResult {
+            output: format!(
+                "Rejected command: {} ({})",
+                rejected.command,
+                rejected.reasons.join(", ")
+            ),
+            summary: None,
+            output_printed: false,
+        });
     }
 
     command.approve();
-    let output = if emit_output {
-        handler.run_shell_command_streaming(&command.command)?
+    let (output, summary, output_printed) = if auto_summary {
+        let (tx, rx) = std::sync::mpsc::channel();
+        let (ack_tx, ack_rx) = std::sync::mpsc::channel();
+        let handle = handler.spawn_incremental_interpreter_with_policy(
+            query,
+            rx,
+            ack_tx,
+            super::domain_output::ChunkSummaryPolicy::long_output_default(),
+        );
+        let sink = super::OutputSink { tx, ack: ack_rx };
+        let output = handler.run_shell_command_streaming_with_sink(&command.command, Some(sink))?;
+        let summary = handle.join().unwrap_or_default();
+        (output, Some(summary), true)
+    } else if emit_output {
+        let output = handler.run_shell_command_streaming(&command.command)?;
+        (output, None, true)
     } else {
-        handler.run_shell_command_capture(&command.command)?
+        let output = handler.run_shell_command_capture(&command.command)?;
+        (output, None, false)
     };
     let exit_code = output.status.code().unwrap_or(-1);
     command.execute(exit_code, output.full_output.clone(), output.stderr.clone());
-    Ok(output.full_output)
+    Ok(ExecutionResult {
+        output: output.full_output,
+        summary,
+        output_printed,
+    })
 }
 
 async fn execute_rag_via_service(
