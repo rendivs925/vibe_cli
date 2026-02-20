@@ -153,6 +153,14 @@ impl ContextEngineer {
         )
     }
 
+    pub fn add_environment_context(&mut self, content: &str) -> String {
+        self.context_vault.add(
+            ContextDocumentType::Metadata,
+            "environment_context",
+            normalize_empty(content, "(none)"),
+        )
+    }
+
     pub fn add_context_window(&mut self, usage: ContextWindowUsage) -> String {
         let utilization = usage.utilization() * 100.0;
         let status = if usage.should_compact() {

@@ -3,6 +3,8 @@ use crate::services::context_window::ContextWindowUsage;
 use crate::services::operational_guardrails::OperationalGuardrails;
 use crate::services::react_context_retriever::RetrievedContext;
 use domain::entities::react::{ReactSession, ReactTool};
+use std::env;
+use std::fs;
 
 pub struct ReactPromptService;
 
@@ -257,6 +259,11 @@ CONTEXT: <what data you're using>\n\n",
             }
         }
 
+        let env_context = build_environment_context();
+        if !env_context.trim().is_empty() {
+            engineer.add_environment_context(&env_context);
+        }
+
         if let Some(window) = context_window {
             engineer.add_context_window(*window);
         }
@@ -437,6 +444,55 @@ No bullet points. No extra headers.\n\
 History:\n{history}\n",
             history = history
         )
+    }
+}
+
+fn build_environment_context() -> String {
+    let cwd = match env::current_dir() {
+        Ok(dir) => dir,
+        Err(_) => return String::new(),
+    };
+
+    let mut dirs = Vec::new();
+    let mut files = Vec::new();
+    if let Ok(entries) = fs::read_dir(&cwd) {
+        for entry in entries.flatten() {
+            let file_name = entry.file_name().to_string_lossy().to_string();
+            if file_name.starts_with('.') {
+                continue;
+            }
+            let path = entry.path();
+            if path.is_dir() {
+                dirs.push(file_name);
+            } else {
+                files.push(file_name);
+            }
+        }
+    }
+
+    dirs.sort();
+    files.sort();
+
+    let mut lines = Vec::new();
+    lines.push(format!("- CWD: {}", cwd.display()));
+    lines.push(format!(
+        "- Directories: {}",
+        format_entry_list(dirs, 40)
+    ));
+    lines.push(format!("- Files: {}", format_entry_list(files, 40)));
+    lines.join("\n")
+}
+
+fn format_entry_list(entries: Vec<String>, limit: usize) -> String {
+    if entries.is_empty() {
+        return "(none)".to_string();
+    }
+    let total = entries.len();
+    let shown: Vec<String> = entries.into_iter().take(limit).collect();
+    if total > limit {
+        format!("{} … (+{} more)", shown.join(", "), total - limit)
+    } else {
+        shown.join(", ")
     }
 }
 
