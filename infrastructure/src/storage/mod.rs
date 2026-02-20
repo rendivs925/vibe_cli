@@ -8,6 +8,7 @@ pub mod knowledge_graph_entities;
 pub mod manpage_cache;
 pub mod risk_scorer;
 pub mod safety_violation_storage;
+pub mod user_profile;
 
 pub use experience_buffer::{ExperienceBuffer, ExperienceEntry, FailureType, QueryPattern};
 pub use induction_engine::InductionEngine;
@@ -19,3 +20,4 @@ pub use knowledge_graph_entities::{Entity, EntityType, Relationship};
 pub use manpage_cache::ManpageCache;
 pub use risk_scorer::{RiskCategory, RiskFactor, RiskLevel, RiskProfile, RiskScorer};
 pub use safety_violation_storage::{RuleStats, SafetyViolationStorage, ViolationRecord};
+pub use user_profile::{get_config_dir, ProjectContext, UserProfile};

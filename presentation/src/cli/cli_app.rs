@@ -32,6 +32,28 @@ impl From<ScalingMethodArg> for ScalingMethod {
     }
 }
 
+#[derive(Clone, Copy, Debug, Default, clap::ValueEnum)]
+pub enum ResearchDepthArg {
+    #[default]
+    Standard,
+    Quick,
+    Deep,
+    Comprehensive,
+}
+
+use application::services::research_agent_service::ResearchDepth;
+
+impl From<ResearchDepthArg> for ResearchDepth {
+    fn from(arg: ResearchDepthArg) -> Self {
+        match arg {
+            ResearchDepthArg::Quick => ResearchDepth::Quick,
+            ResearchDepthArg::Standard => ResearchDepth::Standard,
+            ResearchDepthArg::Deep => ResearchDepth::Deep,
+            ResearchDepthArg::Comprehensive => ResearchDepth::Comprehensive,
+        }
+    }
+}
+
 #[derive(Parser)]
 #[command(name = "vibe_cli")]
 #[command(about = "Vibe CLI assistant with RAG and neurosymbolic capabilities")]
@@ -119,6 +141,22 @@ pub struct Cli {
     /// Clear the knowledge graph
     #[arg(long)]
     pub clear_knowledge: bool,
+
+    /// Use task execution mode with checkpoints
+    #[arg(long)]
+    pub task: bool,
+
+    /// Use research agent mode for deep research
+    #[arg(long)]
+    pub research: bool,
+
+    /// Research depth: quick, standard, deep, or comprehensive
+    #[arg(long, value_enum)]
+    pub depth: Option<ResearchDepthArg>,
+
+    /// Use work/document mode
+    #[arg(long)]
+    pub work: bool,
 
     /// Validate command syntax against man pages
     #[arg(long)]

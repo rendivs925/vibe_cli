@@ -7,3 +7,4 @@ pub mod web;
 pub mod documents;
 pub mod search;
 pub mod memory;
+pub mod coding;

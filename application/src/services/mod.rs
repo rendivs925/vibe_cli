@@ -20,5 +20,8 @@ pub mod react_tools;
 pub mod reflection_service;
 pub mod safety_service;
 pub mod task_orchestration;
+pub mod task_service;
 pub mod test_time_scaling;
 pub mod tool_executor;
+pub mod research_agent_service;
+pub mod assistant_service;

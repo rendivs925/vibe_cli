@@ -49,7 +49,8 @@ impl Tool for DocQaTool {
         }
 
         let output = if matches.is_empty() {
-            "No matching lines found. Consider using read_pdf/read_docx/read_xlsx first.".to_string()
+            "No matching lines found. Consider using read_pdf/read_docx/read_xlsx first."
+                .to_string()
         } else {
             matches.join("\n")
         };
@@ -61,8 +62,9 @@ impl Tool for DocQaTool {
 fn extract_text(path: &str) -> Result<String, ToolError> {
     let ext = detect_extension(path);
     match ext.as_str() {
-        "pdf" => pdf_extract::extract_text(path)
-            .map_err(|e| ToolError::ExecutionFailed(e.to_string())),
+        "pdf" => {
+            pdf_extract::extract_text(path).map_err(|e| ToolError::ExecutionFailed(e.to_string()))
+        }
         "docx" => {
             let bytes = read_file_bytes(path)?;
             let docx = docx_rs::read_docx(&bytes)
@@ -102,8 +104,7 @@ fn extract_text(path: &str) -> Result<String, ToolError> {
             };
             Ok(content)
         }
-        _ => std::fs::read_to_string(path)
-            .map_err(|e| ToolError::ExecutionFailed(e.to_string())),
+        _ => std::fs::read_to_string(path).map_err(|e| ToolError::ExecutionFailed(e.to_string())),
     }
 }
 

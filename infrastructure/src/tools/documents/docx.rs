@@ -29,8 +29,8 @@ impl Tool for ReadDocxTool {
         ensure_args_at_least(args, 1, self.usage())?;
         let path = args[0];
         let bytes = read_file_bytes(path)?;
-        let docx = docx_rs::read_docx(&bytes)
-            .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
+        let docx =
+            docx_rs::read_docx(&bytes).map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
         let mut text = String::new();
         for child in &docx.document.children {
             match child {

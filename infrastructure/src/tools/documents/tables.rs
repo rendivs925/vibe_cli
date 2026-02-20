@@ -29,7 +29,10 @@ impl Tool for ExtractTablesTool {
     fn execute(&self, args: &[&str]) -> Result<ToolOutput, ToolError> {
         ensure_args_at_least(args, 1, self.usage())?;
         let path = args[0];
-        let max_rows = args.get(1).and_then(|v| v.parse::<usize>().ok()).unwrap_or(30);
+        let max_rows = args
+            .get(1)
+            .and_then(|v| v.parse::<usize>().ok())
+            .unwrap_or(30);
 
         let ext = detect_extension(path);
         let output = if ext == "csv" {
@@ -43,8 +46,8 @@ impl Tool for ExtractTablesTool {
 }
 
 fn read_csv_table(path: &str, max_rows: usize) -> Result<String, ToolError> {
-    let content = std::fs::read_to_string(path)
-        .map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
+    let content =
+        std::fs::read_to_string(path).map_err(|e| ToolError::ExecutionFailed(e.to_string()))?;
     let mut lines = content.lines();
     let header = lines.next().unwrap_or("");
     let mut output = String::new();
