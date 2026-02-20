@@ -272,8 +272,12 @@ impl WebSearchService {
                 "15",
                 "--noproxy",
                 "localhost,127.0.0.1,::1",
+                "-A",
+                "Mozilla/5.0 (compatible; vibe_cli/1.0; +https://github.com)",
                 "-H",
                 "Accept: application/json",
+                "-w",
+                "\n__CURL_HTTP_STATUS__:%{http_code}",
                 &url,
             ])
             .output()
@@ -292,6 +296,19 @@ impl WebSearchService {
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
+        let (body, http_status) = match stdout.rsplit_once("__CURL_HTTP_STATUS__:") {
+            Some((body, status)) => (body.trim_end(), status.trim()),
+            None => (stdout.as_ref(), ""),
+        };
+
+        if !http_status.is_empty() && http_status != "200" {
+            let snippet: String = body.chars().take(200).collect();
+            return Err(format!(
+                "SearXNG returned HTTP {}: {}",
+                http_status,
+                snippet.replace('\n', " ")
+            ));
+        }
 
         #[derive(Deserialize)]
         struct SearxngResponse {
@@ -305,11 +322,11 @@ impl WebSearchService {
             content: Option<String>,
         }
 
-        let response: SearxngResponse = serde_json::from_str(&stdout).map_err(|e| {
+        let response: SearxngResponse = serde_json::from_str(body).map_err(|e| {
             format!(
                 "Parse error: {} - content: {}",
                 e,
-                &stdout[..stdout.len().min(200)]
+                &body[..body.len().min(200)]
             )
         })?;
 
