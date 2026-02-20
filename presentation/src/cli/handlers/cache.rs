@@ -65,4 +65,55 @@ impl CliHandlers {
 
         Ok(())
     }
+
+    pub fn handle_clear_sessions(&self) -> Result<()> {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let db_path = std::path::PathBuf::from(home).join(".config/vibe_cli/semantic_index.db");
+
+        if !db_path.exists() {
+            println!("No sessions index found.");
+            return Ok(());
+        }
+
+        match std::fs::remove_file(&db_path) {
+            Ok(_) => println!("Cleared: {}", db_path.display()),
+            Err(e) => println!("Failed to clear {}: {:?}", db_path.display(), e),
+        }
+
+        Ok(())
+    }
+
+    pub fn handle_clear_memory(&self) -> Result<()> {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let db_path = std::path::PathBuf::from(home).join(".config/vibe_cli/memory.db");
+
+        if !db_path.exists() {
+            println!("No memory database found.");
+            return Ok(());
+        }
+
+        match std::fs::remove_file(&db_path) {
+            Ok(_) => println!("Cleared: {}", db_path.display()),
+            Err(e) => println!("Failed to clear {}: {:?}", db_path.display(), e),
+        }
+
+        Ok(())
+    }
+
+    pub fn handle_clear_knowledge(&self) -> Result<()> {
+        let home = std::env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        let db_path = std::path::PathBuf::from(home).join(".config/vibe_cli/knowledge_graph.db");
+
+        if !db_path.exists() {
+            println!("No knowledge graph found.");
+            return Ok(());
+        }
+
+        match std::fs::remove_file(&db_path) {
+            Ok(_) => println!("Cleared: {}", db_path.display()),
+            Err(e) => println!("Failed to clear {}: {:?}", db_path.display(), e),
+        }
+
+        Ok(())
+    }
 }

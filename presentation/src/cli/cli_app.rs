@@ -108,6 +108,18 @@ pub struct Cli {
     #[arg(long)]
     pub clear_embeddings: bool,
 
+    /// Clear the session semantic index
+    #[arg(long)]
+    pub clear_sessions: bool,
+
+    /// Clear the memory database
+    #[arg(long)]
+    pub clear_memory: bool,
+
+    /// Clear the knowledge graph
+    #[arg(long)]
+    pub clear_knowledge: bool,
+
     /// Validate command syntax against man pages
     #[arg(long)]
     pub validate_syntax: bool,
@@ -221,6 +233,15 @@ impl CliApp {
         }
         if cli.clear_embeddings {
             return self.handlers.handle_clear_embeddings();
+        }
+        if cli.clear_sessions {
+            return self.handlers.handle_clear_sessions();
+        }
+        if cli.clear_memory {
+            return self.handlers.handle_clear_memory();
+        }
+        if cli.clear_knowledge {
+            return self.handlers.handle_clear_knowledge();
         }
 
         // If --neurosymbolic flag is set, use neurosymbolic mode with scaling
