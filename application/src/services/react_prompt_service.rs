@@ -142,6 +142,10 @@ CONTEXT: <what data you're using>\n\n",
         parsed.map(|tool| (tool, justification, context_needed))
     }
 
+    pub fn parse_tool_from_response(&self, response: &str) -> Option<ReactTool> {
+        infer_tool_from_response(response)
+    }
+
     pub fn reasoning_prompt(
         &self,
         session: &ReactSession,

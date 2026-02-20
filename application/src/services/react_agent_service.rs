@@ -491,6 +491,7 @@ impl ReactAgentService {
             let command_id = format!("{}-{}", session_id, command.id);
             let exit_code = command.exit_code.unwrap_or(-1);
             
+            // Index both command and output for semantic search
             service.index_command(
                 &command_id,
                 session_id,
@@ -500,6 +501,55 @@ impl ReactAgentService {
             ).await?;
         }
         Ok(())
+    }
+
+    /// Select tool using semantic similarity - finds similar past tool decisions
+    pub async fn select_tool_similar(&self, session: &ReactSession, reasoning: &str) -> Result<Option<ToolDecision>> {
+        if let Some(ref service) = self.indexing_service {
+            // Create a query from current state + reasoning
+            let query = format!("Goal: {}\nReasoning: {}", session.query, reasoning);
+            
+            // Find similar commands from past sessions
+            let similar = service.find_similar_commands(&query, Some(3), true).await?;
+            
+            if !similar.is_empty() {
+                // Get the most similar command and use its pattern
+                let best_match = &similar[0];
+                
+                // Build context from similar commands
+                let mut similar_context = String::new();
+                for (i, cmd) in similar.iter().enumerate() {
+                    similar_context.push_str(&format!(
+                        "{}. Command: {}\n   Output: {}\n   Similarity: {:.0}%\n",
+                        i + 1,
+                        cmd.command,
+                        cmd.output_text.as_deref().unwrap_or("N/A"),
+                        cmd.similarity * 100.0
+                    ));
+                }
+                
+                // Use LLM to decide which tool based on similar past experiences
+                let prompt = format!(
+                    "Based on similar past commands that worked:\n{}\n\nCurrent goal: {}\nCurrent reasoning: {}\n\nWhich tool should be used? Choose from: Read, Write, Bash, Glob, Grep, WebFetch, SuggestCommand",
+                    similar_context,
+                    session.query,
+                    reasoning
+                );
+                
+                let response = self.client.generate_response(&prompt).await?;
+                let tool = self.prompt_service.parse_tool_from_response(&response)
+                    .unwrap_or(ReactTool::SuggestCommand);
+                
+                return Ok(Some(ToolDecision {
+                    tool,
+                    justification: format!("Based on {} similar successful commands", similar.len()),
+                    context_needed: similar_context,
+                    confidence: best_match.similarity,
+                }));
+            }
+        }
+        
+        Ok(None)
     }
 }
 
