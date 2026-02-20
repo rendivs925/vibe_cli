@@ -165,6 +165,7 @@ impl CliHandlers {
                 scaling_config,
                 ReactRunOptions::single_query(true),
                 None,
+                None,
                 &mut repl,
                 interrupted,
             )
@@ -302,7 +303,8 @@ impl CliHandlers {
             None
         };
 
-        let service = ReactAgentService::new(neurosymbolic_service, react_repo, cmd_repo)?;
+        let service =
+            ReactAgentService::new(neurosymbolic_service, react_repo.clone(), cmd_repo)?;
 
         // Enable semantic indexing for cross-session learning
         let service = match SessionIndexingService::new().await {
@@ -319,8 +321,9 @@ impl CliHandlers {
             }
         };
 
-        let mut session = if let Some(resume_id) = resume_session_id {
-            match react_repo.get_session(&resume_id).await {
+        let should_resume = resume_session_id.is_some();
+        let mut session = if let Some(ref resume_id) = resume_session_id {
+            match react_repo.get_session(resume_id).await {
                 Ok(Some(mut loaded)) => {
                     let steps = react_repo
                         .get_steps(&loaded.id)
@@ -348,7 +351,7 @@ impl CliHandlers {
         session.add_user_query(query);
         conversation_manager.compact_if_needed(&mut session);
 
-        if seed.is_some() && resume_session_id.is_none() {
+        if seed.is_some() && !should_resume {
             if let Some(seed_output) = seed {
             let content = if let Some(cmd) = seed_output.command.as_ref() {
                 format!("Command: {}\nOutput:\n{}", cmd.trim(), seed_output.output)
