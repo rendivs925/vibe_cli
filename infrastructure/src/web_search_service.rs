@@ -118,7 +118,7 @@ impl WebSearchService {
                     "--name",
                     "vibe-searxng",
                     "-p",
-                    &format!("{}:8080", port),
+                    &format!("{}:8085", port),
                     "-e",
                     &format!("SEARXNG_BASE_URL={}", url),
                     "-e",
