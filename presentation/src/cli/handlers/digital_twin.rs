@@ -49,7 +49,7 @@ impl CliHandlers {
         
         println!("\nSearching for: {}", query);
         
-        let search_service = WebSearchService::new();
+        let search_service = WebSearchService::new(self.config.searxng_url.clone());
         
         match search_service.search(query, num_results).await {
             Ok(results) => {

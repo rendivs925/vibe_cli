@@ -54,6 +54,7 @@ pub struct Config {
     pub db_path: String,
     pub rag_include_patterns: Vec<String>,
     pub rag_exclude_patterns: Vec<String>,
+    pub searxng_url: String,
 }
 
 impl Config {
@@ -91,6 +92,8 @@ impl Config {
             db_path,
             rag_include_patterns,
             rag_exclude_patterns,
+            searxng_url: env::var("SEARXNG_URL")
+                .unwrap_or_else(|_| "http://localhost:8080".to_string()),
         }
     }
 }
