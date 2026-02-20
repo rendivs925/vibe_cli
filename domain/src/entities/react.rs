@@ -243,7 +243,6 @@ impl ReactTool {
             ReactTool::ReadDocx => "Extract text from a DOCX document",
             ReactTool::ReadXlsx => "Read data from XLSX or CSV",
             ReactTool::SemanticSearch => "Semantic search across past sessions",
-            ReactTool::GrepContext => "Grep with surrounding context",
             ReactTool::Summarize => "Summarize output in 3-5 sentences",
             ReactTool::ExtractErrors => "Extract error messages from output",
             ReactTool::ExtractWarnings => "Extract warnings from output",
@@ -309,8 +308,7 @@ impl ReactTool {
             | ReactTool::ReadPdf
             | ReactTool::ReadDocx
             | ReactTool::ReadXlsx
-            | ReactTool::SemanticSearch
-            | ReactTool::GrepContext => ToolCategory::Investigation,
+            | ReactTool::SemanticSearch => ToolCategory::Investigation,
             ReactTool::Summarize
             | ReactTool::ExtractErrors
             | ReactTool::ExtractWarnings
@@ -378,7 +376,6 @@ impl ReactTool {
             ReadDocx,
             ReadXlsx,
             SemanticSearch,
-            GrepContext,
             Summarize,
             ExtractErrors,
             ExtractWarnings,
