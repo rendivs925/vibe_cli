@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::process::Command;
+use tokio::time::{sleep, Duration};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchResult {
@@ -18,7 +19,57 @@ impl WebSearchService {
     }
     
     pub async fn search(&self, query: &str, num_results: usize) -> Result<Vec<SearchResult>, String> {
-        self.searxng_search(query, num_results).await
+        match self.searxng_search(query, num_results).await {
+            Ok(results) => Ok(results),
+            Err(e) if e.contains("Failed to connect") || e.contains("Connection refused") => {
+                println!("SearXNG not running. Starting container...");
+                self.start_searxng()?;
+                tokio::time::sleep(Duration::from_secs(3)).await;
+                self.searxng_search(query, num_results).await
+            }
+            Err(e) => Err(e),
+        }
+    }
+
+    fn start_searxng(&self) -> Result<(), String> {
+        let output = Command::new("docker")
+            .args(["ps", "-a", "--filter", "name=vibe-searxng", "--format", "{{.Names}}"])
+            .output()
+            .map_err(|e| format!("docker ps failed: {}", e))?;
+
+        let container_exists = String::from_utf8_lossy(&output.stdout).contains("vibe-searxng");
+
+        if container_exists {
+            Command::new("docker")
+                .args(["start", "vibe-searxng"])
+                .output()
+                .map_err(|e| format!("docker start failed: {}", e))?;
+        } else {
+            let secret = Command::new("openssl")
+                .args(["rand", "-hex", "32"])
+                .output()
+                .map_err(|_| "openssl not found, using random")?;
+
+            let secret_str = if secret.status.success() {
+                String::from_utf8_lossy(&secret.stdout).trim().to_string()
+            } else {
+                "changeme".to_string()
+            };
+
+            Command::new("docker")
+                .args([
+                    "run", "-d",
+                    "--name", "vibe-searxng",
+                    "-p", "8080:8080",
+                    "-e", "SEARXNG_BASE_URL=http://localhost:8080",
+                    "-e", &format!("SEARXNG_SECRET={}", secret_str),
+                    "-v", "searxng-data:/etc/searxng",
+                    "searxng/searxng:latest",
+                ])
+                .output()
+                .map_err(|e| format!("docker run failed: {}", e))?;
+        }
+        Ok(())
     }
     
     async fn searxng_search(&self, query: &str, num_results: usize) -> Result<Vec<SearchResult>, String> {
