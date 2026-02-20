@@ -136,12 +136,12 @@ impl CliHandlers {
         &mut self,
         query: &str,
         neurosymbolic: bool,
-        ai_interpret: bool,
+        _ai_interpret: bool,
         scaling_config: &ScalingConfig,
     ) -> Result<()> {
         if query.trim().is_empty() {
             return self
-                .handle_react_shell(neurosymbolic, ai_interpret, scaling_config)
+                .handle_react_shell(neurosymbolic, scaling_config)
                 .await;
         }
 
@@ -153,7 +153,7 @@ impl CliHandlers {
                 query,
                 neurosymbolic,
                 scaling_config,
-                ReactRunOptions::single_query(ai_interpret),
+                ReactRunOptions::single_query(true),
                 None,
                 &mut repl,
                 interrupted,
@@ -165,7 +165,6 @@ impl CliHandlers {
     async fn handle_react_shell(
         &mut self,
         neurosymbolic: bool,
-        ai_interpret: bool,
         scaling_config: &ScalingConfig,
     ) -> Result<()> {
         let interrupted = Arc::new(AtomicBool::new(false));
@@ -217,7 +216,7 @@ impl CliHandlers {
                     trimmed,
                     neurosymbolic,
                     scaling_config,
-                    ReactRunOptions::interactive(ai_interpret),
+                    ReactRunOptions::interactive(true),
                     seed,
                     &mut repl,
                     interrupted.clone(),
