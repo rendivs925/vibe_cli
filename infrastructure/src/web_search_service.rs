@@ -1,5 +1,5 @@
 use serde::{Deserialize, Serialize};
-use std::process::Command;
+use std::process::{Command, Output};
 use tokio::time::{sleep, Duration};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -23,32 +23,37 @@ impl WebSearchService {
         query: &str,
         num_results: usize,
     ) -> Result<Vec<SearchResult>, String> {
-        let search_url = self
-            .get_active_searxng_url()
-            .unwrap_or_else(|| self.searxng_url.clone());
+        let mut attempt = 0;
+        let max_attempts = 5;
+        let mut started = false;
 
-        match self
-            .searxng_search_with_url(&search_url, query, num_results)
-            .await
-        {
-            Ok(results) => Ok(results),
-            Err(e)
-                if e.contains("Failed to connect")
-                    || e.contains("Connection refused")
-                    || e.contains("Empty reply")
-                    || e.contains("exit status: 7")
-                    || e.contains("exit status: 56") =>
+        loop {
+            attempt += 1;
+            let search_url = self
+                .get_active_searxng_url()
+                .unwrap_or_else(|| self.searxng_url.clone());
+
+            match self
+                .searxng_search_with_url(&search_url, query, num_results)
+                .await
             {
-                println!("SearXNG not running. Starting container...");
-                self.start_searxng()?;
-                tokio::time::sleep(Duration::from_secs(3)).await;
-                let new_url = self
-                    .get_active_searxng_url()
-                    .unwrap_or_else(|| self.searxng_url.clone());
-                self.searxng_search_with_url(&new_url, query, num_results)
-                    .await
+                Ok(results) => return Ok(results),
+                Err(e) if Self::is_connection_error(&e) => {
+                    if !started {
+                        println!("SearXNG not running. Starting container...");
+                        self.start_searxng()?;
+                        started = true;
+                    }
+
+                    if attempt >= max_attempts {
+                        return Err(e);
+                    }
+
+                    let backoff = 2_u64.saturating_pow(attempt.min(4) as u32);
+                    sleep(Duration::from_secs(backoff)).await;
+                }
+                Err(e) => return Err(e),
             }
-            Err(e) => Err(e),
         }
     }
 
@@ -77,30 +82,25 @@ impl WebSearchService {
     }
 
     fn start_searxng(&self) -> Result<(), String> {
-        let port = 8085;
-        let url = format!("http://localhost:{}", port);
+        let host_port = 8085;
+        let container_port = 8080;
+        let url = format!("http://localhost:{}", host_port);
 
-        println!("Starting SearXNG on port {}...", port);
+        println!("Starting SearXNG on port {}...", host_port);
 
-        let output = Command::new("docker")
-            .args([
-                "ps",
-                "-a",
-                "--filter",
-                "name=vibe-searxng",
-                "--format",
-                "{{.Names}}",
-            ])
-            .output()
-            .map_err(|e| format!("docker ps failed: {}", e))?;
+        let output = Self::run_docker(&[
+            "ps",
+            "-a",
+            "--filter",
+            "name=vibe-searxng",
+            "--format",
+            "{{.Names}}",
+        ])?;
 
         let container_exists = String::from_utf8_lossy(&output.stdout).contains("vibe-searxng");
 
         if container_exists {
-            Command::new("docker")
-                .args(["start", "vibe-searxng"])
-                .output()
-                .map_err(|e| format!("docker start failed: {}", e))?;
+            Self::run_docker(&["start", "vibe-searxng"])?;
         } else {
             let secret = Command::new("openssl")
                 .args(["rand", "-hex", "32"])
@@ -113,28 +113,60 @@ impl WebSearchService {
                 "changeme".to_string()
             };
 
-            Command::new("docker")
-                .args([
-                    "run",
-                    "-d",
-                    "--name",
-                    "vibe-searxng",
-                    "-p",
-                    &format!("{}:8085", port),
-                    "-e",
-                    &format!("SEARXNG_BASE_URL={}", url),
-                    "-e",
-                    &format!("SEARXNG_SECRET={}", secret_str),
-                    "-v",
-                    "searxng-data:/etc/searxng",
-                    "searxng/searxng:latest",
-                ])
-                .output()
-                .map_err(|e| format!("docker run failed: {}", e))?;
+            Self::run_docker(&[
+                "run",
+                "-d",
+                "--name",
+                "vibe-searxng",
+                "-p",
+                &format!("{}:{}", host_port, container_port),
+                "-e",
+                &format!("SEARXNG_BASE_URL={}", url),
+                "-e",
+                &format!("SEARXNG_SECRET={}", secret_str),
+                "-v",
+                "searxng-data:/etc/searxng",
+                "searxng/searxng:latest",
+            ])?;
         }
 
         self.update_config_url(&url)?;
         Ok(())
+    }
+
+    fn is_connection_error(message: &str) -> bool {
+        message.contains("Failed to connect")
+            || message.contains("Connection refused")
+            || message.contains("Empty reply")
+            || message.contains("exit status: 7")
+            || message.contains("exit status: 56")
+    }
+
+    fn run_docker(args: &[&str]) -> Result<Output, String> {
+        let output = Command::new("docker")
+            .args(args)
+            .output()
+            .map_err(|e| format!("docker {} failed: {}", args.get(0).unwrap_or(&""), e))?;
+
+        if output.status.success() {
+            return Ok(output);
+        }
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let detail = stderr.trim();
+        if detail.is_empty() {
+            return Err(format!(
+                "docker {} failed with status: {}",
+                args.get(0).unwrap_or(&""),
+                output.status
+            ));
+        }
+
+        Err(format!(
+            "docker {} failed: {}",
+            args.get(0).unwrap_or(&""),
+            detail
+        ))
     }
 
     fn find_available_port(&self, start: u16) -> u16 {
