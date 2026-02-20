@@ -93,6 +93,7 @@ struct ExecutionResult {
 struct ReactSessionCarry {
     last_output: Option<String>,
     last_command: Option<String>,
+    last_session_id: Option<String>,
 }
 
 struct LineEditor {
@@ -203,13 +204,46 @@ impl CliHandlers {
             if trimmed.is_empty() {
                 continue;
             }
-            match trimmed {
-                "/exit" | "/quit" => break,
-                "/help" => {
-                    println!("Commands: /help, /exit, /quit");
-                    continue;
+            if trimmed.starts_with('/') {
+                match trimmed {
+                    "/exit" | "/quit" => break,
+                    "/help" => {
+                        println!("Commands: /help, /exit, /quit, /context");
+                        continue;
+                    }
+                    _ => {}
                 }
-                _ => {}
+                if let Ok(command) = parse_session_command(trimmed) {
+                    if matches!(command, SessionCommand::Context) {
+                        let (react_repo, _) = init_react_storage();
+                        let target = if let Some(id) = carry.last_session_id.clone() {
+                            id
+                        } else {
+                            let sessions = react_repo
+                                .get_recent_sessions(1)
+                                .await
+                                .map_err(|e| anyhow!(e.to_string()))?;
+                            sessions.first().map(|s| s.id.clone()).unwrap_or_default()
+                        };
+                        if target.is_empty() {
+                            println!("{}", theme::warning("No session to show."));
+                        } else if let Some(mut loaded) = react_repo
+                            .get_session(&target)
+                            .await
+                            .map_err(|e| anyhow!(e.to_string()))?
+                        {
+                            let steps = react_repo
+                                .get_steps(&loaded.id)
+                                .await
+                                .map_err(|e| anyhow!(e.to_string()))?;
+                            loaded.steps = steps;
+                            print_react_context(&loaded);
+                        } else {
+                            println!("{}", theme::warning("No session to show."));
+                        }
+                        continue;
+                    }
+                }
             }
 
             let follow_up = is_follow_up_request(trimmed) && carry.last_output.is_some();
@@ -311,6 +345,7 @@ impl CliHandlers {
         let mut requested_primary = extract_user_command_override(&session.query)
             .and_then(|cmd| primary_command_binary(&cmd));
         let mut carry = ReactSessionCarry::default();
+        carry.last_session_id = Some(session.id.clone());
 
         while matches!(session.status, ReactStatus::Running) {
             if repl.is_none() && interrupted.load(Ordering::SeqCst) {
