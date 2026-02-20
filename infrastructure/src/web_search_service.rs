@@ -76,7 +76,7 @@ impl WebSearchService {
     }
 
     fn start_searxng(&self) -> Result<(), String> {
-        let port = self.find_available_port(8085);
+        let port = 8085;
         let url = format!("http://localhost:{}", port);
 
         println!("Starting SearXNG on port {}...", port);
