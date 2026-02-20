@@ -189,7 +189,12 @@ impl CliApp {
         if cli.react {
             return self
                 .handlers
-                .handle_react(&args_str, cli.neurosymbolic, &scaling_config)
+                .handle_react(
+                    &args_str,
+                    cli.neurosymbolic,
+                    cli.ai_interpret,
+                    &scaling_config,
+                )
                 .await;
         }
         if cli.explain {

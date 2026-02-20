@@ -496,7 +496,6 @@ fn flush_chunk(
     err_buf: &Arc<Mutex<String>>,
     sink: Option<&OutputSink>,
 ) {
-    println!("\n--- Output Chunk ---");
     let mut lines: Vec<String> = Vec::new();
     for entry in chunk {
         match entry {
@@ -526,7 +525,7 @@ fn flush_chunk(
 
     if !lines.is_empty() && !print_with_pager(&lines.join("\n")) {
         for line in &lines {
-            print_wrapped(line, false);
+            println!("{line}");
         }
     }
 
@@ -537,54 +536,23 @@ fn flush_chunk(
 }
 
 fn print_with_pager(content: &str) -> bool {
-    if CliHandlers::has_in_path("less") {
-        let mut child = match Command::new("less")
-            .arg("-R")
-            .arg("-F")
-            .arg("-X")
+    if CliHandlers::has_in_path("bat") {
+        let mut child = match Command::new("bat")
+            .args(["-p", "--paging=never", "--color=always"])
             .stdin(Stdio::piped())
             .spawn()
         {
             Ok(child) => child,
             Err(_) => return false,
         };
-
         if let Some(mut stdin) = child.stdin.take() {
             let _ = stdin.write_all(content.as_bytes());
-            let _ = stdin.write_all(b"\n");
         }
         let _ = child.wait();
         return true;
     }
 
     false
-}
-
-fn print_wrapped(line: &str, is_err: bool) {
-    let prefix = "  ";
-    let wrap_width = 80usize;
-    let available = wrap_width.saturating_sub(prefix.len()).max(40);
-    let clean = line.trim_end();
-    let mut chars: Vec<char> = clean.chars().collect();
-
-    if chars.is_empty() {
-        if is_err {
-            eprintln!("{}", prefix);
-        } else {
-            println!("{}", prefix);
-        }
-        return;
-    }
-
-    while !chars.is_empty() {
-        let take = available.min(chars.len());
-        let segment: String = chars.drain(..take).collect();
-        if is_err {
-            eprintln!("{}{}", prefix, segment);
-        } else {
-            println!("{}{}", prefix, segment);
-        }
-    }
 }
 
 impl From<std::process::Output> for CommandOutput {

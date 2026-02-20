@@ -28,3 +28,4 @@ ctrlc.workspace = true
 crossterm.workspace = true
 portable-pty = "0.8.1"
 libc = "0.2"
+termimad = "0.20"

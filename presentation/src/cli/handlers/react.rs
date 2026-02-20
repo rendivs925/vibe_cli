@@ -32,6 +32,7 @@ use std::process::{Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
+use termimad::{MadSkin, FmtText};
 
 mod planning;
 
@@ -45,10 +46,11 @@ struct ReactRunOptions {
     show_command: bool,
     auto_run_readonly: bool,
     summary_only: bool,
+    auto_summary: bool,
 }
 
 impl ReactRunOptions {
-    fn single_query() -> Self {
+    fn single_query(auto_summary: bool) -> Self {
         Self {
             allow_next_prompt: true,
             show_reasoning: true,
@@ -58,10 +60,11 @@ impl ReactRunOptions {
             show_command: true,
             auto_run_readonly: false,
             summary_only: false,
+            auto_summary,
         }
     }
 
-    fn interactive() -> Self {
+    fn interactive(auto_summary: bool) -> Self {
         Self {
             allow_next_prompt: false,
             show_reasoning: false,
@@ -71,6 +74,7 @@ impl ReactRunOptions {
             show_command: false,
             auto_run_readonly: true,
             summary_only: true,
+            auto_summary,
         }
     }
 }
@@ -261,9 +265,12 @@ impl Drop for ZshRepl {
 
 struct TerminalRawGuard;
 
+static RAW_MODE_ACTIVE: AtomicBool = AtomicBool::new(false);
+
 impl TerminalRawGuard {
     fn enable() -> Result<Self> {
         enable_raw_mode()?;
+        RAW_MODE_ACTIVE.store(true, Ordering::SeqCst);
         Ok(Self)
     }
 }
@@ -271,6 +278,7 @@ impl TerminalRawGuard {
 impl Drop for TerminalRawGuard {
     fn drop(&mut self) {
         let _ = disable_raw_mode();
+        RAW_MODE_ACTIVE.store(false, Ordering::SeqCst);
     }
 }
 
@@ -279,10 +287,13 @@ impl CliHandlers {
         &mut self,
         query: &str,
         neurosymbolic: bool,
+        ai_interpret: bool,
         scaling_config: &ScalingConfig,
     ) -> Result<()> {
         if query.trim().is_empty() {
-            return self.handle_react_shell(neurosymbolic, scaling_config).await;
+            return self
+                .handle_react_shell(neurosymbolic, ai_interpret, scaling_config)
+                .await;
         }
 
         let interrupted = Arc::new(AtomicBool::new(false));
@@ -293,7 +304,7 @@ impl CliHandlers {
                 query,
                 neurosymbolic,
                 scaling_config,
-                ReactRunOptions::single_query(),
+                ReactRunOptions::single_query(ai_interpret),
                 None,
                 &mut repl,
                 interrupted,
@@ -305,6 +316,7 @@ impl CliHandlers {
     async fn handle_react_shell(
         &mut self,
         neurosymbolic: bool,
+        ai_interpret: bool,
         scaling_config: &ScalingConfig,
     ) -> Result<()> {
         let interrupted = Arc::new(AtomicBool::new(false));
@@ -357,7 +369,7 @@ impl CliHandlers {
                     trimmed,
                     neurosymbolic,
                     scaling_config,
-                    ReactRunOptions::interactive(),
+                    ReactRunOptions::interactive(ai_interpret),
                     seed,
                     &mut repl,
                     interrupted.clone(),
@@ -537,14 +549,11 @@ impl CliHandlers {
                         step_index,
                     );
                     save_step(&service, &mut session, ReactStepType::Observation, summary).await?;
-                    if options.summary_only {
-                        if let Ok(analysis) = service.analyze_output(&session).await {
-                            let cleaned = normalize_summary(&analysis);
-                            if !cleaned.is_empty() {
-                                ensure_fresh_line();
-                                print_with_pager(&cleaned);
-                            }
-                        }
+                    if options.auto_summary && !tool_result.output.trim().is_empty() {
+                        let previous = session.compacted_summary.as_deref().unwrap_or("");
+                        let _ = self
+                            .interpret_output_final(&session.query, &tool_result.output, previous)
+                            .await;
                     }
                 }
                 match tool_result.tool {
@@ -567,14 +576,11 @@ impl CliHandlers {
                     step_index,
                 );
                 save_step(&service, &mut session, ReactStepType::Observation, summary).await?;
-                if options.summary_only {
-                    if let Ok(analysis) = service.analyze_output(&session).await {
-                        let cleaned = normalize_summary(&analysis);
-                        if !cleaned.is_empty() {
-                            ensure_fresh_line();
-                            print_with_pager(&cleaned);
-                        }
-                    }
+                if options.auto_summary && !tool_result.output.trim().is_empty() {
+                    let previous = session.compacted_summary.as_deref().unwrap_or("");
+                    let _ = self
+                        .interpret_output_final(&session.query, &tool_result.output, previous)
+                        .await;
                     session.complete();
                     service.save_session(&session).await?;
                     break;
@@ -761,22 +767,11 @@ impl CliHandlers {
                         print_with_pager(&output);
                     }
 
-                    // Run post-command analysis
-                    match service.analyze_output(&session).await {
-                        Ok(analysis) => {
-                            let cleaned = normalize_summary(&analysis);
-                            if !cleaned.is_empty() {
-                                if options.summary_only {
-                                    ensure_fresh_line();
-                                    println!("{cleaned}");
-                                } else {
-                                    print_section("ANALYSIS", &cleaned);
-                                }
-                            }
-                        }
-                        Err(e) => {
-                            eprintln!("[warn] Analysis failed: {}", e);
-                        }
+                    if options.auto_summary && !output.trim().is_empty() {
+                        let previous = session.compacted_summary.as_deref().unwrap_or("");
+                        let _ = self
+                            .interpret_output_final(&session.query, &output, previous)
+                            .await;
                     }
 
                     if options.summary_only {
@@ -1079,7 +1074,9 @@ async fn save_step(
 
 fn print_section(_title: &str, content: &str) {
     if !content.trim().is_empty() {
-        print_with_pager(content);
+        ensure_fresh_line();
+        print_markdown(content);
+        let _ = io::stdout().flush();
     }
 }
 
@@ -1980,6 +1977,21 @@ fn select_workspace_path(query: &str) -> Option<String> {
 }
 
 fn format_tool_output(name: &str, output: &domain::tools::ToolOutput) -> String {
+    if name == "shell" {
+        let mut rendered = output.stdout.clone();
+        if !output.stderr.trim().is_empty() {
+            if !rendered.trim().is_empty() {
+                rendered.push('\n');
+            }
+            rendered.push_str("Errors:\n");
+            rendered.push_str(output.stderr.trim_end());
+        }
+        if rendered.trim().is_empty() {
+            return "(no output)".to_string();
+        }
+        return rendered;
+    }
+
     let mut lines = Vec::new();
     lines.push(format!("Tool: {name}"));
     for (key, value) in &output.metadata {
@@ -2125,16 +2137,10 @@ fn summarize_output_for_observation(output: &str) -> String {
     }
 }
 
-fn normalize_summary(text: &str) -> String {
-    let mut cleaned = Vec::new();
-    for line in text.lines() {
-        let trimmed = line.trim_matches(|c: char| c.is_whitespace() || c == '\u{00A0}');
-        if trimmed.is_empty() {
-            continue;
-        }
-        cleaned.push(trimmed);
-    }
-    cleaned.join("\n")
+fn print_markdown(text: &str) {
+    let skin = MadSkin::default();
+    let fmt = skin.term_text(text);
+    print!("{}", fmt);
 }
 
 fn print_with_pager(output: &str) {
@@ -2142,43 +2148,19 @@ fn print_with_pager(output: &str) {
         return;
     }
     ensure_fresh_line();
-    if command_exists("bat") {
-        let mut child = match Command::new("bat")
-            .args(["-p", "--paging=never", "--color=always"])
-            .stdin(Stdio::piped())
-            .spawn()
-        {
-            Ok(child) => child,
-            Err(_) => {
-                println!("{output}");
-                return;
-            }
-        };
-        if let Some(mut stdin) = child.stdin.take() {
-            let _ = stdin.write_all(output.as_bytes());
-        }
-        let _ = child.wait();
-    } else if command_exists("less") {
-        let mut child = match Command::new("less")
-            .arg("-R")
-            .arg("-F")
-            .arg("-X")
-            .stdin(Stdio::piped())
-            .spawn()
-        {
-            Ok(child) => child,
-            Err(_) => {
-                println!("{output}");
-                return;
-            }
-        };
-        if let Some(mut stdin) = child.stdin.take() {
-            let _ = stdin.write_all(output.as_bytes());
-            let _ = stdin.write_all(b"\n");
-        }
-        let _ = child.wait();
-    } else {
-        println!("{output}");
+    let was_raw = RAW_MODE_ACTIVE.load(Ordering::SeqCst);
+    if was_raw {
+        let _ = disable_raw_mode();
+    }
+
+    print!("{output}");
+    if !output.ends_with('\n') {
+        print!("\n");
+    }
+    let _ = io::stdout().flush();
+
+    if was_raw {
+        let _ = enable_raw_mode();
     }
 }
 

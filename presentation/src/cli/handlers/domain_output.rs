@@ -1,22 +1,11 @@
 use super::CliHandlers;
 use colored::Colorize;
-use serde::Deserialize;
 use shared::types::Result;
 use std::sync::mpsc;
 use std::thread;
 use std::time::Duration;
 use tokio::runtime::Runtime;
 use tokio::time::timeout;
-
-#[derive(Debug, Deserialize, Default)]
-struct AiUpdate {
-    #[serde(default)]
-    key_points: Vec<String>,
-    #[serde(default)]
-    errors: Vec<String>,
-    #[serde(default)]
-    warnings: Vec<String>,
-}
 
 impl CliHandlers {
     pub(crate) async fn interpret_output_final(
@@ -121,11 +110,6 @@ New output:\n{}\n",
                             if formatted.trim().is_empty() {
                                 formatted = "No summary available.".to_string();
                             }
-                            println!(
-                                "\n{}\n{}",
-                                "=== AI Chunk Summary ===".green().bold(),
-                                formatted.trim()
-                            );
                             summary = formatted;
                         }
                         buffer.clear();
@@ -140,11 +124,6 @@ New output:\n{}\n",
                     if formatted.trim().is_empty() {
                         formatted = "No summary available.".to_string();
                     }
-                    println!(
-                        "\n{}\n{}",
-                        "=== AI Chunk Summary ===".green().bold(),
-                        formatted.trim()
-                    );
                 }
             }
 
@@ -171,49 +150,8 @@ New output:\n{}\n",
         t.to_string()
     }
 
-    fn is_no_new_findings(update: &AiUpdate) -> bool {
-        let all = update
-            .key_points
-            .iter()
-            .chain(update.errors.iter())
-            .chain(update.warnings.iter())
-            .map(|s| s.trim().to_ascii_lowercase())
-            .collect::<Vec<_>>();
-
-        (update.key_points.is_empty() && update.errors.is_empty() && update.warnings.is_empty())
-            || all
-                .iter()
-                .all(|x| x == "no new findings." || x == "no new findings")
-    }
-
     fn format_ai_response(raw: &str) -> String {
         let cleaned = Self::strip_code_fences(raw);
-        if let Ok(update) = serde_json::from_str::<AiUpdate>(&cleaned) {
-            if Self::is_no_new_findings(&update) {
-                return "No new findings.".to_string();
-            }
-            let mut lines = Vec::new();
-            if !update.errors.is_empty() {
-                lines.push("Errors:".to_string());
-                for err in &update.errors {
-                    lines.push(format!("- {}", err.trim()));
-                }
-            }
-            if !update.warnings.is_empty() {
-                lines.push("Warnings:".to_string());
-                for warn in &update.warnings {
-                    lines.push(format!("- {}", warn.trim()));
-                }
-            }
-            if !update.key_points.is_empty() {
-                lines.push("Key points:".to_string());
-                for point in &update.key_points {
-                    lines.push(format!("- {}", point.trim()));
-                }
-            }
-            return lines.join("\n");
-        }
-
         cleaned
             .lines()
             .map(|l| l.trim_start())
