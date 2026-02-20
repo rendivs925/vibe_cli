@@ -1547,7 +1547,11 @@ async fn execute_suggestion(
     let command_line = command.command.clone();
     let tokens = parse_command_tokens(&command_line);
     if tokens.is_empty() {
-        return Ok("No command provided".to_string());
+        return Ok(ExecutionResult {
+            output: "No command provided".to_string(),
+            summary: None,
+            output_printed: false,
+        });
     }
 
     let tool_name = tokens[0].clone();
