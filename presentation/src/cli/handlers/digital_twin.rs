@@ -31,16 +31,67 @@ impl CliHandlers {
     
     pub async fn handle_research(&self, query: &str, depth: ResearchDepth) -> Result<()> {
         use application::services::research_agent_service::ResearchAgent;
+        use infrastructure::web_search_service::{WebSearchService, SearchResult};
         
         println!("Research Mode: {} (depth: {:?})", query, depth);
         
         let mut agent = ResearchAgent::new();
         
-        let query_id = agent.start_research(query.to_string(), depth);
+        let query_id = agent.start_research(query.to_string(), depth.clone());
         println!("Started research: {}", query_id);
         
-        println!("\nNote: Web search integration requires configuration.");
-        println!("To enable web research, set SEARCH_API_KEY environment variable.");
+        let num_results: usize = match depth {
+            ResearchDepth::Quick => 3,
+            ResearchDepth::Standard => 5,
+            ResearchDepth::Deep => 10,
+            ResearchDepth::Comprehensive => 20,
+        };
+        
+        println!("\nSearching for: {}", query);
+        
+        let search_service = WebSearchService::new();
+        
+        match search_service.search(query, num_results).await {
+            Ok(results) => {
+                if results.is_empty() {
+                    println!("No results found.");
+                } else {
+                    println!("\nFound {} sources:\n", results.len());
+                    
+                    for (i, result) in results.iter().enumerate() {
+                        println!("{}. {}", i + 1, result.url);
+                        
+                        let content: String = match search_service.fetch_page(&result.url).await {
+                            Ok(text) => {
+                                let preview: String = text.chars().take(500).collect::<String>();
+                                format!("{}...", preview.lines().next().unwrap_or(""))
+                            }
+                            Err(e) => format!("(Could not fetch: {})", e)
+                        };
+                        
+                        if let Err(e) = agent.add_source(
+                            &query_id,
+                            result.url.clone(),
+                            result.title.clone(),
+                            content
+                        ) {
+                            println!("  Warning: {}", e);
+                        }
+                        
+                        println!("   Title: {}\n", result.title);
+                    }
+                    
+                    println!("\nSynthesis:");
+                    if let Ok(synthesis) = agent.synthesize_findings(&query_id) {
+                        println!("{}", synthesis);
+                    }
+                }
+            }
+            Err(e) => {
+                println!("Search failed: {}", e);
+                println!("Note: Using free DuckDuckGo search.");
+            }
+        }
         
         println!("\nResearch queries:");
         for q in agent.list_queries() {
