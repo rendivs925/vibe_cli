@@ -72,12 +72,21 @@ impl SessionSummary {
     }
 
     pub fn to_markdown(&self) -> String {
-        format!(
-            "### ## SESSION_SUMMARY\n- **Project**: {}\n- **Environment**: {:?}\n- **Temporal_Anchor**: {}\n- **Session ID**: {}\n\n---\n\n",
+        let mut output = format!(
+            "### ## SESSION_SUMMARY\n- **Project**: {}\n- **Environment**: {:?}\n- **Temporal_Anchor**: {}\n- **Session ID**: {}\n- **Progress**: {}/{}\n",
             self.project,
             self.environment,
             self.temporal_anchor.format("%Y-%m-%d %H:%M:%S UTC"),
-            self.session_id
-        )
+            self.session_id,
+            self.iteration,
+            self.max_iterations
+        );
+        if let Some(task_type) = &self.task_type {
+            if !task_type.trim().is_empty() {
+                output.push_str(&format!("- **Task Type**: {}\n", task_type));
+            }
+        }
+        output.push_str("\n---\n\n");
+        output
     }
 }

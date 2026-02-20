@@ -1,8 +1,9 @@
 use crate::services::context_vault::ContextVault;
 use crate::services::operational_guardrails::OperationalGuardrails;
+use crate::services::task_orchestration::TaskOrchestration;
 use domain::entities::context_document::ContextDocumentType;
 use domain::entities::session_summary::SessionSummary;
-use domain::entities::react_memory::{Fact, Hypothesis, Constraint};
+use domain::entities::react_memory::{Constraint, Fact, Hypothesis};
 
 pub struct ContextEngineer {
     session_summary: SessionSummary,
@@ -26,6 +27,13 @@ impl ContextEngineer {
 
     pub fn with_task_type(mut self, task_type: &str) -> Self {
         self.session_summary = self.session_summary.with_task_type(task_type);
+        self
+    }
+
+    pub fn with_iteration(mut self, iteration: u32, max_iterations: u32) -> Self {
+        self.session_summary = self
+            .session_summary
+            .with_iteration(iteration, max_iterations);
         self
     }
 
@@ -144,12 +152,28 @@ impl ContextEngineer {
         )
     }
 
-    pub fn render(&self, _task: &str, _task_type: &str) -> String {
+    pub fn render(&self, task: &str, task_type: &str, depth_instruction: Option<&str>) -> String {
+        let orchestration = TaskOrchestration::new(
+            task,
+            self.session_summary.iteration,
+            self.session_summary.max_iterations,
+        )
+        .with_type(task_type);
         let mut output = String::new();
         output.push_str("# [[ GLOBAL_INTERFACE ]]\n\n");
         output.push_str(&self.session_summary.to_markdown());
+        output.push_str("### ## CONTEXT_VAULT\n");
         output.push_str(&self.context_vault.render());
+        output.push_str("\n---\n\n");
         output.push_str(&self.guardrails.to_markdown());
+        if let Some(depth) = depth_instruction {
+            if !depth.trim().is_empty() {
+                output.push_str("### ## REASONING_DEPTH\n");
+                output.push_str(depth.trim());
+                output.push_str("\n\n");
+            }
+        }
+        output.push_str(&orchestration.to_markdown());
         output
     }
 }

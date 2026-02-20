@@ -212,9 +212,11 @@ CONTEXT: <what data you're using>\n\n",
         depth_instruction: Option<&str>,
     ) -> String {
         let task_type = task_type_label(session);
+        let iteration = (session.steps.len() as u32).saturating_add(1);
         let mut engineer = ContextEngineer::new(&session.query)
             .with_session_id(&session.id)
-            .with_task_type(&task_type);
+            .with_task_type(&task_type)
+            .with_iteration(iteration, 10);
 
         let guardrails =
             OperationalGuardrails::default().with_delta_only(should_delta_only(&session.query));
@@ -247,24 +249,7 @@ CONTEXT: <what data you're using>\n\n",
             }
         }
 
-        let mut prompt = engineer.render(&session.query, &task_type);
-        prompt.push_str("### ## CURRENT_GOAL\n");
-        prompt.push_str(&session.query);
-        prompt.push_str("\n\n");
-        prompt.push_str("### ## REQUEST_PRIORITY\n");
-        prompt.push_str("Always prioritize CURRENT_GOAL over unrelated prior context.\n\n");
-        prompt.push_str("### ## RESPONSE_RULES\n");
-        prompt.push_str("- Do not echo CONTEXT_VAULT or knowledge base sections.\n");
-        prompt.push_str("- Do not invent or guess [REF-XX] citations.\n");
-        prompt.push_str("- If CONTEXT_VAULT is empty or irrelevant, say so briefly and proceed with the goal.\n\n");
-
-        if let Some(depth) = depth_instruction {
-            prompt.push_str("### ## REASONING_DEPTH\n");
-            prompt.push_str(depth);
-            prompt.push_str("\n\n");
-        }
-
-        prompt
+        engineer.render(&session.query, &task_type, depth_instruction)
     }
     pub fn analysis_prompt(
         &self,
