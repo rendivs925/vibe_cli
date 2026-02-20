@@ -436,6 +436,112 @@ impl CacheManager {
         self.save_cache_file("rag", &cache)?;
         Ok(())
     }
+
+    pub fn load_command_cached_enhanced(
+        &self,
+        prompt: &str,
+        embedding: Option<&[f32]>,
+    ) -> Result<Option<Vec<CommandCandidate>>> {
+        if embedding.is_none() {
+            return self.load_command_cached(prompt);
+        }
+
+        let embedding = embedding.unwrap();
+
+        if let Some(exact_result) = self.load_command_cached(prompt)? {
+            return Ok(Some(exact_result));
+        }
+
+        let mut cache: CacheFile = self.load_cache_file("commands")?;
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        cache
+            .entries
+            .retain(|entry| now - entry.timestamp < CACHE_TTL_SECONDS);
+
+        let mut best_match: Option<&CacheEntry> = None;
+        let mut best_similarity = 0.0;
+
+        for entry in &cache.entries {
+            let similarity = Self::semantic_similarity(prompt, &entry.prompt);
+            if similarity > best_similarity && similarity >= SEMANTIC_SIMILARITY_THRESHOLD {
+                best_similarity = similarity;
+                best_match = Some(entry);
+            }
+        }
+
+        if let Some(entry) = best_match {
+            if entry.candidates.is_empty() {
+                Ok(None)
+            } else {
+                let valid_candidates: Vec<CommandCandidate> = entry
+                    .candidates
+                    .iter()
+                    .filter(|candidate| self.validate_command(&candidate.command))
+                    .cloned()
+                    .collect();
+
+                if valid_candidates.is_empty() {
+                    self.remove_cache_entry("commands", &entry.prompt)?;
+                    return Ok(None);
+                }
+
+                Ok(Some(valid_candidates))
+            }
+        } else {
+            Ok(None)
+        }
+    }
+
+    pub fn get_analytics(&self) -> Result<CacheAnalytics> {
+        let mut cache: CacheFile = self.load_cache_file("commands")?;
+        let mut explain_cache: ExplainCacheFile = self.load_cache_file("explain")?;
+        let mut rag_cache: RagCacheFile = self.load_cache_file("rag")?;
+
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+
+        let command_entries = cache.entries.len();
+        let explain_entries = explain_cache.entries.len();
+        let rag_entries = rag_cache.entries.len();
+
+        let expired_commands = cache
+            .entries
+            .iter()
+            .filter(|e| now - e.timestamp >= CACHE_TTL_SECONDS)
+            .count();
+        let expired_explain = explain_cache
+            .entries
+            .iter()
+            .filter(|e| now - e.timestamp >= 604800)
+            .count();
+        let expired_rag = rag_cache
+            .entries
+            .iter()
+            .filter(|e| now - e.timestamp >= 604800)
+            .count();
+
+        Ok(CacheAnalytics {
+            command_entries,
+            explain_entries,
+            rag_entries,
+            total_entries: command_entries + explain_entries + rag_entries,
+            expired_entries: expired_commands + expired_explain + expired_rag,
+        })
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CacheAnalytics {
+    pub command_entries: usize,
+    pub explain_entries: usize,
+    pub rag_entries: usize,
+    pub total_entries: usize,
+    pub expired_entries: usize,
 }
 
 #[cfg(test)]

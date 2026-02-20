@@ -5,6 +5,7 @@ use infrastructure::{
     embedding_storage::EmbeddingStorage,
     file_scanner::FileScanner,
     ollama_client::OllamaClient,
+    reranker::{Reranker, RerankedChunk, RerankConfig},
     search::SearchEngine,
 };
 use md5;
@@ -14,6 +15,7 @@ use shared::types::Result;
 use std::collections::{HashMap, HashSet};
 use std::io::{self, Write};
 use std::path::PathBuf;
+use std::sync::Arc;
 
 pub struct RagService {
     scanner: FileScanner,
@@ -21,6 +23,8 @@ pub struct RagService {
     embedder: Embedder,
     client: OllamaClient,
     config: Config,
+    reranker: Option<Arc<Reranker>>,
+    use_reranking: bool,
 }
 
 struct ContextSnippet {
@@ -28,6 +32,7 @@ struct ContextSnippet {
     path: String,
     text: String,
     score: i32,
+    rerank_score: Option<f32>,
 }
 
 #[derive(Debug, Clone)]
@@ -67,18 +72,53 @@ impl RagService {
         client: OllamaClient,
         config: Config,
     ) -> Result<Self> {
+        let reranker = Arc::new(Reranker::new(client.clone()));
         Ok(Self {
             scanner: FileScanner::new(root_path),
             storage: EmbeddingStorage::new(db_path).await?,
             embedder: Embedder::new(client.clone()),
             client: client,
             config,
+            reranker: Some(reranker),
+            use_reranking: true,
+        })
+    }
+
+    pub async fn new_without_reranking(
+        root_path: &str,
+        db_path: &str,
+        client: OllamaClient,
+        config: Config,
+    ) -> Result<Self> {
+        Ok(Self {
+            scanner: FileScanner::new(root_path),
+            storage: EmbeddingStorage::new(db_path).await?,
+            embedder: Embedder::new(client.clone()),
+            client: client,
+            config,
+            reranker: None,
+            use_reranking: false,
         })
     }
 
     pub async fn build_index(&self) -> Result<()> {
         self.build_index_with_files(&self.scanner.collect_files()?)
             .await
+    }
+
+    pub fn enable_reranking(&mut self) {
+        if self.reranker.is_none() {
+            self.reranker = Some(Arc::new(Reranker::new(self.client.clone())));
+        }
+        self.use_reranking = true;
+    }
+
+    pub fn disable_reranking(&mut self) {
+        self.use_reranking = false;
+    }
+
+    pub fn is_reranking_enabled(&self) -> bool {
+        self.use_reranking
     }
 
     pub async fn build_index_for_keywords(&self, keywords: &[String]) -> Result<()> {
@@ -563,10 +603,40 @@ Confidence: <High|Medium|Low>\n",
                 path,
                 text: snippet_text,
                 score,
+                rerank_score: None,
             });
         }
 
-        scored.sort_by(|a, b| b.score.cmp(&a.score));
+        let should_rerank = self.use_reranking 
+            && self.reranker.is_some() 
+            && scored.len() > 5;
+
+        if should_rerank {
+            let reranker = self.reranker.as_ref().unwrap();
+            let chunk_texts: Vec<String> = scored.iter().map(|s| s.text.clone()).collect();
+            
+            match reranker.rerank(question, chunk_texts).await {
+                Ok(reranked) => {
+                    let rerank_map: std::collections::HashMap<String, f32> = reranked
+                        .iter()
+                        .map(|r| (r.text.clone(), r.rerank_score))
+                        .collect();
+                    
+                    for snippet in &mut scored {
+                        snippet.rerank_score = rerank_map.get(&snippet.text).copied();
+                    }
+                }
+                Err(e) => {
+                    eprintln!("Reranking failed: {}", e);
+                }
+            }
+        }
+
+        scored.sort_by(|a, b| {
+            let score_a = a.rerank_score.unwrap_or(a.score as f32);
+            let score_b = b.rerank_score.unwrap_or(b.score as f32);
+            score_b.partial_cmp(&score_a).unwrap()
+        });
 
         let mut selected = Vec::new();
         let mut total_chars = 0usize;
