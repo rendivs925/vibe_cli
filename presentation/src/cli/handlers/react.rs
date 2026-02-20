@@ -29,6 +29,7 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::time::Instant;
 use termimad::{MadSkin, FmtText};
 
 mod planning;
@@ -315,7 +316,9 @@ impl CliHandlers {
                 return Ok(carry);
             }
 
+            let reasoning_timer = progress_start("Understanding", "analyzing request");
             let reasoning = service.generate_reasoning(&session).await?;
+            progress_done("Understanding", reasoning_timer);
             service.ingest_reasoning(&mut session, &reasoning);
             if options.show_reasoning {
                 print_section("ANALYZE", &reasoning);
@@ -332,23 +335,27 @@ impl CliHandlers {
             let mut tool_name = "unknown".to_string();
             let mut tool_justification = "Tool selection failed".to_string();
 
+            let tool_timer = progress_start("Planning", "choosing next action");
             let tool_result = match service.select_tool(&session, &reasoning).await {
                 Ok(tool_decision) => {
                     tool_name = tool_decision.tool.name().to_string();
                     tool_justification = tool_decision.justification.clone();
 
                     // Execute the selected tool
+                    let exec_timer = progress_start("Running tool", &tool_name);
                     match service
                         .execute_tool(tool_decision.tool, &session, &reasoning)
                         .await
                     {
                         Ok(result) => {
+                            progress_done("Running tool", exec_timer);
                             if !options.summary_only && !result.output.is_empty() {
                                 print_with_pager(&result.output);
                             }
                             Some(result)
                         }
                         Err(e) => {
+                            progress_done("Running tool", exec_timer);
                             eprintln!(
                                 "{}",
                                 theme::warning(&format!(
@@ -368,6 +375,7 @@ impl CliHandlers {
                     None
                 }
             };
+            progress_done("Planning", tool_timer);
 
             // If tool failed, collect user direction instead of falling back to command generation
             let tool_result = match tool_result {
@@ -427,10 +435,12 @@ impl CliHandlers {
                     );
                     save_step(&service, &mut session, ReactStepType::Observation, summary).await?;
                     if options.auto_summary && !tool_result.output.trim().is_empty() {
+                        let summary_timer = progress_start("Summarizing", "interpreting output");
                         let previous = session.compacted_summary.as_deref().unwrap_or("");
                         let _ = self
                             .interpret_output_final(&session.query, &tool_result.output, previous)
                             .await;
+                        progress_done("Summarizing", summary_timer);
                     }
                 }
                 match tool_result.tool {
@@ -454,10 +464,12 @@ impl CliHandlers {
                 );
                 save_step(&service, &mut session, ReactStepType::Observation, summary).await?;
                 if options.auto_summary && !tool_result.output.trim().is_empty() {
+                    let summary_timer = progress_start("Summarizing", "interpreting output");
                     let previous = session.compacted_summary.as_deref().unwrap_or("");
                     let _ = self
                         .interpret_output_final(&session.query, &tool_result.output, previous)
                         .await;
+                    progress_done("Summarizing", summary_timer);
                     session.complete();
                     service.save_session(&session).await?;
                     break;
@@ -493,7 +505,10 @@ impl CliHandlers {
                     })
                     .collect()
             } else {
-                service.propose_commands(&reasoning, &session).await?
+                let propose_timer = progress_start("Generating", "command suggestions");
+                let result = service.propose_commands(&reasoning, &session).await?;
+                progress_done("Generating", propose_timer);
+                result
             };
             for command in &mut commands {
                 let adjusted = adjust_command_for_query(&command.command, &session.query);
@@ -628,6 +643,7 @@ impl CliHandlers {
                     }
 
                     if options.auto_summary && !output.trim().is_empty() {
+                        let summary_timer = progress_start("Summarizing", "interpreting output");
                         let previous = execution
                             .summary
                             .as_deref()
@@ -636,6 +652,7 @@ impl CliHandlers {
                         let _ = self
                             .interpret_output_final(&session.query, &output, previous)
                             .await;
+                        progress_done("Summarizing", summary_timer);
                     }
 
                     if options.summary_only {
@@ -1642,7 +1659,26 @@ async fn execute_suggestion(
 
     if tools.has_tool(&tool_name) {
         command.approve();
+        let mut detail = if args.is_empty() {
+            String::new()
+        } else {
+            args.join(" ")
+        };
+        if tool_name == "read" {
+            if let Some(path) = args.first() {
+                if let Ok(abs) = std::fs::canonicalize(path) {
+                    detail = abs.display().to_string();
+                } else {
+                    detail = path.to_string();
+                }
+            }
+        }
+        let timer = progress_start(
+            "Tool",
+            &format!("{}{}", tool_name, if detail.is_empty() { String::new() } else { format!(" {detail}") }),
+        );
         let result = tools.execute(&tool_name, &args);
+        progress_done("Tool", timer);
         return match result {
             Ok(output) => {
                 command.execute(
@@ -1691,6 +1727,7 @@ async fn execute_suggestion(
     }
 
     command.approve();
+    let exec_timer = progress_start("Running", &command.command);
     let (output, summary, output_printed) = if auto_summary {
         let (tx, rx) = std::sync::mpsc::channel();
         let (ack_tx, ack_rx) = std::sync::mpsc::channel();
@@ -1711,6 +1748,7 @@ async fn execute_suggestion(
         let output = handler.run_shell_command_capture(&command.command)?;
         (output, None, false)
     };
+    progress_done("Running", exec_timer);
     let exit_code = output.status.code().unwrap_or(-1);
     command.execute(exit_code, output.full_output.clone(), output.stderr.clone());
     Ok(ExecutionResult {
@@ -1963,6 +2001,37 @@ fn format_tool_output(name: &str, output: &domain::tools::ToolOutput) -> String 
         lines.push("(no output)".to_string());
     }
     lines.join("\n")
+}
+
+fn progress_start(label: &str, detail: &str) -> Instant {
+    let detail_text = if detail.trim().is_empty() {
+        String::new()
+    } else {
+        format!(" {}", theme::muted(detail.trim()))
+    };
+    println!(
+        "{} {}{}",
+        theme::muted("•"),
+        theme::accent(label),
+        detail_text
+    );
+    let _ = io::stdout().flush();
+    Instant::now()
+}
+
+fn progress_done(label: &str, start: Instant) {
+    let elapsed = start.elapsed();
+    let ms = elapsed.as_millis();
+    let duration = if ms >= 1000 {
+        format!("{:.2}s", elapsed.as_secs_f64())
+    } else {
+        format!("{ms}ms")
+    };
+    println!(
+        "{} {}",
+        theme::muted("•"),
+        theme::muted(&format!("{label} done in {duration}"))
+    );
 }
 
 fn prompt_line(prompt: &str, interrupted: &AtomicBool) -> Result<Option<String>> {
