@@ -1461,6 +1461,9 @@ fn build_default_tool_executor() -> ToolExecutor {
     executor.register(Arc::new(tools::exploration::read_tool::ReadTool));
     executor.register(Arc::new(tools::exploration::grep_tool::GrepTool));
     executor.register(Arc::new(tools::exploration::fd_tool::FdTool));
+    executor.register(Arc::new(
+        tools::exploration::fuzzy_path_tool::FuzzyPathTool,
+    ));
     executor.register(Arc::new(tools::exploration::rag_tool::RagTool));
     executor.register(Arc::new(tools::web::search::WebSearchTool));
     executor.register(Arc::new(tools::web::fetch::WebFetchTool));
