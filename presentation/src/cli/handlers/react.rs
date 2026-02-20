@@ -1001,11 +1001,18 @@ fn print_section(_title: &str, content: &str) {
 }
 
 fn print_react_context(session: &ReactSession) {
+    let conversation_manager = ConversationContextManager::default();
     println!("Goal: {}", session.query);
     println!("Steps: {}", session.steps.len());
     if let Some(summary) = &session.compacted_summary {
         if !summary.trim().is_empty() {
             println!("{} {}", theme::accent("Summary:"), summary.trim());
+        }
+    }
+    if !session.conversation_history.is_empty() {
+        let convo = conversation_manager.format_compact_conversation(session);
+        if !convo.trim().is_empty() {
+            println!("{} {}", theme::accent("Conversation:"), convo.trim());
         }
     }
     if !session.memory.constraints.is_empty() {
