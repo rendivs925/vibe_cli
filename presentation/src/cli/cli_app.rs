@@ -287,6 +287,18 @@ impl CliApp {
             return self.handlers.handle_clear_knowledge();
         }
 
+        // New digital twin/assistant modes
+        if cli.task {
+            return self.handlers.handle_task(&args_str).await;
+        }
+        if cli.research {
+            let depth = cli.depth.unwrap_or(ResearchDepthArg::Standard).into();
+            return self.handlers.handle_research(&args_str, depth).await;
+        }
+        if cli.work {
+            return self.handlers.handle_work(&args_str).await;
+        }
+
         // If --neurosymbolic flag is set, use neurosymbolic mode with scaling
         if cli.neurosymbolic {
             return self

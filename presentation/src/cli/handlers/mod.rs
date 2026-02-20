@@ -1,6 +1,7 @@
 mod agent;
 mod cache;
 mod chat;
+mod digital_twin;
 mod domain_init;
 mod domain_learning;
 mod domain_manage;
