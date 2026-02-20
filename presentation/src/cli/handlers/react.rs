@@ -1396,7 +1396,6 @@ fn extract_user_command_override(input: &str) -> Option<String> {
         "extract_tables",
         "doc_qa",
         "semantic_search",
-        "grep_context",
         "search_memory",
         "find_patterns",
         "remember",
@@ -1551,7 +1550,6 @@ fn build_default_tool_executor() -> ToolExecutor {
     executor.register(Arc::new(tools::documents::tables::ExtractTablesTool));
     executor.register(Arc::new(tools::documents::qa::DocQaTool));
     executor.register(Arc::new(tools::search::semantic_search::SemanticSearchTool));
-    executor.register(Arc::new(tools::search::grep_context::GrepContextTool));
     executor.register(Arc::new(tools::search::find_patterns::FindPatternsTool));
     executor.register(Arc::new(tools::memory::remember::RememberTool));
     executor.register(Arc::new(tools::memory::recall::RecallTool));

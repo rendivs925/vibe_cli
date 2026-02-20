@@ -43,7 +43,6 @@ Based on your analysis, choose ONE tool from this list:\n\
 - read_docx: Extract text from a DOCX\n\
 - read_xlsx: Read data from an XLSX/CSV\n\
 - semantic_search: Semantic search across past sessions\n\
-- grep_context: Grep with surrounding context\n\
 \n\
 ### Analysis (understand data)\n\
 - summarize: Summarize output in 3-5 sentences\n\

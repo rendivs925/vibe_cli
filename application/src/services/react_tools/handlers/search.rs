@@ -38,38 +38,6 @@ impl ReactToolHandler for SemanticSearchHandler {
     }
 }
 
-pub struct GrepContextHandler;
-
-#[async_trait]
-impl ReactToolHandler for GrepContextHandler {
-    fn name(&self) -> &str {
-        "grep_context"
-    }
-
-    fn description(&self) -> &str {
-        "Grep with surrounding context"
-    }
-
-    fn category(&self) -> ToolCategory {
-        ToolCategory::Investigation
-    }
-
-    fn requires_output(&self) -> bool {
-        false
-    }
-
-    async fn execute(&self, context: &RetrievedContext, _params: Option<&str>) -> Result<ToolResult> {
-        let pattern = infer_pattern(context);
-        Ok(ToolResult::new(ReactTool::GrepContext)
-            .with_commands(vec![format!("grep_context \"{}\"", pattern)])
-            .with_next_tool(ReactTool::Summarize))
-    }
-
-    fn get_prompt(&self, _context: &RetrievedContext) -> String {
-        "Search for the most relevant pattern with surrounding context.".to_string()
-    }
-}
-
 pub struct FindPatternsHandler;
 
 #[async_trait]
@@ -105,20 +73,6 @@ impl ReactToolHandler for FindPatternsHandler {
 pub fn build_search_handlers() -> Vec<(ReactTool, Arc<dyn ReactToolHandler>)> {
     vec![
         (ReactTool::SemanticSearch, Arc::new(SemanticSearchHandler) as Arc<dyn ReactToolHandler>),
-        (ReactTool::GrepContext, Arc::new(GrepContextHandler) as Arc<dyn ReactToolHandler>),
         (ReactTool::FindPatterns, Arc::new(FindPatternsHandler) as Arc<dyn ReactToolHandler>),
     ]
-}
-
-fn infer_pattern(context: &RetrievedContext) -> String {
-    let words: Vec<&str> = context
-        .goal
-        .split_whitespace()
-        .filter(|w| w.len() > 3)
-        .collect();
-    if words.is_empty() {
-        "TODO|FIXME|error".to_string()
-    } else {
-        words.iter().take(3).cloned().collect::<Vec<_>>().join("|")
-    }
 }

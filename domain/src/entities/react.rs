@@ -97,7 +97,6 @@ pub enum ReactTool {
     ReadDocx,
     ReadXlsx,
     SemanticSearch,
-    GrepContext,
 
     // Category B: Analysis Tools (Understanding Data)
     Summarize,
@@ -178,7 +177,6 @@ impl ReactTool {
             ReactTool::ReadDocx => "read_docx",
             ReactTool::ReadXlsx => "read_xlsx",
             ReactTool::SemanticSearch => "semantic_search",
-            ReactTool::GrepContext => "grep_context",
             ReactTool::Summarize => "summarize",
             ReactTool::ExtractErrors => "extract_errors",
             ReactTool::ExtractWarnings => "extract_warnings",
@@ -451,7 +449,6 @@ impl std::str::FromStr for ReactTool {
             "read_docx" => Ok(ReactTool::ReadDocx),
             "read_xlsx" => Ok(ReactTool::ReadXlsx),
             "semantic_search" => Ok(ReactTool::SemanticSearch),
-            "grep_context" => Ok(ReactTool::GrepContext),
             "summarize" => Ok(ReactTool::Summarize),
             "extract_errors" => Ok(ReactTool::ExtractErrors),
             "extract_warnings" => Ok(ReactTool::ExtractWarnings),
@@ -818,7 +815,6 @@ impl ReactContext {
                 "extract_tables".to_string(),
                 "doc_qa".to_string(),
                 "semantic_search".to_string(),
-                "grep_context".to_string(),
                 "search_memory".to_string(),
                 "find_patterns".to_string(),
                 "remember".to_string(),
