@@ -1,5 +1,6 @@
 use super::CliHandlers;
 use colored::Colorize;
+use shared::theme;
 use shared::types::Result;
 
 impl CliHandlers {
@@ -8,15 +9,13 @@ impl CliHandlers {
 
         println!(
             "{}",
-            "Initializing complete Linux symbolic reasoning domain..."
-                .green()
-                .bold()
+            theme::accent("Initializing complete Linux symbolic reasoning domain...").bold()
         );
 
         if config_dir.exists() {
             println!(
                 "{}",
-                "Domain config directory already exists. Updating...".yellow()
+                theme::warning("Domain config directory already exists. Updating...")
             );
         } else {
             std::fs::create_dir_all(&config_dir)?;
@@ -28,7 +27,7 @@ impl CliHandlers {
         std::fs::create_dir_all(&linux_dir)?;
         std::fs::create_dir_all(&shared_dir)?;
 
-        println!("{}", "Creating Linux symbolic reasoning domain...".green());
+        println!("{}", theme::accent("Creating Linux symbolic reasoning domain..."));
 
         let domain_json = include_str!("../domain_templates/linux/domain.json");
         std::fs::write(config_dir.join("linux/domain.json"), domain_json)?;
@@ -192,11 +191,9 @@ impl CliHandlers {
 
         println!(
             "\n{}",
-            "OK Linux symbolic reasoning domain initialized!"
-                .green()
-                .bold()
+            theme::success("OK Linux symbolic reasoning domain initialized!").bold()
         );
-        println!("\n{}", "Summary:".green());
+        println!("\n{}", theme::accent("Summary:"));
         println!("  - 32 operations (process, memory, disk, network, services, files, containers, hardware, security, etc.)");
         println!("  - 11 entities (Process, File, Service, NetworkConnection, User, Filesystem, MemoryInfo, Cpu, NetworkInterface, DockerContainer, SystemdUnit)");
         println!("  - 8 relationships (hierarchical, ownership, containment, etc.)");
@@ -204,7 +201,7 @@ impl CliHandlers {
         println!("  - 15 troubleshooting patterns for common issues");
         println!("  - 21 reasoning templates for step-by-step diagnostics");
 
-        println!("\n{}", "Usage:".green());
+        println!("\n{}", theme::accent("Usage:"));
         println!("  vibe_cli \"list processes\"");
         println!("  vibe_cli \"check disk usage\"");
         println!("  vibe_cli \"nginx is not running\"");

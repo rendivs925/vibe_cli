@@ -6,6 +6,7 @@ use application::services::neurosymbolic_service::{
 };
 use colored::Colorize;
 use shared::confirmation::{ask_confirmation, ask_selection};
+use shared::theme;
 use shared::types::{Message, Result};
 use std::collections::HashSet;
 
@@ -142,12 +143,11 @@ impl CliHandlers {
 
         println!(
             "{}",
-            format!(
+            theme::accent(&format!(
                 "Symbolic match: {} ({:.0}% confidence)",
                 suggestion.op_name,
                 suggestion.confidence * 100.0
-            )
-            .green()
+            ))
             .bold()
         );
 

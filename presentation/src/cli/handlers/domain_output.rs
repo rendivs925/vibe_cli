@@ -1,5 +1,6 @@
 use super::CliHandlers;
 use colored::Colorize;
+use shared::theme;
 use shared::types::Result;
 use std::sync::mpsc;
 use std::thread;
@@ -36,7 +37,7 @@ Full output:\n{}\n",
             .unwrap_or_default();
         let formatted = Self::format_ai_response(&response);
         if !formatted.is_empty() {
-            println!("\n{}", "=== AI Final Summary ===".green().bold());
+            println!("\n{}", theme::accent("=== AI Final Summary ===").bold());
             println!("{}", formatted.trim());
         }
         Ok(())
@@ -129,7 +130,7 @@ New output:\n{}\n",
                                 }
                                 println!(
                                     "\n{}\n{}",
-                                    "=== AI Chunk Summary ===".green().bold(),
+                                    theme::accent("=== AI Chunk Summary ===").bold(),
                                     formatted.trim()
                                 );
                                 summary = formatted;
@@ -153,7 +154,7 @@ New output:\n{}\n",
                         }
                         println!(
                             "\n{}\n{}",
-                            "=== AI Chunk Summary ===".green().bold(),
+                            theme::accent("=== AI Chunk Summary ===").bold(),
                             formatted.trim()
                         );
                         summary = formatted;

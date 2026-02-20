@@ -1,6 +1,6 @@
 use super::CliHandlers;
 use application::services::test_time_scaling::ScalingConfig;
-use colored::Colorize;
+use shared::theme;
 use infrastructure::cache::CommandCandidate;
 use infrastructure::storage::experience_buffer::FailureType;
 use shared::confirmation::ask_confirmation;
@@ -176,14 +176,13 @@ impl CliHandlers {
                         } else {
                             println!(
                                 "{}",
-                                format!(
+                                theme::error(&format!(
                                     "Command failed with exit code: {:?}",
                                     output.status.code()
-                                )
-                                .red()
+                                ))
                             );
                             if !output.stderr.is_empty() {
-                                println!("{}", output.stderr.red());
+                                println!("{}", theme::error(output.stderr.trim_end()));
                             }
                         }
 
@@ -227,10 +226,13 @@ impl CliHandlers {
         if !output.status.success() {
             println!(
                 "{}",
-                format!("Command failed with exit code: {:?}", output.status.code()).red()
+                theme::error(&format!(
+                    "Command failed with exit code: {:?}",
+                    output.status.code()
+                ))
             );
             if !output.stderr.is_empty() {
-                println!("{}", output.stderr.red());
+                println!("{}", theme::error(output.stderr.trim_end()));
             }
         } else {
             last_successful_command = cmd.to_string();
@@ -281,10 +283,13 @@ impl CliHandlers {
         if !output.status.success() {
             println!(
                 "{}",
-                format!("Command failed with exit code: {:?}", output.status.code()).red()
+                theme::error(&format!(
+                    "Command failed with exit code: {:?}",
+                    output.status.code()
+                ))
             );
             if !output.stderr.is_empty() {
-                println!("{}", output.stderr.red());
+                println!("{}", theme::error(output.stderr.trim_end()));
             }
             if let Some(service) = self.neurosymbolic_service.as_ref() {
                 let _ = service.record_failure(

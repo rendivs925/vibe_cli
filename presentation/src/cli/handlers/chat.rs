@@ -1,6 +1,6 @@
 use super::CliHandlers;
 use crate::cli::command_extraction::extract_command_from_response;
-use colored::Colorize;
+use shared::theme;
 use shared::confirmation::ask_confirmation;
 use shared::types::Result;
 use std::process::Command;
@@ -23,22 +23,19 @@ impl CliHandlers {
             );
             let response = client.generate_response(&prompt).await?;
             let command = extract_command_from_response(&response);
-            println!("{}", format!("Command: {}", command).green());
+            println!("{}", theme::success(&format!("Command: {}", command)));
             if ask_confirmation("Run this command?", false)? {
                 let output = Command::new("bash").arg("-c").arg(&command).output()?;
                 println!("{}", String::from_utf8_lossy(&output.stdout));
                 if !output.status.success() && !output.stderr.is_empty() {
-                    println!(
-                        "{}",
-                        format!(
-                            "Command failed: {}",
-                            String::from_utf8_lossy(&output.stderr)
-                        )
-                        .red()
+                    let message = format!(
+                        "Command failed: {}",
+                        String::from_utf8_lossy(&output.stderr)
                     );
+                    println!("{}", theme::error(&message));
                 }
             } else {
-                println!("{}", "Command execution cancelled.".yellow());
+                println!("{}", theme::warning("Command execution cancelled."));
             }
         }
         Ok(())

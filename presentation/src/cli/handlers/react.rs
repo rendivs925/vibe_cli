@@ -21,6 +21,7 @@ use infrastructure::syntax_grammar_validator::SyntaxGrammarValidator;
 use infrastructure::tools;
 use rustyline::error::ReadlineError;
 use rustyline::DefaultEditor;
+use shared::theme;
 use shared::types::Result;
 use std::env;
 use std::io::{self, Write};
@@ -116,8 +117,8 @@ impl LineEditor {
     }
 
     fn read_line_with_prompt(&mut self, prompt_msg: Option<&str>) -> Result<Option<String>> {
-        let prompt = prompt_msg.unwrap_or("> ");
-        match self.editor.readline(prompt) {
+        let prompt = theme::ansi_prompt(prompt_msg.unwrap_or("> "));
+        match self.editor.readline(&prompt) {
             Ok(line) => {
                 let trimmed = line.trim_end().to_string();
                 if !trimmed.is_empty() {
@@ -179,7 +180,10 @@ impl CliHandlers {
         let mut repl = match LineEditor::new() {
             Ok(repl) => Some(repl),
             Err(err) => {
-                eprintln!("[warn] Failed to start line editor: {err}");
+                eprintln!(
+                    "{}",
+                    theme::warning(&format!("[warn] Failed to start line editor: {err}"))
+                );
                 None
             }
         };
@@ -259,7 +263,13 @@ impl CliHandlers {
         let service = match SessionIndexingService::new().await {
             Ok(indexing) => service.with_indexing_service(Arc::new(indexing)),
             Err(e) => {
-                eprintln!("[warn] Failed to initialize semantic indexing: {}", e);
+                eprintln!(
+                    "{}",
+                    theme::warning(&format!(
+                        "[warn] Failed to initialize semantic indexing: {}",
+                        e
+                    ))
+                );
                 service
             }
         };
@@ -301,7 +311,7 @@ impl CliHandlers {
             if repl.is_none() && interrupted.load(Ordering::SeqCst) {
                 session.abort();
                 service.save_session(&session).await?;
-                println!("\n[Session auto-saved]");
+                println!("{}", theme::info("[Session auto-saved]"));
                 return Ok(carry);
             }
 
@@ -339,13 +349,22 @@ impl CliHandlers {
                             Some(result)
                         }
                         Err(e) => {
-                            eprintln!("[warn] Tool execution failed: {}", e);
+                            eprintln!(
+                                "{}",
+                                theme::warning(&format!(
+                                    "[warn] Tool execution failed: {}",
+                                    e
+                                ))
+                            );
                             None
                         }
                     }
                 }
                 Err(e) => {
-                    eprintln!("[warn] Tool selection failed: {}", e);
+                    eprintln!(
+                        "{}",
+                        theme::warning(&format!("[warn] Tool selection failed: {}", e))
+                    );
                     None
                 }
             };
@@ -354,13 +373,18 @@ impl CliHandlers {
             let tool_result = match tool_result {
                 Some(r) => r,
                 None => {
-                    eprintln!("[warn] No tool result available. Provide direction or /abort.");
+                    eprintln!(
+                        "{}",
+                        theme::warning(
+                            "[warn] No tool result available. Provide direction or /abort."
+                        )
+                    );
                     let input = match read_user_line("> ", &interrupted, repl)? {
                         Some(value) => value,
                         None => {
                             session.abort();
                             service.save_session(&session).await?;
-                            println!("\n[Session auto-saved]");
+                            println!("{}", theme::info("[Session auto-saved]"));
                             return Ok(carry);
                         }
                     };
@@ -379,7 +403,7 @@ impl CliHandlers {
                     None => {
                         session.abort();
                         service.save_session(&session).await?;
-                        println!("\n[Session auto-saved]");
+                        println!("{}", theme::info("[Session auto-saved]"));
                         return Ok(carry);
                     }
                 };
@@ -502,7 +526,7 @@ impl CliHandlers {
                 valid
             } else {
                 if options.show_validation {
-                    println!("No valid commands found.");
+                    println!("{}", theme::warning("No valid commands found."));
                 }
                 break;
             };
@@ -538,7 +562,7 @@ impl CliHandlers {
                         None => {
                             session.abort();
                             service.save_session(&session).await?;
-                            println!("\n[Session auto-saved]");
+                            println!("{}", theme::info("[Session auto-saved]"));
                             return Ok(carry);
                         }
                     };
@@ -549,7 +573,7 @@ impl CliHandlers {
                                 None => {
                                     session.abort();
                                     service.save_session(&session).await?;
-                                    println!("\n[Session auto-saved]");
+                                    println!("{}", theme::info("[Session auto-saved]"));
                                     return Ok(carry);
                                 }
                             };
@@ -637,7 +661,13 @@ impl CliHandlers {
                                 Ok(true) => achieved = true,
                                 Ok(false) => {}
                                 Err(e) => {
-                                    eprintln!("[warn] Goal check failed: {}", e);
+                                    eprintln!(
+                                        "{}",
+                                        theme::warning(&format!(
+                                            "[warn] Goal check failed: {}",
+                                            e
+                                        ))
+                                    );
                                 }
                             }
                         }
@@ -729,7 +759,7 @@ impl CliHandlers {
                         SessionCommand::Compact => {
                             let summary = service.compact_history(&session).await?;
                             session.set_compacted_summary(summary.clone());
-                            println!("Compacting steps into summary:");
+                            println!("{}", theme::accent("Compacting steps into summary:"));
                             println!("{summary}");
                         }
                         SessionCommand::Reset => {
@@ -791,7 +821,7 @@ impl CliHandlers {
                         }
                         SessionCommand::Save => {
                             service.save_session(&session).await?;
-                            println!("Session saved.");
+                            println!("{}", theme::success("Session saved."));
                         }
                         SessionCommand::Sessions => {
                             let sessions = react_repo_for_cli
@@ -799,7 +829,7 @@ impl CliHandlers {
                                 .await
                                 .map_err(|e| anyhow!(e.to_string()))?;
                             if sessions.is_empty() {
-                                println!("No saved sessions.");
+                                println!("{}", theme::warning("No saved sessions."));
                             } else {
                                 for s in sessions {
                                     println!("{} | {:?} | {}", s.id, s.status, s.query);
@@ -817,7 +847,7 @@ impl CliHandlers {
                                 sessions.first().map(|s| s.id.clone()).unwrap_or_default()
                             };
                             if target.is_empty() {
-                                println!("No session to resume.");
+                                println!("{}", theme::warning("No session to resume."));
                             } else if let Some(mut loaded) = react_repo_for_cli
                                 .get_session(&target)
                                 .await
@@ -833,7 +863,7 @@ impl CliHandlers {
                                 pending_command_override = None;
                                 println!("Resumed session {}", session.id);
                             } else {
-                                println!("Session not found: {target}");
+                                println!("{}", theme::error(&format!("Session not found: {target}")));
                             }
                         }
                         SessionCommand::Stats => {
@@ -925,7 +955,7 @@ fn print_react_context(session: &ReactSession) {
     println!("Steps: {}", session.steps.len());
     if let Some(summary) = &session.compacted_summary {
         if !summary.trim().is_empty() {
-            println!("Summary: {}", summary.trim());
+            println!("{} {}", theme::accent("Summary:"), summary.trim());
         }
     }
     if !session.memory.constraints.is_empty() {
@@ -1050,7 +1080,13 @@ fn validate_command_candidates(
 fn print_validation_report(report: &CommandValidationReport, show: bool) {
     if !show {
         if report.valid.is_empty() && !report.invalid.is_empty() {
-            println!("No valid commands found: {}", report.invalid[0].reason);
+            println!(
+                "{}",
+                theme::warning(&format!(
+                    "No valid commands found: {}",
+                    report.invalid[0].reason
+                ))
+            );
         }
         return;
     }
@@ -1059,14 +1095,32 @@ fn print_validation_report(report: &CommandValidationReport, show: bool) {
         return;
     }
     if report.invalid.is_empty() {
-        println!("Command Validation: {}/{} valid", report.valid.len(), total);
+        println!(
+            "{}",
+            theme::info(&format!(
+                "Command Validation: {}/{} valid",
+                report.valid.len(),
+                total
+            ))
+        );
         return;
     }
 
-    println!("Command Validation: {}/{} valid", report.valid.len(), total);
-    println!("Invalid commands:");
+    println!(
+        "{}",
+        theme::info(&format!(
+            "Command Validation: {}/{} valid",
+            report.valid.len(),
+            total
+        ))
+    );
+    println!("{}", theme::warning("Invalid commands:"));
     for entry in &report.invalid {
-        println!("  - {}: {}", entry.command, entry.reason);
+        println!(
+            "  - {}: {}",
+            theme::error(&entry.command),
+            theme::muted(&entry.reason)
+        );
     }
 }
 
@@ -1442,9 +1496,12 @@ fn init_react_storage() -> (Arc<dyn ReactRepository>, Arc<dyn ReactCommandReposi
             )
         }
         Err(err) => {
-            eprintln!(
+        eprintln!(
+            "{}",
+            theme::warning(&format!(
                 "[warn] Failed to open persistent storage: {err}. Falling back to in-memory."
-            );
+            ))
+        );
             let storage = Arc::new(InMemoryReactStorage::new());
             (
                 storage.clone() as Arc<dyn ReactRepository>,
@@ -1458,7 +1515,10 @@ fn install_ctrlc_handler(flag: Arc<AtomicBool>) -> Result<()> {
     if let Err(err) = ctrlc::set_handler(move || {
         flag.store(true, Ordering::SeqCst);
     }) {
-        eprintln!("[warn] Ctrl+C handler not installed: {}", err);
+        eprintln!(
+            "{}",
+            theme::warning(&format!("[warn] Ctrl+C handler not installed: {}", err))
+        );
     }
     Ok(())
 }
@@ -1921,7 +1981,7 @@ fn prompt_line(prompt: &str, interrupted: &AtomicBool) -> Result<Option<String>>
     }
     let _guard = RawModeGuard;
 
-    print!("{prompt}");
+    print!("{}", theme::prompt(prompt));
     io::stdout().flush()?;
 
     let mut input = String::new();

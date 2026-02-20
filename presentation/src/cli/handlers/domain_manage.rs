@@ -1,5 +1,6 @@
 use super::CliHandlers;
 use colored::Colorize;
+use shared::theme;
 use shared::types::Result;
 use std::process::Command;
 
@@ -9,13 +10,11 @@ impl CliHandlers {
 
         println!(
             "{}",
-            format!("Installing domain package: {}", package)
-                .green()
-                .bold()
+            theme::accent(&format!("Installing domain package: {}", package)).bold()
         );
 
         if package.starts_with("http://") || package.starts_with("https://") {
-            println!("{}", "Downloading from URL...".yellow());
+            println!("{}", theme::warning("Downloading from URL..."));
             let client = reqwest::Client::new();
             let response = client.get(package).send().await?;
 
@@ -31,14 +30,17 @@ impl CliHandlers {
                 std::fs::create_dir_all(&target_dir)?;
                 std::fs::write(target_dir.join("domain.json"), content)?;
 
-                println!("{}", format!("Installed domain: {}", domain_name).green());
+                println!(
+                    "{}",
+                    theme::success(&format!("Installed domain: {}", domain_name))
+                );
             } else {
-                eprintln!("{}", "Failed to download package".red());
+                eprintln!("{}", theme::error("Failed to download package"));
             }
         } else {
             println!(
                 "{}",
-                format!("Looking for local package: {}", package).yellow()
+                theme::warning(&format!("Looking for local package: {}", package))
             );
             let package_dir = std::path::Path::new(package);
             if package_dir.exists() && package_dir.is_dir() {
@@ -59,9 +61,15 @@ impl CliHandlers {
                     }
                 }
 
-                println!("{}", format!("Installed domain: {}", domain_name).green());
+                println!(
+                    "{}",
+                    theme::success(&format!("Installed domain: {}", domain_name))
+                );
             } else {
-                eprintln!("{}", format!("Package not found: {}", package).red());
+                eprintln!(
+                    "{}",
+                    theme::error(&format!("Package not found: {}", package))
+                );
             }
         }
 
@@ -72,13 +80,22 @@ impl CliHandlers {
         let config_dir = self.config_dir();
         let domain_dir = config_dir.join(domain);
 
-        println!("{}", format!("Removing domain: {}", domain).green().bold());
+        println!(
+            "{}",
+            theme::accent(&format!("Removing domain: {}", domain)).bold()
+        );
 
         if domain_dir.exists() {
             std::fs::remove_dir_all(&domain_dir)?;
-            println!("{}", format!("Removed: {}", domain_dir.display()).green());
+            println!(
+                "{}",
+                theme::success(&format!("Removed: {}", domain_dir.display()))
+            );
         } else {
-            println!("{}", format!("Domain not found: {}", domain).yellow());
+            println!(
+                "{}",
+                theme::warning(&format!("Domain not found: {}", domain))
+            );
         }
 
         Ok(())
@@ -88,16 +105,18 @@ impl CliHandlers {
         let config_dir = self.config_dir();
         let domain_dir = config_dir.join(domain);
 
-        println!("{}", format!("Editing domain: {}", domain).green().bold());
+        println!(
+            "{}",
+            theme::accent(&format!("Editing domain: {}", domain)).bold()
+        );
 
         if !domain_dir.exists() {
             println!(
                 "{}",
-                format!(
+                theme::warning(&format!(
                     "Domain not found: {}. Use --neurosymbolic-add to create it.",
                     domain
-                )
-                .yellow()
+                ))
             );
             return Ok(());
         }
@@ -108,12 +127,18 @@ impl CliHandlers {
             let entry = entry?;
             if entry.path().is_file() {
                 let file_name = entry.file_name();
-                println!("{}", format!("Opening: {}", file_name.display()).yellow());
+                println!(
+                    "{}",
+                    theme::warning(&format!("Opening: {}", file_name.display()))
+                );
 
                 let status = Command::new(&editor).arg(entry.path()).status()?;
 
                 if status.success() {
-                    println!("{}", format!("Saved: {}", file_name.display()).green());
+                    println!(
+                        "{}",
+                        theme::success(&format!("Saved: {}", file_name.display()))
+                    );
                 }
             }
         }
@@ -127,7 +152,7 @@ impl CliHandlers {
 
         println!(
             "{}",
-            format!("Adding new domain: {}", domain).green().bold()
+            theme::accent(&format!("Adding new domain: {}", domain)).bold()
         );
 
         std::fs::create_dir_all(&domain_dir.join("entities"))?;
@@ -145,7 +170,10 @@ impl CliHandlers {
         );
 
         std::fs::write(domain_dir.join("domain.json"), &domain_json)?;
-        println!("{}", format!("Created: {}/domain.json", domain).green());
+        println!(
+            "{}",
+            theme::success(&format!("Created: {}/domain.json", domain))
+        );
 
         let ops_json = r#"[
     {
@@ -166,16 +194,22 @@ impl CliHandlers {
 ]"#;
 
         std::fs::write(domain_dir.join("operations.json"), ops_json)?;
-        println!("{}", format!("Created: {}/operations.json", domain).green());
+        println!(
+            "{}",
+            theme::success(&format!("Created: {}/operations.json", domain))
+        );
 
         std::fs::write(domain_dir.join("relationships.json"), "[]")?;
         std::fs::write(domain_dir.join("inference_rules.json"), "[]")?;
         std::fs::write(domain_dir.join("troubleshooting.json"), "[]")?;
 
-        println!("\n{}", "Domain template created!".green().bold());
+        println!("\n{}", theme::success("Domain template created!").bold());
         println!(
             "{}",
-            format!("Edit with: vibe_cli --neurosymbolic-edit {}", domain).yellow()
+            theme::warning(&format!(
+                "Edit with: vibe_cli --neurosymbolic-edit {}",
+                domain
+            ))
         );
 
         Ok(())
@@ -184,13 +218,13 @@ impl CliHandlers {
     pub async fn handle_neurosymbolic_list(&self) -> Result<()> {
         let config_dir = self.config_dir();
 
-        println!("{}", "Installed Domains".green().bold());
+        println!("{}", theme::accent("Installed Domains").bold());
         println!("{}", "==============".to_string());
 
         if !config_dir.exists() {
             println!(
                 "{}",
-                "No domains installed. Run --neurosymbolic-init first.".yellow()
+                theme::warning("No domains installed. Run --neurosymbolic-init first.")
             );
             return Ok(());
         }
@@ -216,7 +250,12 @@ impl CliHandlers {
                                 .unwrap_or(true);
 
                             let status = if enabled { "enabled" } else { "disabled" };
-                            println!("  {} - {} [{}]", domain_name.green().bold(), desc, status);
+                            println!(
+                                "  {} - {} [{}]",
+                                theme::success(&domain_name).bold(),
+                                desc,
+                                status
+                            );
                             domains.push(domain_name);
                         }
                     }
@@ -225,12 +264,15 @@ impl CliHandlers {
         }
 
         if domains.is_empty() {
-            println!("{}", "No domains found.".yellow());
+            println!("{}", theme::warning("No domains found."));
         } else {
-            println!("\n{}", format!("Total: {} domain(s)", domains.len()).cyan());
+            println!(
+                "\n{}",
+                theme::info(&format!("Total: {} domain(s)", domains.len()))
+            );
         }
 
-        println!("\n{}", "Usage:".green());
+        println!("\n{}", theme::accent("Usage:"));
         println!("  vibe_cli \"your query\"");
         println!("  vibe_cli --neurosymbolic-edit <domain>  # Edit a domain");
         println!("  vibe_cli --neurosymbolic-remove <domain>  # Remove a domain");

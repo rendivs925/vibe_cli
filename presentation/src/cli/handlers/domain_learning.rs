@@ -1,5 +1,6 @@
 use super::CliHandlers;
 use colored::Colorize;
+use shared::theme;
 use shared::confirmation::ask_confirmation;
 use shared::types::Result;
 
@@ -9,7 +10,10 @@ impl CliHandlers {
             return Ok(());
         }
 
-        println!("\n{}", "=== Learning New Command ===".green().bold());
+        println!(
+            "\n{}",
+            theme::accent("=== Learning New Command ===").bold()
+        );
 
         let operation_name = Self::generate_operation_name(query);
         let operation_id = operation_name.to_lowercase().replace(" ", "_");
@@ -77,7 +81,7 @@ impl CliHandlers {
 
             println!(
                 "\n{}",
-                format!("Saved new operation to: {}", ops_file.display()).green()
+                theme::success(&format!("Saved new operation to: {}", ops_file.display()))
             );
             if let Some(service) = self.neurosymbolic_service.as_mut() {
                 let _ = service.reload_domain_registry();

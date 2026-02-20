@@ -1,14 +1,14 @@
+use crate::theme;
 use crate::types::Result;
-use colored::Colorize;
 use crossterm::event::{read, Event, KeyCode};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use dialoguer::console::Term;
 use std::io;
 
 fn write_prompt(term: &Term, prompt: &str, hint: Option<&str>) -> Result<()> {
-    let prompt_text = prompt.cyan().bold();
+    let prompt_text = theme::prompt(prompt);
     if let Some(hint) = hint {
-        let hint_text = hint.dimmed();
+        let hint_text = theme::muted(hint);
         term.write_str(&format!("{prompt_text} {hint_text} "))?;
     } else {
         term.write_str(&format!("{prompt_text} "))?;
@@ -39,7 +39,11 @@ pub fn ask_confirmation(prompt: &str, default_yes: bool) -> Result<bool> {
     disable_raw_mode()?;
 
     // Echo selection with color for clarity.
-    let selection = if result { "y".green() } else { "n".red() };
+    let selection = if result {
+        theme::success("y")
+    } else {
+        theme::error("n")
+    };
     term.write_line(&selection.to_string())?;
 
     Ok(result)
@@ -68,9 +72,9 @@ pub fn ask_command_confirmation(prompt: &str, allow_generate: bool) -> Result<Op
 
     // Echo selection with color for clarity.
     let selection = match result {
-        Some(true) => "y".green().to_string(),
-        Some(false) => "n".red().to_string(),
-        None => "g".yellow().to_string(),
+        Some(true) => theme::success("y").to_string(),
+        Some(false) => theme::error("n").to_string(),
+        None => theme::warning("g").to_string(),
     };
     term.write_line(&selection)?;
 
@@ -100,14 +104,14 @@ pub fn ask_selection(options: &[String], allow_generate_new: bool) -> Result<Opt
         return Err(anyhow::anyhow!("generate_new"));
     } else if let Ok(choice) = input.parse::<usize>() {
         if choice >= 1 && choice <= options.len() {
-            let label = "Selected:".dimmed();
-            let choice_text = options[choice - 1].green();
+            let label = theme::muted("Selected:");
+            let choice_text = theme::success(&options[choice - 1]);
             term.write_line(&format!("{label} {choice_text}"))?;
             return Ok(Some(choice - 1));
         }
     }
 
-    term.write_line(&"Invalid choice. Please try again.".red().to_string())?;
+    term.write_line(&theme::error("Invalid choice. Please try again.").to_string())?;
     // Retry by calling again (recursive call with same parameters)
     ask_selection(options, allow_generate_new)
 }
