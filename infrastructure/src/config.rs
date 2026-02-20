@@ -93,7 +93,7 @@ impl Config {
             rag_include_patterns,
             rag_exclude_patterns,
             searxng_url: env::var("SEARXNG_URL")
-                .unwrap_or_else(|_| "http://localhost:8080".to_string()),
+                .unwrap_or_else(|_| "http://localhost:8085".to_string()),
         }
     }
 }

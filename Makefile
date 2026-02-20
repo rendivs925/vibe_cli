@@ -8,13 +8,13 @@ help:
 	@echo "  make searxng-restart  - Restart SearXNG container"
 
 SEARXNG_CONTAINER := vibe-searxng
-SEARXNG_PORT := 8080
+SEARXNG_PORT := 8085
 
 searxng-up:
 	@echo "Starting SearXNG on port $(SEARXNG_PORT)..."
 	docker run -d \
 		--name $(SEARXNG_CONTAINER) \
-		-p $(SEARXNG_PORT):8080 \
+		-p $(SEARXNG_PORT):8085 \
 		-e SEARXNG_BASE_URL=http://localhost:$(SEARXNG_PORT) \
 		-e SEARXNG_SECRET=$(shell openssl rand -hex 32) \
 		-v searxng-data:/etc/searxng \
