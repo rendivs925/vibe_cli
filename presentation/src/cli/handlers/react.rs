@@ -6,6 +6,7 @@ use application::services::rag_service::RagService;
 use application::services::react_agent_service::ReactAgentService;
 use application::services::test_time_scaling::{ScalingConfig, ScalingMethod};
 use application::services::tool_executor::ToolExecutor;
+use application::services::conversation_context::ConversationContextManager;
 use crossterm::event::{read, Event, KeyCode, KeyModifiers};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use domain::entities::react::{
@@ -282,6 +283,9 @@ impl CliHandlers {
             "context_scope".to_string(),
             options.context_scope.to_string(),
         );
+        let conversation_manager = ConversationContextManager::default();
+        session.add_user_query(query);
+        conversation_manager.compact_if_needed(&mut session);
 
         if let Some(seed_output) = seed {
             let content = if let Some(cmd) = seed_output.command.as_ref() {
@@ -352,6 +356,9 @@ impl CliHandlers {
                             if !options.summary_only && !result.output.is_empty() {
                                 print_with_pager(&result.output);
                             }
+                            session.add_tool_execution(&tool_name, &result.commands.join("; "));
+                            session.add_tool_output(&tool_name, &result.output);
+                            conversation_manager.compact_if_needed(&mut session);
                             Some(result)
                         }
                         Err(e) => {
@@ -399,6 +406,8 @@ impl CliHandlers {
                     if input.trim().is_empty() {
                         continue;
                     }
+                    session.add_user_query(&input);
+                    conversation_manager.compact_if_needed(&mut session);
                     service.ingest_user_input(&mut session, &input);
                     save_step(&service, &mut session, ReactStepType::Observation, input).await?;
                     continue;
@@ -418,6 +427,8 @@ impl CliHandlers {
                 if input.trim().is_empty() {
                     continue;
                 }
+                session.add_user_query(&input);
+                conversation_manager.compact_if_needed(&mut session);
                 service.ingest_user_input(&mut session, &input);
                 save_step(&service, &mut session, ReactStepType::Observation, input).await?;
                 continue;
@@ -437,9 +448,15 @@ impl CliHandlers {
                     if options.auto_summary && !tool_result.output.trim().is_empty() {
                         let summary_timer = progress_start("Summarizing", "interpreting output");
                         let previous = session.compacted_summary.as_deref().unwrap_or("");
-                        let _ = self
-                            .interpret_output_final(&session.query, &tool_result.output, previous)
-                            .await;
+                        let summary = self
+                            .summarize_and_print(&session.query, &tool_result.output, previous)
+                            .await
+                            .unwrap_or_default();
+                        if !summary.trim().is_empty() {
+                            session.add_ai_summary(&summary);
+                            conversation_manager.compact_if_needed(&mut session);
+                            service.save_session(&session).await.ok();
+                        }
                         progress_done("Summarizing", summary_timer);
                     }
                 }
@@ -466,9 +483,15 @@ impl CliHandlers {
                 if options.auto_summary && !tool_result.output.trim().is_empty() {
                     let summary_timer = progress_start("Summarizing", "interpreting output");
                     let previous = session.compacted_summary.as_deref().unwrap_or("");
-                    let _ = self
-                        .interpret_output_final(&session.query, &tool_result.output, previous)
-                        .await;
+                    let summary = self
+                        .summarize_and_print(&session.query, &tool_result.output, previous)
+                        .await
+                        .unwrap_or_default();
+                    if !summary.trim().is_empty() {
+                        session.add_ai_summary(&summary);
+                        conversation_manager.compact_if_needed(&mut session);
+                        service.save_session(&session).await.ok();
+                    }
                     progress_done("Summarizing", summary_timer);
                     session.complete();
                     service.save_session(&session).await?;
@@ -610,6 +633,8 @@ impl CliHandlers {
                         &mut validator,
                         &mut suggested,
                         &session.query,
+                        &mut session,
+                        &conversation_manager,
                         !options.summary_only || options.auto_summary,
                         options.auto_summary,
                     )
@@ -649,9 +674,15 @@ impl CliHandlers {
                             .as_deref()
                             .or(session.compacted_summary.as_deref())
                             .unwrap_or("");
-                        let _ = self
-                            .interpret_output_final(&session.query, &output, previous)
-                            .await;
+                        let summary = self
+                            .summarize_and_print(&session.query, &output, previous)
+                            .await
+                            .unwrap_or_default();
+                        if !summary.trim().is_empty() {
+                            session.add_ai_summary(&summary);
+                            conversation_manager.compact_if_needed(&mut session);
+                            service.save_session(&session).await.ok();
+                        }
                         progress_done("Summarizing", summary_timer);
                     }
 
@@ -767,6 +798,8 @@ impl CliHandlers {
                     service.update_command(&suggested).await.ok();
                     // User provided direction - go back to ANALYZE with their input
                     // Do NOT generate new command suggestion - re-analyze with user input
+                    session.add_user_query(&text);
+                    conversation_manager.compact_if_needed(&mut session);
                     service.ingest_user_input(&mut session, &text);
                     save_step(&service, &mut session, ReactStepType::Observation, text).await?;
                     continue; // Skip command generation, go back to ANALYZE
@@ -1621,6 +1654,8 @@ async fn execute_suggestion(
     validator: &mut SyntaxGrammarValidator,
     command: &mut ProposedCommand,
     query: &str,
+    session: &mut ReactSession,
+    conversation_manager: &ConversationContextManager,
     emit_output: bool,
     auto_summary: bool,
 ) -> Result<ExecutionResult> {
@@ -1662,6 +1697,8 @@ async fn execute_suggestion(
 
     if tools.has_tool(&tool_name) {
         command.approve();
+        session.add_tool_execution(&tool_name, &command.command);
+        conversation_manager.compact_if_needed(session);
         let mut detail = if args.is_empty() {
             String::new()
         } else {
@@ -1690,6 +1727,8 @@ async fn execute_suggestion(
                     output.stderr.clone(),
                 );
                 let formatted = format_tool_output(&tool_name, &output);
+                session.add_tool_output(&tool_name, &formatted);
+                conversation_manager.compact_if_needed(session);
                 if let Some(note) = rewrite_note {
                     Ok(ExecutionResult {
                         output: format!("{note}\n{formatted}"),
@@ -1730,6 +1769,8 @@ async fn execute_suggestion(
     }
 
     command.approve();
+    session.add_tool_execution("shell", &command.command);
+    conversation_manager.compact_if_needed(session);
     let exec_timer = progress_start("Running", &command.command);
     let (output, summary, output_printed) = if auto_summary {
         let (tx, rx) = std::sync::mpsc::channel();
@@ -1754,6 +1795,8 @@ async fn execute_suggestion(
     progress_done("Running", exec_timer);
     let exit_code = output.status.code().unwrap_or(-1);
     command.execute(exit_code, output.full_output.clone(), output.stderr.clone());
+    session.add_tool_output("shell", &output.full_output);
+    conversation_manager.compact_if_needed(session);
     Ok(ExecutionResult {
         output: output.full_output,
         summary,

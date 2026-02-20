@@ -3,6 +3,7 @@ pub mod confidence_scorer;
 pub mod context_window;
 pub mod context_engineer;
 pub mod context_vault;
+pub mod conversation_context;
 pub mod enhanced_safety_service;
 pub mod graph_builder;
 pub mod learning_service;

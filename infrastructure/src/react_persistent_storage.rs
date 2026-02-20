@@ -34,6 +34,7 @@ impl SqliteReactStorage {
                 memory_json TEXT,
                 compacted_summary TEXT,
                 compacted_history_at TEXT,
+                conversation_json TEXT,
                 neurosymbolic_enabled INTEGER NOT NULL DEFAULT 0
             )",
             [],
@@ -89,6 +90,15 @@ impl SqliteReactStorage {
             }
         }
 
+        if let Err(err) = conn.execute(
+            "ALTER TABLE react_sessions ADD COLUMN conversation_json TEXT",
+            [],
+        ) {
+            if !err.to_string().contains("duplicate column") {
+                // Ignore if column already exists
+            }
+        }
+
         Ok(())
     }
 
@@ -96,11 +106,13 @@ impl SqliteReactStorage {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let context_json = serde_json::to_string(&session.context).unwrap_or_default();
         let memory_json = serde_json::to_string(&session.memory).unwrap_or_default();
+        let conversation_json =
+            serde_json::to_string(&session.conversation_history).unwrap_or_default();
         
         conn.execute(
             "INSERT OR REPLACE INTO react_sessions 
-             (id, query, status, created_at, updated_at, context_json, memory_json, compacted_summary, compacted_history_at, neurosymbolic_enabled)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
+             (id, query, status, created_at, updated_at, context_json, memory_json, compacted_summary, compacted_history_at, conversation_json, neurosymbolic_enabled)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
             params![
                 session.id,
                 session.query,
@@ -111,6 +123,7 @@ impl SqliteReactStorage {
                 memory_json,
                 session.compacted_summary,
                 session.compacted_history_at.as_ref().map(|dt| dt.to_rfc3339()),
+                conversation_json,
                 session.neurosymbolic_enabled as i32,
             ],
         )?;
@@ -120,7 +133,7 @@ impl SqliteReactStorage {
     fn do_get_session(&self, session_id: &str) -> Result<Option<ReactSession>, Box<dyn Error + Send + Sync>> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let mut stmt = conn.prepare(
-            "SELECT id, query, status, created_at, updated_at, context_json, memory_json, compacted_summary, compacted_history_at, neurosymbolic_enabled
+            "SELECT id, query, status, created_at, updated_at, context_json, memory_json, compacted_summary, compacted_history_at, conversation_json, neurosymbolic_enabled
              FROM react_sessions WHERE id = ?1"
         )?;
 
@@ -136,7 +149,8 @@ impl SqliteReactStorage {
                     row.get::<_, Option<String>>(6)?,
                     row.get::<_, Option<String>>(7)?,
                     row.get::<_, Option<String>>(8)?,
-                    row.get::<_, i32>(9)?,
+                    row.get::<_, Option<String>>(9)?,
+                    row.get::<_, i32>(10)?,
                 ))
             })
             .optional()?;
@@ -144,10 +158,14 @@ impl SqliteReactStorage {
         drop(stmt);
         drop(conn);
 
-        if let Some((id, query, status, created_at, updated_at, context_json, memory_json, compacted_summary, compacted_history_at, neurosymbolic_enabled)) = session {
+        if let Some((id, query, status, created_at, updated_at, context_json, memory_json, compacted_summary, compacted_history_at, conversation_json, neurosymbolic_enabled)) = session {
             let context: std::collections::HashMap<String, String> = 
                 serde_json::from_str(&context_json).unwrap_or_default();
             let memory = memory_json
+                .as_deref()
+                .and_then(|json| serde_json::from_str(json).ok())
+                .unwrap_or_default();
+            let conversation_history = conversation_json
                 .as_deref()
                 .and_then(|json| serde_json::from_str(json).ok())
                 .unwrap_or_default();
@@ -184,6 +202,7 @@ impl SqliteReactStorage {
                 compacted_summary,
                 compacted_history_at,
                 neurosymbolic_enabled: neurosymbolic_enabled != 0,
+                conversation_history,
             }))
         } else {
             Ok(None)

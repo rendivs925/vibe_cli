@@ -18,6 +18,7 @@ pub struct ReactSession {
     pub compacted_summary: Option<String>,
     pub compacted_history_at: Option<DateTime<Utc>>,
     pub neurosymbolic_enabled: bool,
+    pub conversation_history: Vec<ConversationEntry>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -646,7 +647,41 @@ impl ReactSession {
             compacted_summary: None,
             compacted_history_at: None,
             neurosymbolic_enabled,
+            conversation_history: Vec::new(),
         }
+    }
+
+    pub fn add_conversation_entry(&mut self, entry: ConversationEntry) {
+        self.updated_at = Utc::now();
+        self.conversation_history.push(entry);
+    }
+
+    pub fn add_user_query(&mut self, query: &str) {
+        self.add_conversation_entry(ConversationEntry::user_query(query.to_string()));
+    }
+
+    pub fn add_tool_execution(&mut self, tool_name: &str, command: &str) {
+        self.add_conversation_entry(ConversationEntry::tool_execution(
+            tool_name,
+            command.to_string(),
+        ));
+    }
+
+    pub fn add_tool_output(&mut self, tool_name: &str, output: &str) {
+        let truncated = if output.len() > 10000 {
+            format!(
+                "{}...[truncated {} chars]",
+                &output[..8000],
+                output.len() - 8000
+            )
+        } else {
+            output.to_string()
+        };
+        self.add_conversation_entry(ConversationEntry::tool_output(tool_name, truncated));
+    }
+
+    pub fn add_ai_summary(&mut self, summary: &str) {
+        self.add_conversation_entry(ConversationEntry::ai_summary(summary.to_string()));
     }
 
     pub fn add_step(&mut self, step: ReactStep) {
@@ -835,11 +870,65 @@ impl ReactContext {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum CommandSafety {
     ReadOnly,
     Write,
     Destructive,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ConversationEntry {
+    pub entry_type: ConversationEntryType,
+    pub content: String,
+    pub tool_name: Option<String>,
+    pub timestamp: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ConversationEntryType {
+    UserQuery,
+    ToolExecution,
+    ToolOutput,
+    AiSummary,
+}
+
+impl ConversationEntry {
+    pub fn user_query(content: String) -> Self {
+        Self {
+            entry_type: ConversationEntryType::UserQuery,
+            content,
+            tool_name: None,
+            timestamp: Utc::now(),
+        }
+    }
+
+    pub fn tool_execution(tool_name: &str, content: String) -> Self {
+        Self {
+            entry_type: ConversationEntryType::ToolExecution,
+            content,
+            tool_name: Some(tool_name.to_string()),
+            timestamp: Utc::now(),
+        }
+    }
+
+    pub fn tool_output(tool_name: &str, content: String) -> Self {
+        Self {
+            entry_type: ConversationEntryType::ToolOutput,
+            content,
+            tool_name: Some(tool_name.to_string()),
+            timestamp: Utc::now(),
+        }
+    }
+
+    pub fn ai_summary(content: String) -> Self {
+        Self {
+            entry_type: ConversationEntryType::AiSummary,
+            content,
+            tool_name: None,
+            timestamp: Utc::now(),
+        }
+    }
 }
 
 pub fn classify_command(command: &str) -> CommandSafety {

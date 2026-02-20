@@ -21,10 +21,10 @@ pub struct ContextWindowStatus {
 
 impl ContextWindowPolicy {
     pub fn from_env() -> Self {
-        let max_tokens = read_env_usize("VIBE_CONTEXT_WINDOW_TOKENS")
-            .unwrap_or(DEFAULT_CONTEXT_WINDOW_TOKENS);
-        let reserve_tokens = read_env_usize("VIBE_CONTEXT_WINDOW_RESERVE")
-            .unwrap_or(DEFAULT_CONTEXT_WINDOW_RESERVE);
+        let max_tokens =
+            read_env_usize("VIBE_CONTEXT_WINDOW_TOKENS").unwrap_or(DEFAULT_CONTEXT_WINDOW_TOKENS);
+        let reserve_tokens =
+            read_env_usize("VIBE_CONTEXT_WINDOW_RESERVE").unwrap_or(DEFAULT_CONTEXT_WINDOW_RESERVE);
         Self {
             max_tokens: max_tokens.max(1024),
             reserve_tokens: reserve_tokens.min(max_tokens.saturating_sub(256)),
@@ -84,8 +84,10 @@ fn estimate_tokens(text: &str) -> usize {
 }
 
 fn read_env_usize(key: &str) -> Option<usize> {
-    env::var(key).ok().and_then(|value| value.parse::<usize>().ok())
+    env::var(key)
+        .ok()
+        .and_then(|value| value.parse::<usize>().ok())
 }
 
-const DEFAULT_CONTEXT_WINDOW_TOKENS: usize = 8192;
-const DEFAULT_CONTEXT_WINDOW_RESERVE: usize = 1024;
+const DEFAULT_CONTEXT_WINDOW_TOKENS: usize = 32768;
+const DEFAULT_CONTEXT_WINDOW_RESERVE: usize = 4096;

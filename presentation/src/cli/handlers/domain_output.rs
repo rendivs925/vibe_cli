@@ -15,6 +15,32 @@ impl CliHandlers {
         output: &str,
         previous_summary: &str,
     ) -> Result<()> {
+        let _ = self
+            .summarize_and_print(query, output, previous_summary)
+            .await?;
+        Ok(())
+    }
+
+    pub(crate) async fn summarize_and_print(
+        &self,
+        query: &str,
+        output: &str,
+        previous_summary: &str,
+    ) -> Result<String> {
+        let summary = self.generate_summary(query, output, previous_summary).await?;
+        if !summary.is_empty() {
+            println!("\n{}", theme::accent("=== AI Final Summary ===").bold());
+            println!("{}", summary.trim());
+        }
+        Ok(summary)
+    }
+
+    pub(crate) async fn generate_summary(
+        &self,
+        query: &str,
+        output: &str,
+        previous_summary: &str,
+    ) -> Result<String> {
         let client = infrastructure::ollama_client::OllamaClient::new()?;
         let prompt = format!(
             "Provide a brief summary of this command output:\n\n\
@@ -35,12 +61,7 @@ Full output:\n{}\n",
             .ok()
             .and_then(Result::ok)
             .unwrap_or_default();
-        let formatted = Self::format_ai_response(&response);
-        if !formatted.is_empty() {
-            println!("\n{}", theme::accent("=== AI Final Summary ===").bold());
-            println!("{}", formatted.trim());
-        }
-        Ok(())
+        Ok(Self::format_ai_response(&response))
     }
 
     pub(crate) fn spawn_incremental_interpreter(

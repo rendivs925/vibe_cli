@@ -1,6 +1,7 @@
 use crate::services::context_engineer::ContextEngineer;
 use crate::services::context_window::ContextWindowUsage;
 use crate::services::operational_guardrails::OperationalGuardrails;
+use crate::services::conversation_context::ConversationContextManager;
 use crate::services::react_context_retriever::RetrievedContext;
 use domain::entities::react::{ReactSession, ReactTool};
 use std::env;
@@ -239,6 +240,10 @@ CONTEXT: <what data you're using>\n\n",
         );
         engineer.add_facts(&context.facts_list);
         engineer.add_hypotheses(&context.hypotheses_list);
+
+        let conversation_manager = ConversationContextManager::default();
+        let conversation = conversation_manager.format_conversation_for_prompt(session);
+        engineer.add_conversation_history(&conversation);
 
         let avoid_commands = normalize_failed_commands(failed_commands);
         engineer.add_constraints(&context.constraints_list, avoid_commands.as_deref());

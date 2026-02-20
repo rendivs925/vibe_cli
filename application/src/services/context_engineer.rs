@@ -153,6 +153,14 @@ impl ContextEngineer {
         )
     }
 
+    pub fn add_conversation_history(&mut self, content: &str) -> String {
+        self.context_vault.add(
+            ContextDocumentType::ConversationHistory,
+            "conversation_history",
+            normalize_empty(content, "(none)"),
+        )
+    }
+
     pub fn add_environment_context(&mut self, content: &str) -> String {
         self.context_vault.add(
             ContextDocumentType::Metadata,

@@ -12,6 +12,7 @@ pub enum ContextDocumentType {
     LearningContext,
     CodeContext,
     KnowledgeBase,
+    ConversationHistory,
     Plan,
     Summary,
     Metadata,
