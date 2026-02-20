@@ -19,19 +19,15 @@ use infrastructure::react_storage::InMemoryReactStorage;
 use infrastructure::session_indexing_service::SessionIndexingService;
 use infrastructure::syntax_grammar_validator::SyntaxGrammarValidator;
 use infrastructure::tools;
-use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
+use rustyline::error::ReadlineError;
+use rustyline::DefaultEditor;
 use shared::types::Result;
 use std::env;
-use std::ffi::CString;
-use std::fs::OpenOptions;
 use std::io::{self, Write};
-use std::io::{BufRead, BufReader, Read};
-use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 use termimad::{MadSkin, FmtText};
 
 mod planning;
@@ -90,195 +86,48 @@ struct ReactSessionCarry {
     last_command: Option<String>,
 }
 
-struct ZshRepl {
-    line_reader: BufReader<std::fs::File>,
-    ack_writer: std::fs::File,
-    prompt_writer: std::fs::File,
-    needs_ack: bool,
-    _stdin_handle: std::thread::JoinHandle<()>,
-    _stdout_handle: std::thread::JoinHandle<()>,
-    _child: Box<dyn portable_pty::Child + Send>,
-    out_fifo: PathBuf,
-    ack_fifo: PathBuf,
-    prompt_fifo: PathBuf,
+struct LineEditor {
+    editor: DefaultEditor,
+    history_path: PathBuf,
 }
 
-impl ZshRepl {
+impl LineEditor {
     fn new() -> Result<Self> {
-        let pty_system = NativePtySystem::default();
-        let (cols, rows) = crossterm::terminal::size().unwrap_or((120, 30));
-        let pair = pty_system.openpty(PtySize {
-            rows,
-            cols,
-            pixel_width: 0,
-            pixel_height: 0,
-        })?;
-
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default()
-            .as_nanos();
-        let out_fifo = std::env::temp_dir().join(format!(
-            "vibe_cli_react_out_{}_{}.fifo",
-            std::process::id(),
-            nanos
-        ));
-        let ack_fifo = std::env::temp_dir().join(format!(
-            "vibe_cli_react_ack_{}_{}.fifo",
-            std::process::id(),
-            nanos
-        ));
-        let prompt_fifo = std::env::temp_dir().join(format!(
-            "vibe_cli_react_prompt_{}_{}.fifo",
-            std::process::id(),
-            nanos
-        ));
-        create_fifo(&out_fifo)?;
-        create_fifo(&ack_fifo)?;
-        create_fifo(&prompt_fifo)?;
-
-        let out_path = out_fifo.to_string_lossy();
-        let ack_path = ack_fifo.to_string_lossy();
-        let prompt_path = prompt_fifo.to_string_lossy();
-        let script = format!(
-            "PROMPT=''; RPROMPT=''; \
-             while true; do \
-             read -r prompt_msg < {prompt} || exit; \
-             saved_rprompt=$RPROMPT; \
-             if [[ -n \"$prompt_msg\" ]]; then \
-                RPROMPT=''; \
-                prompt=\"$prompt_msg\"; \
-             else \
-                RPROMPT=''; \
-                prompt='> '; \
-             fi; \
-             line=''; \
-             vared -p \"$prompt\" line || exit; \
-             RPROMPT=$saved_rprompt; \
-             print -s -- \"$line\"; \
-             print -r -- \"$line\" > {out}; \
-             read -r _ < {ack} || exit; \
-             done",
-            out = sh_single_quote(&out_path),
-            ack = sh_single_quote(&ack_path),
-            prompt = sh_single_quote(&prompt_path)
-        );
-
-        let mut cmd = CommandBuilder::new("zsh");
-        cmd.arg("-ilc");
-        cmd.arg(script);
-        if let Ok(term) = env::var("TERM") {
-            cmd.env("TERM", term);
-        } else {
-            cmd.env("TERM", "xterm-256color");
+        let mut editor = DefaultEditor::new().map_err(|e| anyhow!(e.to_string()))?;
+        let history_path = react_history_path();
+        if let Some(parent) = history_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
         }
-        let child = pair.slave.spawn_command(cmd)?;
-        drop(pair.slave);
-
-        let mut master = pair.master;
-        let mut writer = master.take_writer()?;
-        let mut reader = master.try_clone_reader()?;
-
-        let stdin_handle = std::thread::spawn(move || {
-            let mut stdin = std::io::stdin();
-            let mut buf = [0u8; 1024];
-            loop {
-                match stdin.read(&mut buf) {
-                    Ok(0) | Err(_) => break,
-                    Ok(n) => {
-                        let _ = writer.write_all(&buf[..n]);
-                        let _ = writer.flush();
-                    }
-                }
-            }
-        });
-
-        let stdout_handle = std::thread::spawn(move || {
-            let mut stdout = std::io::stdout();
-            let mut buf = [0u8; 1024];
-            loop {
-                match reader.read(&mut buf) {
-                    Ok(0) | Err(_) => break,
-                    Ok(n) => {
-                        let _ = stdout.write_all(&buf[..n]);
-                        let _ = stdout.flush();
-                    }
-                }
-            }
-        });
-
-        let out_file = OpenOptions::new().read(true).write(true).open(&out_fifo)?;
-        let ack_file = OpenOptions::new().read(true).write(true).open(&ack_fifo)?;
-        let prompt_file = OpenOptions::new()
-            .read(true)
-            .write(true)
-            .open(&prompt_fifo)?;
-
+        let _ = editor.load_history(&history_path);
         Ok(Self {
-            line_reader: BufReader::new(out_file),
-            ack_writer: ack_file,
-            prompt_writer: prompt_file,
-            needs_ack: false,
-            _stdin_handle: stdin_handle,
-            _stdout_handle: stdout_handle,
-            _child: child,
-            out_fifo,
-            ack_fifo,
-            prompt_fifo,
+            editor,
+            history_path,
         })
     }
 
     fn read_line(&mut self) -> Result<Option<String>> {
-        self.read_line_with_prompt(None)
+        self.read_line_with_prompt(Some("> "))
     }
 
     fn read_line_with_prompt(&mut self, prompt_msg: Option<&str>) -> Result<Option<String>> {
-        if self.needs_ack {
-            let _ = self.ack_writer.write_all(b"\n");
-            let _ = self.ack_writer.flush();
-            self.needs_ack = false;
+        let prompt = prompt_msg.unwrap_or("> ");
+        match self.editor.readline(prompt) {
+            Ok(line) => {
+                let trimmed = line.trim_end().to_string();
+                if !trimmed.is_empty() {
+                    let _ = self.editor.add_history_entry(trimmed.as_str());
+                }
+                Ok(Some(trimmed))
+            }
+            Err(ReadlineError::Interrupted) | Err(ReadlineError::Eof) => Ok(None),
+            Err(err) => Err(anyhow!(err.to_string())),
         }
-
-        let msg = prompt_msg.unwrap_or("");
-        let _ = self.prompt_writer.write_all(msg.as_bytes());
-        let _ = self.prompt_writer.write_all(b"\n");
-        let _ = self.prompt_writer.flush();
-
-        let mut line = String::new();
-        let bytes = self.line_reader.read_line(&mut line)?;
-        if bytes == 0 {
-            return Ok(None);
-        }
-        self.needs_ack = true;
-        Ok(Some(line.trim_end().to_string()))
     }
 }
 
-impl Drop for ZshRepl {
+impl Drop for LineEditor {
     fn drop(&mut self) {
-        let _ = self._child.kill();
-        let _ = std::fs::remove_file(&self.out_fifo);
-        let _ = std::fs::remove_file(&self.ack_fifo);
-        let _ = std::fs::remove_file(&self.prompt_fifo);
-    }
-}
-
-struct TerminalRawGuard;
-
-static RAW_MODE_ACTIVE: AtomicBool = AtomicBool::new(false);
-
-impl TerminalRawGuard {
-    fn enable() -> Result<Self> {
-        enable_raw_mode()?;
-        RAW_MODE_ACTIVE.store(true, Ordering::SeqCst);
-        Ok(Self)
-    }
-}
-
-impl Drop for TerminalRawGuard {
-    fn drop(&mut self) {
-        let _ = disable_raw_mode();
-        RAW_MODE_ACTIVE.store(false, Ordering::SeqCst);
+        let _ = self.editor.save_history(&self.history_path);
     }
 }
 
@@ -298,7 +147,7 @@ impl CliHandlers {
 
         let interrupted = Arc::new(AtomicBool::new(false));
         install_ctrlc_handler(interrupted.clone())?;
-        let mut repl: Option<ZshRepl> = None;
+        let mut repl: Option<LineEditor> = None;
         let _ = self
             .run_react_session(
                 query,
@@ -321,12 +170,11 @@ impl CliHandlers {
     ) -> Result<()> {
         let interrupted = Arc::new(AtomicBool::new(false));
         install_ctrlc_handler(interrupted.clone())?;
-        let _raw_guard = TerminalRawGuard::enable()?;
         let mut carry = ReactSessionCarry::default();
-        let mut repl = match ZshRepl::new() {
+        let mut repl = match LineEditor::new() {
             Ok(repl) => Some(repl),
             Err(err) => {
-                eprintln!("[warn] Failed to start zsh repl: {err}");
+                eprintln!("[warn] Failed to start line editor: {err}");
                 None
             }
         };
@@ -387,7 +235,7 @@ impl CliHandlers {
         scaling_config: &ScalingConfig,
         options: ReactRunOptions,
         seed: Option<ReactSeedOutput>,
-        repl: &mut Option<ZshRepl>,
+        repl: &mut Option<LineEditor>,
         interrupted: Arc<AtomicBool>,
     ) -> Result<ReactSessionCarry> {
         let (react_repo, cmd_repo) = init_react_storage();
@@ -712,30 +560,15 @@ impl CliHandlers {
 
             match decision {
                 AllowDecision::Execute => {
-                    let output = if repl.is_some() {
-                        let _ = disable_raw_mode();
-                        let result = execute_suggestion(
-                            self,
-                            &tools,
-                            &mut validator,
-                            &mut suggested,
-                            &session.query,
-                            !options.summary_only,
-                        )
-                        .await;
-                        let _ = enable_raw_mode();
-                        result?
-                    } else {
-                        execute_suggestion(
-                            self,
-                            &tools,
-                            &mut validator,
-                            &mut suggested,
-                            &session.query,
-                            !options.summary_only,
-                        )
-                        .await?
-                    };
+                    let output = execute_suggestion(
+                        self,
+                        &tools,
+                        &mut validator,
+                        &mut suggested,
+                        &session.query,
+                        !options.summary_only,
+                    )
+                    .await?;
                     carry.last_output = Some(output.clone());
                     carry.last_command = Some(suggested.command.clone());
                     let step_index = session.steps.len();
@@ -1976,6 +1809,14 @@ fn select_workspace_path(query: &str) -> Option<String> {
     files.first().cloned()
 }
 
+fn react_history_path() -> PathBuf {
+    let home = env::var("HOME").unwrap_or_else(|_| ".".to_string());
+    PathBuf::from(home)
+        .join(".config")
+        .join("vibe_cli")
+        .join("react_history.txt")
+}
+
 fn format_tool_output(name: &str, output: &domain::tools::ToolOutput) -> String {
     if name == "shell" {
         let mut rendered = output.stdout.clone();
@@ -2078,7 +1919,10 @@ fn prompt_next_goal(interrupted: &AtomicBool) -> Result<Option<String>> {
     }
 }
 
-fn read_shell_line(repl: &mut Option<ZshRepl>, interrupted: &AtomicBool) -> Result<Option<String>> {
+fn read_shell_line(
+    repl: &mut Option<LineEditor>,
+    interrupted: &AtomicBool,
+) -> Result<Option<String>> {
     if let Some(repl) = repl.as_mut() {
         return repl.read_line();
     }
@@ -2088,7 +1932,7 @@ fn read_shell_line(repl: &mut Option<ZshRepl>, interrupted: &AtomicBool) -> Resu
 fn read_user_line(
     prompt: &str,
     interrupted: &AtomicBool,
-    repl: &mut Option<ZshRepl>,
+    repl: &mut Option<LineEditor>,
 ) -> Result<Option<String>> {
     if let Some(repl) = repl.as_mut() {
         let message = if prompt.trim().is_empty() {
@@ -2099,24 +1943,6 @@ fn read_user_line(
         return repl.read_line_with_prompt(message);
     }
     prompt_line(prompt, interrupted)
-}
-
-fn sh_single_quote(value: &str) -> String {
-    format!("'{}'", value.replace('\'', "'\\''"))
-}
-
-fn create_fifo(path: &PathBuf) -> Result<()> {
-    let c_path = CString::new(path.as_os_str().as_bytes()).map_err(|e| anyhow!(e.to_string()))?;
-    let res = unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) };
-    if res == 0 {
-        return Ok(());
-    }
-    let err = io::Error::last_os_error();
-    if err.kind() == io::ErrorKind::AlreadyExists {
-        Ok(())
-    } else {
-        Err(anyhow!(err.to_string()))
-    }
 }
 
 fn summarize_output_for_observation(output: &str) -> String {
@@ -2148,20 +1974,11 @@ fn print_with_pager(output: &str) {
         return;
     }
     ensure_fresh_line();
-    let was_raw = RAW_MODE_ACTIVE.load(Ordering::SeqCst);
-    if was_raw {
-        let _ = disable_raw_mode();
-    }
-
     print!("{output}");
     if !output.ends_with('\n') {
         print!("\n");
     }
     let _ = io::stdout().flush();
-
-    if was_raw {
-        let _ = enable_raw_mode();
-    }
 }
 
 fn ensure_fresh_line() {
