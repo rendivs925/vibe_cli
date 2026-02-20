@@ -35,7 +35,8 @@ impl WebSearchService {
             Err(e)
                 if e.contains("Failed to connect")
                     || e.contains("Connection refused")
-                    || e.contains("Empty reply") =>
+                    || e.contains("Empty reply")
+                    || e.contains("exit status: 56") =>
             {
                 println!("SearXNG not running. Starting container...");
                 self.start_searxng()?;

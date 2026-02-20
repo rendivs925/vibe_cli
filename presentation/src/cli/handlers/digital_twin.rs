@@ -89,7 +89,6 @@ impl CliHandlers {
             }
             Err(e) => {
                 println!("Search failed: {}", e);
-                println!("Note: Using free DuckDuckGo search.");
             }
         }
         
