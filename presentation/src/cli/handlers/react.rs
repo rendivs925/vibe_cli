@@ -248,10 +248,17 @@ impl CliHandlers {
 
             let follow_up = is_follow_up_request(trimmed) && carry.last_output.is_some();
             let seed = if follow_up {
+                None
+            } else if carry.last_output.is_some() && is_follow_up_request(trimmed) {
                 Some(ReactSeedOutput {
                     command: carry.last_command.clone(),
                     output: carry.last_output.clone().unwrap_or_default(),
                 })
+            } else {
+                None
+            };
+            let resume_session_id = if follow_up {
+                carry.last_session_id.clone()
             } else {
                 None
             };
@@ -264,6 +271,7 @@ impl CliHandlers {
                     scaling_config,
                     ReactRunOptions::interactive(true),
                     seed,
+                    resume_session_id,
                     &mut repl,
                     interrupted.clone(),
                 )
@@ -280,6 +288,7 @@ impl CliHandlers {
         scaling_config: &ScalingConfig,
         options: ReactRunOptions,
         seed: Option<ReactSeedOutput>,
+        resume_session_id: Option<String>,
         repl: &mut Option<LineEditor>,
         interrupted: Arc<AtomicBool>,
     ) -> Result<ReactSessionCarry> {
@@ -310,9 +319,27 @@ impl CliHandlers {
             }
         };
 
-        let mut session = service
-            .start_session(query.to_string(), neurosymbolic)
-            .await?;
+        let mut session = if let Some(resume_id) = resume_session_id {
+            match react_repo.get_session(&resume_id).await {
+                Ok(Some(mut loaded)) => {
+                    let steps = react_repo
+                        .get_steps(&loaded.id)
+                        .await
+                        .map_err(|e| anyhow!(e.to_string()))?;
+                    loaded.steps = steps;
+                    loaded.status = ReactStatus::Running;
+                    loaded.query = query.to_string();
+                    loaded
+                }
+                _ => service
+                    .start_session(query.to_string(), neurosymbolic)
+                    .await?,
+            }
+        } else {
+            service
+                .start_session(query.to_string(), neurosymbolic)
+                .await?
+        };
         session.context.insert(
             "context_scope".to_string(),
             options.context_scope.to_string(),
@@ -321,7 +348,8 @@ impl CliHandlers {
         session.add_user_query(query);
         conversation_manager.compact_if_needed(&mut session);
 
-        if let Some(seed_output) = seed {
+        if seed.is_some() && resume_session_id.is_none() {
+            if let Some(seed_output) = seed {
             let content = if let Some(cmd) = seed_output.command.as_ref() {
                 format!("Command: {}\nOutput:\n{}", cmd.trim(), seed_output.output)
             } else {
@@ -331,6 +359,7 @@ impl CliHandlers {
             save_step(&service, &mut session, ReactStepType::Observation, content).await?;
             if let Some(cmd) = seed_output.command.as_ref() {
                 service.ingest_observation(&mut session, cmd, &seed_output.output, step_index);
+            }
             }
         }
 
