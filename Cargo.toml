@@ -74,6 +74,4 @@ scraper = "0.20"
 pdf-extract = "0.10"
 calamine = "0.26"
 ctrlc = "3.4"
-# Compression
-flate2 = "1.0"
 rustyline = "13.0"
