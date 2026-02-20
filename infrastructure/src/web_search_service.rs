@@ -67,6 +67,7 @@ impl WebSearchService {
         for line in ports.lines() {
             if let Some(host_port) = line.split("->").next() {
                 if let Some(port) = host_port.trim().split(':').last() {
+                    let port = port.trim_end_matches("/tcp").trim_end_matches("/udp");
                     return Some(format!("http://localhost:{}", port));
                 }
             }
