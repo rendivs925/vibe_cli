@@ -2,25 +2,26 @@ use super::CliHandlers;
 use crate::cli::cache::CommandCandidate;
 use crate::cli::command_review::review_candidates;
 use anyhow::anyhow;
-use application::services::react_agent_service::ReactAgentService;
 use application::services::rag_service::RagService;
-use application::services::tool_executor::ToolExecutor;
+use application::services::react_agent_service::ReactAgentService;
 use application::services::test_time_scaling::{ScalingConfig, ScalingMethod};
+use application::services::tool_executor::ToolExecutor;
 use crossterm::event::{read, Event, KeyCode, KeyModifiers};
 use crossterm::terminal::{disable_raw_mode, enable_raw_mode};
 use domain::entities::react::{
     CommandSafety, ProposedCommand, ReactSession, ReactStatus, ReactStep, ReactStepType, ReactTool,
 };
 use domain::repositories::react_repository::{ReactCommandRepository, ReactRepository};
-use infrastructure::react_storage::InMemoryReactStorage;
-use infrastructure::react_persistent_storage::SqliteReactStorage;
 use infrastructure::memory::{default_memory_path, lifelong::LifelongMemoryStore};
+use infrastructure::ollama_client::OllamaClient;
+use infrastructure::react_persistent_storage::SqliteReactStorage;
+use infrastructure::react_storage::InMemoryReactStorage;
 use infrastructure::session_indexing_service::SessionIndexingService;
 use infrastructure::syntax_grammar_validator::SyntaxGrammarValidator;
 use infrastructure::tools;
-use infrastructure::ollama_client::OllamaClient;
 use portable_pty::{CommandBuilder, NativePtySystem, PtySize, PtySystem};
 use shared::types::Result;
+use std::env;
 use std::ffi::CString;
 use std::fs::OpenOptions;
 use std::io::{self, Write};
@@ -28,10 +29,9 @@ use std::io::{BufRead, BufReader, Read};
 use std::os::unix::ffi::OsStrExt;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
-use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
-use std::env;
 
 mod planning;
 
@@ -114,12 +114,21 @@ impl ZshRepl {
             .duration_since(UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
-        let out_fifo = std::env::temp_dir()
-            .join(format!("vibe_cli_react_out_{}_{}.fifo", std::process::id(), nanos));
-        let ack_fifo = std::env::temp_dir()
-            .join(format!("vibe_cli_react_ack_{}_{}.fifo", std::process::id(), nanos));
-        let prompt_fifo = std::env::temp_dir()
-            .join(format!("vibe_cli_react_prompt_{}_{}.fifo", std::process::id(), nanos));
+        let out_fifo = std::env::temp_dir().join(format!(
+            "vibe_cli_react_out_{}_{}.fifo",
+            std::process::id(),
+            nanos
+        ));
+        let ack_fifo = std::env::temp_dir().join(format!(
+            "vibe_cli_react_ack_{}_{}.fifo",
+            std::process::id(),
+            nanos
+        ));
+        let prompt_fifo = std::env::temp_dir().join(format!(
+            "vibe_cli_react_prompt_{}_{}.fifo",
+            std::process::id(),
+            nanos
+        ));
         create_fifo(&out_fifo)?;
         create_fifo(&ack_fifo)?;
         create_fifo(&prompt_fifo)?;
@@ -196,7 +205,10 @@ impl ZshRepl {
 
         let out_file = OpenOptions::new().read(true).write(true).open(&out_fifo)?;
         let ack_file = OpenOptions::new().read(true).write(true).open(&ack_fifo)?;
-        let prompt_file = OpenOptions::new().read(true).write(true).open(&prompt_fifo)?;
+        let prompt_file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(&prompt_fifo)?;
 
         Ok(Self {
             line_reader: BufReader::new(out_file),
@@ -377,7 +389,7 @@ impl CliHandlers {
         };
 
         let service = ReactAgentService::new(neurosymbolic_service, react_repo, cmd_repo)?;
-        
+
         // Enable semantic indexing for cross-session learning
         let service = match SessionIndexingService::new().await {
             Ok(indexing) => service.with_indexing_service(Arc::new(indexing)),
@@ -386,13 +398,14 @@ impl CliHandlers {
                 service
             }
         };
-        
+
         let mut session = service
             .start_session(query.to_string(), neurosymbolic)
             .await?;
-        session
-            .context
-            .insert("context_scope".to_string(), options.context_scope.to_string());
+        session.context.insert(
+            "context_scope".to_string(),
+            options.context_scope.to_string(),
+        );
 
         if let Some(seed_output) = seed {
             let content = if let Some(cmd) = seed_output.command.as_ref() {
@@ -401,13 +414,7 @@ impl CliHandlers {
                 format!("Output:\n{}", seed_output.output)
             };
             let step_index = session.steps.len();
-            save_step(
-                &service,
-                &mut session,
-                ReactStepType::Observation,
-                content,
-            )
-            .await?;
+            save_step(&service, &mut session, ReactStepType::Observation, content).await?;
             if let Some(cmd) = seed_output.command.as_ref() {
                 service.ingest_observation(&mut session, cmd, &seed_output.output, step_index);
             }
@@ -449,17 +456,20 @@ impl CliHandlers {
             // Dynamic Tool Selection
             let mut tool_name = "unknown".to_string();
             let mut tool_justification = "Tool selection failed".to_string();
-            
+
             let tool_result = match service.select_tool(&session, &reasoning).await {
                 Ok(tool_decision) => {
                     tool_name = tool_decision.tool.name().to_string();
                     tool_justification = tool_decision.justification.clone();
-                    
+
                     // Execute the selected tool
-                    match service.execute_tool(tool_decision.tool, &session, &reasoning).await {
+                    match service
+                        .execute_tool(tool_decision.tool, &session, &reasoning)
+                        .await
+                    {
                         Ok(result) => {
                             if !options.summary_only && !result.output.is_empty() {
-                                println!("{}", result.output);
+                                print_with_pager(&result.output);
                             }
                             Some(result)
                         }
@@ -493,13 +503,7 @@ impl CliHandlers {
                         continue;
                     }
                     service.ingest_user_input(&mut session, &input);
-                    save_step(
-                        &service,
-                        &mut session,
-                        ReactStepType::Observation,
-                        input,
-                    )
-                    .await?;
+                    save_step(&service, &mut session, ReactStepType::Observation, input).await?;
                     continue;
                 }
             };
@@ -518,13 +522,7 @@ impl CliHandlers {
                     continue;
                 }
                 service.ingest_user_input(&mut session, &input);
-                save_step(
-                    &service,
-                    &mut session,
-                    ReactStepType::Observation,
-                    input,
-                )
-                .await?;
+                save_step(&service, &mut session, ReactStepType::Observation, input).await?;
                 continue;
             }
 
@@ -544,10 +542,10 @@ impl CliHandlers {
                             let cleaned = normalize_summary(&analysis);
                             if !cleaned.is_empty() {
                                 ensure_fresh_line();
-                                println!("{cleaned}");
+                                print_with_pager(&cleaned);
                             }
+                        }
                     }
-                }
                 }
                 match tool_result.tool {
                     ReactTool::ConcludeFail | ReactTool::Escalate | ReactTool::Defer => {
@@ -574,7 +572,7 @@ impl CliHandlers {
                         let cleaned = normalize_summary(&analysis);
                         if !cleaned.is_empty() {
                             ensure_fresh_line();
-                            println!("{cleaned}");
+                            print_with_pager(&cleaned);
                         }
                     }
                     session.complete();
@@ -600,13 +598,17 @@ impl CliHandlers {
                 )]
             } else if !tool_result.commands.is_empty() {
                 // Use commands from tool result
-                tool_result.commands.into_iter().map(|cmd| {
-                    ProposedCommand::new(
-                        cmd,
-                        format!("Tool proposed: {}", tool_name),
-                        tool_justification.clone(),
-                    )
-                }).collect()
+                tool_result
+                    .commands
+                    .into_iter()
+                    .map(|cmd| {
+                        ProposedCommand::new(
+                            cmd,
+                            format!("Tool proposed: {}", tool_name),
+                            tool_justification.clone(),
+                        )
+                    })
+                    .collect()
             } else {
                 service.propose_commands(&reasoning, &session).await?
             };
@@ -645,7 +647,10 @@ impl CliHandlers {
                 }
                 break;
             };
-            if options.show_command || (!options.auto_run_readonly || !matches!(suggested.safety, CommandSafety::ReadOnly)) {
+            if options.show_command
+                || (!options.auto_run_readonly
+                    || !matches!(suggested.safety, CommandSafety::ReadOnly))
+            {
                 println!("→ {}", suggested.command);
             }
 
@@ -662,7 +667,9 @@ impl CliHandlers {
             service.save_command(&suggested).await?;
             service.save_session(&session).await?;
 
-            let decision = if options.auto_run_readonly && matches!(suggested.safety, CommandSafety::ReadOnly) {
+            let decision = if options.auto_run_readonly
+                && matches!(suggested.safety, CommandSafety::ReadOnly)
+            {
                 AllowDecision::Execute
             } else {
                 loop {
@@ -742,14 +749,16 @@ impl CliHandlers {
                     service.update_command(&suggested).await.ok();
                     service.record_command_outcome(&session.query, &suggested);
                     // Index command for cross-session learning
-                    let _ = service.index_command_execution(&suggested, &session.id).await;
+                    let _ = service
+                        .index_command_execution(&suggested, &session.id)
+                        .await;
 
                     if options.summary_only {
                         if !output.trim().is_empty() {
-                            print_output_with_bat(&output);
+                            print_with_pager(&output);
                         }
                     } else if !output.trim().is_empty() {
-                        println!("{output}");
+                        print_with_pager(&output);
                     }
 
                     // Run post-command analysis
@@ -804,21 +813,29 @@ impl CliHandlers {
                                 session.complete();
                                 service.save_session(&session).await?;
                                 if let Some(next_query) = next {
-                                    let follow_up =
-                                        is_follow_up_request(&next_query) && carry.last_output.is_some();
-                                    session = service.start_session(next_query, neurosymbolic).await?;
-                                    session
-                                        .context
-                                        .insert("context_scope".to_string(), options.context_scope.to_string());
-                                    requested_primary = extract_user_command_override(&session.query)
-                                        .and_then(|cmd| primary_command_binary(&cmd));
+                                    let follow_up = is_follow_up_request(&next_query)
+                                        && carry.last_output.is_some();
+                                    session =
+                                        service.start_session(next_query, neurosymbolic).await?;
+                                    session.context.insert(
+                                        "context_scope".to_string(),
+                                        options.context_scope.to_string(),
+                                    );
+                                    requested_primary =
+                                        extract_user_command_override(&session.query)
+                                            .and_then(|cmd| primary_command_binary(&cmd));
                                     if follow_up {
                                         if let Some(output) = carry.last_output.as_ref() {
-                                            let seed = if let Some(cmd) = carry.last_command.as_ref() {
-                                                format!("Command: {}\nOutput:\n{}", cmd.trim(), output)
-                                            } else {
-                                                format!("Output:\n{}", output)
-                                            };
+                                            let seed =
+                                                if let Some(cmd) = carry.last_command.as_ref() {
+                                                    format!(
+                                                        "Command: {}\nOutput:\n{}",
+                                                        cmd.trim(),
+                                                        output
+                                                    )
+                                                } else {
+                                                    format!("Output:\n{}", output)
+                                                };
                                             let step_index = session.steps.len();
                                             save_step(
                                                 &service,
@@ -895,7 +912,8 @@ impl CliHandlers {
                             } else {
                                 let store = LifelongMemoryStore::new(default_memory_path())
                                     .map_err(|e| anyhow!(e.to_string()))?;
-                                let results = store.search(&query, 5)
+                                let results = store
+                                    .search(&query, 5)
                                     .map_err(|e| anyhow!(e.to_string()))?;
                                 if results.is_empty() {
                                     println!("No memory matches.");
@@ -912,8 +930,8 @@ impl CliHandlers {
                             } else {
                                 let store = LifelongMemoryStore::new(default_memory_path())
                                     .map_err(|e| anyhow!(e.to_string()))?;
-                                let id = store.remember(&text)
-                                    .map_err(|e| anyhow!(e.to_string()))?;
+                                let id =
+                                    store.remember(&text).map_err(|e| anyhow!(e.to_string()))?;
                                 println!("Stored memory id {id}");
                             }
                         }
@@ -923,8 +941,8 @@ impl CliHandlers {
                             } else {
                                 let store = LifelongMemoryStore::new(default_memory_path())
                                     .map_err(|e| anyhow!(e.to_string()))?;
-                                let count = store.forget(&text)
-                                    .map_err(|e| anyhow!(e.to_string()))?;
+                                let count =
+                                    store.forget(&text).map_err(|e| anyhow!(e.to_string()))?;
                                 println!("Removed {count} entries");
                             }
                         }
@@ -954,7 +972,9 @@ impl CliHandlers {
                             }
                         }
                         SessionCommand::Resume(id) => {
-                            let target = if let Some(id) = id { id } else {
+                            let target = if let Some(id) = id {
+                                id
+                            } else {
                                 let sessions = react_repo_for_cli
                                     .get_recent_sessions(1)
                                     .await
@@ -1058,7 +1078,9 @@ async fn save_step(
 }
 
 fn print_section(_title: &str, content: &str) {
-    println!("{content}");
+    if !content.trim().is_empty() {
+        print_with_pager(content);
+    }
 }
 
 fn print_react_context(session: &ReactSession) {
@@ -1321,13 +1343,17 @@ fn is_redirection_token(token: &str) -> bool {
 
 fn is_env_assignment(token: &str) -> bool {
     let mut split = token.splitn(2, '=');
-    let Some(key) = split.next() else { return false };
+    let Some(key) = split.next() else {
+        return false;
+    };
     let Some(_) = split.next() else { return false };
     if key.is_empty() {
         return false;
     }
     let mut chars = key.chars();
-    let Some(first) = chars.next() else { return false };
+    let Some(first) = chars.next() else {
+        return false;
+    };
     if !(first.is_ascii_alphabetic() || first == '_') {
         return false;
     }
@@ -1430,9 +1456,31 @@ fn is_likely_shell_command(text: &str) -> bool {
     }
 
     let common_shell = [
-        "ls", "pwd", "cat", "head", "tail", "grep", "find", "tree", "rg", "fd", "sed", "awk",
-        "perl", "git", "cargo", "systemctl", "service", "ps", "top", "free", "df", "du", "echo",
-        "curl", "wget",
+        "ls",
+        "pwd",
+        "cat",
+        "head",
+        "tail",
+        "grep",
+        "find",
+        "tree",
+        "rg",
+        "fd",
+        "sed",
+        "awk",
+        "perl",
+        "git",
+        "cargo",
+        "systemctl",
+        "service",
+        "ps",
+        "top",
+        "free",
+        "df",
+        "du",
+        "echo",
+        "curl",
+        "wget",
     ];
     if common_shell.contains(&first) {
         return true;
@@ -1454,7 +1502,11 @@ fn adjust_command_for_query(command: &str, query: &str) -> String {
     if tokens.is_empty() {
         return command.to_string();
     }
-    let offset = if tokens.get(0).map(|t| t.as_str()) == Some("shell") { 1 } else { 0 };
+    let offset = if tokens.get(0).map(|t| t.as_str()) == Some("shell") {
+        1
+    } else {
+        0
+    };
     if tokens.len() <= offset {
         return command.to_string();
     }
@@ -1474,7 +1526,14 @@ fn is_follow_up_request(input: &str) -> bool {
         return false;
     }
     let follow_starts = [
-        "how", "why", "what about", "explain", "details", "fix", "resolve", "next",
+        "how",
+        "why",
+        "what about",
+        "explain",
+        "details",
+        "fix",
+        "resolve",
+        "next",
     ];
     if follow_starts.iter().any(|p| lower.starts_with(p)) {
         return true;
@@ -1519,7 +1578,9 @@ fn build_default_tool_executor() -> ToolExecutor {
     executor.register(Arc::new(tools::file_ops::write_tool::WriteTool));
     executor.register(Arc::new(tools::file_ops::remove_tool::RemoveTool));
     executor.register(Arc::new(tools::file_ops::update_tool::UpdateTool));
-    executor.register(Arc::new(tools::file_ops::replace_block_tool::ReplaceBlockTool));
+    executor.register(Arc::new(
+        tools::file_ops::replace_block_tool::ReplaceBlockTool,
+    ));
     executor.register(Arc::new(tools::system::shell_tool::ShellTool));
     executor.register(Arc::new(tools::system::pkg_tool::PkgTool));
     executor.register(Arc::new(tools::system::svc_tool::SvcTool));
@@ -1544,7 +1605,9 @@ fn init_react_storage() -> (Arc<dyn ReactRepository>, Arc<dyn ReactCommandReposi
             )
         }
         Err(err) => {
-            eprintln!("[warn] Failed to open persistent storage: {err}. Falling back to in-memory.");
+            eprintln!(
+                "[warn] Failed to open persistent storage: {err}. Falling back to in-memory."
+            );
             let storage = Arc::new(InMemoryReactStorage::new());
             (
                 storage.clone() as Arc<dyn ReactRepository>,
@@ -1751,7 +1814,11 @@ async fn execute_rag_via_service(
     Ok("RAG service unavailable.".to_string())
 }
 
-fn normalize_tool_args(tool_name: &str, args: &[String], query: &str) -> (Vec<String>, Option<String>) {
+fn normalize_tool_args(
+    tool_name: &str,
+    args: &[String],
+    query: &str,
+) -> (Vec<String>, Option<String>) {
     let Some(path_arg_index) = tool_path_arg_index(tool_name) else {
         return (args.to_vec(), None);
     };
@@ -1779,17 +1846,8 @@ fn normalize_tool_args(tool_name: &str, args: &[String], query: &str) -> (Vec<St
 
 fn tool_path_arg_index(tool_name: &str) -> Option<usize> {
     match tool_name {
-        "read"
-        | "read_pdf"
-        | "read_docx"
-        | "read_xlsx"
-        | "extract_tables"
-        | "doc_qa"
-        | "write"
-        | "remove"
-        | "update"
-        | "replace_block"
-        | "ast" => Some(0),
+        "read" | "read_pdf" | "read_docx" | "read_xlsx" | "extract_tables" | "doc_qa" | "write"
+        | "remove" | "update" | "replace_block" | "ast" => Some(0),
         "sed" | "perl" => Some(2),
         "awk" => Some(1),
         _ => None,
@@ -1832,7 +1890,9 @@ fn primary_command_binary(command_line: &str) -> Option<String> {
 
 fn is_placeholder_path(arg: &str) -> bool {
     let value = arg.trim().to_lowercase();
-    if (value.starts_with('<') && value.ends_with('>')) || (value.starts_with('[') && value.ends_with(']')) {
+    if (value.starts_with('<') && value.ends_with('>'))
+        || (value.starts_with('[') && value.ends_with(']'))
+    {
         return true;
     }
     matches!(
@@ -2034,8 +2094,7 @@ fn sh_single_quote(value: &str) -> String {
 }
 
 fn create_fifo(path: &PathBuf) -> Result<()> {
-    let c_path = CString::new(path.as_os_str().as_bytes())
-        .map_err(|e| anyhow!(e.to_string()))?;
+    let c_path = CString::new(path.as_os_str().as_bytes()).map_err(|e| anyhow!(e.to_string()))?;
     let res = unsafe { libc::mkfifo(c_path.as_ptr(), 0o600) };
     if res == 0 {
         return Ok(());
@@ -2078,30 +2137,49 @@ fn normalize_summary(text: &str) -> String {
     cleaned.join("\n")
 }
 
-fn print_output_with_bat(output: &str) {
+fn print_with_pager(output: &str) {
     if output.trim().is_empty() {
         return;
     }
     ensure_fresh_line();
-    if !command_exists("bat") {
-        println!("{output}");
-        return;
-    }
-    let mut child = match Command::new("bat")
-        .args(["-p", "--paging=never", "--color=always"])
-        .stdin(Stdio::piped())
-        .spawn()
-    {
-        Ok(child) => child,
-        Err(_) => {
-            println!("{output}");
-            return;
+    if command_exists("bat") {
+        let mut child = match Command::new("bat")
+            .args(["-p", "--paging=never", "--color=always"])
+            .stdin(Stdio::piped())
+            .spawn()
+        {
+            Ok(child) => child,
+            Err(_) => {
+                println!("{output}");
+                return;
+            }
+        };
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(output.as_bytes());
         }
-    };
-    if let Some(mut stdin) = child.stdin.take() {
-        let _ = stdin.write_all(output.as_bytes());
+        let _ = child.wait();
+    } else if command_exists("less") {
+        let mut child = match Command::new("less")
+            .arg("-R")
+            .arg("-F")
+            .arg("-X")
+            .stdin(Stdio::piped())
+            .spawn()
+        {
+            Ok(child) => child,
+            Err(_) => {
+                println!("{output}");
+                return;
+            }
+        };
+        if let Some(mut stdin) = child.stdin.take() {
+            let _ = stdin.write_all(output.as_bytes());
+            let _ = stdin.write_all(b"\n");
+        }
+        let _ = child.wait();
+    } else {
+        println!("{output}");
     }
-    let _ = child.wait();
 }
 
 fn ensure_fresh_line() {
