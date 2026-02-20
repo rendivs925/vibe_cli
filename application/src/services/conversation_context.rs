@@ -63,20 +63,18 @@ impl ConversationContextManager {
 
     pub fn trim_old_entries(&self, session: &mut ReactSession) {
         if session.conversation_history.len() > self.max_entries {
-            let to_remove = session.conversation_history.len() - self.max_entries;
-            session.conversation_history = session
-                .conversation_history
-                .into_iter()
-                .skip(to_remove)
-                .collect();
+            let len = session.conversation_history.len();
+            let keep_from = len - self.max_entries;
+            let recent = session.conversation_history.split_off(keep_from);
+            session.conversation_history = recent;
         }
     }
 
-    pub fn get_recent_entries(
+    pub fn get_recent_entries<'a>(
         &self,
-        session: &ReactSession,
+        session: &'a ReactSession,
         count: usize,
-    ) -> Vec<&ConversationEntry> {
+    ) -> Vec<&'a ConversationEntry> {
         session
             .conversation_history
             .iter()

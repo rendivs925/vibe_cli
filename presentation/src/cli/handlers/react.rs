@@ -627,12 +627,13 @@ impl CliHandlers {
 
             match decision {
                 AllowDecision::Execute => {
+                    let query = session.query.clone();
                     let execution = execute_suggestion(
                         self,
                         &tools,
                         &mut validator,
                         &mut suggested,
-                        &session.query,
+                        &query,
                         &mut session,
                         &conversation_manager,
                         !options.summary_only || options.auto_summary,
