@@ -1,5 +1,6 @@
 pub mod cache_codec;
 pub mod confidence_scorer;
+pub mod context_window;
 pub mod context_engineer;
 pub mod context_vault;
 pub mod enhanced_safety_service;

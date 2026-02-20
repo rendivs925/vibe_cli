@@ -1,4 +1,5 @@
 use crate::services::context_engineer::ContextEngineer;
+use crate::services::context_window::ContextWindowUsage;
 use crate::services::operational_guardrails::OperationalGuardrails;
 use crate::services::react_context_retriever::RetrievedContext;
 use domain::entities::react::{ReactSession, ReactTool};
@@ -15,8 +16,10 @@ impl ReactPromptService {
         session: &ReactSession,
         reasoning: &str,
         context: &RetrievedContext,
+        context_window: Option<&ContextWindowUsage>,
     ) -> String {
-        let base = self.build_context_engineering_prompt(session, context, "", "", None);
+        let base =
+            self.build_context_engineering_prompt(session, context, "", "", None, context_window);
         format!(
             "{base}\n\
 ### ## TOOL_SELECTION\n\
@@ -152,6 +155,7 @@ CONTEXT: <what data you're using>\n\n",
         context: &RetrievedContext,
         learning_context: &str,
         failed_commands: &str,
+        context_window: Option<&ContextWindowUsage>,
     ) -> String {
         let base = self.build_context_engineering_prompt(
             session,
@@ -159,6 +163,7 @@ CONTEXT: <what data you're using>\n\n",
             learning_context,
             failed_commands,
             None,
+            context_window,
         );
         format!(
             "{base}\nANALYZE: <reasoning; include [REF-XX] citations only when referencing CONTEXT_VAULT>\n",
@@ -174,6 +179,7 @@ CONTEXT: <what data you're using>\n\n",
         failed_commands: &str,
         depth: u8,
         previous_reasoning: Option<&str>,
+        context_window: Option<&ContextWindowUsage>,
     ) -> String {
         let depth_instruction = match depth {
             1 => "This is Step 1 of reasoning. Focus on INITIAL UNDERSTANDING of the user's query. What is the user asking for? What is the context?",
@@ -187,6 +193,7 @@ CONTEXT: <what data you're using>\n\n",
             learning_context,
             failed_commands,
             Some(depth_instruction),
+            context_window,
         );
 
         if let Some(prev) = previous_reasoning {
@@ -210,6 +217,7 @@ CONTEXT: <what data you're using>\n\n",
         learning_context: &str,
         failed_commands: &str,
         depth_instruction: Option<&str>,
+        context_window: Option<&ContextWindowUsage>,
     ) -> String {
         let task_type = task_type_label(session);
         let iteration = (session.steps.len() as u32).saturating_add(1);
@@ -247,6 +255,10 @@ CONTEXT: <what data you're using>\n\n",
             if let Some(patterns) = &context.command_patterns_context {
                 engineer.add_knowledge_base(patterns);
             }
+        }
+
+        if let Some(window) = context_window {
+            engineer.add_context_window(*window);
         }
 
         engineer.render(&session.query, &task_type, depth_instruction)

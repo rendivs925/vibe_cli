@@ -33,6 +33,7 @@ impl SqliteReactStorage {
                 context_json TEXT,
                 memory_json TEXT,
                 compacted_summary TEXT,
+                compacted_history_at TEXT,
                 neurosymbolic_enabled INTEGER NOT NULL DEFAULT 0
             )",
             [],
@@ -79,6 +80,15 @@ impl SqliteReactStorage {
             }
         }
 
+        if let Err(err) = conn.execute(
+            "ALTER TABLE react_sessions ADD COLUMN compacted_history_at TEXT",
+            [],
+        ) {
+            if !err.to_string().contains("duplicate column") {
+                // Ignore if column already exists
+            }
+        }
+
         Ok(())
     }
 
@@ -89,8 +99,8 @@ impl SqliteReactStorage {
         
         conn.execute(
             "INSERT OR REPLACE INTO react_sessions 
-             (id, query, status, created_at, updated_at, context_json, memory_json, compacted_summary, neurosymbolic_enabled)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+             (id, query, status, created_at, updated_at, context_json, memory_json, compacted_summary, compacted_history_at, neurosymbolic_enabled)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
             params![
                 session.id,
                 session.query,
@@ -100,6 +110,7 @@ impl SqliteReactStorage {
                 context_json,
                 memory_json,
                 session.compacted_summary,
+                session.compacted_history_at.as_ref().map(|dt| dt.to_rfc3339()),
                 session.neurosymbolic_enabled as i32,
             ],
         )?;
@@ -109,7 +120,7 @@ impl SqliteReactStorage {
     fn do_get_session(&self, session_id: &str) -> Result<Option<ReactSession>, Box<dyn Error + Send + Sync>> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let mut stmt = conn.prepare(
-            "SELECT id, query, status, created_at, updated_at, context_json, memory_json, compacted_summary, neurosymbolic_enabled
+            "SELECT id, query, status, created_at, updated_at, context_json, memory_json, compacted_summary, compacted_history_at, neurosymbolic_enabled
              FROM react_sessions WHERE id = ?1"
         )?;
 
@@ -124,7 +135,8 @@ impl SqliteReactStorage {
                     row.get::<_, String>(5)?,
                     row.get::<_, Option<String>>(6)?,
                     row.get::<_, Option<String>>(7)?,
-                    row.get::<_, i32>(8)?,
+                    row.get::<_, Option<String>>(8)?,
+                    row.get::<_, i32>(9)?,
                 ))
             })
             .optional()?;
@@ -132,7 +144,7 @@ impl SqliteReactStorage {
         drop(stmt);
         drop(conn);
 
-        if let Some((id, query, status, created_at, updated_at, context_json, memory_json, compacted_summary, neurosymbolic_enabled)) = session {
+        if let Some((id, query, status, created_at, updated_at, context_json, memory_json, compacted_summary, compacted_history_at, neurosymbolic_enabled)) = session {
             let context: std::collections::HashMap<String, String> = 
                 serde_json::from_str(&context_json).unwrap_or_default();
             let memory = memory_json
@@ -154,6 +166,10 @@ impl SqliteReactStorage {
             let updated = chrono::DateTime::parse_from_rfc3339(&updated_at)
                 .map(|dt| dt.with_timezone(&chrono::Utc))
                 .unwrap_or_else(|_| chrono::Utc::now());
+            let compacted_history_at = compacted_history_at
+                .as_deref()
+                .and_then(|value| chrono::DateTime::parse_from_rfc3339(value).ok())
+                .map(|dt| dt.with_timezone(&chrono::Utc));
 
             Ok(Some(ReactSession {
                 id,
@@ -166,6 +182,7 @@ impl SqliteReactStorage {
                 memory,
                 intent: None,
                 compacted_summary,
+                compacted_history_at,
                 neurosymbolic_enabled: neurosymbolic_enabled != 0,
             }))
         } else {

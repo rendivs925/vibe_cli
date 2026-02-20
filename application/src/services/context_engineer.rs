@@ -1,4 +1,5 @@
 use crate::services::context_vault::ContextVault;
+use crate::services::context_window::ContextWindowUsage;
 use crate::services::operational_guardrails::OperationalGuardrails;
 use crate::services::task_orchestration::TaskOrchestration;
 use domain::entities::context_document::ContextDocumentType;
@@ -150,6 +151,23 @@ impl ContextEngineer {
             "knowledge_base",
             normalize_empty(content, "(none)"),
         )
+    }
+
+    pub fn add_context_window(&mut self, usage: ContextWindowUsage) -> String {
+        let utilization = usage.utilization() * 100.0;
+        let status = if usage.should_compact() {
+            "limit_reached"
+        } else if utilization >= 85.0 {
+            "near_limit"
+        } else {
+            "ok"
+        };
+        let content = format!(
+            "- Estimated Tokens: {}\n- Window Limit: {}\n- Compact At: {}\n- Utilization: {:.1}%\n- Status: {}",
+            usage.estimated_tokens, usage.max_tokens, usage.compact_at_tokens, utilization, status
+        );
+        self.context_vault
+            .add(ContextDocumentType::Metadata, "context_window", content)
     }
 
     pub fn render(&self, task: &str, task_type: &str, depth_instruction: Option<&str>) -> String {

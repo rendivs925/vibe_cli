@@ -16,6 +16,7 @@ pub struct ReactSession {
     pub memory: SessionMemory,
     pub intent: Option<QueryIntent>,
     pub compacted_summary: Option<String>,
+    pub compacted_history_at: Option<DateTime<Utc>>,
     pub neurosymbolic_enabled: bool,
 }
 
@@ -643,6 +644,7 @@ impl ReactSession {
             memory: SessionMemory::new(session_id, query.clone()),
             intent: None,
             compacted_summary: None,
+            compacted_history_at: None,
             neurosymbolic_enabled,
         }
     }
@@ -677,6 +679,7 @@ impl ReactSession {
 
     pub fn set_compacted_summary(&mut self, summary: String) {
         self.compacted_summary = Some(summary);
+        self.compacted_history_at = Some(Utc::now());
         self.updated_at = Utc::now();
     }
 }

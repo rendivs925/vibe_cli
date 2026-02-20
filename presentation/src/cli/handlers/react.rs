@@ -317,7 +317,7 @@ impl CliHandlers {
             }
 
             let reasoning_timer = progress_start("Understanding", "analyzing request");
-            let reasoning = service.generate_reasoning(&session).await?;
+            let reasoning = service.generate_reasoning(&mut session).await?;
             progress_done("Understanding", reasoning_timer);
             service.ingest_reasoning(&mut session, &reasoning);
             if options.show_reasoning {
@@ -336,7 +336,7 @@ impl CliHandlers {
             let mut tool_justification = "Tool selection failed".to_string();
 
             let tool_timer = progress_start("Planning", "choosing next action");
-            let tool_result = match service.select_tool(&session, &reasoning).await {
+            let tool_result = match service.select_tool(&mut session, &reasoning).await {
                 Ok(tool_decision) => {
                     tool_name = tool_decision.tool.name().to_string();
                     tool_justification = tool_decision.justification.clone();

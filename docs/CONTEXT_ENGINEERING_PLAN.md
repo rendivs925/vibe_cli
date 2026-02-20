@@ -25,6 +25,7 @@ Transform the current context system to follow the **Context Engineering** templ
 | **Task Placement** | Middle of prompt | END of prompt (recency bias) |
 | **Guardrails** | Scattered rules | Explicit operational rules |
 | **Metadata** | Limited | Date, source, code, summary |
+| **Context Window** | No visibility | Token counting + auto-compact |
 
 ---
 
@@ -68,6 +69,14 @@ Transform the current context system to follow the **Context Engineering** templ
 
 <doc id="REF-07" label="code_context">
 [Relevant code snippets from RAG]
+</doc>
+
+<doc id="REF-08" label="context_window">
+- Estimated Tokens: 1420
+- Window Limit: 8192
+- Compact At: 7168
+- Utilization: 17.3%
+- Status: ok
 </doc>
 
 ---
@@ -163,6 +172,14 @@ PID    USER      COMMAND
 
 <doc id="REF-06" label="learning_context">
 - Avoid: systemctl restart (failed in session #abc123)
+</doc>
+
+<doc id="REF-07" label="context_window">
+- Estimated Tokens: 1420
+- Window Limit: 8192
+- Compact At: 7168
+- Utilization: 17.3%
+- Status: ok
 </doc>
 
 ---

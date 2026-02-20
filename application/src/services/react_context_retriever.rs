@@ -272,13 +272,15 @@ fn extract_latest_output(session: &ReactSession) -> LatestOutput {
 
 fn format_history(session: &ReactSession) -> String {
     let mut lines = Vec::new();
+    let mut max_steps = 6;
     if let Some(summary) = &session.compacted_summary {
         if !summary.trim().is_empty() {
             lines.push(format!("SUMMARY: {}", summary.trim()));
         }
+        max_steps = 3;
     }
 
-    for step in session.steps.iter().rev().take(6).rev() {
+    for step in session.steps.iter().rev().take(max_steps).rev() {
         let label = match step.step_type {
             ReactStepType::Thought => "ANALYZE",
             ReactStepType::Action => "SUGGESTED",

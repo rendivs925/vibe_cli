@@ -9,6 +9,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use crate::services::learning_service::LearningService;
+use crate::services::context_window::ContextWindowPolicy;
 use crate::services::react_analysis_service::AnalysisService;
 use crate::services::react_command_parser::parse_command_list;
 use crate::services::react_context_retriever::ContextRetriever;
@@ -130,9 +131,9 @@ impl ReactAgentService {
         Ok(session)
     }
 
-    pub async fn generate_reasoning(&self, session: &ReactSession) -> Result<String> {
+    pub async fn generate_reasoning(&self, session: &mut ReactSession) -> Result<String> {
         let use_external = use_external_context(session);
-        let context = if use_external {
+        let mut context = if use_external {
             self.context_retriever.retrieve_with_semantic_search(session).await
         } else {
             self.context_retriever.retrieve(session)
@@ -163,11 +164,38 @@ impl ReactAgentService {
         } else {
             learning_context
         };
+        let mut prompt = self.prompt_service.reasoning_prompt(
+            session,
+            &context,
+            &learning_context,
+            &failed_commands,
+            None,
+        );
+        let policy = ContextWindowPolicy::from_env();
+        if self
+            .auto_compact_if_needed(session, &policy, &prompt)
+            .await?
+        {
+            context = if use_external {
+                self.context_retriever.retrieve_with_semantic_search(session).await
+            } else {
+                self.context_retriever.retrieve(session)
+            };
+            prompt = self.prompt_service.reasoning_prompt(
+                session,
+                &context,
+                &learning_context,
+                &failed_commands,
+                None,
+            );
+        }
+        let usage = policy.usage(&prompt);
         let prompt = self.prompt_service.reasoning_prompt(
             session,
             &context,
             &learning_context,
             &failed_commands,
+            Some(&usage),
         );
 
         let response = self.client.generate_response(&prompt).await?;
@@ -184,12 +212,12 @@ impl ReactAgentService {
 
     pub async fn generate_reasoning_with_depth(
         &self,
-        session: &ReactSession,
+        session: &mut ReactSession,
         depth: u8,
         previous_reasoning: Option<&str>,
     ) -> Result<String> {
         let use_external = use_external_context(session);
-        let context = if use_external {
+        let mut context = if use_external {
             self.context_retriever.retrieve_with_semantic_search(session).await
         } else {
             self.context_retriever.retrieve(session)
@@ -221,6 +249,36 @@ impl ReactAgentService {
             learning_context
         };
 
+        let mut prompt = self.prompt_service.reasoning_prompt_with_depth(
+            session,
+            &context,
+            &learning_context,
+            &failed_commands,
+            depth,
+            previous_reasoning,
+            None,
+        );
+        let policy = ContextWindowPolicy::from_env();
+        if self
+            .auto_compact_if_needed(session, &policy, &prompt)
+            .await?
+        {
+            context = if use_external {
+                self.context_retriever.retrieve_with_semantic_search(session).await
+            } else {
+                self.context_retriever.retrieve(session)
+            };
+            prompt = self.prompt_service.reasoning_prompt_with_depth(
+                session,
+                &context,
+                &learning_context,
+                &failed_commands,
+                depth,
+                previous_reasoning,
+                None,
+            );
+        }
+        let usage = policy.usage(&prompt);
         let prompt = self.prompt_service.reasoning_prompt_with_depth(
             session,
             &context,
@@ -228,6 +286,7 @@ impl ReactAgentService {
             &failed_commands,
             depth,
             previous_reasoning,
+            Some(&usage),
         );
 
         let response = self.client.generate_response(&prompt).await?;
@@ -240,6 +299,28 @@ impl ReactAgentService {
             return Err(anyhow!("empty reasoning response"));
         }
         Ok(thought)
+    }
+
+    async fn auto_compact_if_needed(
+        &self,
+        session: &mut ReactSession,
+        policy: &ContextWindowPolicy,
+        prompt: &str,
+    ) -> Result<bool> {
+        let usage = policy.usage(prompt);
+        if !usage.should_compact() {
+            return Ok(false);
+        }
+        if !should_auto_compact(session) {
+            return Ok(false);
+        }
+        let summary = self.compact_history(session).await?;
+        if summary.trim().is_empty() || summary == "Summary unavailable." {
+            return Ok(false);
+        }
+        session.set_compacted_summary(summary);
+        self.save_session(session).await?;
+        Ok(true)
     }
 
     pub async fn analyze_output(&self, session: &ReactSession) -> Result<String> {
@@ -434,12 +515,33 @@ impl ReactAgentService {
     /// 2. Calls the LLM to select a tool
     /// 3. Parses the response to extract the selected tool
     /// 4. Returns error if no valid tool can be selected
-    pub async fn select_tool(&self, session: &ReactSession, reasoning: &str) -> Result<ToolDecision> {
-        let context = self.context_retriever.retrieve_with_semantic_search(session).await;
+    pub async fn select_tool(&self, session: &mut ReactSession, reasoning: &str) -> Result<ToolDecision> {
+        let mut context = self.context_retriever.retrieve_with_semantic_search(session).await;
+        let mut prompt = self.prompt_service.tool_selection_prompt(
+            session,
+            reasoning,
+            &context,
+            None,
+        );
+        let policy = ContextWindowPolicy::from_env();
+        if self
+            .auto_compact_if_needed(session, &policy, &prompt)
+            .await?
+        {
+            context = self.context_retriever.retrieve_with_semantic_search(session).await;
+            prompt = self.prompt_service.tool_selection_prompt(
+                session,
+                reasoning,
+                &context,
+                None,
+            );
+        }
+        let usage = policy.usage(&prompt);
         let prompt = self.prompt_service.tool_selection_prompt(
             session,
             reasoning,
             &context,
+            Some(&usage),
         );
         
         let response = self.client.generate_response(&prompt).await?;
@@ -569,4 +671,14 @@ fn use_external_context(session: &ReactSession) -> bool {
         .get("context_scope")
         .map(|value| value != "goal_only")
         .unwrap_or(true)
+}
+
+fn should_auto_compact(session: &ReactSession) -> bool {
+    if session.steps.len() <= 6 {
+        return false;
+    }
+    match session.compacted_history_at {
+        None => true,
+        Some(at) => session.steps.iter().any(|step| step.created_at > at),
+    }
 }
