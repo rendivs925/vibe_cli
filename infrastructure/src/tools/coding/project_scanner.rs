@@ -119,7 +119,6 @@ pub fn scan_project(root: &Path) -> ProjectInfo {
                     ".git" => {
                         info.has_git = true;
                     }
-                    "Cargo.toml" | "package.json" | "pyproject.toml" | "go.mod" => {}
                     _ => {}
                 }
             }

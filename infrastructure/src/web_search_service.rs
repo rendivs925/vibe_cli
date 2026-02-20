@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::process::{Command, Output};
+use std::thread::sleep as std_sleep;
 use tokio::time::{sleep, Duration};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -12,6 +13,11 @@ pub struct SearchResult {
 pub struct WebSearchService {
     searxng_url: String,
 }
+
+const SEARXNG_CONTAINER_NAME: &str = "vibe-searxng";
+const SEARXNG_HOST_PORT: u16 = 8085;
+const SEARXNG_CONTAINER_PORT: u16 = 8080;
+const SEARXNG_VOLUME_NAME: &str = "searxng-data-v2";
 
 impl WebSearchService {
     pub fn new(searxng_url: String) -> Self {
@@ -62,7 +68,7 @@ impl WebSearchService {
             .args([
                 "ps",
                 "--filter",
-                "name=vibe-searxng",
+                &format!("name={}", SEARXNG_CONTAINER_NAME),
                 "--format",
                 "{{.Ports}}",
             ])
@@ -82,25 +88,24 @@ impl WebSearchService {
     }
 
     fn start_searxng(&self) -> Result<(), String> {
-        let host_port = 8085;
-        let container_port = 8080;
-        let url = format!("http://localhost:{}", host_port);
+        let url = format!("http://localhost:{}", SEARXNG_HOST_PORT);
 
-        println!("Starting SearXNG on port {}...", host_port);
+        println!("Starting SearXNG on port {}...", SEARXNG_HOST_PORT);
 
         let output = Self::run_docker(&[
             "ps",
             "-a",
             "--filter",
-            "name=vibe-searxng",
+            &format!("name={}", SEARXNG_CONTAINER_NAME),
             "--format",
             "{{.Names}}",
         ])?;
 
-        let container_exists = String::from_utf8_lossy(&output.stdout).contains("vibe-searxng");
+        let container_exists =
+            String::from_utf8_lossy(&output.stdout).contains(SEARXNG_CONTAINER_NAME);
 
         if container_exists {
-            Self::run_docker(&["start", "vibe-searxng"])?;
+            Self::run_docker(&["start", SEARXNG_CONTAINER_NAME])?;
         } else {
             let secret = Command::new("openssl")
                 .args(["rand", "-hex", "32"])
@@ -117,19 +122,20 @@ impl WebSearchService {
                 "run",
                 "-d",
                 "--name",
-                "vibe-searxng",
+                SEARXNG_CONTAINER_NAME,
                 "-p",
-                &format!("{}:{}", host_port, container_port),
+                &format!("{}:{}", SEARXNG_HOST_PORT, SEARXNG_CONTAINER_PORT),
                 "-e",
                 &format!("SEARXNG_BASE_URL={}", url),
                 "-e",
                 &format!("SEARXNG_SECRET={}", secret_str),
                 "-v",
-                "searxng-data:/etc/searxng",
+                &format!("{}:/etc/searxng", SEARXNG_VOLUME_NAME),
                 "searxng/searxng:latest",
             ])?;
         }
 
+        self.ensure_container_running()?;
         self.update_config_url(&url)?;
         Ok(())
     }
@@ -167,6 +173,55 @@ impl WebSearchService {
             args.get(0).unwrap_or(&""),
             detail
         ))
+    }
+
+    fn ensure_container_running(&self) -> Result<(), String> {
+        let max_attempts = 5;
+        for _ in 0..max_attempts {
+            if let Some(status) = self.get_container_status()? {
+                if status.starts_with("Up") {
+                    return Ok(());
+                }
+                if status.starts_with("Exited") {
+                    let logs = Self::run_docker(&[
+                        "logs",
+                        "--tail",
+                        "50",
+                        SEARXNG_CONTAINER_NAME,
+                    ])
+                    .ok()
+                    .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+                    .unwrap_or_default();
+
+                    let hint = if logs.contains("limiter.toml is invalid") {
+                        "Hint: invalid /etc/searxng/limiter.toml (old config). Remove the old volume:\n  docker rm -f vibe-searxng\n  docker volume rm searxng-data\nthen retry."
+                    } else {
+                        "Check `docker logs vibe-searxng --tail 200` for details."
+                    };
+
+                    return Err(format!("SearXNG container exited. {}\n{}", hint, logs.trim()));
+                }
+            }
+
+            std_sleep(Duration::from_secs(1));
+        }
+
+        Err("SearXNG container did not reach running state".to_string())
+    }
+
+    fn get_container_status(&self) -> Result<Option<String>, String> {
+        let output = Self::run_docker(&[
+            "ps",
+            "-a",
+            "--filter",
+            &format!("name={}", SEARXNG_CONTAINER_NAME),
+            "--format",
+            "{{.Status}}",
+        ])?;
+
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let status = stdout.lines().next().map(|s| s.trim());
+        Ok(status.filter(|s| !s.is_empty()).map(|s| s.to_string()))
     }
 
     fn find_available_port(&self, start: u16) -> u16 {
@@ -210,11 +265,13 @@ impl WebSearchService {
 
         let output = Command::new("curl")
             .args([
-                "-s",
+                "-sS",
                 "--connect-timeout",
                 "10",
                 "-m",
                 "15",
+                "--noproxy",
+                "localhost,127.0.0.1,::1",
                 "-H",
                 "Accept: application/json",
                 &url,
@@ -223,7 +280,15 @@ impl WebSearchService {
             .map_err(|e| format!("Search request failed: {}", e))?;
 
         if !output.status.success() {
-            return Err(format!("curl failed with status: {}", output.status));
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let detail = stderr.trim();
+            if detail.is_empty() {
+                return Err(format!("curl failed with status: {}", output.status));
+            }
+            return Err(format!(
+                "curl failed with status: {} ({})",
+                output.status, detail
+            ));
         }
 
         let stdout = String::from_utf8_lossy(&output.stdout);
@@ -264,9 +329,21 @@ impl WebSearchService {
 
     pub async fn fetch_page(&self, url: &str) -> Result<String, String> {
         let output = Command::new("curl")
-            .args(["-s", "--connect-timeout", "10", "-m", "15", "-L", url])
+            .args(["-sS", "--connect-timeout", "10", "-m", "15", "-L", url])
             .output()
             .map_err(|e| format!("Fetch failed: {}", e))?;
+
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            let detail = stderr.trim();
+            if detail.is_empty() {
+                return Err(format!("Fetch failed with status: {}", output.status));
+            }
+            return Err(format!(
+                "Fetch failed with status: {} ({})",
+                output.status, detail
+            ));
+        }
 
         let text = String::from_utf8_lossy(&output.stdout).to_string();
         Ok(text)
