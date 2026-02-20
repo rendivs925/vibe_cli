@@ -19,19 +19,44 @@ impl WebSearchService {
     }
     
     pub async fn search(&self, query: &str, num_results: usize) -> Result<Vec<SearchResult>, String> {
-        match self.searxng_search(query, num_results).await {
+        let search_url = self.get_active_searxng_url().unwrap_or_else(|| self.searxng_url.clone());
+        
+        match self.searxng_search_with_url(&search_url, query, num_results).await {
             Ok(results) => Ok(results),
-            Err(e) if e.contains("Failed to connect") || e.contains("Connection refused") => {
+            Err(e) if e.contains("Failed to connect") || e.contains("Connection refused") || e.contains("Empty reply") => {
                 println!("SearXNG not running. Starting container...");
                 self.start_searxng()?;
                 tokio::time::sleep(Duration::from_secs(3)).await;
-                self.searxng_search(query, num_results).await
+                let new_url = self.get_active_searxng_url().unwrap_or_else(|| self.searxng_url.clone());
+                self.searxng_search_with_url(&new_url, query, num_results).await
             }
             Err(e) => Err(e),
         }
     }
+    
+    fn get_active_searxng_url(&self) -> Option<String> {
+        let output = Command::new("docker")
+            .args(["ps", "--filter", "name=vibe-searxng", "--format", "{{.Ports}}"])
+            .output()
+            .ok()?;
+        
+        let ports = String::from_utf8_lossy(&output.stdout);
+        for line in ports.lines() {
+            if let Some(host_port) = line.split("->").next() {
+                if let Some(port) = host_port.trim().split(':').last() {
+                    return Some(format!("http://localhost:{}", port));
+                }
+            }
+        }
+        None
+    }
 
     fn start_searxng(&self) -> Result<(), String> {
+        let port = self.find_available_port(8080);
+        let url = format!("http://localhost:{}", port);
+        
+        println!("Starting SearXNG on port {}...", port);
+        
         let output = Command::new("docker")
             .args(["ps", "-a", "--filter", "name=vibe-searxng", "--format", "{{.Names}}"])
             .output()
@@ -60,8 +85,8 @@ impl WebSearchService {
                 .args([
                     "run", "-d",
                     "--name", "vibe-searxng",
-                    "-p", "8080:8080",
-                    "-e", "SEARXNG_BASE_URL=http://localhost:8080",
+                    "-p", &format!("{}:8080", port),
+                    "-e", &format!("SEARXNG_BASE_URL={}", url),
                     "-e", &format!("SEARXNG_SECRET={}", secret_str),
                     "-v", "searxng-data:/etc/searxng",
                     "searxng/searxng:latest",
@@ -69,15 +94,43 @@ impl WebSearchService {
                 .output()
                 .map_err(|e| format!("docker run failed: {}", e))?;
         }
+        
+        self.update_config_url(&url)?;
         Ok(())
     }
     
-    async fn searxng_search(&self, query: &str, num_results: usize) -> Result<Vec<SearchResult>, String> {
+    fn find_available_port(&self, start: u16) -> u16 {
+        use std::net::TcpListener;
+        for port in start..start+100 {
+            if TcpListener::bind(format!("127.0.0.1:{}", port)).is_ok() {
+                return port;
+            }
+        }
+        start
+    }
+    
+    fn update_config_url(&self, url: &str) -> Result<(), String> {
+        let config_path = std::env::var("HOME")
+            .map(|h| format!("{}/.config/vibe_cli/.env", h))
+            .unwrap_or_else(|_| ".env".to_string());
+        
+        let config_content = format!("SEARXNG_URL={}", url);
+        
+        if let Some(parent) = std::path::Path::new(&config_path).parent() {
+            std::fs::create_dir_all(parent).ok();
+        }
+        
+        std::fs::write(&config_path, config_content).ok();
+        println!("Saved SEARXNG_URL={} to {}", url, config_path);
+        Ok(())
+    }
+    
+    async fn searxng_search_with_url(&self, base_url: &str, query: &str, num_results: usize) -> Result<Vec<SearchResult>, String> {
         let encoded_query = url_encode(query);
         
         let url = format!(
             "{}/search?q={}&format=json&engines=general&language=en&safesearch=1&count={}",
-            self.searxng_url, encoded_query, num_results
+            base_url, encoded_query, num_results
         );
         
         let output = Command::new("curl")
