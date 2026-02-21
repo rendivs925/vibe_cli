@@ -89,9 +89,18 @@ impl CliHandlers {
                         println!("   Title: {}\n", result.title);
                     }
                     
-                    println!("\nSynthesis:");
-                    if let Ok(synthesis) = agent.synthesize_findings(&query_id) {
-                        println!("{}", synthesis);
+                    let sources = agent.get_sources_for_query(&query_id);
+                    match generate_ai_summary(query, depth.clone(), &sources).await {
+                        Ok(Some(ai_summary)) => {
+                            println!("\nAI Summary (Ollama):\n");
+                            println!("{}", ai_summary);
+                        }
+                        _ => {
+                            println!("\nSynthesis:");
+                            if let Ok(synthesis) = agent.synthesize_findings(&query_id) {
+                                println!("{}", synthesis);
+                            }
+                        }
                     }
                 }
             }
@@ -219,5 +228,87 @@ fn strip_html_tags(input: &str) -> String {
             }
         }
     }
+    out
+}
+
+async fn generate_ai_summary(
+    query: &str,
+    depth: ResearchDepth,
+    sources: &[&application::services::research_agent_service::ResearchSource],
+) -> Result<Option<String>> {
+    if sources.is_empty() {
+        return Ok(None);
+    }
+
+    let (max_sources, max_chars) = ai_limits(&depth);
+    let prompt = build_ai_prompt(query, sources, max_sources, max_chars);
+    if prompt.trim().is_empty() {
+        return Ok(None);
+    }
+
+    let client = infrastructure::ollama_client::OllamaClient::new()?;
+    let system = "You are a research summarizer. Produce a clear, well-structured summary using only the provided sources. Avoid speculation, avoid marketing fluff, and be concise but thorough. Prefer short paragraphs and bullet lists.";
+    let response = client.generate_response_with_system(&prompt, system).await?;
+    let cleaned = response.trim();
+    if cleaned.is_empty() {
+        Ok(None)
+    } else {
+        Ok(Some(cleaned.to_string()))
+    }
+}
+
+fn ai_limits(depth: &ResearchDepth) -> (usize, usize) {
+    match depth {
+        ResearchDepth::Quick => (3, 1800),
+        ResearchDepth::Standard => (5, 2000),
+        ResearchDepth::Deep => (8, 2200),
+        ResearchDepth::Comprehensive => (12, 2400),
+    }
+}
+
+fn build_ai_prompt(
+    query: &str,
+    sources: &[&application::services::research_agent_service::ResearchSource],
+    max_sources: usize,
+    max_chars_per_source: usize,
+) -> String {
+    let mut out = String::new();
+    out.push_str("Task: Summarize the topic based on the sources below.\n");
+    out.push_str(&format!("Topic: {}\n\n", query));
+    out.push_str("Output format (Markdown):\n");
+    out.push_str("Summary: 2-4 short paragraphs.\n");
+    out.push_str("Key Findings: 6-12 bullets.\n");
+    out.push_str("Source Notes: 3-6 bullets referencing source titles.\n\n");
+    out.push_str("Sources:\n");
+
+    for (i, source) in sources.iter().take(max_sources).enumerate() {
+        let content = trim_for_prompt(&source.content, max_chars_per_source);
+        out.push_str(&format!(
+            "[{}] {}\nURL: {}\nContent: {}\n\n",
+            i + 1,
+            source.title.trim(),
+            source.url.trim(),
+            content
+        ));
+    }
+
+    out
+}
+
+fn trim_for_prompt(text: &str, max_len: usize) -> String {
+    let cleaned = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    if cleaned.len() <= max_len {
+        return cleaned;
+    }
+    let mut out = String::new();
+    let mut count = 0;
+    for ch in cleaned.chars() {
+        if count >= max_len {
+            break;
+        }
+        out.push(ch);
+        count += 1;
+    }
+    out.push_str("...");
     out
 }

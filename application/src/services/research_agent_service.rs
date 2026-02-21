@@ -6,7 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::anyhow;
 use shared::types::Result;
-use crate::services::research_summary::summarize_sources;
+use crate::services::research_summary::{summarize_sources, SummaryBlock};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResearchSource {
@@ -302,12 +302,12 @@ impl ResearchAgent {
         synthesis.push_str("## Summary\n\n");
         synthesis.push_str("Based on the collected sources, here are the key findings:\n\n");
 
-        let summary_lines = summarize_sources(&sources, &query.depth);
-        if summary_lines.is_empty() {
+        let summary_blocks = summarize_sources(&sources, &query.depth);
+        if summary_blocks.is_empty() {
             synthesis.push_str("- No summarized findings available yet.\n");
         } else {
-            for line in summary_lines {
-                synthesis.push_str(&format!("- {}\n", line));
+            for (i, block) in summary_blocks.iter().enumerate() {
+                append_summary_block(&mut synthesis, i + 1, block);
             }
         }
 
@@ -341,4 +341,13 @@ impl ResearchAgent {
 
         Ok(())
     }
+}
+
+fn append_summary_block(out: &mut String, index: usize, block: &SummaryBlock) {
+    out.push_str(&format!("{}. {}\n", index, block.title.trim()));
+    if !block.content.trim().is_empty() {
+        out.push_str(block.content.trim());
+        out.push('\n');
+    }
+    out.push('\n');
 }
