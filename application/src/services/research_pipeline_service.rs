@@ -1,6 +1,7 @@
 use infrastructure::config::Config;
 use infrastructure::ollama_client::OllamaClient;
 use shared::types::Result;
+use std::time::{Duration, Instant};
 
 use crate::services::research_agent_service::{ResearchDepth, ResearchSource};
 use crate::services::research_pipeline_prompts::{
@@ -30,6 +31,11 @@ pub struct ResearchPipelineService {
     ttc: Option<TestTimeComputeService>,
 }
 
+pub trait ProgressReporter {
+    fn stage_start(&self, stage: &str);
+    fn stage_end(&self, stage: &str, elapsed: Duration);
+}
+
 impl ResearchPipelineService {
     pub fn new() -> Result<Self> {
         Ok(Self {
@@ -56,39 +62,50 @@ impl ResearchPipelineService {
         mode: ResearchMode,
         speculation: SpeculationLevel,
         sources: &[&ResearchSource],
+        reporter: Option<&dyn ProgressReporter>,
     ) -> Result<String> {
         let source_context = build_source_context(sources, &depth);
         let source_list = build_source_list(sources, &depth);
         let evidence = self
-            .generate_stage(
+            .run_stage(
+                "Evidence",
                 stage_system("evidence"),
                 evidence_prompt(query, &source_context),
+                reporter,
             )
             .await?;
         let hypotheses = self
-            .generate_stage(
+            .run_stage(
+                "Hypotheses",
                 stage_system("hypotheses"),
                 hypotheses_prompt(query, speculation, &evidence),
+                reporter,
             )
             .await?;
         let critique = self
-            .generate_stage(
+            .run_stage(
+                "Critique",
                 stage_system("critique"),
                 critique_prompt(query, &hypotheses),
+                reporter,
             )
             .await?;
         let refined = self
-            .generate_stage(
+            .run_stage(
+                "Refinement",
                 stage_system("refine"),
                 refine_prompt(query, speculation, &hypotheses, &critique),
+                reporter,
             )
             .await?;
 
         let experiments = if matches!(mode, ResearchMode::Experiment | ResearchMode::Invention) {
             Some(
-                self.generate_stage(
+                self.run_stage(
+                    "Experiments",
                     stage_system("experiments"),
                     experiment_prompt(query, &refined),
+                    reporter,
                 )
                 .await?,
             )
@@ -98,9 +115,11 @@ impl ResearchPipelineService {
 
         let invention = if mode == ResearchMode::Invention {
             Some(
-                self.generate_stage(
+                self.run_stage(
+                    "Novel Directions",
                     stage_system("invention"),
                     invention_prompt(query, speculation, &refined, experiments.as_deref()),
+                    reporter,
                 )
                 .await?,
             )
@@ -120,6 +139,24 @@ impl ResearchPipelineService {
             experiments.as_deref(),
             invention.as_deref(),
         ))
+    }
+
+    async fn run_stage(
+        &self,
+        name: &str,
+        system: String,
+        prompt: String,
+        reporter: Option<&dyn ProgressReporter>,
+    ) -> Result<String> {
+        if let Some(report) = reporter {
+            report.stage_start(name);
+        }
+        let start = Instant::now();
+        let result = self.generate_stage(system, prompt).await;
+        if let Some(report) = reporter {
+            report.stage_end(name, start.elapsed());
+        }
+        result
     }
 
     async fn generate_stage(&self, system: String, prompt: String) -> Result<String> {

@@ -1,8 +1,12 @@
 use super::CliHandlers;
 use application::services::research_agent_service::ResearchDepth;
-use application::services::research_pipeline_service::{ResearchMode, SpeculationLevel};
+use application::services::research_pipeline_service::{
+    ProgressReporter, ResearchMode, SpeculationLevel,
+};
 use application::services::test_time_scaling::{ScalingConfig, ScalingMethod};
 use shared::types::Result;
+use std::io::{self, Write};
+use std::time::Duration;
 
 impl CliHandlers {
     pub async fn handle_task(&self, query: &str) -> Result<()> {
@@ -111,8 +115,9 @@ impl CliHandlers {
                             scaling_config.clone(),
                         )?
                     };
+                    let reporter = CliProgressReporter::new();
                     match pipeline
-                        .run(query, depth.clone(), mode, speculation, &sources)
+                        .run(query, depth.clone(), mode, speculation, &sources, Some(&reporter))
                         .await
                     {
                         Ok(brief) => {
@@ -252,6 +257,27 @@ fn strip_html_tags(input: &str) -> String {
         }
     }
     out
+}
+
+struct CliProgressReporter;
+
+impl CliProgressReporter {
+    fn new() -> Self {
+        Self
+    }
+}
+
+impl ProgressReporter for CliProgressReporter {
+    fn stage_start(&self, stage: &str) {
+        let _ = writeln!(io::stdout(), "-> {}: running...", stage);
+        let _ = io::stdout().flush();
+    }
+
+    fn stage_end(&self, stage: &str, elapsed: Duration) {
+        let secs = elapsed.as_secs_f32();
+        let _ = writeln!(io::stdout(), "-> {}: done in {:.2}s", stage, secs);
+        let _ = io::stdout().flush();
+    }
 }
 
 async fn generate_ai_summary(
