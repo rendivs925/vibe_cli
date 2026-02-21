@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 use std::process::{Command, Output};
 use std::thread::sleep as std_sleep;
-use tokio::time::{sleep, Duration};
+use tokio::time::Duration;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchResult {
@@ -29,37 +29,22 @@ impl WebSearchService {
         query: &str,
         num_results: usize,
     ) -> Result<Vec<SearchResult>, String> {
-        let mut attempt = 0;
-        let max_attempts = 5;
-        let mut started = false;
+        let search_url = self
+            .get_active_searxng_url()
+            .unwrap_or_else(|| self.searxng_url.clone());
 
-        loop {
-            attempt += 1;
-            let search_url = self
-                .get_active_searxng_url()
-                .unwrap_or_else(|| self.searxng_url.clone());
-
-            match self
-                .searxng_search_with_url(&search_url, query, num_results)
-                .await
-            {
-                Ok(results) => return Ok(results),
-                Err(e) if Self::is_connection_error(&e) => {
-                    if !started {
-                        println!("SearXNG not running. Starting container...");
-                        self.start_searxng()?;
-                        started = true;
-                    }
-
-                    if attempt >= max_attempts {
-                        return Err(e);
-                    }
-
-                    let backoff = 2_u64.saturating_pow(attempt.min(4) as u32);
-                    sleep(Duration::from_secs(backoff)).await;
-                }
-                Err(e) => return Err(e),
+        match self
+            .searxng_search_with_url(&search_url, query, num_results)
+            .await
+        {
+            Ok(results) => Ok(results),
+            Err(e) if Self::is_connection_error(&e) => {
+                Err(format!(
+                    "SearXNG is not running. Start it with: make searxng-up\nError: {}",
+                    e
+                ))
             }
+            Err(e) => Err(e),
         }
     }
 
