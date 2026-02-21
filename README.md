@@ -50,6 +50,15 @@ vibe_cli "find all .rs files larger than 1MB"
 
 # Use --neurosymbolic for config-driven command generation
 vibe_cli --neurosymbolic "list processes"
+
+# Research mode (web search + multi-stage synthesis)
+vibe_cli --research --depth quick "quantum computing"
+
+# Task mode (decompose and track steps)
+vibe_cli --task "collect system health: disk, cpu, memory"
+
+# Work mode (documents and spreadsheets)
+vibe_cli --work "analyze sales.csv"
 ```
 
 ---
@@ -129,6 +138,56 @@ WARNING Will modify. Confirm? y/n>
 DANGER Will modify system. Confirm? y/n>
 ```
 
+### Task Mode
+
+```bash
+vibe_cli --task "migrate nginx configs and verify rollout"
+```
+
+Creates a tracked task, decomposes it into steps, and lists current task status.
+
+### Research Mode (Web + Synthesis)
+
+```bash
+vibe_cli --research --depth quick "quantum computing"
+vibe_cli --research --depth comprehensive --research-mode invention --speculation high "advanced propulsion"
+```
+
+Research runs a multi-stage pipeline over web sources:
+- Evidence ledger
+- Hypotheses and refinement
+- Critique
+- Experiments (optional)
+- Novel directions (optional)
+
+Research modes:
+- `invention`: maximize novelty and propose new directions
+- `hypothesis`: focus on plausible hypotheses and supporting evidence
+- `experiment`: prioritize testable experiments and validation paths
+- `critique`: emphasize weaknesses, risks, and gaps
+
+Speculation levels:
+- `low`: conservative, evidence-heavy
+- `medium`: balanced
+- `high`: exploratory and creative
+
+Depth controls number of sources and context size:
+- `quick`
+- `standard`
+- `deep`
+- `comprehensive`
+
+Research output includes realtime progress for each stage with elapsed time.
+
+### Work Mode (Documents + Spreadsheets)
+
+```bash
+vibe_cli --work "analyze sales.csv"
+vibe_cli --work "create meeting notes.md with action items"
+```
+
+Supports spreadsheet analysis (CSV/XLSX) and document creation (Markdown/CSV/HTML). PDF reading is available via `--explain` or ReAct tools.
+
 ### Explain Files
 
 ```bash
@@ -149,6 +208,9 @@ vibe_cli --rag "how do I configure systemd services?"
 
 # Load context from a specific path
 vibe_cli --context /path/to/project
+
+# Constrain neurosymbolic generation using RAG context
+vibe_cli --neurosymbolic --neurosymbolic-rag "list processes related to nginx"
 ```
 
 Uses embeddings to understand your codebase and provide contextual answers.
@@ -162,6 +224,25 @@ vibe_cli --ai-interpret "list processes"
 
 Command execution streams with AI chunk summaries and a concise final summary.
 
+### Test-Time Compute (Quality Scaling)
+
+Use additional compute to select higher-quality responses:
+
+```bash
+vibe_cli --scaling-method knockout --samples 6 "optimize postgres memory settings"
+vibe_cli --scaling-method league --samples 8 --opponents 5 "summarize kernel logs"
+vibe_cli --scaling-method none "fast response"
+```
+
+Options:
+- `--scaling-method`: `knockout`, `league`, or `none` (default: `knockout`)
+- `--samples`: number of candidate responses
+- `--comparisons`: comparisons per pair for knockout
+- `--opponents`: random opponents per candidate for league
+- `--early-stop`: stop early when confidence is high
+
+Scaling applies to standard queries, agent mode, ReAct, and research synthesis.
+
 ### Clear Cache
 
 ```bash
@@ -173,9 +254,14 @@ vibe_cli --clear-rag-cache
 
 # Clear the RAG embeddings index for this project
 vibe_cli --clear-embeddings
+
+# Clear session, memory, and knowledge stores
+vibe_cli --clear-sessions
+vibe_cli --clear-memory
+vibe_cli --clear-knowledge
 ```
 
-Removes cached commands from `~/.local/share/vibe_cli/`.
+Removes cached data and local indexes from `~/.local/share/vibe_cli/` and `~/.config/vibe_cli/`.
 
 ---
 
@@ -332,6 +418,9 @@ ReAct uses an experience buffer stored in `~/.config/vibe_cli/experience.db` to 
 | Commands | `~/.local/share/vibe_cli/*_cli_cache.bin` | bincode | gz (>1KB) |
 | Explain | `~/.local/share/vibe_cli/*_explain_cache.bin` | bincode | gz (>1KB) |
 | RAG | `~/.local/share/vibe_cli/*_rag_cache.bin` | bincode | gz (>1KB) |
+| Sessions | `~/.config/vibe_cli/semantic_index.db` | sqlite | n/a |
+| Memory | `~/.config/vibe_cli/memory.db` | sqlite | n/a |
+| Knowledge Graph | `~/.config/vibe_cli/knowledge_graph.db` | sqlite | n/a |
 
 ### Cache Features
 
@@ -346,6 +435,9 @@ Clear cache:
 vibe_cli --clear-cache
 vibe_cli --clear-rag-cache
 vibe_cli --clear-embeddings
+vibe_cli --clear-sessions
+vibe_cli --clear-memory
+vibe_cli --clear-knowledge
 ```
 
 ---
@@ -359,6 +451,10 @@ Ensure Ollama is running:
 ```bash
 ollama serve
 ```
+
+### Research search failed
+
+Ensure your SearXNG instance is reachable and configured in `config.toml` (`searxng_url`).
 
 ### Slow responses
 
@@ -427,6 +523,10 @@ vibe_cli/
 ```env
 OLLAMA_BASE_URL=http://localhost:11434
 BASE_MODEL=qwen2.5-coder:3b
+SEARXNG_URL=http://localhost:8085
+DB_PATH=/custom/path/to/embeddings.db
+RAG_INCLUDE_PATTERNS=*.rs,*.py,*.md
+RAG_EXCLUDE_PATTERNS=target/**,node_modules/**,*.lock
 ```
 
 ### Data Storage
@@ -434,6 +534,9 @@ BASE_MODEL=qwen2.5-coder:3b
 | Data | Location |
 |------|----------|
 | Domain configs | `~/.config/vibe_cli/domains/` |
+| Sessions index | `~/.config/vibe_cli/semantic_index.db` |
+| Memory DB | `~/.config/vibe_cli/memory.db` |
+| Knowledge graph | `~/.config/vibe_cli/knowledge_graph.db` |
 | Embeddings DB | `~/.local/share/vibe_cli/embeddings.db` |
 | Caches | `~/.local/share/vibe_cli/` |
 
@@ -450,6 +553,10 @@ ollama serve
 # Pull recommended model
 ollama pull qwen2.5-coder:3b
 ```
+
+### SearXNG (Research Mode)
+
+Research mode uses SearXNG for web search. Configure its URL via `SEARXNG_URL`.
 
 ---
 
