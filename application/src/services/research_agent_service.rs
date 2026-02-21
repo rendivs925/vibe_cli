@@ -6,6 +6,7 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use anyhow::anyhow;
 use shared::types::Result;
+use crate::services::research_summary::summarize_sources;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ResearchSource {
@@ -300,6 +301,15 @@ impl ResearchAgent {
 
         synthesis.push_str("## Summary\n\n");
         synthesis.push_str("Based on the collected sources, here are the key findings:\n\n");
+
+        let summary_lines = summarize_sources(&sources, &query.depth);
+        if summary_lines.is_empty() {
+            synthesis.push_str("- No summarized findings available yet.\n");
+        } else {
+            for line in summary_lines {
+                synthesis.push_str(&format!("- {}\n", line));
+            }
+        }
 
         Ok(synthesis)
     }

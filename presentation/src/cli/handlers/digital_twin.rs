@@ -60,14 +60,25 @@ impl CliHandlers {
                     
                     for (i, result) in results.iter().enumerate() {
                         println!("{}. {}", i + 1, result.url);
-                        
-                        let content: String = match search_service.fetch_page(&result.url).await {
+
+                        let mut content = String::new();
+                        let fetched = search_service.fetch_page(&result.url).await;
+                        match fetched {
                             Ok(text) => {
-                                let preview: String = text.chars().take(500).collect::<String>();
-                                format!("{}...", preview.lines().next().unwrap_or(""))
+                                content = extract_preview(&text);
                             }
-                            Err(e) => format!("(Could not fetch: {})", e)
-                        };
+                            Err(_) => {
+                                // Leave content empty and fall back to snippet/title below.
+                            }
+                        }
+
+                        if content.trim().is_empty() {
+                            content = normalize_text(&result.snippet);
+                        }
+
+                        if content.trim().is_empty() {
+                            content = result.title.clone();
+                        }
                         
                         if let Err(e) = agent.add_source(
                             &query_id,
@@ -163,4 +174,68 @@ impl CliHandlers {
         
         Ok(())
     }
+}
+
+fn extract_preview(text: &str) -> String {
+    let head: String = text.chars().take(2000).collect();
+    let lower = head.to_lowercase();
+    if lower.contains("%pdf") {
+        return String::new();
+    }
+
+    let cleaned = normalize_text(&head);
+    if cleaned.is_empty() {
+        return String::new();
+    }
+
+    truncate_chars(&cleaned, 300)
+}
+
+fn normalize_text(text: &str) -> String {
+    let stripped = strip_html_tags(text);
+    let decoded = stripped
+        .replace("&nbsp;", " ")
+        .replace("&amp;", "&")
+        .replace("&quot;", "\"")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">");
+    decoded
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+        .trim()
+        .to_string()
+}
+
+fn strip_html_tags(input: &str) -> String {
+    let mut out = String::with_capacity(input.len());
+    let mut in_tag = false;
+    for ch in input.chars() {
+        match ch {
+            '<' => in_tag = true,
+            '>' => in_tag = false,
+            _ => {
+                if !in_tag {
+                    out.push(ch);
+                }
+            }
+        }
+    }
+    out
+}
+
+fn truncate_chars(text: &str, max_len: usize) -> String {
+    let mut out = String::new();
+    let mut count = 0;
+    for ch in text.chars() {
+        if count >= max_len {
+            break;
+        }
+        out.push(ch);
+        count += 1;
+    }
+    if text.chars().count() > max_len {
+        out.push_str("...");
+    }
+    out
 }

@@ -18,6 +18,7 @@ pub mod react_context_retriever;
 pub mod react_prompt_service;
 pub mod react_tools;
 pub mod reflection_service;
+pub mod research_summary;
 pub mod safety_service;
 pub mod task_orchestration;
 pub mod task_service;
