@@ -1,5 +1,6 @@
 use super::CliHandlers;
 use application::services::research_agent_service::ResearchDepth;
+use application::services::research_pipeline_service::{ResearchMode, SpeculationLevel};
 use shared::types::Result;
 
 impl CliHandlers {
@@ -29,11 +30,21 @@ impl CliHandlers {
         Ok(())
     }
     
-    pub async fn handle_research(&self, query: &str, depth: ResearchDepth) -> Result<()> {
+    pub async fn handle_research(
+        &self,
+        query: &str,
+        depth: ResearchDepth,
+        mode: ResearchMode,
+        speculation: SpeculationLevel,
+    ) -> Result<()> {
         use application::services::research_agent_service::ResearchAgent;
-        use infrastructure::web_search_service::{WebSearchService, SearchResult};
+        use application::services::research_pipeline_service::ResearchPipelineService;
+        use infrastructure::web_search_service::WebSearchService;
         
-        println!("Research Mode: {} (depth: {:?})", query, depth);
+        println!(
+            "Research Mode: {} (depth: {:?}, mode: {:?}, speculation: {:?})",
+            query, depth, mode, speculation
+        );
         
         let mut agent = ResearchAgent::new();
         
@@ -90,12 +101,15 @@ impl CliHandlers {
                     }
                     
                     let sources = agent.get_sources_for_query(&query_id);
-                    match generate_ai_summary(query, depth.clone(), &sources).await {
-                        Ok(Some(ai_summary)) => {
-                            println!("\nAI Summary (Ollama):\n");
-                            println!("{}", ai_summary);
+                    let pipeline = ResearchPipelineService::new()?;
+                    match pipeline
+                        .run(query, depth.clone(), mode, speculation, &sources)
+                        .await
+                    {
+                        Ok(brief) => {
+                            println!("\n{}", brief);
                         }
-                        _ => {
+                        Err(_) => {
                             println!("\nSynthesis:");
                             if let Ok(synthesis) = agent.synthesize_findings(&query_id) {
                                 println!("{}", synthesis);

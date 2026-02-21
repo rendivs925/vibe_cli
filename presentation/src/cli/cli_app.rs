@@ -42,6 +42,7 @@ pub enum ResearchDepthArg {
 }
 
 use application::services::research_agent_service::ResearchDepth;
+use application::services::research_pipeline_service::{ResearchMode, SpeculationLevel};
 
 impl From<ResearchDepthArg> for ResearchDepth {
     fn from(arg: ResearchDepthArg) -> Self {
@@ -50,6 +51,44 @@ impl From<ResearchDepthArg> for ResearchDepth {
             ResearchDepthArg::Standard => ResearchDepth::Standard,
             ResearchDepthArg::Deep => ResearchDepth::Deep,
             ResearchDepthArg::Comprehensive => ResearchDepth::Comprehensive,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, clap::ValueEnum)]
+pub enum ResearchModeArg {
+    #[default]
+    Invention,
+    Hypothesis,
+    Experiment,
+    Critique,
+}
+
+impl From<ResearchModeArg> for ResearchMode {
+    fn from(arg: ResearchModeArg) -> Self {
+        match arg {
+            ResearchModeArg::Invention => ResearchMode::Invention,
+            ResearchModeArg::Hypothesis => ResearchMode::Hypothesis,
+            ResearchModeArg::Experiment => ResearchMode::Experiment,
+            ResearchModeArg::Critique => ResearchMode::Critique,
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, clap::ValueEnum)]
+pub enum SpeculationArg {
+    Low,
+    Medium,
+    #[default]
+    High,
+}
+
+impl From<SpeculationArg> for SpeculationLevel {
+    fn from(arg: SpeculationArg) -> Self {
+        match arg {
+            SpeculationArg::Low => SpeculationLevel::Low,
+            SpeculationArg::Medium => SpeculationLevel::Medium,
+            SpeculationArg::High => SpeculationLevel::High,
         }
     }
 }
@@ -153,6 +192,14 @@ pub struct Cli {
     /// Research depth: quick, standard, deep, or comprehensive
     #[arg(long, value_enum)]
     pub depth: Option<ResearchDepthArg>,
+
+    /// Research mode: invention, hypothesis, experiment, or critique
+    #[arg(long, value_enum)]
+    pub research_mode: Option<ResearchModeArg>,
+
+    /// Speculation level: low, medium, or high
+    #[arg(long, value_enum)]
+    pub speculation: Option<SpeculationArg>,
 
     /// Use work/document mode
     #[arg(long)]
@@ -293,7 +340,15 @@ impl CliApp {
         }
         if cli.research {
             let depth = cli.depth.unwrap_or(ResearchDepthArg::Standard).into();
-            return self.handlers.handle_research(&args_str, depth).await;
+            let mode = cli
+                .research_mode
+                .unwrap_or(ResearchModeArg::Invention)
+                .into();
+            let speculation = cli.speculation.unwrap_or(SpeculationArg::High).into();
+            return self
+                .handlers
+                .handle_research(&args_str, depth, mode, speculation)
+                .await;
         }
         if cli.work {
             return self.handlers.handle_work(&args_str).await;
