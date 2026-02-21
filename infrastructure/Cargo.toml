@@ -31,6 +31,7 @@ flate2 = "1.0"
 scraper.workspace = true
 pdf-extract.workspace = true
 docx-rs.workspace = true
+readable-rs.workspace = true
 calamine.workspace = true
 ctrlc.workspace = true
 syn = { version = "2", features = ["full"] }

@@ -3,6 +3,7 @@ use std::process::{Command, Output};
 use std::thread::sleep as std_sleep;
 use tokio::time::Duration;
 use crate::tools::web::html_to_text;
+use readable_rs::{extract, ExtractOptions};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchResult {
@@ -423,7 +424,11 @@ fn extract_response_text(
 
     let text = if is_html {
         let html = String::from_utf8_lossy(bytes).to_string();
-        html_to_text(&html, 8000)
+        if let Some(extracted) = extract_main_content(&html, url) {
+            extracted
+        } else {
+            html_to_text(&html, 8000)
+        }
     } else {
         let raw = String::from_utf8_lossy(bytes).to_string();
         truncate_text(&collapse_whitespace(&raw), 8000)
@@ -454,6 +459,17 @@ fn extract_pdf_text(bytes: &[u8]) -> Result<String, String> {
 
 fn collapse_whitespace(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn extract_main_content(html: &str, url: &str) -> Option<String> {
+    let product = extract(html, url, ExtractOptions::default());
+    let content = product.content?;
+    let article_html = content.to_string();
+    let text = html_to_text(&article_html, 8000);
+    if text.trim().len() < 200 {
+        return None;
+    }
+    Some(text)
 }
 
 fn truncate_text(text: &str, max_len: usize) -> String {
