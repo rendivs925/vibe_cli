@@ -14,8 +14,8 @@ pub struct WebSearchService {
     searxng_url: String,
 }
 
-const SEARXNG_CONTAINER_NAME: &str = "vibe-searxng";
-const SEARXNG_HOST_PORT: u16 = 8085;
+const SEARXNG_CONTAINER_NAME: &str = "searxng";
+const SEARXNG_HOST_PORT: u16 = 8888;
 const SEARXNG_CONTAINER_PORT: u16 = 8080;
 const SEARXNG_VOLUME_NAME: &str = "searxng-data-v2";
 
@@ -136,6 +136,7 @@ impl WebSearchService {
         }
 
         self.ensure_container_running()?;
+        self.enable_json_format()?;
         self.update_config_url(&url)?;
         Ok(())
     }
@@ -194,9 +195,9 @@ impl WebSearchService {
                     .unwrap_or_default();
 
                     let hint = if logs.contains("limiter.toml is invalid") {
-                        "Hint: invalid /etc/searxng/limiter.toml (old config). Remove the old volume:\n  docker rm -f vibe-searxng\n  docker volume rm searxng-data\nthen retry."
+                        "Hint: invalid /etc/searxng/limiter.toml (old config). Remove the old config:\n  rm -rf ./searxng/config/\nthen retry."
                     } else {
-                        "Check `docker logs vibe-searxng --tail 200` for details."
+                        "Check `docker logs searxng --tail 200` for details."
                     };
 
                     return Err(format!("SearXNG container exited. {}\n{}", hint, logs.trim()));
@@ -247,6 +248,34 @@ impl WebSearchService {
 
         std::fs::write(&config_path, config_content).ok();
         println!("Saved SEARXNG_URL={} to {}", url, config_path);
+        Ok(())
+    }
+
+    fn enable_json_format(&self) -> Result<(), String> {
+        let check_cmd = Self::run_docker(&[
+            "exec",
+            SEARXNG_CONTAINER_NAME,
+            "grep",
+            "-q",
+            "-E",
+            "^    - json$",
+            "/etc/searxng/settings.yml",
+        ]);
+
+        if check_cmd.is_ok() && check_cmd.unwrap().status.success() {
+            return Ok(());
+        }
+
+        Self::run_docker(&[
+            "exec",
+            SEARXNG_CONTAINER_NAME,
+            "sh",
+            "-c",
+            "sed -i 's/^  formats:\\n    - html$/  formats:\\n    - html\\n    - json/' /etc/searxng/settings.yml || \
+             sed -i '/^  formats:$/a\\    - html\\n    - json' /etc/searxng/settings.yml",
+        ])?;
+
+        Self::run_docker(&["restart", SEARXNG_CONTAINER_NAME])?;
         Ok(())
     }
 
