@@ -347,7 +347,7 @@ impl CliApp {
             let speculation = cli.speculation.unwrap_or(SpeculationArg::High).into();
             return self
                 .handlers
-                .handle_research(&args_str, depth, mode, speculation)
+                .handle_research(&args_str, depth, mode, speculation, &scaling_config)
                 .await;
         }
         if cli.work {

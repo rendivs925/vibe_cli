@@ -1,3 +1,4 @@
+use infrastructure::config::Config;
 use infrastructure::ollama_client::OllamaClient;
 use shared::types::Result;
 
@@ -6,6 +7,7 @@ use crate::services::research_pipeline_prompts::{
     critique_prompt, evidence_prompt, experiment_prompt, invention_prompt, refine_prompt,
     stage_system, hypotheses_prompt,
 };
+use crate::services::test_time_scaling::{ScalingConfig, ScalingMethod, TestTimeComputeService};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum ResearchMode {
@@ -24,12 +26,26 @@ pub enum SpeculationLevel {
 
 pub struct ResearchPipelineService {
     client: OllamaClient,
+    scaling: Option<ScalingConfig>,
+    ttc: Option<TestTimeComputeService>,
 }
 
 impl ResearchPipelineService {
     pub fn new() -> Result<Self> {
         Ok(Self {
             client: OllamaClient::new()?,
+            scaling: None,
+            ttc: None,
+        })
+    }
+
+    pub fn with_scaling(config: Config, scaling: ScalingConfig) -> Result<Self> {
+        let client = OllamaClient::new()?;
+        let ttc = TestTimeComputeService::new(client.clone(), config);
+        Ok(Self {
+            client,
+            scaling: Some(scaling),
+            ttc: Some(ttc),
         })
     }
 
@@ -107,6 +123,15 @@ impl ResearchPipelineService {
     }
 
     async fn generate_stage(&self, system: String, prompt: String) -> Result<String> {
+        if let (Some(ttc), Some(scaling)) = (&self.ttc, &self.scaling) {
+            if scaling.method != ScalingMethod::None && scaling.num_samples > 1 {
+                let combined = format!("SYSTEM:\n{}\n\nUSER:\n{}", system, prompt);
+                if let Some(best) = ttc.select_best_response(&combined, scaling).await? {
+                    return Ok(best.trim().to_string());
+                }
+            }
+        }
+
         let response = self
             .client
             .generate_response_with_system(&prompt, &system)

@@ -1,6 +1,7 @@
 use super::CliHandlers;
 use application::services::research_agent_service::ResearchDepth;
 use application::services::research_pipeline_service::{ResearchMode, SpeculationLevel};
+use application::services::test_time_scaling::{ScalingConfig, ScalingMethod};
 use shared::types::Result;
 
 impl CliHandlers {
@@ -36,6 +37,7 @@ impl CliHandlers {
         depth: ResearchDepth,
         mode: ResearchMode,
         speculation: SpeculationLevel,
+        scaling_config: &ScalingConfig,
     ) -> Result<()> {
         use application::services::research_agent_service::ResearchAgent;
         use application::services::research_pipeline_service::ResearchPipelineService;
@@ -101,7 +103,14 @@ impl CliHandlers {
                     }
                     
                     let sources = agent.get_sources_for_query(&query_id);
-                    let pipeline = ResearchPipelineService::new()?;
+                    let pipeline = if scaling_config.method == ScalingMethod::None {
+                        ResearchPipelineService::new()?
+                    } else {
+                        ResearchPipelineService::with_scaling(
+                            self.config.clone(),
+                            scaling_config.clone(),
+                        )?
+                    };
                     match pipeline
                         .run(query, depth.clone(), mode, speculation, &sources)
                         .await
