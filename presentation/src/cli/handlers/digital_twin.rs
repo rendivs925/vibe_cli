@@ -62,14 +62,11 @@ impl CliHandlers {
                         println!("{}. {}", i + 1, result.url);
 
                         let mut content = String::new();
-                        let fetched = search_service.fetch_page(&result.url).await;
-                        match fetched {
+                        match search_service.fetch_page(&result.url).await {
                             Ok(text) => {
-                                content = extract_preview(&text);
+                                content = normalize_text(&text);
                             }
-                            Err(_) => {
-                                // Leave content empty and fall back to snippet/title below.
-                            }
+                            Err(_) => {}
                         }
 
                         if content.trim().is_empty() {
@@ -176,23 +173,17 @@ impl CliHandlers {
     }
 }
 
-fn extract_preview(text: &str) -> String {
-    let head: String = text.chars().take(2000).collect();
-    let lower = head.to_lowercase();
-    if lower.contains("%pdf") {
-        return String::new();
-    }
-
-    let cleaned = normalize_text(&head);
-    if cleaned.is_empty() {
-        return String::new();
-    }
-
-    truncate_chars(&cleaned, 300)
-}
-
 fn normalize_text(text: &str) -> String {
-    let stripped = strip_html_tags(text);
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+
+    let stripped = if looks_like_html(trimmed) {
+        strip_html_tags(trimmed)
+    } else {
+        trimmed.to_string()
+    };
     let decoded = stripped
         .replace("&nbsp;", " ")
         .replace("&amp;", "&")
@@ -205,6 +196,13 @@ fn normalize_text(text: &str) -> String {
         .join(" ")
         .trim()
         .to_string()
+}
+
+fn looks_like_html(input: &str) -> bool {
+    let lower = input.to_lowercase();
+    lower.contains("<html")
+        || lower.contains("<body")
+        || (lower.contains('<') && lower.contains('>') && lower.contains("</"))
 }
 
 fn strip_html_tags(input: &str) -> String {
@@ -220,22 +218,6 @@ fn strip_html_tags(input: &str) -> String {
                 }
             }
         }
-    }
-    out
-}
-
-fn truncate_chars(text: &str, max_len: usize) -> String {
-    let mut out = String::new();
-    let mut count = 0;
-    for ch in text.chars() {
-        if count >= max_len {
-            break;
-        }
-        out.push(ch);
-        count += 1;
-    }
-    if text.chars().count() > max_len {
-        out.push_str("...");
     }
     out
 }

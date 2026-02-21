@@ -2,6 +2,7 @@ use serde::{Deserialize, Serialize};
 use std::process::{Command, Output};
 use std::thread::sleep as std_sleep;
 use tokio::time::Duration;
+use crate::tools::web::html_to_text;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SearchResult {
@@ -361,26 +362,115 @@ impl WebSearchService {
     }
 
     pub async fn fetch_page(&self, url: &str) -> Result<String, String> {
-        let output = Command::new("curl")
-            .args(["-sS", "--connect-timeout", "10", "-m", "15", "-L", url])
-            .output()
+        let client = reqwest::Client::builder()
+            .user_agent("Mozilla/5.0 (compatible; vibe_cli/1.0; +https://github.com)")
+            .redirect(reqwest::redirect::Policy::limited(10))
+            .timeout(Duration::from_secs(20))
+            .build()
             .map_err(|e| format!("Fetch failed: {}", e))?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            let detail = stderr.trim();
-            if detail.is_empty() {
-                return Err(format!("Fetch failed with status: {}", output.status));
-            }
+        let resp = client
+            .get(url)
+            .send()
+            .await
+            .map_err(|e| format!("Fetch failed: {}", e))?;
+
+        if !resp.status().is_success() {
             return Err(format!(
-                "Fetch failed with status: {} ({})",
-                output.status, detail
+                "Fetch failed with status: {}",
+                resp.status()
             ));
         }
 
-        let text = String::from_utf8_lossy(&output.stdout).to_string();
-        Ok(text)
+        let content_type = resp
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|v| v.to_str().ok())
+            .map(|s| s.to_string());
+
+        let bytes = resp
+            .bytes()
+            .await
+            .map_err(|e| format!("Fetch failed: {}", e))?;
+
+        extract_response_text(url, content_type.as_deref(), &bytes)
     }
+}
+
+fn extract_response_text(
+    url: &str,
+    content_type: Option<&str>,
+    bytes: &[u8],
+) -> Result<String, String> {
+    let is_pdf = content_type
+        .map(|ct| ct.contains("application/pdf"))
+        .unwrap_or(false)
+        || url.to_lowercase().ends_with(".pdf")
+        || bytes.starts_with(b"%PDF");
+
+    if is_pdf {
+        return extract_pdf_text(bytes);
+    }
+
+    let is_html = content_type
+        .map(|ct| ct.contains("text/html"))
+        .unwrap_or(false)
+        || bytes
+            .get(0..512)
+            .and_then(|chunk| std::str::from_utf8(chunk).ok())
+            .map(|chunk| chunk.contains("<html") || chunk.contains("<body"))
+            .unwrap_or(false);
+
+    let text = if is_html {
+        let html = String::from_utf8_lossy(bytes).to_string();
+        html_to_text(&html, 8000)
+    } else {
+        let raw = String::from_utf8_lossy(bytes).to_string();
+        truncate_text(&collapse_whitespace(&raw), 8000)
+    };
+
+    Ok(text)
+}
+
+fn extract_pdf_text(bytes: &[u8]) -> Result<String, String> {
+    use std::fs;
+    use std::time::{SystemTime, UNIX_EPOCH};
+
+    let now = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_err(|e| format!("Fetch failed: {}", e))?
+        .as_millis();
+
+    let mut path = std::env::temp_dir();
+    path.push(format!("vibe_cli_fetch_{}_{}.pdf", std::process::id(), now));
+
+    fs::write(&path, bytes).map_err(|e| format!("Fetch failed: {}", e))?;
+    let extracted = pdf_extract::extract_text(&path)
+        .map_err(|e| format!("Fetch failed: {}", e))?;
+    let _ = fs::remove_file(&path);
+
+    Ok(truncate_text(&collapse_whitespace(&extracted), 8000))
+}
+
+fn collapse_whitespace(text: &str) -> String {
+    text.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn truncate_text(text: &str, max_len: usize) -> String {
+    if text.len() <= max_len {
+        return text.to_string();
+    }
+    let mut out = String::new();
+    let mut count = 0;
+    for ch in text.chars() {
+        if count >= max_len {
+            break;
+        }
+        out.push(ch);
+        count += 1;
+    }
+    out.push_str("...[truncated]");
+    out
 }
 
 fn url_encode(s: &str) -> String {

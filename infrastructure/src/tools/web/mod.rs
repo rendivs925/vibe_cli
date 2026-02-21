@@ -44,18 +44,21 @@ pub(crate) fn fetch_url(url: &str) -> Result<FetchResponse, ToolError> {
 }
 
 pub(crate) fn html_to_text(html: &str, max_len: usize) -> String {
-    let document = scraper::Html::parse_document(html);
-    let selector = scraper::Selector::parse("body").unwrap_or_else(|_| scraper::Selector::parse("html").unwrap());
-    let mut text = String::new();
+    use scraper::{Html, Selector};
 
-    for node in document.select(&selector) {
-        for line in node.text() {
-            let trimmed = line.trim();
-            if !trimmed.is_empty() {
-                text.push_str(trimmed);
-                text.push(' ');
-            }
-        }
+    let document = Html::parse_document(html);
+    let main_selector = Selector::parse("article, main")
+        .unwrap_or_else(|_| Selector::parse("article").unwrap());
+    let body_selector = Selector::parse("body").unwrap_or_else(|_| Selector::parse("html").unwrap());
+
+    let mut nodes: Vec<scraper::ElementRef> = document.select(&main_selector).collect();
+    if nodes.is_empty() {
+        nodes = document.select(&body_selector).collect();
+    }
+
+    let mut text = String::new();
+    for node in nodes {
+        collect_text(node, &mut text, false);
     }
 
     let cleaned = text.split_whitespace().collect::<Vec<_>>().join(" ");
@@ -64,6 +67,59 @@ pub(crate) fn html_to_text(html: &str, max_len: usize) -> String {
     } else {
         cleaned
     }
+}
+
+fn collect_text(node: scraper::ElementRef, out: &mut String, skip: bool) {
+    use scraper::node::Node;
+
+    let mut stack = Vec::new();
+    stack.push((node, skip));
+
+    while let Some((current, skip_parent)) = stack.pop() {
+        let name = current.value().name();
+        let skip_here = skip_parent || should_skip_tag(name);
+
+        for child in current.children() {
+            match child.value() {
+                Node::Text(t) => {
+                    if !skip_here {
+                        let trimmed = t.trim();
+                        if !trimmed.is_empty() {
+                            out.push_str(trimmed);
+                            out.push(' ');
+                        }
+                    }
+                }
+                Node::Element(_) => {
+                    if let Some(elem) = scraper::ElementRef::wrap(child) {
+                        stack.push((elem, skip_here));
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+}
+
+fn should_skip_tag(name: &str) -> bool {
+    matches!(
+        name,
+        "script"
+            | "style"
+            | "noscript"
+            | "svg"
+            | "canvas"
+            | "iframe"
+            | "nav"
+            | "header"
+            | "footer"
+            | "aside"
+            | "form"
+            | "button"
+            | "input"
+            | "textarea"
+            | "select"
+    )
 }
 
 pub(crate) fn summarize_text(text: &str, max_sentences: usize) -> String {
