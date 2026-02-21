@@ -2,7 +2,7 @@
 
 <div align="center">
 
-**AI-powered CLI assistant** with RAG capabilities and neurosymbolic reasoning - no more memorizing man pages or flag combinations.
+**AI-powered CLI assistant** for system operations, research, and knowledge work with RAG and neurosymbolic reasoning.
 
 [![Rust](https://img.shields.io/badge/Rust-1.70+-orange.svg)](https://www.rust-lang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](https://opensource.org/licenses/MIT)
@@ -13,23 +13,20 @@
 
 ## Why vibe_cli?
 
-Stop memorizing man pages. Just describe what you need:
+A single CLI assistant for system operations, research, and knowledge work. Use it to turn intent into safe commands, synthesize from web sources, and draft or inspect documents.
 
 ```bash
-# Instead of: free -h && cat /proc/meminfo | grep MemTotal
-vibe_cli "show my ram usage"
-
-# Instead of: df -h && lsblk
-vibe_cli "check disk space"
-
-# Instead of: journalctl -n 50 --no-pager
-vibe_cli "check last 50 lines of journalctl"
-
-# Instead of: ps aux --sort=-%cpu | head -20
+# System ops
 vibe_cli "show top cpu processes"
+
+# Research
+vibe_cli --research --depth quick "quantum computing"
+
+# Knowledge work
+vibe_cli --work "analyze sales.csv"
 ```
 
-No flags to remember. No man pages to read. Just natural language.
+No flags to memorize for common tasks, and richer workflows when you need depth.
 
 ---
 
@@ -63,7 +60,24 @@ vibe_cli --work "analyze sales.csv"
 
 ---
 
-## Commands
+## Modes at a Glance
+
+| Mode | Flag | Purpose |
+|------|------|---------|
+| Standard query | none | Translate intent into safe system commands |
+| Chat | `--chat` | Interactive CLI conversation |
+| Agent | `--agent` | Multi-step planning and execution |
+| ReAct | `--react` | Tool-driven iterative reasoning |
+| Research | `--research` | Web search + multi-stage synthesis |
+| Task | `--task` | Decompose and track task steps |
+| Work | `--work` | Document/spreadsheet workflows |
+| Explain | `--explain` | Read and explain files (PDF/DOCX/etc.) |
+| RAG | `--rag` | Answer with codebase context |
+| Neurosymbolic | `--neurosymbolic` | Config-driven command generation |
+
+---
+
+## Modes
 
 ### Standard Query
 
@@ -73,6 +87,65 @@ Natural language to shell command conversion:
 vibe_cli "find all .rs files larger than 1MB"
 vibe_cli "check ssh status"
 ```
+
+### AI Interpretation
+
+```bash
+# Get readable summaries of command output
+vibe_cli --ai-interpret "list processes"
+```
+
+Command execution streams with AI chunk summaries and a concise final summary.
+
+### Research Mode (Web + Synthesis)
+
+```bash
+vibe_cli --research --depth quick "quantum computing"
+vibe_cli --research --depth comprehensive --research-mode invention --speculation high "advanced propulsion"
+```
+
+Research runs a multi-stage pipeline over web sources:
+- Evidence ledger
+- Hypotheses and refinement
+- Critique
+- Experiments (optional)
+- Novel directions (optional)
+
+Research modes:
+- `invention`: maximize novelty and propose new directions
+- `hypothesis`: focus on plausible hypotheses and supporting evidence
+- `experiment`: prioritize testable experiments and validation paths
+- `critique`: emphasize weaknesses, risks, and gaps
+
+Speculation levels:
+- `low`: conservative, evidence-heavy
+- `medium`: balanced
+- `high`: exploratory and creative
+
+Depth controls number of sources and context size:
+- `quick`
+- `standard`
+- `deep`
+- `comprehensive`
+
+Research output includes realtime progress for each stage with elapsed time.
+
+### Work Mode (Documents + Spreadsheets)
+
+```bash
+vibe_cli --work "analyze sales.csv"
+vibe_cli --work "create meeting notes.md with action items"
+```
+
+Supports spreadsheet analysis (CSV/XLSX) and document creation (Markdown/CSV/HTML). PDF reading is available via `--explain` or ReAct tools.
+
+### Task Mode
+
+```bash
+vibe_cli --task "migrate nginx configs and verify rollout"
+```
+
+Creates a tracked task, decomposes it into steps, and lists current task status.
 
 ### Interactive Chat
 
@@ -138,56 +211,6 @@ WARNING Will modify. Confirm? y/n>
 DANGER Will modify system. Confirm? y/n>
 ```
 
-### Task Mode
-
-```bash
-vibe_cli --task "migrate nginx configs and verify rollout"
-```
-
-Creates a tracked task, decomposes it into steps, and lists current task status.
-
-### Research Mode (Web + Synthesis)
-
-```bash
-vibe_cli --research --depth quick "quantum computing"
-vibe_cli --research --depth comprehensive --research-mode invention --speculation high "advanced propulsion"
-```
-
-Research runs a multi-stage pipeline over web sources:
-- Evidence ledger
-- Hypotheses and refinement
-- Critique
-- Experiments (optional)
-- Novel directions (optional)
-
-Research modes:
-- `invention`: maximize novelty and propose new directions
-- `hypothesis`: focus on plausible hypotheses and supporting evidence
-- `experiment`: prioritize testable experiments and validation paths
-- `critique`: emphasize weaknesses, risks, and gaps
-
-Speculation levels:
-- `low`: conservative, evidence-heavy
-- `medium`: balanced
-- `high`: exploratory and creative
-
-Depth controls number of sources and context size:
-- `quick`
-- `standard`
-- `deep`
-- `comprehensive`
-
-Research output includes realtime progress for each stage with elapsed time.
-
-### Work Mode (Documents + Spreadsheets)
-
-```bash
-vibe_cli --work "analyze sales.csv"
-vibe_cli --work "create meeting notes.md with action items"
-```
-
-Supports spreadsheet analysis (CSV/XLSX) and document creation (Markdown/CSV/HTML). PDF reading is available via `--explain` or ReAct tools.
-
 ### Explain Files
 
 ```bash
@@ -214,15 +237,6 @@ vibe_cli --neurosymbolic --neurosymbolic-rag "list processes related to nginx"
 ```
 
 Uses embeddings to understand your codebase and provide contextual answers.
-
-### AI Interpretation
-
-```bash
-# Get readable summaries of command output
-vibe_cli --ai-interpret "list processes"
-```
-
-Command execution streams with AI chunk summaries and a concise final summary.
 
 ### Test-Time Compute (Quality Scaling)
 
