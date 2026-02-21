@@ -15,7 +15,7 @@ pub struct WebSearchService {
 }
 
 const SEARXNG_CONTAINER_NAME: &str = "searxng";
-const SEARXNG_HOST_PORT: u16 = 8888;
+const SEARXNG_HOST_PORT: u16 = 8080;
 const SEARXNG_CONTAINER_PORT: u16 = 8080;
 const SEARXNG_VOLUME_NAME: &str = "searxng-data-v2";
 
@@ -38,12 +38,10 @@ impl WebSearchService {
             .await
         {
             Ok(results) => Ok(results),
-            Err(e) if Self::is_connection_error(&e) => {
-                Err(format!(
-                    "SearXNG is not running. Start it with: make searxng-up\nError: {}",
-                    e
-                ))
-            }
+            Err(e) if Self::is_connection_error(&e) => Err(format!(
+                "SearXNG is not running. Start it with: make searxng-up\nError: {}",
+                e
+            )),
             Err(e) => Err(e),
         }
     }
@@ -61,7 +59,11 @@ impl WebSearchService {
             .ok()?;
 
         let ports = String::from_utf8_lossy(&output.stdout);
+
         for line in ports.lines() {
+            if line.is_empty() {
+                return Some(format!("http://localhost:{}", SEARXNG_HOST_PORT));
+            }
             if let Some(host_port) = line.split("->").next() {
                 if let Some(port) = host_port.trim().split(':').last() {
                     let port = port.trim_end_matches("/tcp").trim_end_matches("/udp");
@@ -69,7 +71,8 @@ impl WebSearchService {
                 }
             }
         }
-        None
+
+        Some(format!("http://localhost:{}", SEARXNG_HOST_PORT))
     }
 
     fn start_searxng(&self) -> Result<(), String> {
@@ -169,15 +172,10 @@ impl WebSearchService {
                     return Ok(());
                 }
                 if status.starts_with("Exited") {
-                    let logs = Self::run_docker(&[
-                        "logs",
-                        "--tail",
-                        "50",
-                        SEARXNG_CONTAINER_NAME,
-                    ])
-                    .ok()
-                    .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
-                    .unwrap_or_default();
+                    let logs = Self::run_docker(&["logs", "--tail", "50", SEARXNG_CONTAINER_NAME])
+                        .ok()
+                        .map(|o| String::from_utf8_lossy(&o.stdout).to_string())
+                        .unwrap_or_default();
 
                     let hint = if logs.contains("limiter.toml is invalid") {
                         "Hint: invalid /etc/searxng/limiter.toml (old config). Remove the old config:\n  rm -rf ./searxng/config/\nthen retry."
@@ -185,7 +183,11 @@ impl WebSearchService {
                         "Check `docker logs searxng --tail 200` for details."
                     };
 
-                    return Err(format!("SearXNG container exited. {}\n{}", hint, logs.trim()));
+                    return Err(format!(
+                        "SearXNG container exited. {}\n{}",
+                        hint,
+                        logs.trim()
+                    ));
                 }
             }
 

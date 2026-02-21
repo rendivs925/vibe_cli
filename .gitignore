@@ -5,3 +5,4 @@ embedding.db
 embeddings.db
 .cache/
 searxng/
+searxng.bak/
