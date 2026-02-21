@@ -41,8 +41,8 @@ impl ResearchPipelineService {
         speculation: SpeculationLevel,
         sources: &[&ResearchSource],
     ) -> Result<String> {
-        let source_context = build_source_context(sources, depth);
-        let source_list = build_source_list(sources, depth);
+        let source_context = build_source_context(sources, &depth);
+        let source_list = build_source_list(sources, &depth);
         let evidence = self
             .generate_stage(
                 stage_system("evidence"),
@@ -115,7 +115,7 @@ impl ResearchPipelineService {
     }
 }
 
-fn build_source_context(sources: &[&ResearchSource], depth: ResearchDepth) -> String {
+fn build_source_context(sources: &[&ResearchSource], depth: &ResearchDepth) -> String {
     let (max_sources, max_chars) = source_limits(depth);
     let mut out = String::new();
     for (i, source) in sources.iter().take(max_sources).enumerate() {
@@ -130,7 +130,7 @@ fn build_source_context(sources: &[&ResearchSource], depth: ResearchDepth) -> St
     out
 }
 
-fn build_source_list(sources: &[&ResearchSource], depth: ResearchDepth) -> String {
+fn build_source_list(sources: &[&ResearchSource], depth: &ResearchDepth) -> String {
     let (max_sources, _) = source_limits(depth);
     let mut out = String::new();
     for (i, source) in sources.iter().take(max_sources).enumerate() {
@@ -144,7 +144,7 @@ fn build_source_list(sources: &[&ResearchSource], depth: ResearchDepth) -> Strin
     out.trim().to_string()
 }
 
-fn source_limits(depth: ResearchDepth) -> (usize, usize) {
+fn source_limits(depth: &ResearchDepth) -> (usize, usize) {
     match depth {
         ResearchDepth::Quick => (3, 1800),
         ResearchDepth::Standard => (6, 2400),
