@@ -4,6 +4,96 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum PropertyType {
+    String,
+    Number,
+    Integer,
+    Boolean,
+    Array,
+    Object,
+}
+
+impl Default for PropertyType {
+    fn default() -> Self {
+        PropertyType::String
+    }
+}
+
+impl std::fmt::Display for PropertyType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            PropertyType::String => write!(f, "string"),
+            PropertyType::Number => write!(f, "number"),
+            PropertyType::Integer => write!(f, "integer"),
+            PropertyType::Boolean => write!(f, "boolean"),
+            PropertyType::Array => write!(f, "array"),
+            PropertyType::Object => write!(f, "object"),
+        }
+    }
+}
+
+impl std::str::FromStr for PropertyType {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "string" => Ok(PropertyType::String),
+            "number" => Ok(PropertyType::Number),
+            "integer" => Ok(PropertyType::Integer),
+            "boolean" => Ok(PropertyType::Boolean),
+            "array" => Ok(PropertyType::Array),
+            "object" => Ok(PropertyType::Object),
+            _ => Err(format!("Unknown property type: {}", s)),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum OutputFormat {
+    Json,
+    Csv,
+    Tsv,
+    Delimited,
+    KeyValue,
+    Text,
+}
+
+impl Default for OutputFormat {
+    fn default() -> Self {
+        OutputFormat::Text
+    }
+}
+
+impl std::fmt::Display for OutputFormat {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            OutputFormat::Json => write!(f, "json"),
+            OutputFormat::Csv => write!(f, "csv"),
+            OutputFormat::Tsv => write!(f, "tsv"),
+            OutputFormat::Delimited => write!(f, "delimited"),
+            OutputFormat::KeyValue => write!(f, "keyvalue"),
+            OutputFormat::Text => write!(f, "text"),
+        }
+    }
+}
+
+impl std::str::FromStr for OutputFormat {
+    type Err = String;
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.to_lowercase().as_str() {
+            "json" => Ok(OutputFormat::Json),
+            "csv" => Ok(OutputFormat::Csv),
+            "tsv" => Ok(OutputFormat::Tsv),
+            "delimited" => Ok(OutputFormat::Delimited),
+            "keyvalue" | "key_value" => Ok(OutputFormat::KeyValue),
+            "text" | "" => Ok(OutputFormat::Text),
+            _ => Err(format!("Unknown output format: {}", s)),
+        }
+    }
+}
+
 /// Main domain manifest
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
@@ -86,8 +176,8 @@ pub struct Property {
     #[serde(rename = "name")]
     pub name: String,
 
-    #[serde(rename = "type")]
-    pub type_: String,
+    #[serde(rename = "type", default)]
+    pub type_: PropertyType,
 
     #[serde(rename = "meaning")]
     pub meaning: String,
@@ -172,8 +262,8 @@ pub struct Operation {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct InputSpec {
-    #[serde(rename = "type")]
-    pub type_: String,
+    #[serde(rename = "type", default)]
+    pub type_: PropertyType,
 
     #[serde(rename = "meaning", default)]
     pub meaning: String,
@@ -230,8 +320,8 @@ pub struct RequiredInput {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OutputSchema {
-    #[serde(rename = "type")]
-    pub type_: String,
+    #[serde(rename = "type", default)]
+    pub type_: PropertyType,
 
     #[serde(rename = "items", default)]
     pub items: Option<OutputItem>,
@@ -240,7 +330,7 @@ pub struct OutputSchema {
     pub properties: HashMap<String, OutputProperty>,
 
     #[serde(rename = "format", default)]
-    pub format: Option<String>,
+    pub format: Option<OutputFormat>,
 
     #[serde(rename = "delimiter", default)]
     pub delimiter: Option<String>,
@@ -250,8 +340,8 @@ pub struct OutputSchema {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OutputItem {
-    #[serde(rename = "type")]
-    pub type_: String,
+    #[serde(rename = "type", default)]
+    pub type_: PropertyType,
 
     #[serde(rename = "properties", default)]
     pub properties: HashMap<String, OutputProperty>,
@@ -261,8 +351,8 @@ pub struct OutputItem {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct OutputProperty {
-    #[serde(rename = "type")]
-    pub type_: String,
+    #[serde(rename = "type", default)]
+    pub type_: PropertyType,
 
     #[serde(rename = "column", default)]
     pub column: Option<usize>,

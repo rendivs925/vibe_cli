@@ -1,7 +1,8 @@
 #[cfg(test)]
 mod domain_config_tests {
     use crate::domain_config::types::{
-        Generator, OutputItem, OutputProperty, OutputSchema, RequiredInput,
+        Generator, OutputFormat, OutputItem, OutputProperty, OutputSchema, PropertyType,
+        RequiredInput,
     };
     use crate::{CommandGenerator, DomainRegistry, OutputParser};
     use std::collections::HashMap;
@@ -163,14 +164,14 @@ mod domain_config_tests {
 
         let output = "1234 nginx 5.0\n5678 python 2.5";
         let schema = OutputSchema {
-            type_: "array".to_string(),
+            type_: PropertyType::Array,
             items: Some(OutputItem {
-                type_: "object".to_string(),
+                type_: PropertyType::Object,
                 properties: vec![
                     (
                         "pid".to_string(),
                         OutputProperty {
-                            type_: "integer".to_string(),
+                            type_: PropertyType::Integer,
                             column: Some(0),
                             key: None,
                         },
@@ -178,7 +179,7 @@ mod domain_config_tests {
                     (
                         "cmdline".to_string(),
                         OutputProperty {
-                            type_: "string".to_string(),
+                            type_: PropertyType::String,
                             column: Some(1),
                             key: None,
                         },
@@ -186,7 +187,7 @@ mod domain_config_tests {
                     (
                         "cpu".to_string(),
                         OutputProperty {
-                            type_: "number".to_string(),
+                            type_: PropertyType::Number,
                             column: Some(2),
                             key: None,
                         },

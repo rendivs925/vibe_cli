@@ -411,7 +411,7 @@ impl DomainLoader {
             }
             for prop in &entity.core_properties {
                 self.require_non_empty("property.name", &prop.name)?;
-                self.require_non_empty("property.type", &prop.type_)?;
+                self.require_non_empty("property.type", &prop.type_.to_string())?;
                 self.require_non_empty("property.meaning", &prop.meaning)?;
             }
             for prop in &entity.derived_properties {
@@ -452,7 +452,10 @@ impl DomainLoader {
                 self.require_non_empty("operation.example.description", &ex.description)?;
             }
             for (name, spec) in &op.input_schema {
-                self.require_non_empty(&format!("input_schema.{}.type", name), &spec.type_)?;
+                self.require_non_empty(
+                    &format!("input_schema.{}.type", name),
+                    &spec.type_.to_string(),
+                )?;
             }
         }
 

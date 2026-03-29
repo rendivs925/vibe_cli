@@ -19,7 +19,12 @@ impl OutputParser {
         }
 
         // Handle JSON format
-        if schema.format.as_ref().map(|s| s == "json").unwrap_or(false) {
+        if schema
+            .format
+            .as_ref()
+            .map(|f| *f == OutputFormat::Json)
+            .unwrap_or(false)
+        {
             return self.parse_json(output);
         }
 
@@ -127,11 +132,17 @@ impl OutputParser {
             if let Some(colon_pos) = line.find(": ") {
                 let key = &line[..colon_pos];
                 let value = &line[colon_pos + 2..];
-                current.insert(key.to_string(), self.parse_value(value, "string"));
+                current.insert(
+                    key.to_string(),
+                    self.parse_value(value, &PropertyType::String),
+                );
             } else if let Some(eq_pos) = line.find('=') {
                 let key = &line[..eq_pos];
                 let value = &line[eq_pos + 1..];
-                current.insert(key.to_string(), self.parse_value(value, "string"));
+                current.insert(
+                    key.to_string(),
+                    self.parse_value(value, &PropertyType::String),
+                );
             }
         }
 
@@ -143,9 +154,9 @@ impl OutputParser {
     }
 
     /// Parse a string value into the target type
-    fn parse_value(&self, value_str: &str, target_type: &str) -> serde_json::Value {
+    fn parse_value(&self, value_str: &str, target_type: &PropertyType) -> serde_json::Value {
         match target_type {
-            "integer" => {
+            PropertyType::Integer => {
                 if let Ok(n) = value_str.parse::<i64>() {
                     serde_json::Value::Number(n.into())
                 } else if let Ok(n) = value_str.parse::<f64>() {
@@ -158,7 +169,7 @@ impl OutputParser {
                     serde_json::Value::String(value_str.to_string())
                 }
             }
-            "number" | "float" => {
+            PropertyType::Number => {
                 if let Ok(n) = value_str.parse::<f64>() {
                     if let Some(num) = serde_json::Number::from_f64(n) {
                         serde_json::Value::Number(num)
@@ -169,7 +180,7 @@ impl OutputParser {
                     serde_json::Value::String(value_str.to_string())
                 }
             }
-            "boolean" => {
+            PropertyType::Boolean => {
                 if value_str.to_lowercase() == "true" || value_str == "1" {
                     serde_json::Value::Bool(true)
                 } else if value_str.to_lowercase() == "false" || value_str == "0" {
@@ -192,14 +203,14 @@ mod tests {
         let parser = OutputParser;
 
         let schema = OutputSchema {
-            type_: "array".to_string(),
+            type_: PropertyType::Array,
             items: Some(OutputItem {
-                type_: "object".to_string(),
+                type_: PropertyType::Object,
                 properties: vec![
                     (
                         "pid".to_string(),
                         OutputProperty {
-                            type_: "integer".to_string(),
+                            type_: PropertyType::Integer,
                             column: Some(0),
                             key: None,
                         },
@@ -207,7 +218,7 @@ mod tests {
                     (
                         "cmdline".to_string(),
                         OutputProperty {
-                            type_: "string".to_string(),
+                            type_: PropertyType::String,
                             column: Some(1),
                             key: None,
                         },
@@ -240,10 +251,10 @@ mod tests {
         let parser = OutputParser;
 
         let schema = OutputSchema {
-            type_: "array".to_string(),
+            type_: PropertyType::Array,
             items: None,
             properties: HashMap::new(),
-            format: Some("json".to_string()),
+            format: Some(OutputFormat::Json),
             delimiter: None,
         };
 
@@ -262,7 +273,7 @@ mod tests {
         let parser = OutputParser;
 
         let schema = OutputSchema {
-            type_: "array".to_string(),
+            type_: PropertyType::Array,
             items: None,
             properties: HashMap::new(),
             format: None,
