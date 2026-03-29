@@ -83,7 +83,19 @@ pub struct ReactContext {
     pub user_preferences: HashMap<String, String>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[derive(
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    Hash,
+    Serialize,
+    Deserialize,
+    strum::EnumString,
+    strum::Display,
+)]
+#[strum(serialize_all = "snake_case")]
 pub enum ReactTool {
     // Category A: Investigation Tools (Gathering Data)
     SuggestCommand,
@@ -427,77 +439,6 @@ impl ReactTool {
             Explain,
             SuggestAlternatives,
         ]
-    }
-}
-
-impl std::str::FromStr for ReactTool {
-    type Err = String;
-
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s {
-            "suggest_command" => Ok(ReactTool::SuggestCommand),
-            "suggest_read" => Ok(ReactTool::SuggestRead),
-            "suggest_grep" => Ok(ReactTool::SuggestGrep),
-            "suggest_rag" => Ok(ReactTool::SuggestRag),
-            "suggest_discovery" => Ok(ReactTool::SuggestDiscovery),
-            "web_search" => Ok(ReactTool::WebSearch),
-            "web_fetch" => Ok(ReactTool::WebFetch),
-            "read_pdf" => Ok(ReactTool::ReadPdf),
-            "read_docx" => Ok(ReactTool::ReadDocx),
-            "read_xlsx" => Ok(ReactTool::ReadXlsx),
-            "semantic_search" => Ok(ReactTool::SemanticSearch),
-            "summarize" => Ok(ReactTool::Summarize),
-            "extract_errors" => Ok(ReactTool::ExtractErrors),
-            "extract_warnings" => Ok(ReactTool::ExtractWarnings),
-            "extract_metrics" => Ok(ReactTool::ExtractMetrics),
-            "extract_patterns" => Ok(ReactTool::ExtractPatterns),
-            "compare" => Ok(ReactTool::Compare),
-            "correlate" => Ok(ReactTool::Correlate),
-            "web_summarize" => Ok(ReactTool::WebSummarize),
-            "web_extract" => Ok(ReactTool::WebExtract),
-            "extract_tables" => Ok(ReactTool::ExtractTables),
-            "doc_qa" => Ok(ReactTool::DocQa),
-            "find_patterns" => Ok(ReactTool::FindPatterns),
-            "code_diff" => Ok(ReactTool::CodeDiff),
-            "code_explain" => Ok(ReactTool::CodeExplain),
-            "plan_next" => Ok(ReactTool::PlanNext),
-            "narrow_focus" => Ok(ReactTool::NarrowFocus),
-            "branch" => Ok(ReactTool::Branch),
-            "rethink" => Ok(ReactTool::Rethink),
-            "prioritize" => Ok(ReactTool::Prioritize),
-            "apply_fix" => Ok(ReactTool::ApplyFix),
-            "edit_file" => Ok(ReactTool::EditFile),
-            "create_file" => Ok(ReactTool::CreateFile),
-            "run_command" => Ok(ReactTool::RunCommand),
-            "retry" => Ok(ReactTool::Retry),
-            "code_execute" => Ok(ReactTool::CodeExecute),
-            "check_goal" => Ok(ReactTool::CheckGoal),
-            "verify_fix" => Ok(ReactTool::VerifyFix),
-            "verify_syntax" => Ok(ReactTool::VerifySyntax),
-            "test_hypothesis" => Ok(ReactTool::TestHypothesis),
-            "code_test" => Ok(ReactTool::CodeTest),
-            "code_lint" => Ok(ReactTool::CodeLint),
-            "show_facts" => Ok(ReactTool::ShowFacts),
-            "show_hypotheses" => Ok(ReactTool::ShowHypotheses),
-            "show_history" => Ok(ReactTool::ShowHistory),
-            "show_context" => Ok(ReactTool::ShowContext),
-            "show_plan" => Ok(ReactTool::ShowPlan),
-            "compact_session" => Ok(ReactTool::CompactSession),
-            "remember" => Ok(ReactTool::Remember),
-            "recall" => Ok(ReactTool::Recall),
-            "consolidate" => Ok(ReactTool::Consolidate),
-            "search_memory" => Ok(ReactTool::SearchMemory),
-            "learn_patterns" => Ok(ReactTool::LearnPatterns),
-            "conclude_success" => Ok(ReactTool::ConcludeSuccess),
-            "conclude_fail" => Ok(ReactTool::ConcludeFail),
-            "escalate" => Ok(ReactTool::Escalate),
-            "defer" => Ok(ReactTool::Defer),
-            "ask_clarification" => Ok(ReactTool::AskClarification),
-            "ask_confirmation" => Ok(ReactTool::AskConfirmation),
-            "explain" => Ok(ReactTool::Explain),
-            "suggest_alternatives" => Ok(ReactTool::SuggestAlternatives),
-            _ => Err(format!("Unknown tool: {}", s)),
-        }
     }
 }
 

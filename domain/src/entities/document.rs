@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 
 /// Document entity representing a file or document
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -91,20 +92,17 @@ pub enum DocumentType {
 
 impl DocumentType {
     pub fn from_extension(ext: &str) -> Self {
-        match ext.to_lowercase().as_str() {
+        use shared::utils::StringExt;
+
+        let ext_lower = ext.trimmed_lower();
+        match ext_lower.as_str() {
             "txt" => DocumentType::PlainText,
             "md" => DocumentType::Markdown,
             "pdf" => DocumentType::Pdf,
             "docx" => DocumentType::Docx,
-            "rs" => DocumentType::Code(CodeLanguage::Rust),
-            "js" => DocumentType::Code(CodeLanguage::JavaScript),
-            "ts" => DocumentType::Code(CodeLanguage::TypeScript),
-            "py" => DocumentType::Code(CodeLanguage::Python),
-            "go" => DocumentType::Code(CodeLanguage::Go),
-            "java" => DocumentType::Code(CodeLanguage::Java),
-            "cpp" | "cxx" => DocumentType::Code(CodeLanguage::Cpp),
-            "c" => DocumentType::Code(CodeLanguage::C),
-            _ => DocumentType::PlainText,
+            _ => CodeLanguage::from_str(&ext_lower)
+                .map(DocumentType::Code)
+                .unwrap_or(DocumentType::PlainText),
         }
     }
 
@@ -122,14 +120,23 @@ impl DocumentType {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, strum::EnumString, strum::Display)]
+#[strum(serialize_all = "lowercase")]
 pub enum CodeLanguage {
     Rust,
+    #[strum(serialize = "js", serialize = "jsx")]
     JavaScript,
+    #[strum(serialize = "ts", serialize = "tsx")]
     TypeScript,
     Python,
     Go,
     Java,
+    #[strum(
+        serialize = "cpp",
+        serialize = "cxx",
+        serialize = "cc",
+        serialize = "hpp"
+    )]
     Cpp,
     C,
 }

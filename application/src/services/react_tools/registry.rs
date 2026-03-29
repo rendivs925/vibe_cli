@@ -169,7 +169,8 @@ impl ToolRegistry {
 }
 
 /// Configuration for ReAct tool behavior
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, strum::EnumString, strum::Display)]
+#[strum(serialize_all = "lowercase")]
 pub enum ToolMode {
     /// Always use suggest_command (legacy behavior)
     Legacy,
@@ -177,29 +178,6 @@ pub enum ToolMode {
     Mixed,
     /// Full dynamic tool system
     Full,
-}
-
-impl ToolMode {
-    pub fn name(&self) -> &'static str {
-        match self {
-            ToolMode::Legacy => "legacy",
-            ToolMode::Mixed => "mixed",
-            ToolMode::Full => "full",
-        }
-    }
-}
-
-impl std::str::FromStr for ToolMode {
-    type Err = String;
-    
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "legacy" => Ok(ToolMode::Legacy),
-            "mixed" => Ok(ToolMode::Mixed),
-            "full" => Ok(ToolMode::Full),
-            _ => Err(format!("Unknown tool mode: {}", s)),
-        }
-    }
 }
 
 /// Configuration for ReAct tool system
