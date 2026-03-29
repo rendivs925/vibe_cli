@@ -271,21 +271,20 @@ fn has_shell_signal(s: &str) -> bool {
         || s.contains('/')
 }
 
-fn normalize_command(mut s: &str) -> String {
-    s = s.trim();
-    let mut owned: Option<String> = None;
-    let mut s_view: &str = s;
+fn normalize_command(s: &str) -> String {
+    let s = s.trim();
+    let mut result = s.to_string();
 
     if let Some(start) = s.find('`') {
         if let Some(end_rel) = s[start + 1..].find('`') {
             let inner = &s[start + 1..start + 1 + end_rel];
             if !inner.trim().is_empty() {
-                s_view = inner.trim();
+                result = inner.trim().to_string();
             }
         }
     }
 
-    if let Some((before, after)) = s_view.split_once(':') {
+    if let Some((before, after)) = result.split_once(':') {
         let before_lower = before.to_ascii_lowercase();
         if before_lower.contains("execute")
             || before_lower.contains("run")
@@ -295,18 +294,18 @@ fn normalize_command(mut s: &str) -> String {
         {
             let candidate = after.trim();
             if !candidate.is_empty() {
-                s_view = candidate;
+                result = candidate.to_string();
             }
         }
     }
 
-    let lower = s_view.to_ascii_lowercase();
+    let lower = result.to_ascii_lowercase();
     if lower.starts_with("execute ")
         || lower.starts_with("run ")
         || lower.starts_with("use ")
         || lower.starts_with("try ")
     {
-        let mut rest = s_view
+        let mut rest = result
             .splitn(2, ' ')
             .nth(1)
             .unwrap_or("")
@@ -327,29 +326,11 @@ fn normalize_command(mut s: &str) -> String {
             rest = rest[..len].trim_end().to_string();
         }
         if !rest.is_empty() {
-            owned = Some(rest);
-            s_view = owned.as_deref().unwrap_or(s_view);
+            result = rest;
         }
     }
 
-    for p in ["$ ", "# ", "> "] {
-        if let Some(rest) = s.strip_prefix(p) {
-            s = rest.trim_start();
-            break;
-        }
-    }
-
-    for shell in ["bash", "sh", "zsh"] {
-        if let Some(rest) = s.strip_prefix(shell) {
-            let rest_trim = rest.trim_start();
-            if !rest_trim.starts_with('-') {
-                s = rest_trim;
-                break;
-            }
-        }
-    }
-
-    s_view
+    result
         .trim()
         .trim_matches('`')
         .trim_matches('"')

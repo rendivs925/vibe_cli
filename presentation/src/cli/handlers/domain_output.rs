@@ -233,11 +233,4 @@ impl ChunkSummaryPolicy {
         }
     }
 
-    pub(crate) fn long_output_default() -> Self {
-        Self {
-            min_lines: 20,
-            min_chars: 1200,
-            emit: true,
-        }
-    }
 }

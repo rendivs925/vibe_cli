@@ -165,26 +165,6 @@ impl CliHandlers {
         self.run_shell_command_streaming_with_sink(cmd, None)
     }
 
-    fn run_shell_command_capture(&self, cmd: &str) -> Result<CommandOutput> {
-        let adjusted = Self::apply_streaming_fixes(cmd);
-        let wrapped = Self::wrap_streaming_command(&adjusted);
-        let shell = Self::resolve_shell_program();
-        let arg = if Self::is_zsh_shell(&shell) { "-ilc" } else { "-lc" };
-        let output = Command::new(&shell).arg(arg).arg(wrapped).output()?;
-        let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-        let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-        let full_output = if stderr.trim().is_empty() {
-            stdout
-        } else {
-            format!("{}\nErrors:\n{}", stdout, stderr)
-        };
-        Ok(CommandOutput {
-            stderr,
-            full_output,
-            status: output.status,
-        })
-    }
-
     fn run_shell_command_streaming_with_sink(
         &self,
         cmd: &str,

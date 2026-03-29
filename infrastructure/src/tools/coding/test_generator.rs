@@ -148,13 +148,13 @@ import (
 // Test{fn_name} tests the {fn_name} function from {file_path}
 func Test{fn_name}(t *testing.T) {{
     // TODO: Add test implementation
-    t.Skip("Implement test for {}", fn_name)
+    t.Skip("Implement test for {fn_name}")
 }}
 
 // Test{fn_name}EdgeCases tests edge cases for {fn_name}
 func Test{fn_name}EdgeCases(t *testing.T) {{
     // TODO: Add edge case tests
-    t.Skip("Implement edge case tests for {}", fn_name)
+    t.Skip("Implement edge case tests for {file_path}")
 }}
 "#,
             fn_name = Self::to_pascal_case(fn_name),
