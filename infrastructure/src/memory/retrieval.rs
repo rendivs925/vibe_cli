@@ -14,7 +14,11 @@ impl MemoryRetriever {
         self.store.search(query, limit)
     }
 
-    pub fn search_patterns(&self, query: &str, limit: usize) -> Result<Vec<PatternEntry>, Box<dyn Error>> {
+    pub fn search_patterns(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<PatternEntry>, Box<dyn Error>> {
         self.store.search_patterns(query, limit)
     }
 }

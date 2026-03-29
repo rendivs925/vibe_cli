@@ -1,5 +1,4 @@
 pub mod lifelong;
-pub mod consolidation;
 pub mod retrieval;
 
 use std::path::PathBuf;

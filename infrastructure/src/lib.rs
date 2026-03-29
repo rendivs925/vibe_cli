@@ -11,8 +11,6 @@ pub mod hybrid_search;
 pub mod manpage_crawler;
 pub mod memory;
 pub mod ollama_client;
-pub mod react_persistent_storage;
-pub mod react_storage;
 pub mod reranker;
 pub mod search;
 pub mod semantic_index;

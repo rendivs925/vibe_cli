@@ -162,7 +162,11 @@ impl LifelongMemoryStore {
         Ok(conn.last_insert_rowid())
     }
 
-    pub fn search_patterns(&self, query: &str, limit: usize) -> Result<Vec<PatternEntry>, Box<dyn Error>> {
+    pub fn search_patterns(
+        &self,
+        query: &str,
+        limit: usize,
+    ) -> Result<Vec<PatternEntry>, Box<dyn Error>> {
         let conn = self.conn.lock().map_err(|e| e.to_string())?;
         let mut stmt = conn.prepare(
             "SELECT id, pattern, success_count, failure_count, confidence
