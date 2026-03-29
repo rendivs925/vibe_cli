@@ -12,3 +12,4 @@ crossterm.workspace = true
 colored.workspace = true
 tokio.workspace = true
 rusqlite.workspace = true
+strum = { version = "0.26", features = ["derive", "std"] }

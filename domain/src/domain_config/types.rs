@@ -3,9 +3,13 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use strum::{Display, EnumString, VariantNames};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Display, EnumString, VariantNames,
+)]
 #[serde(rename_all = "lowercase")]
+#[strum(serialize_all = "lowercase")]
 pub enum PropertyType {
     String,
     Number,
@@ -21,41 +25,17 @@ impl Default for PropertyType {
     }
 }
 
-impl std::fmt::Display for PropertyType {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            PropertyType::String => write!(f, "string"),
-            PropertyType::Number => write!(f, "number"),
-            PropertyType::Integer => write!(f, "integer"),
-            PropertyType::Boolean => write!(f, "boolean"),
-            PropertyType::Array => write!(f, "array"),
-            PropertyType::Object => write!(f, "object"),
-        }
-    }
-}
-
-impl std::str::FromStr for PropertyType {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "string" => Ok(PropertyType::String),
-            "number" => Ok(PropertyType::Number),
-            "integer" => Ok(PropertyType::Integer),
-            "boolean" => Ok(PropertyType::Boolean),
-            "array" => Ok(PropertyType::Array),
-            "object" => Ok(PropertyType::Object),
-            _ => Err(format!("Unknown property type: {}", s)),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(
+    Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Display, EnumString, VariantNames,
+)]
 #[serde(rename_all = "lowercase")]
+#[strum(serialize_all = "lowercase")]
 pub enum OutputFormat {
     Json,
     Csv,
     Tsv,
     Delimited,
+    #[strum(serialize = "keyvalue", serialize = "key_value")]
     KeyValue,
     Text,
 }
@@ -63,34 +43,6 @@ pub enum OutputFormat {
 impl Default for OutputFormat {
     fn default() -> Self {
         OutputFormat::Text
-    }
-}
-
-impl std::fmt::Display for OutputFormat {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            OutputFormat::Json => write!(f, "json"),
-            OutputFormat::Csv => write!(f, "csv"),
-            OutputFormat::Tsv => write!(f, "tsv"),
-            OutputFormat::Delimited => write!(f, "delimited"),
-            OutputFormat::KeyValue => write!(f, "keyvalue"),
-            OutputFormat::Text => write!(f, "text"),
-        }
-    }
-}
-
-impl std::str::FromStr for OutputFormat {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        match s.to_lowercase().as_str() {
-            "json" => Ok(OutputFormat::Json),
-            "csv" => Ok(OutputFormat::Csv),
-            "tsv" => Ok(OutputFormat::Tsv),
-            "delimited" => Ok(OutputFormat::Delimited),
-            "keyvalue" | "key_value" => Ok(OutputFormat::KeyValue),
-            "text" | "" => Ok(OutputFormat::Text),
-            _ => Err(format!("Unknown output format: {}", s)),
-        }
     }
 }
 

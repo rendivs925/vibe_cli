@@ -16,3 +16,4 @@ thiserror = "1.0"
 which = "4"
 smallvec = { workspace = true, features = ["serde"] }
 regex = "1"
+strum = { version = "0.26", features = ["derive", "std"] }
