@@ -22,8 +22,6 @@ vibe_cli "show top cpu processes"
 # Research
 vibe_cli --research --depth quick "quantum computing"
 
-# Knowledge work
-vibe_cli --work "analyze sales.csv"
 ```
 
 No flags to memorize for common tasks, and richer workflows when you need depth.
@@ -51,11 +49,6 @@ vibe_cli --neurosymbolic "list processes"
 # Research mode (web search + multi-stage synthesis)
 vibe_cli --research --depth quick "quantum computing"
 
-# Task mode (decompose and track steps)
-vibe_cli --task "collect system health: disk, cpu, memory"
-
-# Work mode (documents and spreadsheets)
-vibe_cli --work "analyze sales.csv"
 ```
 
 ---
@@ -67,10 +60,7 @@ vibe_cli --work "analyze sales.csv"
 | Standard query | none | Translate intent into safe system commands |
 | Chat | `--chat` | Interactive CLI conversation |
 | Agent | `--agent` | Multi-step planning and execution |
-| ReAct | `--react` | Tool-driven iterative reasoning |
 | Research | `--research` | Web search + multi-stage synthesis |
-| Task | `--task` | Decompose and track task steps |
-| Work | `--work` | Document/spreadsheet workflows |
 | Explain | `--explain` | Read and explain files (PDF/DOCX/etc.) |
 | RAG | `--rag` | Answer with codebase context |
 | Neurosymbolic | `--neurosymbolic` | Config-driven command generation |
@@ -132,21 +122,6 @@ Research output includes realtime progress for each stage with elapsed time.
 
 ### Work Mode (Documents + Spreadsheets)
 
-```bash
-vibe_cli --work "analyze sales.csv"
-vibe_cli --work "create meeting notes.md with action items"
-```
-
-Supports spreadsheet analysis (CSV/XLSX) and document creation (Markdown/CSV/HTML). PDF reading is available via `--explain` or ReAct tools.
-
-### Task Mode
-
-```bash
-vibe_cli --task "migrate nginx configs and verify rollout"
-```
-
-Creates a tracked task, decomposes it into steps, and lists current task status.
-
 ### Interactive Chat
 
 ```bash
@@ -162,26 +137,6 @@ vibe_cli --agent "collect system health: disk, cpu, memory"
 ```
 
 Plans and executes complex multi-step tasks with safety validation at each step.
-
-### ReAct Loop (Interactive)
-
-```bash
-vibe_cli --react "nginx is slow"
-vibe_cli --react --neurosymbolic "nginx is not running"
-```
-
-Runs a conversational, iterative loop with **dynamic tool selection**:
-
-```text
-ANALYZE → TOOL SELECTION → TOOL EXECUTION → OUTPUT → repeat
-```
-
-The ReAct system now uses **35 specialized tools** across 8 categories to intelligently handle different task types:
-
-| Category | Tools |
-|----------|-------|
-| **Investigation** | suggest_command, suggest_read, suggest_grep, suggest_rag, suggest_discovery |
-| **Analysis** | summarize, extract_errors, extract_warnings, extract_metrics, extract_patterns, compare, correlate |
 | **Planning** | plan_next, narrow_focus, branch, rethink, prioritize |
 | **Action** | apply_fix, edit_file, create_file, run_command, retry |
 | **Verification** | check_goal, verify_fix, verify_syntax, test_hypothesis |

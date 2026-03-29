@@ -11,7 +11,6 @@ mod neurosymbolic_filter;
 mod neurosymbolic_flow;
 mod neurosymbolic_utils;
 mod rag;
-mod react;
 
 #[cfg(test)]
 mod tests;

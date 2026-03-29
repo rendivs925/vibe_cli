@@ -105,10 +105,6 @@ pub struct Cli {
     #[arg(long)]
     pub agent: bool,
 
-    /// Use ReAct iterative reasoning mode
-    #[arg(long)]
-    pub react: bool,
-
     /// Explain a file
     #[arg(long)]
     pub explain: bool,
@@ -181,10 +177,6 @@ pub struct Cli {
     #[arg(long)]
     pub clear_knowledge: bool,
 
-    /// Use task execution mode with checkpoints
-    #[arg(long)]
-    pub task: bool,
-
     /// Use research agent mode for deep research
     #[arg(long)]
     pub research: bool,
@@ -201,10 +193,6 @@ pub struct Cli {
     #[arg(long, value_enum)]
     pub speculation: Option<SpeculationArg>,
 
-    /// Use work/document mode
-    #[arg(long)]
-    pub work: bool,
-
     /// Validate command syntax against man pages
     #[arg(long)]
     pub validate_syntax: bool,
@@ -217,8 +205,8 @@ pub struct Cli {
     #[arg(long)]
     pub trace: bool,
 
-    /// Test-time compute scaling method: knockout, league, or none (default: knockout)
-    #[arg(long, value_enum, default_value = "knockout")]
+    /// Test-time compute scaling method: knockout, league, or none (default: none)
+    #[arg(long, value_enum, default_value = "none")]
     pub scaling_method: ScalingMethodArg,
 
     /// Number of candidate samples for test-time compute (default: 6)
@@ -270,17 +258,6 @@ impl CliApp {
         }
         if cli.agent {
             return self.handlers.handle_agent(&args_str, &scaling_config).await;
-        }
-        if cli.react {
-            return self
-                .handlers
-                .handle_react(
-                    &args_str,
-                    cli.neurosymbolic,
-                    cli.ai_interpret,
-                    &scaling_config,
-                )
-                .await;
         }
         if cli.explain {
             return self
@@ -334,10 +311,7 @@ impl CliApp {
             return self.handlers.handle_clear_knowledge();
         }
 
-        // New digital twin/assistant modes
-        if cli.task {
-            return self.handlers.handle_task(&args_str).await;
-        }
+        // Research agent mode
         if cli.research {
             let depth = cli.depth.unwrap_or(ResearchDepthArg::Standard).into();
             let mode = cli
@@ -349,9 +323,6 @@ impl CliApp {
                 .handlers
                 .handle_research(&args_str, depth, mode, speculation, &scaling_config)
                 .await;
-        }
-        if cli.work {
-            return self.handlers.handle_work(&args_str).await;
         }
 
         // If --neurosymbolic flag is set, use neurosymbolic mode with scaling
