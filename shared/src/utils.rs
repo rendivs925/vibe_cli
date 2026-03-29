@@ -44,6 +44,7 @@ pub trait StringExt {
     fn trimmed_upper(&self) -> String;
     fn is_blank(&self) -> bool;
     fn if_empty(&self, default: &str) -> String;
+    fn normalize_whitespace(&self) -> String;
 }
 
 impl StringExt for str {
@@ -70,6 +71,10 @@ impl StringExt for str {
         } else {
             s.to_string()
         }
+    }
+
+    fn normalize_whitespace(&self) -> String {
+        self.split_whitespace().collect::<Vec<_>>().join(" ")
     }
 }
 
