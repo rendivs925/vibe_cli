@@ -243,7 +243,7 @@ fn generate_focus(context: &RetrievedContext) -> String {
     }
 }
 
-fn generate_branches(context: &RetrievedContext) -> String {
+fn generate_branches(_context: &RetrievedContext) -> String {
     vec![
         "Option A: Continue current investigation path - verify assumptions with more data",
         "Option B: Try alternative diagnostic approach - examine from a different angle",
@@ -252,7 +252,7 @@ fn generate_branches(context: &RetrievedContext) -> String {
 }
 
 fn generate_new_approach(context: &RetrievedContext) -> String {
-    let query_lower = context.goal.to_lowercase();
+    let _query_lower = context.goal.to_lowercase();
     
     if context.steps > 5 {
         format!(
@@ -272,7 +272,7 @@ fn generate_new_approach(context: &RetrievedContext) -> String {
     }
 }
 
-fn generate_priorities(context: &RetrievedContext) -> String {
+fn generate_priorities(_context: &RetrievedContext) -> String {
     vec![
         "High: Verify system state and gather current diagnostic data",
         "Medium: Analyze findings and identify root cause",

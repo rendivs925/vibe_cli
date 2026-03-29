@@ -323,7 +323,7 @@ impl ReactToolHandler for CorrelateHandler {
         let correlations = find_correlations(context);
         
         // Create hypotheses from detected correlations
-        let hypotheses: Vec<Hypothesis> = correlations.iter().enumerate().map(|(i, corr)| {
+        let hypotheses: Vec<Hypothesis> = correlations.iter().enumerate().map(|(_i, corr)| {
             Hypothesis {
                 description: corr.clone(),
                 confidence: 0.7,

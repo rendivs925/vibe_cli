@@ -3,7 +3,6 @@
 //! Provides true semantic search using embeddings across sessions,
 //! enabling retrieval of similar past experiences via vector similarity.
 
-use anyhow::Context;
 use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection, Result as SqliteResult};
 use shared::types::Result;

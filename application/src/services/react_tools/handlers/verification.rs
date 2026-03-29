@@ -282,7 +282,7 @@ fn verify_fix_applied(context: &RetrievedContext) -> bool {
      !output_lower.contains("denied"))
 }
 
-fn suggest_verification_steps(context: &RetrievedContext) -> String {
+fn suggest_verification_steps(_context: &RetrievedContext) -> String {
     "Suggested verification steps:\n\
      1. Check if the error/warning still appears\n\
      2. Verify the service/process is in expected state\n\

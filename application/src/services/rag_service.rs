@@ -5,7 +5,7 @@ use infrastructure::{
     embedding_storage::EmbeddingStorage,
     file_scanner::FileScanner,
     ollama_client::OllamaClient,
-    reranker::{Reranker, RerankedChunk, RerankConfig},
+    reranker::Reranker,
     search::SearchEngine,
 };
 use md5;

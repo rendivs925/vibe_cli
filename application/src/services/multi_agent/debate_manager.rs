@@ -1,7 +1,7 @@
 use super::consensus::Consensus;
-use super::critic_agent::{CriticAgent, Critique};
+use super::critic_agent::CriticAgent;
 use super::generator_agent::{CandidateSolution, GeneratorAgent};
-use super::tester_agent::{TesterAgent, TestResult};
+use super::tester_agent::TesterAgent;
 use crate::services::rag_service::RagService;
 use infrastructure::ollama_client::OllamaClient;
 use serde::{Deserialize, Serialize};

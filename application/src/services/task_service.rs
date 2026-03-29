@@ -140,7 +140,7 @@ impl TaskService {
     }
 
     pub fn create_task(&mut self, title: String, description: String) -> String {
-        let mut task = Task::new(title, description);
+        let task = Task::new(title, description);
         let id = task.id.clone();
 
         self.tasks.insert(id.clone(), task);

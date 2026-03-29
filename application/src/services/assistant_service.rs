@@ -2,7 +2,7 @@ use std::path::PathBuf;
 
 use infrastructure::storage::{UserProfile, ProjectContext, get_config_dir};
 use infrastructure::tools::coding::project_scanner;
-use crate::services::task_service::{TaskService, Task, TaskStatus};
+use crate::services::task_service::{TaskService, TaskStatus};
 use crate::services::research_agent_service::{ResearchAgent, ResearchDepth};
 use shared::types::Result;
 use anyhow::anyhow;

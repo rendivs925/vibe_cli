@@ -1,9 +1,5 @@
 use crate::ollama_client::OllamaClient;
-use crate::semantic_index::SemanticIndex;
-use crate::embedding_storage::EmbeddingStorage;
 use shared::types::Result;
-use std::sync::Arc;
-use tokio::sync::Mutex;
 
 #[derive(Debug, Clone)]
 pub struct RerankConfig {

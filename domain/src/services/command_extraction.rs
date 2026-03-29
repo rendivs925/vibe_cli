@@ -306,7 +306,12 @@ fn normalize_command(mut s: &str) -> String {
         || lower.starts_with("use ")
         || lower.starts_with("try ")
     {
-        let mut rest = s_view.splitn(2, ' ').nth(1).unwrap_or("").trim().to_string();
+        let mut rest = s_view
+            .splitn(2, ' ')
+            .nth(1)
+            .unwrap_or("")
+            .trim()
+            .to_string();
         if rest.to_ascii_lowercase().starts_with("the ") {
             rest = rest[4..].trim().to_string();
         }
@@ -380,14 +385,15 @@ fn strip_command_label(line: &str) -> Option<&str> {
         "execute",
         "run",
     ];
-    let sep_pos = trimmed.find(':').or_else(|| trimmed.find('-')).or_else(|| trimmed.find('='));
-    let Some(pos) = sep_pos else { return None; };
+    let sep_pos = trimmed
+        .find(':')
+        .or_else(|| trimmed.find('-'))
+        .or_else(|| trimmed.find('='));
+    let Some(pos) = sep_pos else {
+        return None;
+    };
     let (left, right) = trimmed.split_at(pos);
-    let cleaned_left = left
-        .trim()
-        .trim_matches('*')
-        .trim_matches('_')
-        .trim();
+    let cleaned_left = left.trim().trim_matches('*').trim_matches('_').trim();
     if prefixes
         .iter()
         .any(|p| cleaned_left.eq_ignore_ascii_case(p))

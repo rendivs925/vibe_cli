@@ -1,9 +1,7 @@
 use crate::embedding_storage::EmbeddingStorage;
 use crate::ollama_client::OllamaClient;
-use domain::value_objects::embedding::Embedding;
 use shared::types::Result;
 use std::sync::Arc;
-use tokio::sync::Mutex;
 
 #[derive(Debug, Clone)]
 pub struct HybridSearchConfig {
